@@ -85,7 +85,12 @@ function(fbgemm_get_warning_flags)
     # (probed). Subplan 04 grouped it with the clang-only A2.2 flags, which
     # would have stranded it behind the clang guard and silently lost gcc-leg
     # coverage. It belongs here.
-    -Wmismatched-tags)
+    -Wmismatched-tags
+    # ---- A2.4 (portable half) ------------------------------------------
+    # Accepted and diagnosing on BOTH g++ 11.5 and clang 22 (probed), so it
+    # goes here rather than behind the clang guard. Subplan 04 called this out
+    # correctly.
+    -Waddress-of-packed-member)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
@@ -152,7 +157,24 @@ function(fbgemm_get_warning_flags)
     # (`guarded_by` and friends). FBGEMM does not use them, so this is list
     # parity rather than new coverage. Kept because it costs nothing and the
     # annotations may arrive later.
-    -Wthread-safety)
+    -Wthread-safety
+    # ---- A2.4 (clang half) ---------------------------------------------
+    # Intentionally enable clang's full lifetime-diagnostic umbrella. g++ 11.5
+    # has no bare `-Wdangling` (it has `-Wdangling-pointer` and
+    # `-Wdangling-reference` instead), so this spelling is clang-only.
+    -Wdangling
+    # ---- A2.5: shift-sign-overflow -------------------------------------
+    # The first genuinely risky flag in Phase A. Fires on signed left-shift
+    # overflow, and FBGEMM is full of hand-written bit manipulation in
+    # AVX2/AVX512/NEON/SVE intrinsic paths and in quantization code. The fix is
+    # casting to unsigned before shifting -- and a wrong "fix" in that code is
+    # a silent numerical bug, not a compile error.
+    #
+    # Deliberately alone in its own diff so review can focus. If the OSS legs
+    # report a non-trivial count, split the fixups by ISA
+    # (src/*Avx2.cc, src/*Avx512.cc, src/*Neon.cc, src/*Sve.cc) and treat it as
+    # Phase B work rather than a parity chunk.
+    -Wshift-sign-overflow)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`

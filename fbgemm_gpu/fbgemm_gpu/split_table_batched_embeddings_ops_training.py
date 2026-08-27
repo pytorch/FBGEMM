@@ -154,8 +154,16 @@ class RESParams:
         default_factory=list
     )  # table names that are enabled for RES (empty means all enabled)
     # Streams DEVICE-placed tables named in `res_enabled_tables`, which the
-    # cache lane cannot reach. Costs a byte per row of the shard, so it is opt-in.
+    # cache lane cannot reach. Holds device memory scaled to the row count of
+    # this TBE, whether or not those rows are streamed, so it is opt-in.
     enable_hbm_streaming: bool = False
+    # Drain period in iterations. Marks accumulate in between, and marking a
+    # row again does nothing, so a row touched every iteration still ships once
+    # per interval. That is what it is for: it stops a hot row flooding the
+    # downstream, which has to absorb everything a drain sends.
+    res_hbm_drain_interval: int = 1
+    # Opt in to the per-drain token protocol.
+    res_use_copy_done_token: bool = False
 
 
 class PrefetchedInfo:
@@ -179,6 +187,10 @@ class PrefetchedInfo:
         self.linear_unique_indices_length = linear_unique_indices_length
         self.hash_zch_identities = hash_zch_identities
         self.hash_zch_runtime_meta = hash_zch_runtime_meta
+        # Row ids from an HBM drain one or more iterations back, None when none
+        # was pending. The drain assigns it after construction, so the
+        # annotation is what keeps the attribute's type from narrowing to None.
+        self.res_hbm_indices: torch.Tensor | None = None
 
 
 def construct_split_state(
@@ -375,6 +387,16 @@ def get_available_compute_device() -> ComputeDevice:
         return ComputeDevice.MTIA
     else:
         return ComputeDevice.CPU
+
+
+def _next_copy_done_token(prev: int) -> int:
+    """Next value to write into a copy_done flag, for the poller to wait on.
+
+    Never 0: that is the resting value of an untouched flag, so a lane
+    producing it would leave every poll already satisfied. Wraps well below the
+    int32 the flag holds.
+    """
+    return (prev % 2_000_000_000) + 1
 
 
 def res_bitmap_compact(selected: Tensor) -> tuple[Tensor, Tensor]:
@@ -674,6 +696,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     # pyre-fixme[13]: Attribute `last_uvm_cache_print_state` is never initialized.
     last_uvm_cache_print_state: torch.Tensor
     _vbe_B_offsets: torch.Tensor | None
+    _res_compacted_rows: torch.Tensor | None
+    _res_hbm_indices_buf: torch.Tensor | None
+    _res_hbm_weights_buf: torch.Tensor | None
     _vbe_max_B: int
 
     def __init__(  # noqa C901
@@ -762,10 +787,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.enable_raw_embedding_streaming: bool = enable_raw_embedding_streaming
         # Precomputed: `_prefetch` is not `@torch.jit.ignore`, and TorchScript
         # cannot resolve `res_params` there, so we read it here instead.
+        # Every HBM streaming site reads this, so the gate below is one
+        # killswitch for all of them. Last in the chain, so a RES model with
+        # HBM streaming off never consults the knob.
         self._res_hbm_streaming: bool = bool(
             enable_raw_embedding_streaming
             and (res_params or RESParams()).enable_hbm_streaming
+            and self._feature_is_enabled(FeatureGateName.RES_HBM_STREAMING)
         )
+        self._res_hbm_drain_interval: int = (
+            res_params or RESParams()
+        ).res_hbm_drain_interval
         self.pooling_mode = pooling_mode
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
 
@@ -1593,6 +1625,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self._res_require_copy: bool = True
             self._res_sync_copy: bool = False
+            # One token each, so neither poll can be satisfied by the other's
+            # write.
+            self._res_cache_copy_done_token: int = 0
+            self._res_hbm_copy_done_token: int = 0
             self._register_res_buffers()
 
             # pyre-fixme[4]: Attribute must be annotated.
@@ -1610,7 +1646,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.res_params.res_num_hbm_copy_threads,
             )
             self._register_res_enabled_feature_mask()
-            if self.res_params.enable_hbm_streaming:
+            if self._res_hbm_streaming:
                 self._precompute_res_gather_layout()
                 self._register_res_hbm_buffers()
             logging.info(
@@ -1699,10 +1735,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "res_copy_done",
-            # Unzeroed for the same reason as res_count above. The C++ poll
-            # reads any nonzero as "the GPU is done writing the RES buffers"
-            # and then resets it, so garbage here desyncs the handshake by one
-            # iteration for the rest of the run, not just the first drain.
+            # `.zero_()` for the same reason as res_count above.
             torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
                     1,
@@ -1923,16 +1956,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.ignore
     def _register_res_hbm_buffers(self) -> None:
-        """Allocate the map of rows touched since the last drain.
+        """Allocate the HBM lane's per-TBE state.
 
-        Written during prefetch from the unfiltered `linearize_cache_indices`
-        output, so every looked-up row lands here whatever its placement or
-        allowlist status. Narrowing that down is the drain's job.
+        The touched-row map is written during prefetch from the unfiltered
+        `linearize_cache_indices` output, so every looked-up row lands there
+        whatever its placement or allowlist status. Narrowing that down is the
+        drain's job.
         """
         assert (
             self.enable_raw_embedding_streaming
         ), "Should not register res hbm buffers when raw embedding streaming is not enabled"
 
+        self._validate_res_hbm_params()
         # +1: the kernel dumps indices it cannot place -- pruned rows among
         # them -- on total_hash_size, so that slot gets written and has to exist.
         linear_size = self.total_hash_size + 1
@@ -1941,6 +1976,92 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(linear_size, device=self.current_device, dtype=torch.bool),
             persistent=False,  # RES buffer is not checkpointed
         )
+        self.register_buffer(
+            "_res_hbm_linear_mask",
+            self._build_res_hbm_linear_mask(linear_size),
+            persistent=False,
+        )
+        self._res_drain_counter: int = 0
+
+        # A compact runs an iteration before its rows go out; these three carry
+        # it across that gap.
+        self._res_compacted_rows = None
+        self._res_drain_event: torch.cuda.Event = torch.cuda.Event()
+        self._res_drain_count_cpu: Tensor = torch.zeros(
+            1, dtype=torch.int64, pin_memory=True
+        )
+        # .zero_() is not redundant: is_host_mapped backs onto malloc, so the
+        # flag can be born already signalled.
+        self.register_buffer(
+            "_res_hbm_copy_done",
+            torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(1, device=self.current_device, dtype=torch.int32),
+                (1,),
+                is_host_mapped=True,
+            ).zero_(),
+            persistent=False,  # RES buffer is not checkpointed
+        )
+        self._res_hbm_indices_buf = None
+        self._res_hbm_weights_buf = None
+        # One element whatever the drain size, so it is allocated here rather
+        # than grown alongside the two above.
+        self.register_buffer(
+            "_res_hbm_count_buf",
+            torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(1, device=self.current_device, dtype=torch.int32),
+                (1,),
+                is_host_mapped=True,
+            ),
+            persistent=False,  # RES buffer is not checkpointed
+        )
+
+    @torch.jit.ignore
+    def _validate_res_hbm_params(self) -> None:
+        """Reject HBM lane settings that would otherwise fail silently or late."""
+        table_names = self.res_params.table_names
+        if len(table_names) != len(self.embedding_specs):
+            raise ValueError(
+                f"RES table_names must name every table in this TBE, one per "
+                f"embedding_spec: got {len(table_names)} names for "
+                f"{len(self.embedding_specs)} tables"
+            )
+        if self.res_params.res_hbm_drain_interval < 1:
+            raise ValueError(
+                "res_hbm_drain_interval must be >= 1, got "
+                f"{self.res_params.res_hbm_drain_interval}"
+            )
+
+    @torch.jit.ignore
+    def _build_res_hbm_linear_mask(self, linear_size: int) -> Tensor:
+        """A mask over the rows of every table RES streams.
+
+        Streamed means DEVICE-placed AND allowlisted.
+        """
+        table_offsets = self.res_params.table_sizes
+        table_names = self.res_params.table_names
+        configured = self.res_params.res_enabled_tables
+        # Empty means all tables, as it does for the UVM-cached lane.
+        allowlist = set(configured) or set(table_names)
+        linear_mask = torch.zeros(
+            linear_size, device=self.current_device, dtype=torch.bool
+        )
+        streamed_tables, streamed_rows = 0, 0
+        for table_idx, spec in enumerate(self.embedding_specs):
+            name = table_names[table_idx]
+            if spec[2] != EmbeddingLocation.DEVICE or name not in allowlist:
+                continue
+            first_row = table_offsets[table_idx]
+            num_rows = table_offsets[table_idx + 1] - first_row
+            linear_mask.narrow(0, first_row, num_rows).fill_(True)
+            streamed_tables += 1
+            streamed_rows += num_rows
+        self.log(
+            f"[RES] HBM lane streams {streamed_tables} of "
+            f"{len(table_names)} tables, {streamed_rows} rows; "
+            f"res_enabled_tables={sorted(configured) if configured else 'ALL (empty)'}; "
+            f"tables={table_names}"
+        )
+        return linear_mask
 
     @torch.jit.ignore
     def _mark_res_hbm_rows(
@@ -1949,12 +2070,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         vbe_metadata: invokers.lookup_args.VBEMetadata | None,
     ) -> None:
-        """Record every row this lookup touched, whatever its placement.
-
-        Must run before `_prefetch`'s `lxu_cache_weights.numel()` guard: a TBE
-        holding only DEVICE tables has an empty `lxu_cache_weights`, so nothing
-        past that guard runs for DEVICE-placed tables.
-        """
+        """Record every row this lookup touched, whatever its placement."""
         if not self._res_hbm_streaming:
             return
         # hash_size_cumsum, not cache_hash_size_cumsum: the latter is a
@@ -3371,6 +3487,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
         if not self.lxu_cache_weights.numel():
+            if self._res_hbm_streaming:
+                self.raw_embedding_stream()
+                self._store_prefetched_tensors(
+                    indices,
+                    offsets,
+                    vbe_metadata,
+                    torch.zeros(0, dtype=indices.dtype, device=indices.device),
+                    self.lxu_cache_locations_empty,
+                    hash_zch_identities,
+                    hash_zch_runtime_meta,
+                )
             return
 
         # Clear the local_uvm_cache_stats before the prefetch instead of after
@@ -4779,9 +4906,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         with record_function(
             f"## uvm_lookup_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
+            prefetched_info = self.prefetched_info_list.pop(0)
+            # An HBM-only TBE has no UVM path to run: the join below binds to
+            # the non-HBM `join_dispatch_and_workers`, and everything under it
+            # reads UVM cache state. Ship the drained rows and leave.
+            if not self.lxu_cache_weights.numel():
+                self._ship_hbm_rows(prefetched_info)
+                return None
             if not self._res_sync_copy and self._res_require_copy:
                 self._raw_embedding_streamer.join_stream_tensor_copy_thread()
-            prefetched_info = self.prefetched_info_list.pop(0)
             updated_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 prefetched_info.linear_unique_cache_indices,
                 self.lxu_cache_state,
@@ -4848,7 +4981,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     # pyre-ignore[29]: `...` is not a function.
                     self.res_runtime_meta[: runtime_meta.size(0)].copy_(runtime_meta)
 
-            self.res_copy_done.fill_(1)
+            # A fresh token per drain, not a constant: the poller waits for
+            # this exact value and no longer clears the flag, so a constant
+            # would leave every later poll already satisfied and read the
+            # buffers mid-write.
+            if self.res_params.res_use_copy_done_token:
+                self._res_cache_copy_done_token = _next_copy_done_token(
+                    self._res_cache_copy_done_token
+                )
+                expected_flag = self._res_cache_copy_done_token
+                self.res_copy_done.fill_(expected_flag)
+            else:
+                # Pre-token protocol: any nonzero means done, and the poller
+                # clears the flag itself.
+                expected_flag = None
+                self.res_copy_done.fill_(1)
 
             # stream weights
             self._raw_embedding_streamer.stream(
@@ -4868,6 +5015,92 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self._res_require_copy,  # require_tensor_copy
                 self._res_sync_copy,  # blocking_tensor_copy
                 self.res_copy_done,  # copy_done_flag - UVA flag tensor for GPU-CPU sync
+                expected_flag_value=expected_flag,
+            )
+
+            self._ship_hbm_rows(prefetched_info)
+
+    @torch.jit.ignore
+    def _grown_res_host_buf_if_needed(
+        self,
+        buf: torch.Tensor | None,
+        num_rows: int,
+        row_shape: tuple[int, ...],
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Return `buf` if it already holds `num_rows` rows, else a larger one.
+
+        Never shrunk, and reused across drains. Host-mapped regardless of
+        `self.uvm_host_mapped`: the C++ streamer reads these through raw CPU
+        pointers.
+        """
+        if buf is not None and buf.shape[0] >= num_rows:
+            return buf
+
+        return torch.ops.fbgemm.new_unified_tensor(
+            torch.zeros(1, device=self.current_device, dtype=dtype),
+            (max(num_rows, 1), *row_shape),
+            is_host_mapped=True,
+        )
+
+    @torch.jit.ignore
+    def _ship_hbm_rows(self, prefetched_info: PrefetchedInfo) -> None:
+        """Gather and ship the rows this iteration's drain selected."""
+        drained_rows = prefetched_info.res_hbm_indices
+        if drained_rows is None:
+            return
+        num_drained_rows = drained_rows.size(0)
+
+        with record_function(f"## res_hbm_ship {self.timestep} {self.uuid} ##"):
+            # The staging buffers below are grow-and-keep, so this drain must
+            # not overwrite them while the previous drain's copy pool is still
+            # reading. stream()'s own join cannot cover it: that one runs at the
+            # start of the ship, after the caller has already written.
+            self._raw_embedding_streamer.join_hbm_dispatch_and_workers()
+
+            self._res_hbm_indices_buf = self._grown_res_host_buf_if_needed(
+                self._res_hbm_indices_buf, num_drained_rows, (), torch.long
+            )
+            self._res_hbm_weights_buf = self._grown_res_host_buf_if_needed(
+                self._res_hbm_weights_buf,
+                num_drained_rows,
+                (self.max_D,),
+                self.weights_dev.dtype,
+            )
+            self._res_hbm_indices_buf[:num_drained_rows].copy_(drained_rows)
+            self._res_hbm_count_buf[:1].fill_(num_drained_rows)
+            self._gather_res_rows(
+                drained_rows,
+                self._res_hbm_weights_buf[:num_drained_rows],
+                self.weights_dev,
+            )
+
+            if self.res_params.res_use_copy_done_token:
+                self._res_hbm_copy_done_token = _next_copy_done_token(
+                    self._res_hbm_copy_done_token
+                )
+                expected_flag = self._res_hbm_copy_done_token
+                self._res_hbm_copy_done.fill_(expected_flag)
+            else:
+                # Pre-token protocol: any nonzero means done, and the poller
+                # clears the flag itself.
+                expected_flag = None
+                self._res_hbm_copy_done.fill_(1)
+            self._raw_embedding_streamer.stream(
+                indices=self._res_hbm_indices_buf[:num_drained_rows],
+                weights=self._res_hbm_weights_buf[:num_drained_rows],
+                # The HBM path ships no per-row ZCH state, identity or runtime
+                # metadata. A chunk mixing rows that have one with rows that do
+                # not makes the PS discard the whole FQN, and the cache path's
+                # buffers describe other rows.
+                identities=None,
+                runtime_meta=None,
+                count=self._res_hbm_count_buf[:1],
+                require_tensor_copy=self._res_require_copy,
+                blocking_tensor_copy=False,
+                copy_done_flag=self._res_hbm_copy_done,
+                use_hbm=True,
+                expected_flag_value=expected_flag,
             )
 
     @staticmethod
@@ -4944,6 +5177,81 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
     @torch.jit.ignore
+    def _res_compact_due(self) -> bool:
+        """Whether to compact now, so that the next iteration is the one that
+        streams.
+
+        The caller has already ticked the counter for this iteration, so
+        `counter + 1` is the NEXT call: compact when that next call is the one
+        landing on the interval.
+
+        The counter is its own rather than `self.timestep`: what is controlled
+        is the interval between drains of THIS TBE, not alignment to any global
+        step.
+        """
+        return (self._res_drain_counter + 1) % self._res_hbm_drain_interval == 0
+
+    @torch.jit.ignore
+    def _drain_hbm_rows(self, prefetched_info: PrefetchedInfo) -> None:
+        """Advance the drain, which spans two iterations: it compacts and clears
+        the accumulated marks one call before the interval, and hands those rows
+        to `prefetched_info` on the next call, which is where the interval lands.
+
+        Runs once per prefetch. The pickup comes first so the count it reads was
+        queued at least an iteration ago and costs nothing to read.
+        """
+        prefetched_info.res_hbm_indices = self._pickup_drained_rows()
+        self._res_drain_counter += 1
+        if self._res_compact_due():
+            self._compact_marked_rows()
+
+    @torch.jit.ignore
+    def _compact_marked_rows(self) -> None:
+        """Compact the marked rows into row ids and clear them, without waiting.
+
+        Leaves the result pending for `_pickup_drained_rows` to slice next
+        iteration; nothing here blocks the host.
+        """
+        with record_function(f"## res_drain {self.timestep} {self.uuid} ##"):
+            # Which rows this drain may ship: marked, and streamed by RES.
+            drain_mask = self._res_rows_seen & self._res_hbm_linear_mask
+            rows, count = res_bitmap_compact(drain_mask)
+            self._res_rows_seen.masked_fill_(drain_mask, False)
+            # Hand the count to the host without waiting on it. `rows` stays
+            # unsliced until the pickup, which is what the deferral costs: the
+            # compaction buffer is held for one iteration per drain.
+            self._res_drain_count_cpu.copy_(count, non_blocking=True)
+            self._res_drain_event.record()
+            self._res_compacted_rows = rows
+
+    @torch.jit.ignore
+    def _pickup_drained_rows(self) -> Tensor | None:
+        """Slice the pending drain with a count queued an iteration ago.
+
+        None when no drain is pending or it selected nothing. A drain still
+        pending at shutdown is lost: the compact cleared its bits eagerly, so
+        nothing will select those rows again.
+        """
+        rows = self._res_compacted_rows
+        if rows is None:
+            return None
+        self._res_compacted_rows = None
+        # Queued an iteration ago, so it has almost certainly landed and this
+        # costs nothing -- that is what deferring buys. If it has not, we block
+        # here: the block moved by an iteration, it did not disappear.
+        if not self._res_drain_event.query():
+            self._res_drain_event.synchronize()
+        drain_count = int(self._res_drain_count_cpu.item())
+        if drain_count == 0:
+            return None
+        # `rows[:n]` is a view into the compaction buffer, which is one int64
+        # per row of EVERY table in this TBE plus the sentinel -- sized by the
+        # bitmap, not by how few rows drained. `clone()` frees it here instead
+        # of holding it for the iteration or two the slice spends in
+        # prefetched_info_list.
+        return rows[:drain_count].clone()
+
+    @torch.jit.ignore
     def _store_prefetched_tensors(
         self,
         indices: torch.Tensor,
@@ -4964,6 +5272,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         with record_function(
             f"## uvm_save_prefetched_rows {self.timestep} {self.uuid} ##"
         ):
+            if not self.lxu_cache_weights.numel():
+                # No UVM cache, so nothing to dedup or mask against. Every
+                # constructor field is read only by `raw_embedding_stream`'s
+                # cache block, which this TBE skips, so empties are enough to
+                # carry `res_hbm_indices` from the drain to the ship.
+                # `empty`, not `indices[:0]`: a view would pin the full-width
+                # parent for the one or two iterations this rides the queue.
+                # int64 to match what a linearized index would have been.
+                empty = torch.empty(0, dtype=torch.long, device=indices.device)
+                prefetched_info = PrefetchedInfo(
+                    empty,
+                    empty,
+                    torch.zeros(1, dtype=torch.int32, device=indices.device),
+                    None,
+                    None,
+                )
+                self._drain_hbm_rows(prefetched_info)
+                self.prefetched_info_list.append(prefetched_info)
+                return
+
             linearize_indices = torch.ops.fbgemm.linearize_cache_indices(
                 self.hash_size_cumsum,
                 indices,
@@ -5003,6 +5331,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 hash_zch_runtime_meta,
                 self.lxu_cache_weights.size(0),
             )
+            if self._res_hbm_streaming:
+                self._drain_hbm_rows(prefetched_info)
 
             self.prefetched_info_list.append(prefetched_info)
 
