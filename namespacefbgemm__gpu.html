@@ -233,7 +233,9 @@ template&lt;typename T&gt; </div>
 <li>Grid-stride loop handles cases where batch item has more elements than threads</li>
 <li>Set to true if position &lt; num_sources[batch_idx], false otherwise</li>
 </ol>
-<p>Example: num_sources = [2, 3] num_targets = [1, 2] Output: [True, True, False, True, True, True, False, False] </p>
+<p>Example: num_sources = [2, 3] num_targets = [1, 2] Output: [True, True, False, True, True, True, False, False]</p>
+<p>Per-row count of surviving elements.</p>
+<p>The exclusive prefix count of set mask bits is already materialized in <span class="tt">mask_prefix</span>, so a row's output length is the difference of the prefix at its two boundaries - no per-row scan needed. </p>
 
 </div>
 </div>
@@ -279,6 +281,8 @@ template&lt;typename index_t, typename remap_t&gt; </div>
         </tr>
       </table>
 </div><div class="memdoc">
+<p>Compact the surviving values.</p>
+<p>Rows tile the input contiguously, so the number of survivors before element <span class="tt">i</span> within its own row plus the number in all preceding rows is exactly <span class="tt">mask_prefix[i]</span>. The destination index is therefore the prefix itself, with no per-row correction, which keeps this a single coalesced pass with one thread per element and preserves input order within each row.</p>
 <p>CUDA kernel to generate repeated arange for jagged tensor operations.</p>
 <p>This kernel efficiently generates consecutive integers for each sequence by parallelizing across batch items. Each block handles one batch item, with threads within the block processing elements in parallel.</p>
 <p>Algorithm:</p><ol type="1">
