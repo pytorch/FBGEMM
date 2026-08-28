@@ -91,7 +91,7 @@ class ActivationTests(unittest.TestCase):
 
         y_ref = ref_fn()
 
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             y[:num_valid_tokens], y_ref[:num_valid_tokens], rtol=1.6e-2, atol=1e-3
         )
 
@@ -165,7 +165,7 @@ class ActivationTests(unittest.TestCase):
         y_fp8_ref, y_scale_ref = ref_fn()
         y_ref = y_fp8_ref.to(torch.float32) * y_scale_ref[:, None]
 
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             y[:num_valid_tokens], y_ref[:num_valid_tokens], rtol=1e-1, atol=1e-3
         )
 

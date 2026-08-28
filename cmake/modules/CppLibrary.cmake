@@ -174,7 +174,34 @@ function(fbgemm_get_warning_flags)
     # report a non-trivial count, split the fixups by ISA
     # (src/*Avx2.cc, src/*Avx512.cc, src/*Neon.cc, src/*Sve.cc) and treat it as
     # Phase B work rather than a parity chunk.
-    -Wshift-sign-overflow)
+    -Wshift-sign-overflow
+    # ---- A2.6a: unused exception parameter ------------------------------
+    # g++-rejected (probed). Already on for `deeplearning/` in fbcode and at
+    # 100% globally, so OSS-only catch-up.
+    #
+    # NOTE: the other half of subplan 04's A2.6, `-Wheader-hygiene`, is NOT
+    # here. It reaches HIP device code through `_hipcc`, and fbcode carries
+    # `-Wno-header-hygiene` in `_hip_warning_suppressions` precisely because it
+    # fires on ROCm/CK headers. Enabling it needs a HIP-only suppression list
+    # that does not exist yet -- see the A2.6b notes in subplan 04.
+    -Wunused-exception-parameter
+    # ---- A2.6b: header hygiene ------------------------------------------
+    # `using namespace` at header scope. g++-rejected (probed), so clang-only.
+    #
+    # This reaches HIP DEVICE code via `_hipcc`, and fbcode carries a blanket
+    # `-Wno-header-hygiene` in `_hip_warning_suppressions` because it fires on
+    # ROCm/CK headers. We do NOT mirror that blanket suppression here: measured
+    # that `-isystem` fully neutralises this diagnostic (an `-I` include of a
+    # header-scope `using namespace` errors; the same header via `-isystem` is
+    # silent), and subplan 01 already moved CUTLASS/CK/asmjit/ATen to SYSTEM
+    # includes. The blanket suppression would therefore give up device coverage
+    # we may no longer need to give up.
+    #
+    # Instead the HIP path gets `-Wno-error=header-hygiene` (see
+    # `_hipcc_suppressions`), which keeps the diagnostic VISIBLE so 02c.3's
+    # census can count it, without breaking the build if some CK header is
+    # still reached via `-I`.
+    -Wheader-hygiene)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`
@@ -320,6 +347,28 @@ function(fbgemm_get_warning_flags)
   # clang, accepts. Including them makes `_hipcc` the clang analogue of `_cc`:
   # everything except the caller's EXTRA_CC_FLAGS, with the FULL clang
   # suppression set in place of the host-conditional one.
+
+  # Suppressions that apply ONLY to the hipcc/device list.
+  #
+  # `_hipcc` otherwise shares the host suppression lists, so before this there
+  # was no way to relax a flag on device code without also relaxing it on the
+  # host. `-Wheader-hygiene` is the first flag that needs exactly that.
+  #
+  # Appended LAST in `_hipcc` so it wins, matching the ordering contract the
+  # host path uses.
+  set(_hipcc_suppressions
+    # ROCm/CK headers use `using namespace` at header scope. fbcode silences
+    # this outright for HIP (`_hip_warning_suppressions` in build_utils.bzl);
+    # we demote instead of silencing so the diagnostic still appears in the
+    # 02c.3 census and we can tell when it reaches zero.
+    #
+    # Measured: `-isystem` alone neutralises this diagnostic, and subplan 01
+    # already made the third-party include dirs SYSTEM, so this escape may
+    # already be unnecessary. It is kept until a full ROCm census confirms a
+    # zero count -- 02c.3 has only covered 13% of the build so far.
+    # TODO(T169200065): drop once the ROCm census shows zero header-hygiene.
+    -Wno-error=header-hygiene)
+
   set(_hipcc
     ${_cc_common}
     ${_cc_clang_only}
@@ -328,7 +377,8 @@ function(fbgemm_get_warning_flags)
     # in `_cc_suppressions_clang` below.
     ${_cc_clang_only_gt17}
     ${_cc_suppressions_common}
-    ${_cc_suppressions_clang})
+    ${_cc_suppressions_clang}
+    ${_hipcc_suppressions})
 
   set(${ARG_MSVC_FLAGS_VAR} ${_msvc} PARENT_SCOPE)
   set(${ARG_CC_FLAGS_VAR}   ${_cc}   PARENT_SCOPE)
