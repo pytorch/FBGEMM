@@ -90,7 +90,25 @@ function(fbgemm_get_warning_flags)
     # Accepted and diagnosing on BOTH g++ 11.5 and clang 22 (probed), so it
     # goes here rather than behind the clang guard. Subplan 04 called this out
     # correctly.
-    -Waddress-of-packed-member)
+    -Waddress-of-packed-member
+    # ---- Phase B2: shadowing ----------------------------------------------
+    # Portable: probed accepted AND diagnosing on both g++ 11.5 and clang 22
+    # (the bare flag; -Wshadow-all, -Wshadow-uncaptured-local and
+    # -Wshadow-field-in-constructor are clang-only and are NOT added here).
+    #
+    # This is enabled DEMOTED -- see -Wno-error=shadow in the shared
+    # suppressions. The B0 census measured 299 first-party diagnostics across
+    # 22 files, so enabling it at full strength would break the build outright.
+    # Demoting makes those 299 visible in CI and keeps the census reproducible
+    # instead of being a one-off local probe, while the fixups land
+    # incrementally. The escape comes out when the count reaches zero.
+    #
+    # -Wshadow is the right first Phase B flag on two measurements: it is the
+    # most concentrated (79% of diagnostics in 5 files) and it is the only one
+    # of the three with ZERO third-party exposure, so unlike
+    # -Wshorten-64-to-32 and -Wzero-as-null-pointer-constant it is not blocked
+    # on giving PyTorch/ATen/c10 headers -isystem treatment.
+    -Wshadow)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
@@ -228,7 +246,14 @@ function(fbgemm_get_warning_flags)
     -Wno-vla
     -Wno-error=unused-parameter
     -Wno-error=unknown-pragmas
-    -Wno-error=attributes)
+    -Wno-error=attributes
+    # Phase B2 is landing demoted while its 299 first-party diagnostics are
+    # fixed; see -Wshadow in _cc_common. Portable escape -- probed demoting to
+    # a warning on both g++ and clang, unlike the A2.1 escape which g++
+    # hard-errors on and which therefore had to be clang-guarded.
+    # TODO(T169200065): delete once the -Wshadow count reaches zero. This is
+    # the whole point of enabling it demoted rather than silently.
+    -Wno-error=shadow)
 
   # Clang suppressions, split by the clang version that made them necessary.
   # The CXX path applies these conditionally on the HOST clang version (below);
@@ -260,8 +285,7 @@ function(fbgemm_get_warning_flags)
 
   set(_cc_suppressions_clang_gt17
     -Wno-vla-cxx-extension
-    -Wno-error=global-constructors
-    -Wno-error=shadow)
+    -Wno-error=global-constructors)
 
   # Full clang-shaped suppression set, assembled unconditionally so it is
   # available even when the HOST compiler is GCC. Used only for the hipcc list.
