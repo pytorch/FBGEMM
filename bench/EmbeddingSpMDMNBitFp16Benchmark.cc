@@ -147,8 +147,7 @@ static int run_benchmark(
         /*use_offsets=*/true,
         /*output_stride=*/-1,
         /*input_stride=*/-1,
-        /*scale_bias_last=*/true,
-        /*is_bf16_out=*/false);
+        /*scale_bias_last=*/true);
     auto kernel_64 = GenerateEmbeddingSpMDMNBitWithStrides<
         /*IndexType=*/int64_t,
         /*OffsetType=*/int32_t,
@@ -162,8 +161,7 @@ static int run_benchmark(
         /*use_offsets=*/true,
         /*output_stride=*/-1,
         /*input_stride=*/-1,
-        /*scale_bias_last=*/true,
-        /*is_bf16_out=*/false);
+        /*scale_bias_last=*/true);
 
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
     auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
