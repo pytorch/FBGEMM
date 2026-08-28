@@ -33,6 +33,19 @@ else:
 # arithmetic against. One name because the two have to agree.
 ROWS = 64
 
+# The RES HBM streaming lane reaches ``torch.ops.fbgemm.masked_index_select``,
+# which is registered in the SSD split-embeddings-cache extension
+# (``src/ssd_split_embeddings_cache/``). That directory is compiled only by the
+# internal Buck build; the OSS CMake wheel excludes it entirely, so the op is
+# absent in OSS and every HBM-lane test dies on an ``_OpNamespace`` lookup. Skip
+# those tests when the op isn't built into the running wheel. The non-HBM
+# allowlist tests (which never touch the op) still run everywhere.
+res_hbm_streaming_unavailable: tuple[bool, str] = (
+    not hasattr(torch.ops.fbgemm, "masked_index_select"),
+    "fbgemm.masked_index_select is not built into this wheel "
+    "(OSS CMake excludes src/ssd_split_embeddings_cache/)",
+)
+
 
 class ResEnabledTablesTest(unittest.TestCase):
     """
@@ -123,6 +136,8 @@ class ResEnabledTablesTest(unittest.TestCase):
         res_hbm_drain_interval: int = 1,
     ) -> SplitTableBatchedEmbeddingBagsCodegen:
         """One table per name, each with its own placement, row count and dim."""
+        if res_hbm_streaming_unavailable[0]:
+            raise unittest.SkipTest(res_hbm_streaming_unavailable[1])
         n = len(table_names)
         rows = heights if heights is not None else [ROWS] * n
         widths = dims if dims is not None else [16] * n
