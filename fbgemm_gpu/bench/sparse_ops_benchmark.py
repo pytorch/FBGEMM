@@ -20,6 +20,7 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
+from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from torch.profiler import profile, schedule
 
 logger: logging.Logger = logging.getLogger()
@@ -28,12 +29,7 @@ logger.setLevel(logging.DEBUG)
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
-if open_source:
-    # pyre-ignore[21]
-    from bench_utils import benchmark_torch_function
-else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
-
+if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
@@ -945,15 +941,13 @@ def reorder_batched_ad_indices_bench(
     assert itype == "int" or itype == "long", "Only int and long are supported"
     index_type = torch.int64 if itype == "long" else torch.int32
 
+    # Citrine C3: create index tensors directly on the selected device.
     if broadcast_indices:
         cat_ad_indices = (
             torch.randint(
-                low=0,
-                high=100,
-                size=(batch_size * table_size * length,),
+                low=0, high=100, size=(batch_size * table_size * length,), device=device
             )
             .int()
-            .to(device)
             .to(data_type)
         )
         cat_ad_lengths = (
@@ -973,9 +967,9 @@ def reorder_batched_ad_indices_bench(
                 low=0,
                 high=100,
                 size=(batch_size * table_size * num_ads * length,),
+                device=device,
             )
             .int()
-            .to(device)
             .to(data_type)
         )
         cat_ad_lengths = (
@@ -990,11 +984,10 @@ def reorder_batched_ad_indices_bench(
             .to(device)
         )
 
-    batch_offsets = (
-        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int()
-    ).to(
-        device
-    )  # Fixed: removed unconditional .cuda() call
+    # Citrine C3: create offsets directly on the selected device.
+    batch_offsets = torch.tensor(
+        [num_ads * b for b in range(batch_size + 1)], device=device
+    ).int()  # Fixed: removed unconditional .cuda() call
     num_ads_in_batch = batch_size * num_ads
     reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
         cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
@@ -1118,9 +1111,10 @@ def reorder_batched_ad_lengths_bench(
 
     # Fixed: use .to(device) directly instead of .int().cuda().to(device)
     # which unconditionally moved to CUDA before moving to the target device
-    batch_offsets = (
-        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int()
-    ).to(device)
+    # Citrine C3: create offsets directly on the selected device.
+    batch_offsets = torch.tensor(
+        [num_ads * b for b in range(batch_size + 1)], device=device
+    ).int()
     num_ads_in_batch = batch_size * num_ads
 
     def _kineto_trace_handler(p: profile) -> None:
@@ -1200,11 +1194,13 @@ def reorder_batched_sequence_embeddings_bench(
         f"T={table_size}, A={num_items}, L={length}, D={dim})."
     )
 
+    # Citrine C3: create embeddings directly on the selected device.
     cat_sequence_embeddings = torch.rand(
         batch_size * table_size * num_items * length,
         dim,
         dtype=data_type,
-    ).to(device)
+        device=device,
+    )
     cat_sequence_embeddings_lengths = (
         torch.cat(
             [
@@ -1217,10 +1213,11 @@ def reorder_batched_sequence_embeddings_bench(
         .to(device)
     )
 
-    batch_offsets = (
-        torch.tensor([num_items * b for b in range(batch_size + 1)])
-        .to(index_type if device == "cpu" else torch.int32)
-        .to(device)
+    # Citrine C3: create offsets directly on the selected device.
+    batch_offsets = torch.tensor(
+        [num_items * b for b in range(batch_size + 1)],
+        dtype=index_type if device == "cpu" else torch.int32,
+        device=device,
     )
     num_items_in_batch = batch_size * num_items
     reordered_cat_sequence_embeddings_lengths = (
@@ -1321,9 +1318,14 @@ def index_select_bench(
 
     # Add optimizer to perform zero grad in order to reset gradients
     # before the accumulation phase
-    optim_index: torch.optim.Optimizer = torch.optim.SGD(inputs, lr=0.1)
-    optim_batch: torch.optim.Optimizer = torch.optim.SGD([concat_inputs], lr=0.1)
-    optim_group: torch.optim.Optimizer = torch.optim.SGD(gis_inputs, lr=0.1)
+    # Citrine C2: use the multi-tensor optimizer implementation.
+    optim_index: torch.optim.Optimizer = torch.optim.SGD(inputs, lr=0.1, foreach=True)
+    optim_batch: torch.optim.Optimizer = torch.optim.SGD(
+        [concat_inputs], lr=0.1, foreach=True
+    )
+    optim_group: torch.optim.Optimizer = torch.optim.SGD(
+        gis_inputs, lr=0.1, foreach=True
+    )
 
     def index_select_fwd_ref(
         inputs: list[torch.Tensor], indices: list[torch.Tensor]

@@ -17,6 +17,7 @@ import fbgemm_gpu
 import numpy as np
 import tabulate
 import torch
+from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
@@ -33,12 +34,7 @@ logger.setLevel(logging.DEBUG)
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
-if open_source:
-    # pyre-ignore[21]
-    from bench_utils import benchmark_torch_function
-else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
-
+if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
 
@@ -251,7 +247,7 @@ def print_p2p_bandwidth(
         for j in range(num_gpus):
             with torch.cuda.device(i):
                 t, _ = benchmark_torch_function(
-                    lambda: (
+                    lambda i=i, j=j: (
                         pooled_ad_embeddings[i].copy_(pooled_ad_embeddings[j])
                         if i != j
                         else pooled_ad_embeddings[i].clone()
