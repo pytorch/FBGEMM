@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import click
 import fbgemm_gpu
 import torch
+from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from torch.profiler import profile, schedule
 
 logger: logging.Logger = logging.getLogger()
@@ -27,12 +28,7 @@ logger.setLevel(logging.INFO)
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
-if open_source:
-    # pyre-ignore[21]
-    from bench_utils import benchmark_torch_function
-else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
-
+if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"

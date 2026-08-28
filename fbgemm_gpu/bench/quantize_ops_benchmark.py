@@ -16,6 +16,7 @@ import click
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
+from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
 from hypothesis import given, settings
 
@@ -28,12 +29,7 @@ logger.setLevel(logging.DEBUG)
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
-if open_source:
-    # pyre-ignore[21]
-    from bench_utils import benchmark_torch_function
-else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
-
+if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 
@@ -497,7 +493,11 @@ def mixdim(
         .to(torch.int)
         .cuda()
     )
-    input_refs = [torch.randn((batch_size, d)).cuda() for d in table_dims]
+    # Citrine C3: create benchmark tensors directly on the accelerator.
+    input_refs = [
+        torch.randn((batch_size, d), device=torch.accelerator.current_accelerator())
+        for d in table_dims
+    ]
     input_refs_int8 = [
         torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(t) for t in input_refs
     ]

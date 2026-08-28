@@ -21,7 +21,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 
-from ..common import open_source
+from ..common import open_source, running_in_oss
 
 if open_source:
     # pyre-ignore[21]
@@ -34,6 +34,8 @@ else:
 ROWS = 64
 
 
+# pyrefly: ignore [bad-argument-type]
+@unittest.skipIf(*running_in_oss)
 class ResEnabledTablesTest(unittest.TestCase):
     """
     Tests for the ``res_enabled_tables`` allowlist -> per-feature

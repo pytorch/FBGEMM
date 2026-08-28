@@ -39,6 +39,7 @@ from typing import TypeAlias
 
 import click
 import torch
+from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from torch import Tensor
 
 _HbcFn: TypeAlias = Callable[[Tensor], tuple[Tensor, Tensor]]
@@ -49,17 +50,8 @@ logger.setLevel(logging.INFO)
 try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
-
-    open_source_fbgemm: bool = True
 except Exception:
-    open_source_fbgemm: bool = False
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-if open_source_fbgemm:
-    # pyre-ignore[21]
-    from bench_utils import benchmark_torch_function
-else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
 
 # ──────────────────────────────────────────────────────────────────────
