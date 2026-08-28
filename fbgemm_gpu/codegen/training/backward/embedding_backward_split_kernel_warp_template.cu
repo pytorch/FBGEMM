@@ -307,6 +307,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
               {%- endif %}
               shfl_sync_mask,
               max_vecs,
+              {%- if optimizer == "rowwise_adagrad_with_counter" %}
+              SL, // segment_length: #samples in this batch touching this row
+              {%- endif %}
               {%- if ssd %}
               enable_optimizer_offloading,
               {%- endif %}
