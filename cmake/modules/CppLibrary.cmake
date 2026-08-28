@@ -108,7 +108,17 @@ function(fbgemm_get_warning_flags)
     # of the three with ZERO third-party exposure, so unlike
     # -Wshorten-64-to-32 and -Wzero-as-null-pointer-constant it is not blocked
     # on giving PyTorch/ATen/c10 headers -isystem treatment.
-    -Wshadow)
+    -Wshadow
+    # ---- Phase B3: zero as null pointer -----------------------------------
+    # Portable: probed accepted AND diagnosing on g++ 11.5 and clang 22.
+    # Enabled DEMOTED -- see -Wno-error=zero-as-null-pointer-constant.
+    #
+    # B0 measured 449 first-party diagnostics across 130 files. That is the
+    # LARGEST job of the three B flags despite having ~260 fewer diagnostics
+    # than -Wshorten-64-to-32, because it is diffuse: only 19% sit in the top
+    # five files, versus 79% for -Wshadow. Rank by file count and
+    # concentration, not by raw count.
+    -Wzero-as-null-pointer-constant)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix
@@ -253,7 +263,18 @@ function(fbgemm_get_warning_flags)
     # hard-errors on and which therefore had to be clang-guarded.
     # TODO(T169200065): delete once the -Wshadow count reaches zero. This is
     # the whole point of enabling it demoted rather than silently.
-    -Wno-error=shadow)
+    -Wno-error=shadow
+    # Phase B3, landing demoted while its 449 diagnostics across 130 files
+    # are fixed; see -Wzero-as-null-pointer-constant in _cc_common. Portable
+    # escape -- probed demoting to a warning on both g++ and clang.
+    #
+    # This escape also covers the 48 diagnostics coming from PyTorch / ATen /
+    # c10 / folly / thrift headers, which are NOT FBGEMM's to fix. Those need
+    # -isystem treatment (unowned work that B0 newly identified) before this
+    # flag can go to hard error, independently of the first-party backlog.
+    # TODO(T169200065): delete once the count reaches zero AND the external
+    # headers are -isystem.
+    -Wno-error=zero-as-null-pointer-constant)
 
   # Clang suppressions, split by the clang version that made them necessary.
   # The CXX path applies these conditionally on the HOST clang version (below);
