@@ -28,6 +28,11 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
+@unittest.skipIf(
+    open_source,
+    "RES streaming internals are not available in OSS: masked_index_select is "
+    "not built, and _res_hbm_dims_equal / _res_compacted_rows do not exist",
+)
 class ResEnabledTablesTest(unittest.TestCase):
     """
     Tests for the ``res_enabled_tables`` allowlist -> per-feature
