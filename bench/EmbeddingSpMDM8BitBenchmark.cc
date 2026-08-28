@@ -71,8 +71,7 @@ static int run_benchmark(
     bool normalize_by_lengths,
     bool use_32_bit_indices = false,
     bool prefetch = false,
-    bool stress_multi_threading = false,
-    bool is_bf16_out = false) {
+    bool stress_multi_threading = false) {
   // Create embedding table
   default_random_engine generator;
   normal_distribution<float> embedding_distribution;
@@ -283,23 +282,21 @@ static int run_benchmark(
             if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-              if (is_bf16_out) {
-                tmp1 = cpu_bf162float(output[i]);
-                tmp2 = cpu_bf162float(output_ref[i]);
-              } else {
-                tmp1 = cpu_half2float(output[i]);
-                tmp2 = cpu_half2float(output_ref[i]);
-              }
+            } else if constexpr (std::is_same_v<OutType, fbgemm::bfloat16>) {
+              tmp1 = to_float(reinterpret_cast<const fbgemm::bfloat16&>(output[i]));
+              tmp2 = to_float(reinterpret_cast<const fbgemm::bfloat16&>(output_ref[i]));
+            } else if constexpr (std::is_same_v<OutType, float16>) {
+              tmp1 = to_float(reinterpret_cast<const float16&>(output[i]));
+              tmp2 = to_float(reinterpret_cast<const float16&>(output_ref[i]));
             } else {
               assert(false && "ERROR: unsupported output type");
               cout << "ERROR: unsupported output type" << '\n';
             }
-            if constexpr (std::is_same_v<OutType, uint16_t>) {
+            if constexpr (std::is_same_v<OutType, float16>) {
               // FP16 accumulation introduces ~0.5-1% relative error vs
               // the FP32 reference at avg_length=100. Use relaxed
               // tolerance: atol=1e-2, rtol=1e-2.
-              if (!is_bf16_out && is_sve_fp16_enabled()) {
+              if (is_sve_fp16_enabled()) {
                 float tol =
                     std::max(1e-2f, std::max(fabs(tmp1), fabs(tmp2)) * 1e-2f);
                 assert(fabs(tmp1 - tmp2) < tol);
@@ -323,12 +320,10 @@ static int run_benchmark(
       if (fbgemm_get_thread_num() == 0) {
         if constexpr (std::is_same_v<OutType, float>) {
           cout << "out type fp32";
-        } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-          if (is_bf16_out) {
-            cout << "out type bf16";
-          } else {
-            cout << "out type fp16";
-          }
+        } else if constexpr (std::is_same_v<OutType, fbgemm::bfloat16>) {
+          cout << "out type bf16";
+        } else if constexpr (std::is_same_v<OutType, float16>) {
+          cout << "out type fp16";
         } else {
           assert(false && "ERROR: unsupported output type");
           cout << "ERROR: unsupported output type" << '\n';
