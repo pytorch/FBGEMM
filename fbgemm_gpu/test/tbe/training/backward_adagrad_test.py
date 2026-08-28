@@ -127,17 +127,17 @@ class BackwardAdagradTest(unittest.TestCase):
             **kwargs,
         )
 
+    @skipIfRocm(
+        "Known intermittent failure on the MI350 runner: the forward check "
+        "derives its tolerance from weights_precision alone, so fp32 weights "
+        "impose an fp32 tolerance on a bf16 output"
+    )
     @given(
         mixed_B=st.booleans(),
         compile=st.booleans(),
         **test_st,
     )
     @settings(**common_settings)
-    @skipIfRocm(
-        "Known intermittent failure on the MI350 runner: the forward check "
-        "derives its tolerance from weights_precision alone, so fp32 weights "
-        "impose an fp32 tolerance on a bf16 output"
-    )
     def test_backward_adagrad_fp32_pmSUM(  # noqa C901
         self,
         **kwargs: Any,
