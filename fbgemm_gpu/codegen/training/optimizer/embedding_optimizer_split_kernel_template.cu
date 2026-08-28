@@ -107,6 +107,18 @@ void split_{{ optimizer }}_update_kernel(
           {%- endif %}
           shfl_sync_mask,
           kMaxVecsPerThread,
+          {%- if optimizer == "rowwise_adagrad_with_counter" %}
+          // NOTE: this standalone-optimizer branch is currently DEAD for the
+          // counter optimizer. rowwise_adagrad_with_counter is not in
+          // DEFUSED_OPTIMIZERS (codegen/BUCK, cmake/tbe_sources.py), so no
+          // standalone `split_embedding_rowwise_adagrad_with_counter_update` op
+          // is generated and use_example_counter is unreachable on this path.
+          // If this optimizer is ever defused, note that segment_length=0 does
+          // NOT make the example_counter update inert for
+          // example_counter_halflife >= 0 (the update still decays/zeroes the
+          // counter, see split_precomputation); a real skip would be required.
+          0, // segment_length (unreachable placeholder; see note above)
+          {%- endif %}
           {{ args.split_kernel_arg_names | join(", ") }});
 #ifdef USE_ROCM
     } // for run_id (grid-stride loop, ROCm only)

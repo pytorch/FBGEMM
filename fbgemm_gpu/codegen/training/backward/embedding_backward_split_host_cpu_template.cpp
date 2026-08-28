@@ -227,6 +227,18 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
   // The unified PT2 interface already accepts learning rate as tensor.
   const auto learning_rate_tensor = at::tensor({learning_rate}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
   {%- endif %}
+  {%- if "use_example_counter" in args.split_function_arg_names_autograd %}
+  // `example_counter` is a V2/PT2-only pruning side state. The V1 interface is
+  // frozen (its schema does not carry example_counter or its knobs), so
+  // synthesize inert defaults here to feed the shared backend call. The counter
+  // kernel's example_counter path is gated off by `use_example_counter == false`,
+  // so V1 behavior is unchanged. (Mirrors the learning_rate_tensor shim above.)
+  const bool use_example_counter = false;
+  const int64_t example_counter_halflife = -1;
+  const std::optional<Tensor> example_counter_host = std::nullopt;
+  const std::optional<Tensor> example_counter_placements = std::nullopt;
+  const std::optional<Tensor> example_counter_offsets = std::nullopt;
+  {%- endif %}
   return SplitLookupFunction_{{ optimizer }}_Op::apply(
       host_weights,
       weights_placements,

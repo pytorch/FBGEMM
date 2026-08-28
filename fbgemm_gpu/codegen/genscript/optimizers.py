@@ -507,6 +507,22 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
             row_counter[idx] += 1.0;
         }
         freq = counter_halflife / row_counter[idx];
+
+        // example_counter: opt-in per-sample pruning side state. Decayed
+        // independently by example_counter_halflife; segment_length = number of
+        // samples touching this row in the current batch. Gated so the counter
+        // weight update is unchanged when the pruning counter is not in use.
+        if (use_example_counter) {
+            const auto ec_iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+            if (example_counter_halflife > 0) {
+                example_counter[idx] = segment_length +
+                    expf(-ec_iter_delta * logf(2.0) / example_counter_halflife) * example_counter[idx];
+            } else if (example_counter_halflife == 0) {
+                example_counter[idx] = segment_length;
+            } else { // raw cumulative (recency decay applied at publish)
+                example_counter[idx] += segment_length;
+            }
+        }
     }
     freq = SHFL_SYNC(freq, 0);
     tail_id_threshold_val = SHFL_SYNC(tail_id_threshold_val, 0);
@@ -628,6 +644,12 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
         }
         freq = counter_halflife / row_counter[idx];
 
+        // NOTE: example_counter (the opt-in per-sample pruning side state) is
+        // tracked on the GPU path only (see split_precomputation). The CPU exact
+        // backward kernel does not materialize a pointer for optional optimizer
+        // state tensors, and the pruning use case (AFOC/CMF) is GPU-only, so the
+        // CPU path intentionally leaves example_counter unchanged.
+
         at::acc_type<grad_t, true> g_sum_square = 0.0;
         at::acc_type<grad_t, true> w_sum_square = 0.0;
         for (int64_t d = 0; d < D; ++d) {
@@ -728,6 +750,13 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
                 OptimItem(ArgType.INT, "regularization_mode", 0),
                 OptimItem(ArgType.FLOAT, "weight_norm_coefficient", 0.0),
                 OptimItem(ArgType.FLOAT, "lower_bound", 0.0),
+                # Opt-in per-sample pruning side state (post-training embedding-
+                # row pruning). These flow only into the V2/PT2 interface; the
+                # V1 schema below is deliberately frozen (unchanged arg count),
+                # so example_counter is unreachable from the V1 lookup path.
+                OptimItem(ArgType.BOOL, "use_example_counter", False),
+                OptimItem(ArgType.INT, "example_counter_halflife", -1),
+                OptimItem(ArgType.TENSOR, "example_counter", is_optional=True),
             ],
             {
                 "v1": "Tensor momentum1, Tensor prev_iter, Tensor row_counter, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int iter = 0, int counter_halflife = -1, int adjustment_iter = -1, float adjustment_ub = 1.0, int learning_rate_mode = -1, int weight_decay_mode = 1, int grad_sum_decay = -1, float max_counter = 0, float tail_id_threshold = 0.0, int is_tail_id_thresh_ratio = 0, int regularization_mode = 0, float weight_norm_coefficient = 0.0, float lower_bound = 0.0"
