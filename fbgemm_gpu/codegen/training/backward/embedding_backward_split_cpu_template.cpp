@@ -437,17 +437,6 @@ for (const auto d : c10::irange(D)) {
     {{ args.split_function_args | join(", ") }}
     {% endif %}
 ) {
-  {%- if "use_example_counter" in args.split_function_arg_names %}
-  // example_counter (the opt-in per-sample pruning side state) is updated on
-  // the GPU path only; the CPU backward kernel leaves it unchanged. Warn once
-  // so a model that enables it on CPU knows the counter stays zero rather than
-  // silently getting no signal.
-  if (use_example_counter) {
-    TORCH_WARN_ONCE(
-        "use_example_counter=true has no effect on the CPU backward path; "
-        "example_counter is maintained on GPU only and will remain zero on CPU.");
-  }
-  {%- endif %}
   {% if not nobag %}
   int64_t T = D_offsets.numel() - 1;
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
@@ -597,13 +586,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     "Tensor indice_weights, "
     {%- endif %}
     "bool stochastic_rounding, "
-    "{{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host").replace("= false", "= False").replace("= true", "= True")}}"
+    "{{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}"
     {%- if not nobag %}
     ", int output_dtype = 0"
     {%- endif %}
     ") -> ()");
   {% else %}
-  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host").replace("= false", "= False").replace("= true", "= True")}}) -> Tensor");
+  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}) -> Tensor");
   {% endif %}
   DISPATCH_TO_CPU("split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu", split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu);
 
