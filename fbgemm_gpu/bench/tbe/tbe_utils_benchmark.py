@@ -19,6 +19,7 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
+from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
@@ -42,12 +43,6 @@ from torch.profiler import profile
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
-
-if open_source:
-    # pyre-ignore[21]
-    from bench_utils import benchmark_torch_function
-else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -376,8 +371,9 @@ def bounds_check_indices(  # noqa C901
             oob_positions = torch.randperm(num_indices)[:num_oob]
             req.indices[oob_positions] = E
 
-    warning = torch.tensor([0]).long().to(get_device())
-    rows_per_table = torch.tensor([E for _ in range(T)]).long().to(get_device())
+    # Citrine C3: create bounds-check tensors directly on the target device.
+    warning = torch.tensor([0], device=get_device()).long()
+    rows_per_table = torch.tensor([E for _ in range(T)], device=get_device()).long()
 
     bc_mode = BoundsCheckMode(bounds_check_mode)
     bounds_check_version = 1

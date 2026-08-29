@@ -32,6 +32,8 @@ namespace fbgemm_gpu {
 
 void flush_icache_ck()
 {
+    using namespace ck;
+
     hipDeviceProp_t deviceProps;
     hip_check_error(hipGetDeviceProperties(&deviceProps, 0));
     int32_t gpu_block3 = deviceProps.multiProcessorCount * 60;

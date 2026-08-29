@@ -1147,6 +1147,21 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     learning_rate_tensor.fill_(learning_rate);
     {%- endif %}
 
+    {%- if "use_example_counter" in args.split_function_arg_names %}
+    // `example_counter` is a V2/PT2-only pruning side state (post-training
+    // embedding-row pruning). The V1 interface is frozen -- its schema does not
+    // carry example_counter or its knobs -- so synthesize inert defaults here to
+    // feed the shared backend call. The counter kernel's example_counter path is
+    // gated off by `use_example_counter == false`, so V1 behavior is unchanged.
+    // (Mirrors the learning_rate_tensor backward-compat shim above.)
+    const bool use_example_counter = false;
+    const int64_t example_counter_halflife = -1;
+    const std::optional<Tensor> example_counter_dev = std::nullopt;
+    const std::optional<Tensor> example_counter_uvm = std::nullopt;
+    const std::optional<Tensor> example_counter_placements = std::nullopt;
+    const std::optional<Tensor> example_counter_offsets = std::nullopt;
+    {%- endif %}
+
     {%- if not dense %}
     // Load the config value from JK once
     static auto is_tbev2_enabled = config::is_feature_enabled(config::FeatureGateName::TBE_V2);

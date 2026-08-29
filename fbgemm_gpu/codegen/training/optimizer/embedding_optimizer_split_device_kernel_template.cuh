@@ -98,6 +98,11 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {%- endif %}
     const uint32_t shfl_sync_mask,
     const int32_t max_vecs_per_thread,
+    {%- if optimizer == "rowwise_adagrad_with_counter" %}
+    // Number of samples in the current batch that touched this row. Used to
+    // maintain the decayed per-sample `example_counter` pruning side state.
+    const float segment_length,
+    {%- endif %}
     {%- if ssd %}
     const bool enable_optimizer_offloading [[maybe_unused]],
     {%- endif %}
@@ -142,6 +147,22 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
         {{ tensor }} = &{{ tensor }}_uvm[{{ tensor }}_offset];
     }
     {%- endfor %}
+    {%- if optimizer == "rowwise_adagrad_with_counter" %}
+    // example_counter is an opt-in optional pruning state (not in split_tensors,
+    // so it is not set up by the loop above). Its accessors are empty tensors
+    // when the feature is off, so only build the pointer when use_example_counter
+    // is set; split_precomputation guards every dereference on the same flag.
+    at::acc_type<cache_t, true>* __restrict__ example_counter = nullptr;
+    if (use_example_counter) {
+        const auto example_counter_placement = static_cast<PlacementType>(example_counter_placements[t]);
+        const int64_t example_counter_offset = example_counter_offsets[t];
+        if (example_counter_placement == PlacementType::DEVICE) {
+            example_counter = &example_counter_dev[example_counter_offset];
+        } else {
+            example_counter = &example_counter_uvm[example_counter_offset];
+        }
+    }
+    {%- endif %}
 
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
