@@ -389,15 +389,6 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
               {%- endif %}
               shfl_sync_mask,
               max_vecs,
-              {%- if optimizer == "rowwise_adagrad_with_counter" %}
-              // segment_length = full run_length (# samples touching this row in
-              // this batch). The weight/state update runs EXACTLY ONCE per run
-              // (the sole CTA for a normal run, or the last CTA via
-              // grad_accum_counter for a CTA-split run — see the guard above), so
-              // pass run_length unconditionally: there is no double-count to avoid,
-              // and split runs (large rows) are no longer missed.
-              run_length,
-              {%- endif %}
               {%- if ssd %}
               enable_optimizer_offloading,
               {%- endif %}
