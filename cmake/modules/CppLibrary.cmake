@@ -229,7 +229,18 @@ function(fbgemm_get_warning_flags)
     # `_hipcc_suppressions`), which keeps the diagnostic VISIBLE so 02c.3's
     # census can count it, without breaking the build if some CK header is
     # still reached via `-I`.
-    -Wheader-hygiene)
+    -Wheader-hygiene
+    # ---- Phase B4: 64-to-32 narrowing -------------------------------------
+    # clang-only: g++ 11.5 rejects the flag outright (probed).
+    # Enabled DEMOTED -- see -Wno-error=shorten-64-to-32 in the clang
+    # suppressions, which must ALSO be clang-guarded (see there).
+    #
+    # B0 measured 711 first-party diagnostics across 76 files, 55% in the top
+    # five. Subplan 09 calls this the hardest chunk in the project: the fixups
+    # are casts in index arithmetic, where a wrong cast is a silent numerical
+    # or OOB bug rather than a compile error. Enabling it demoted makes the
+    # backlog visible without forcing rushed casts.
+    -Wshorten-64-to-32)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`
@@ -298,7 +309,17 @@ function(fbgemm_get_warning_flags)
     # Note that this is stricter than a bare unknown `-Wno-<name>`, which g++
     # accepts silently. The leniency does not extend to the `=` form.
     # TODO(T169200065): drop once the toolchain stops surfacing this header.
-    -Wno-error=deprecated-dynamic-exception-spec)
+    -Wno-error=deprecated-dynamic-exception-spec
+    # Phase B4, landing demoted; see -Wshorten-64-to-32 in _cc_clang_only.
+    #
+    # This escape MUST stay clang-guarded. g++ hard-errors on
+    # -Wno-error=<warning it does not know>, even without -Werror:
+    #   cc1plus: error: '-Wno-error=shorten-64-to-32': no option
+    #                   '-Wshorten-64-to-32'
+    # Same landmine as the A2.1 escape. Putting it in _cc_suppressions_common
+    # would break every gcc leg of the OSS matrix.
+    # TODO(T169200065): delete once the count reaches zero.
+    -Wno-error=shorten-64-to-32)
 
   set(_cc_suppressions_clang_gt13
     -Wno-error=unused-but-set-parameter
