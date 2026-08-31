@@ -174,6 +174,13 @@ __configure_fbgemm_gpu_test_rocm () {
     ./moe/layers_test.py  # Not a python unittest file
     ./attention/blackwell_fmha_test.py
     ./attention/blackwell_attention_splitk_test.py
+    # These do not fail, but are slow enough on the MI350 runner to exhaust the
+    # job timeout, which prevents any later test file from running.  UVM
+    # allocation and free are the dominant cost in the first three.
+    ./tbe/cache/uvm_test.py
+    ./tbe/cache/copy_test.py
+    ./tbe/training/store_prefetched_tensors_test.py
+    ./sparse/index_select_test.py
   )
 }
 

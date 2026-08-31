@@ -21,9 +21,9 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable
+    from test_utils import gpu_available, gpu_unavailable, skipIfRocm
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
 
 if gpu_available:
     # pyre-ignore[16, 21]
@@ -71,6 +71,10 @@ class UvmTest(unittest.TestCase):
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
 
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm(
+        "Too slow on the MI350 runner, where managed memory allocation and "
+        "free are substantially slower than on gfx942"
+    )
     @given(
         sizes=st.lists(
             st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4

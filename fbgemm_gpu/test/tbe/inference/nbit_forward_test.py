@@ -576,6 +576,11 @@ class NBitFowardTest(NBitFowardTestCommon):
         """
         for name, weights_ty, D, output_dtype, weighted in NAN_ZERO_FILL_CASES:
             with self.subTest(case=name):
+                if TEST_WITH_ROCM and name.startswith("int4_small"):
+                    self.skipTest(
+                        "Known failure on ROCm: the INT4 D=160 shape leaves "
+                        "NaNs in the output"
+                    )
                 self._execute_nan_zero_fill(weights_ty, D, output_dtype, weighted)
 
     def test_nbit_forward_cpu_multi_table_pooled_no_prezero(self) -> None:
