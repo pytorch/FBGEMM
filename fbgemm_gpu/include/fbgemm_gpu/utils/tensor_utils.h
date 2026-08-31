@@ -72,6 +72,31 @@ inline bool torch_tensor_on_same_device_check(
   return !ten2.has_value() || ten1.get_device() == ten2->get_device();
 }
 
+inline at::Tensor torch_tensor_to_same_device(
+    const at::Tensor& source,
+    const at::Tensor& target,
+    const char* source_name,
+    const char* target_name,
+    bool non_blocking) {
+  const auto target_device = target.device();
+  if (source.device() == target_device) {
+    return source;
+  }
+  TORCH_WARN_ONCE(
+      source_name,
+      " is on ",
+      source.device(),
+      ", but ",
+      target_name,
+      " is on ",
+      target_device,
+      "; moving ",
+      source_name,
+      " to the same device as ",
+      target_name);
+  return source.to(target_device, non_blocking);
+}
+
 inline bool torch_tensor_undefined(const at::Tensor& ten) {
   return ten.defined();
 }

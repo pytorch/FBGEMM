@@ -251,24 +251,24 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
   // Relocate them rather than failing. `in_ptr`/`out_ptr` below already do
   // exactly this, and so does `kt_regroup_arguments_gpu` for these same three
   // tensors.
-  const auto to_device = [&device](const Tensor& t, const char* name) {
-    if (t.device() == device) {
-      return t;
-    }
-    TORCH_WARN_ONCE(
-        "permute_multi_embedding: ",
-        name,
-        " is on ",
-        t.device(),
-        " but pooled_embs[0] is on ",
-        device,
-        "; relocating. Expected when the index buffers are pinned to a single "
-        "device and the op runs on several, unexpected otherwise.");
-    return t.to(device, /*non_blocking=*/true);
-  };
-  const auto permutes_dev = to_device(permutes, "permutes");
-  const auto in_shapes_dev = to_device(in_shapes, "in_shapes");
-  const auto out_shapes_dev = to_device(out_shapes, "out_shapes");
+  const auto permutes_dev = torch_tensor_to_same_device(
+      permutes,
+      pooled_embs[0],
+      "permutes",
+      "pooled_embs[0]",
+      /*non_blocking=*/true);
+  const auto in_shapes_dev = torch_tensor_to_same_device(
+      in_shapes,
+      pooled_embs[0],
+      "in_shapes",
+      "pooled_embs[0]",
+      /*non_blocking=*/true);
+  const auto out_shapes_dev = torch_tensor_to_same_device(
+      out_shapes,
+      pooled_embs[0],
+      "out_shapes",
+      "pooled_embs[0]",
+      /*non_blocking=*/true);
 
   TORCH_CHECK(in_shapes_dev.is_contiguous());
   TORCH_CHECK(out_shapes_dev.is_contiguous());
