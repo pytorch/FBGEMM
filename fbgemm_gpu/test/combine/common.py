@@ -54,12 +54,12 @@ class TBEInputPrepareReference(torch.nn.Module):
         torch.cat(indices_list, out=combined_indices)
         offsets_starts = torch.zeros(
             [len(offsets_list) + 1],
-            dtype=offsets_list[0].dtype,
+            dtype=torch.int64,
             device=offsets_list[0].device,
         )
         offsets_accs = torch.zeros(
             [len(offsets_list) + 1],
-            dtype=offsets_list[0].dtype,
+            dtype=torch.int64,
             device=offsets_list[0].device,
         )
 
@@ -78,7 +78,7 @@ class TBEInputPrepareReference(torch.nn.Module):
         )
         combined_offsets = torch.zeros(
             combined_offsets_size,
-            dtype=torch.int32,
+            dtype=torch.int64,
             device=offsets_list[0].device,
         )
         if batch_size is None:
@@ -120,5 +120,5 @@ class TBEInputPrepareReference(torch.nn.Module):
                     )
                     # fmt: on
 
-        # indices and offsets are required to be int32 for TBE
+        # indices are int32 and combined_offsets are int64 for TBE
         return combined_indices, combined_offsets, per_sample_weights
