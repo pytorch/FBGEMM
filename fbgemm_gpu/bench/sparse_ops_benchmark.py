@@ -903,6 +903,116 @@ def asynchronous_complete_cumsum_2d_bench(
 
 
 @cli.command()
+@click.option("--batch-size", default=2, help="Number of requests batched together.")
+@click.option("--table-size", default=14, help="Number of features/tables (T).")
+@click.option("--num-ads", default=1)
+@click.option(
+    "--total-indices",
+    default=234500,
+    help="Total indices per request across all tables.",
+)
+@click.option(
+    "--hot-tables", default=2, help="Number of tables holding --hot-fraction."
+)
+@click.option(
+    "--hot-fraction",
+    default=0.992,
+    help="Fraction of all indices concentrated in --hot-tables.",
+)
+@click.option("--dtype", type=click.Choice(["float", "long"]), default="long")
+@click.option("--itype", type=click.Choice(["int", "long"]), default="int")
+@click.option("--device", type=str, default="cuda")
+def reorder_batched_ad_indices_skew_bench(
+    batch_size: int,
+    table_size: int,
+    num_ads: int,
+    total_indices: int,
+    hot_tables: int,
+    hot_fraction: float,
+    dtype: str,
+    itype: str,
+    device: str,
+) -> None:
+    """Benchmark reorder_batched_ad_indices with production-like length skew.
+
+    Inference KJT projection hits this op with few segments (B*T of order tens)
+    whose lengths are extremely unbalanced - a couple of features can hold >99%
+    of the indices. The uniform-length benchmark above cannot expose the
+    resulting load imbalance, since there the work per segment is identical.
+    """
+    data_type = torch.int64 if dtype == "long" else torch.float
+    data_size = 8 if dtype == "long" else 4
+    index_type = torch.int64 if itype == "long" else torch.int32
+
+    assert 0 < hot_tables < table_size
+    cold_tables = table_size - hot_tables
+    hot_len = int(total_indices * hot_fraction) // hot_tables
+    cold_len = max(1, int(total_indices * (1.0 - hot_fraction)) // cold_tables)
+    per_table = [hot_len] * hot_tables + [cold_len] * cold_tables
+
+    # cat_ad_lengths is laid out [B][T][num_ads] for the non-broadcast case.
+    cat_ad_lengths = (
+        torch.tensor(
+            [le for _ in range(batch_size) for le in per_table for _ in range(num_ads)]
+        )
+        .int()
+        .to(device)
+    )
+    total = int(cat_ad_lengths.sum().item())
+    cat_ad_indices = (
+        torch.randint(low=0, high=100, size=(total,)).to(device).to(data_type)
+    )
+    batch_offsets = (
+        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int().to(device)
+    )
+    num_ads_in_batch = batch_size * num_ads
+
+    reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
+        cat_ad_lengths, batch_offsets, num_ads_in_batch, False
+    ).to(device)
+    cat_ad_offsets = (
+        torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
+        .to(index_type)
+        .to(device)
+    )
+    reordered_cat_ad_offsets = (
+        torch.ops.fbgemm.asynchronous_complete_cumsum(reordered_cat_ad_lengths)
+        .to(index_type)
+        .to(device)
+    )
+
+    args = (
+        cat_ad_offsets,
+        cat_ad_indices,
+        reordered_cat_ad_offsets,
+        batch_offsets,
+        num_ads_in_batch,
+        False,
+        total,
+    )
+
+    # Correctness against the CPU reference before timing.
+    got = torch.ops.fbgemm.reorder_batched_ad_indices(*args)
+    expect = torch.ops.fbgemm.reorder_batched_ad_indices(
+        *(a.cpu() if isinstance(a, torch.Tensor) else a for a in args)
+    )
+    torch.testing.assert_close(got.cpu(), expect)
+
+    time, _ = benchmark_torch_function(
+        torch.ops.fbgemm.reorder_batched_ad_indices,
+        args,
+        num_warmups=20,
+        iters=200,
+    )
+    num_bytes = 2 * total * data_size
+    logging.info(
+        f"segments(B*T)={batch_size * table_size} indices={total} "
+        f"len/table hot={hot_len} cold={cold_len} | "
+        f"time: {time * 1e6:.2f} us ({num_bytes / time / 1e9:.1f} GB/s)"
+    )
+
+
+@cli.command()
 @click.option("--batch-size", default=8192)
 @click.option("--table-size", default=20)
 @click.option("--length", default=50)
