@@ -17,6 +17,7 @@
 #include <ATen/ATen.h>
 #include <c10/hip/HIPStream.h>
 
+#include "ck/utility/data_type.hpp"
 #include "kernels/fp8fp8bf16_rowwise_kernel_manifest.h"
 
 namespace fbgemm_gpu {
@@ -505,10 +506,11 @@ at::Tensor f8f8_rowwise_wrapper(
     bool use_fast_accum,
     std::optional<at::Tensor> output = std::nullopt) {
   // Check that input datatypes are valid.
+  constexpr auto kExpectedTorchFP8DType = std::is_same_v<ck::f8_t, ck::f8_ocp_t> ? at::kFloat8_e4m3fn : at::kFloat8_e4m3fnuz;
   TORCH_CHECK(
-      (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
-          (WQ.dtype() == at::kFloat8_e4m3fnuz),
-      "Inputs must be type float8_e4m3fnuz.");
+      (XQ.dtype() == kExpectedTorchFP8DType) &&
+          (WQ.dtype() == kExpectedTorchFP8DType),
+      "Inputs must be type ", kExpectedTorchFP8DType);
   TORCH_CHECK(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");
