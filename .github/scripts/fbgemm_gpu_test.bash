@@ -64,8 +64,19 @@ run_python_test () {
   # shellcheck disable=SC2155
   local start=$(date +%s)
 
+  # NOTE: conda run in conda 26.x does not reliably propagate exit codes unless
+  # the -- separator is used to explicitly delimit conda's own flags from the
+  # command to execute.
   # shellcheck disable=SC2086
-  if print_exec conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --cache-clear  "${python_test_file}"; then
+  echo "+ conda run --no-capture-output ${env_prefix} -- python -m pytest ${pytest_args[*]} --cache-clear ${python_test_file}"
+  echo ""
+  # shellcheck disable=SC2086
+  conda run --no-capture-output ${env_prefix} -- python -m pytest "${pytest_args[@]}" --cache-clear "${python_test_file}"
+  local retcode=$?
+  echo "[TEST] Initial run exit code: ${retcode}"
+  echo ""
+
+  if [ $retcode -eq 0 ]; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
     local test_time=$(($(date +%s)-start))
     echo "[TEST] Python test time for ${python_test_file}: ${test_time} seconds"
@@ -75,7 +86,7 @@ run_python_test () {
     return 0
   fi
 
-  echo "[TEST] Some tests FAILED.  Re-attempting only FAILED tests: ${python_test_file}"
+  echo "[TEST] Some tests FAILED (exit code: ${retcode}).  Re-attempting only FAILED tests: ${python_test_file}"
   echo ""
   echo ""
 
@@ -84,8 +95,29 @@ run_python_test () {
   # suites, we only run tests that have failed in the previous round.  This is
   # enabled by using the pytest cache and the --lf flag.
 
-  # shellcheck disable=SC2086
-  if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures none "${python_test_file}"; then
+  local max_retries=2
+  local retry_retcode=0
+  for i in $(seq 0 ${max_retries}); do
+    # shellcheck disable=SC2086
+    echo "[EXEC] [ATTEMPT ${i}/${max_retries}]    + conda run --no-capture-output ${env_prefix} -- python -m pytest ${pytest_args[*]} --lf --last-failed-no-failures none ${python_test_file}"
+    # shellcheck disable=SC2086
+    conda run --no-capture-output ${env_prefix} -- python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures none "${python_test_file}"
+    retry_retcode=$?
+    echo "[TEST] Retry run exit code: ${retry_retcode}"
+    echo ""
+
+    if [ $retry_retcode -eq 0 ]; then
+      break
+    fi
+
+    echo "[EXEC] [ATTEMPT ${i}/${max_retries}] Command attempt failed (exit code: ${retry_retcode})."
+    echo ""
+    if [ "$i" -ne "$max_retries" ]; then
+      sleep 2
+    fi
+  done
+
+  if [ $retry_retcode -eq 0 ]; then
     echo "[TEST] Python test suite PASSED with retries: ${python_test_file}"
     local test_time=$(($(date +%s)-start))
     echo "[TEST] Python test time with retries for ${python_test_file}: ${test_time} seconds"
@@ -257,7 +289,7 @@ __setup_fbgemm_gpu_test () {
 __run_fbgemm_gpu_tests_in_directory () {
   echo "################################################################################"
   # shellcheck disable=SC2154
-  echo "# Run FBGEMM-GPU Tests: ${pwd}"
+  echo "# Run FBGEMM-GPU Tests: $(pwd)"
   echo "#"
   echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
@@ -269,6 +301,10 @@ __run_fbgemm_gpu_tests_in_directory () {
   echo "[TEST] Enumerating ALL test files ..."
   # shellcheck disable=SC2155
   local all_test_files=$(find . -type f -name '*_test.py' -print | sort)
+  if [ -z "$all_test_files" ]; then
+    echo "[ERROR] No test files (*_test.py) found in directory: $(pwd)"
+    return 1
+  fi
   for f in $all_test_files; do echo "$f"; done
   echo ""
 

@@ -5,8 +5,10 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+set -eo pipefail
+
 echo "[NOVA] Current working directory: $(pwd)"
-cd "${FBGEMM_REPO}" || echo "[NOVA] Failed to cd to ${FBGEMM_REPO}"
+cd "${FBGEMM_REPO}" || { echo "[NOVA] Failed to cd to ${FBGEMM_REPO}"; exit 1; }
 PRELUDE="${FBGEMM_REPO}/.github/scripts/setup_env.bash"
 BUILD_ENV_NAME=${CONDA_ENV}
 GITHUB_ENV=TRUE
@@ -46,8 +48,8 @@ echo "[NOVA] Time taken to install wheel: ${runtime} seconds"
 
 # Test with PyTest
 $CONDA_RUN python3 -c "import torch; print('cuda.is_available() ', torch.cuda.is_available()); print ('device_count() ',torch.cuda.device_count());"
-cd "${FBGEMM_REPO}" || { echo "[NOVA] Failed to cd to ${FBGEMM_REPO} from $(pwd)"; };
-test_all_fbgemm_gpu_modules "${BUILD_ENV_NAME}"
+cd "${FBGEMM_REPO}" || { echo "[NOVA] Failed to cd to ${FBGEMM_REPO} from $(pwd)"; exit 1; };
+test_all_fbgemm_gpu_modules "${BUILD_ENV_NAME}" || exit 1
 end_time=$(date +%s)
 runtime=$((end_time-start_time))
 start_time=${end_time}
