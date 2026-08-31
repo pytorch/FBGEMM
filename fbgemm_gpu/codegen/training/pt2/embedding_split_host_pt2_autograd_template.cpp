@@ -290,6 +290,7 @@ enum SSDTensor {
                 {%- if not nobag %}
                 , const int64_t /*output_dtype*/
                 {%- endif %}
+                , std::optional<std::vector<Tensor>> /*preproc_tensors*/
             )>();
 
     {%- if not dense %}
@@ -380,6 +381,7 @@ enum SSDTensor {
           {%- if not nobag %}
           , output_dtype
           {%- endif %}
+          , preproc_tensors
     );
 
     if (is_annotate_trace_enabled) {
@@ -1143,7 +1145,19 @@ static torch::autograd::variable_list backward(
           "{{ bwd_mdesc }}_tbe_bwd" + op_annotation);
     }
 
-    TORCH_CHECK_EQ(grad_outputs.size(), 1);
+    // grad_outputs[0] is the embedding grad. Either that alone, or it plus the
+    // 12 index-preproc grads (grad_outputs[1..12]) when the forward emits the
+    // dummy outputs.
+    constexpr int kNumPreprocTensors = 12;
+    TORCH_CHECK(
+        grad_outputs.size() == 1 ||
+        grad_outputs.size() == 1 + kNumPreprocTensors);
+
+    std::optional<std::vector<Tensor>> preproc_tensors = std::nullopt;
+    if (grad_outputs.size() == 1 + kNumPreprocTensors) {
+      preproc_tensors =
+          std::vector<Tensor>(grad_outputs.begin() + 1, grad_outputs.end());
+    }
 
     // BT_block_size and max_segment_length_per_warp are GPU kernel
     // launch parameters that the dispatched backward op consumes only

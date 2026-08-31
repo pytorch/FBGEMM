@@ -134,6 +134,9 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     int64_t total_hash_size,
     c10::SymInt total_unique_indices
     {%- endif %}
+    {%- if not is_index_select %}
+    , std::optional<std::vector<Tensor>> preproc_tensors [[maybe_unused]]
+    {%- endif %}
 ) {
 
     // NB: Should we have something for aligning memory like we do on the tensor kernels?

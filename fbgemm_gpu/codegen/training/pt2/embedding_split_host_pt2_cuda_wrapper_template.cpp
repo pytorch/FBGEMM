@@ -277,7 +277,8 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     {{ args_pt2.split_function_args | join(", ") }}
     {%- if not nobag %}
     , const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
-    {%- endif %}){
+    {%- endif %}
+    , std::optional<std::vector<Tensor>> preproc_tensors = std::nullopt){
         TORCH_CHECK(
             weights.size() == 5,
             "CUDA weights must contain dev, placements, offsets, uvm, lxu_cache");
@@ -364,8 +365,9 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
                         const double /*gwd_lower_bound*/,
                         {%- endif %}
                         {%- for arg_type in args.split_function_args %}
-                        {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
+                        {{ arg_type.split(' ')[0]}}{{ "," }}
                         {%- endfor %}
+                        std::optional<std::vector<Tensor>>
                 )>();
 
         return op.call(
@@ -424,6 +426,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
             gwd_lower_bound,
             {%- endif %}
             {{ args.split_function_arg_names | join(", ") }}
+            , preproc_tensors
         );
     }
 
@@ -675,6 +678,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- if not nobag %}
         "    , int output_dtype=0 "
         {%- endif %}
+        "    , Tensor[]? preproc_tensors=None "
         ") -> Tensor");
     }
     {%- endif %}

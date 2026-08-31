@@ -85,7 +85,21 @@ class BackwardSGDTest(unittest.TestCase):
         use_writeback_bwd_prehook: bool = False,
         enable_writeback_bwd_prehook_first_feature_only: bool = False,
         use_api_v1: bool = False,
+        use_preproc_bwd: bool = False,
     ) -> None:
+        # The preproc-consume backward is only wired for the common path (bagged/SUM,
+        # non-VBE, CUDA, FP32, no cache/writeback). Skip other combos so the arm is
+        # only exercised where it is valid -- same early-return style as below.
+        if use_preproc_bwd and (
+            use_cpu
+            or use_cache
+            or mixed_B
+            or pooling_mode != PoolingMode.SUM
+            or use_writeback_bwd_prehook
+            or weights_precision != SparseType.FP32
+            or output_dtype != SparseType.FP32
+        ):
+            return
         # NOTE: cache is not applicable to CPU version.
         if use_cpu and use_cache:
             return
@@ -327,6 +341,11 @@ class BackwardSGDTest(unittest.TestCase):
             x, L, sum(Bs), use_cpu=use_cpu
         )
 
+        # The preproc op's find_long_segments kernel cannot launch a 0-width grid, so
+        # the preproc arm needs at least one index. The normal backward handles empty.
+        if use_preproc_bwd and indices.numel() == 0:
+            return
+
         batch_size_per_feature_per_rank = Bs_rank_feature if mixed_B else None
 
         # Run TBE's forward
@@ -359,7 +378,23 @@ class BackwardSGDTest(unittest.TestCase):
             goc = torch.cat(gos, dim=0)
 
         # Run TBE's backward
-        fc2.backward(goc)
+        if use_preproc_bwd:
+            # Drive the fused SGD backward through the backend-dispatched
+            # *_pt2_wrapper op with a hoisted index-preproc bundle instead of the
+            # normal autograd backward. The in-place weight update must match the
+            # baseline all the same -- see _run_preproc_backward.
+            self._run_preproc_backward(
+                cc,
+                indices,
+                offsets,
+                goc,
+                B,
+                num_features,
+                weighted,
+                per_sample_weights,
+            )
+        else:
+            fc2.backward(goc)
 
         if use_cache:
             cc.flush()
@@ -382,6 +417,98 @@ class BackwardSGDTest(unittest.TestCase):
                     else (2.0e-2 if weights_precision == SparseType.FP16 else 1.0e-5)
                 ),
             )
+
+    def _run_preproc_backward(
+        self,
+        cc: SplitTableBatchedEmbeddingBagsCodegen,
+        indices: torch.Tensor,
+        offsets: torch.Tensor,
+        grad_output: torch.Tensor,
+        B: int,
+        num_features: int,
+        weighted: bool,
+        per_sample_weights: torch.Tensor | None,
+    ) -> None:
+        """Feed a hoisted index-preproc bundle into the fused SGD backward op.
+
+        Instead of driving the normal autograd backward, compute the index-preproc
+        (``tbe_bwd_indices_preproc``) up front and hand it to the backward driver via
+        the trailing ``preproc_tensors`` arg. The op skips the inline
+        ``transpose_embedding_input`` + ``find_long_segments`` and consumes the bundle
+        instead; the in-place fused SGD weight update is identical, so the caller's
+        existing weight assertion validates numerical correctness.
+
+        The call goes through the backend-dispatched ``*_pt2_wrapper`` op (NOT the
+        CUDA-only ``*_exact_cuda`` op), so the path stays portable across backends
+        (CPU / Meta / MTIA), which is the whole point of routing preproc through the
+        wrapper.
+        """
+        ind, off, _, _ = cc.prepare_inputs(
+            indices, offsets, None, None, force_cast_input_types=True
+        )
+        info_B_num_bits, info_B_mask = torch.ops.fbgemm.get_infos_metadata(
+            cc.hash_size_cumsum, B, num_features
+        )
+        preproc = list(
+            torch.ops.fbgemm.tbe_bwd_indices_preproc(
+                cc.hash_size_cumsum,
+                cc.total_hash_size_bits,
+                ind,
+                off,
+                nobag=False,
+                vbe_b_t_map=None,
+                info_B_num_bits=info_B_num_bits,
+                info_B_mask=info_B_mask,
+                total_unique_indices=-1,
+            )
+        )
+        wdesc = "weighted" if weighted else "unweighted"
+        backward_op = getattr(
+            torch.ops.fbgemm,
+            f"split_embedding_backward_codegen_sgd_{wdesc}_pt2_wrapper",
+        )
+        # Bagged ops always take an indice_weights arg; unweighted passes an empty one.
+        indice_weights = (
+            per_sample_weights
+            if weighted
+            else torch.empty(0, dtype=torch.float, device=cc.weights_dev.device)
+        )
+        # Post-D113869217 the *_pt2_wrapper op takes a packed `weights` TensorList
+        # and a packed `aux_tensor_bwd` TensorList instead of loose tensors. GPU
+        # (non-VBE) layout: weights = [dev, placements, offsets, uvm, lxu_cache];
+        # aux_tensor_bwd = [lxu_cache_locations] (slot 0 only, size 1).
+        weights = [
+            cc.weights_dev,
+            cc.weights_placements,
+            cc.weights_offsets,
+            cc.weights_uvm,
+            cc.lxu_cache_weights,
+        ]
+        aux_tensor_bwd = [cc.lxu_cache_locations_empty]
+        backward_op(
+            grad_output.contiguous(),
+            weights,
+            cc.D_offsets,
+            cc.max_D,
+            cc.mixed_D,
+            cc.hash_size_cumsum,
+            cc.total_hash_size_bits,
+            ind,
+            off,
+            cc.pooling_mode,
+            indice_weights,
+            aux_tensor_bwd,
+            0,  # BT_block_size (unused)
+            32,  # max_segment_length_per_warp
+            cc.stochastic_rounding,
+            info_B_num_bits,
+            info_B_mask,
+            False,  # use_uniq_cache_locations
+            False,  # use_homogeneous_placements
+            cc.learning_rate_tensor,
+            cc.output_dtype,
+            preproc,
+        )
 
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -443,6 +570,57 @@ class BackwardSGDTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,  # output_dtype
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=1, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        long_segments=st.booleans(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+    )
+    def test_backward_sgd_preproc(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        long_segments: bool,
+    ) -> None:
+        """Same fused SGD backward as ``test_backward_sgd``, but the backward is driven
+        through the ``*_pt2_wrapper`` op fed a hoisted index-preproc bundle
+        (``use_preproc_bwd=True``). Consuming the preproc must produce the identical
+        weight update, so this reuses the harness assertion. Constrained to the common
+        path the preproc consume is wired for: bagged/SUM, CUDA, FP32, no cache."""
+        self.execute_backward_sgd_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision=SparseType.FP32,
+            weighted=weighted,
+            mixed=mixed,
+            mixed_B=False,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            long_segments=long_segments,
+            pooling_mode=PoolingMode.SUM,
+            use_cpu=False,
+            output_dtype=SparseType.FP32,
+            use_preproc_bwd=True,
         )
 
     @given(
