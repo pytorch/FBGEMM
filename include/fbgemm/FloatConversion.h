@@ -304,14 +304,14 @@ inline float16 cpu_float2half(const float f) {
 #endif
 }
 
-inline float cpu_bf162float(bfloat16 src) {
-  uint32_t val_fp32 = static_cast<uint32_t>(src.val) << 16;
-  return std::bit_cast<float>(val_fp32);
+constexpr float cpu_bf162float(bfloat16 src) {
+  return std::bit_cast<float>(static_cast<uint32_t>(src.val) << 16);
 }
 
-inline bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp = std::bit_cast<uint32_t>(src);
-  return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
+constexpr bfloat16 cpu_float2bfloat16(float src) {
+  uint32_t bits = std::bit_cast<uint32_t>(src);
+  bits += ((bits >> 16) & 1) + 0x7FFFu; // round to nearest, ties to even
+  return {static_cast<uint16_t>(bits >> 16)};
 }
 
 } // namespace fbgemm
