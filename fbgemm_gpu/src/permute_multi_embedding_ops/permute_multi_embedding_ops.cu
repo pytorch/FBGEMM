@@ -239,16 +239,44 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
   // it should be enforced from the caller side who has the knowledge.
   TORCH_CHECK(!pooled_embs.empty());
   CUDA_DEVICE_GUARD(pooled_embs[0]);
-  TENSORS_ON_SAME_DEVICE(permutes, pooled_embs[0]);
-  TENSORS_ON_SAME_DEVICE(permutes, in_shapes);
-  TENSORS_ON_SAME_DEVICE(permutes, out_shapes);
-  TORCH_CHECK(in_shapes.is_contiguous());
-  TORCH_CHECK(out_shapes.is_contiguous());
+  auto device = pooled_embs[0].device();
 
-  int32_t num_of_input_tensors = in_shapes.size(0);
+  // `permutes`, `in_shapes` and `out_shapes` are small constant index tensors
+  // describing how to slice `pooled_embs` -- together on the order of a few
+  // KiB, against pooled embeddings that are typically hundreds of MiB.
+  // Requiring the caller to place them on the same device is not always
+  // satisfiable: in a statically exported graph they are buffers, resolved to a
+  // device once when the weights are materialized, while `pooled_embs` follows
+  // whichever device the runtime executing the request happens to be on.
+  // Relocate them rather than failing. `in_ptr`/`out_ptr` below already do
+  // exactly this, and so does `kt_regroup_arguments_gpu` for these same three
+  // tensors.
+  const auto to_device = [&device](const Tensor& t, const char* name) {
+    if (t.device() == device) {
+      return t;
+    }
+    TORCH_WARN_ONCE(
+        "permute_multi_embedding: ",
+        name,
+        " is on ",
+        t.device(),
+        " but pooled_embs[0] is on ",
+        device,
+        "; relocating. Expected when the index buffers are pinned to a single "
+        "device and the op runs on several, unexpected otherwise.");
+    return t.to(device, /*non_blocking=*/true);
+  };
+  const auto permutes_dev = to_device(permutes, "permutes");
+  const auto in_shapes_dev = to_device(in_shapes, "in_shapes");
+  const auto out_shapes_dev = to_device(out_shapes, "out_shapes");
+
+  TORCH_CHECK(in_shapes_dev.is_contiguous());
+  TORCH_CHECK(out_shapes_dev.is_contiguous());
+
+  int32_t num_of_input_tensors = in_shapes_dev.size(0);
   int32_t num_of_output_tensors = out_lengths.size();
   int32_t batch_size = pooled_embs[0].size(0);
-  int32_t permute_size = permutes.size(0);
+  int32_t permute_size = permutes_dev.size(0);
 
   // check input tensors
   std::vector<Tensor> inputs;
@@ -268,7 +296,6 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
         at::empty({batch_size, lengths[i]}, pooled_embs[0].options());
     outputs.push_back(output);
   }
-  auto device = pooled_embs[0].device();
 
   // This kernel is moving one feature/key per warp.
   // We are launching ( permute_size//warp_per_block, batch_size, ?)
@@ -314,9 +341,9 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
             at::cuda::getCurrentCUDAStream(),
             reinterpret_cast<const scalar_t**>(in_ptr.data_ptr()),
             reinterpret_cast<scalar_t**>(out_ptr.mutable_data_ptr()),
-            PTA_B(permutes, int32_t, 2, 32),
-            PTA_B(in_shapes, int32_t, 1, 32),
-            PTA_B(out_shapes, int32_t, 1, 32),
+            PTA_B(permutes_dev, int32_t, 2, 32),
+            PTA_B(in_shapes_dev, int32_t, 1, 32),
+            PTA_B(out_shapes_dev, int32_t, 1, 32),
             batch_size,
             permute_size);
       });
