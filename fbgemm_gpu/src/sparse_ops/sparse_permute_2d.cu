@@ -10,6 +10,20 @@
 
 #include "common.cuh"
 
+namespace {
+// Opt-in device-wide sync before permute kernel launches, gated by the
+// FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH environment variable. Disabled by
+// default (zero behavior/perf change). See the launch site in
+// permute_2D_sparse_preallocated_out_cuda for the cross-stream
+// read-after-write rationale.
+inline bool fbgemm_sync_before_permute_launch() {
+  static const int val = std::getenv("FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH")
+      ? std::atoi(std::getenv("FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH"))
+      : 0;
+  return val != 0;
+}
+} // namespace
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -345,6 +359,20 @@ permute_2D_sparse_preallocated_out_cuda(
         indices_contig,
         lengths.size(0),
         weights);
+  }
+
+  // Opt-in guard for cross-stream read-after-write hazards.
+  //
+  // When the input tensors are produced by kernels on a DIFFERENT stream
+  // (e.g. a custom embedding-table / hierarchical-KV lookup stream) and are
+  // consumed here on the current stream with no explicit stream dependency,
+  // the permute kernels may start reading before the producer stream has
+  // finished writing, causing an illegal memory access on some platforms.
+  // recordStream() alone does NOT fix this (it prevents premature free, not
+  // premature read). Setting FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH=1 waits
+  // for all streams at this op point before any kernel is launched.
+  if (fbgemm_sync_before_permute_launch()) {
+    cudaDeviceSynchronize();
   }
 
   Tensor permuted_lengths;
