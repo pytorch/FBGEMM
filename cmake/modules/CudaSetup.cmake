@@ -47,3 +47,30 @@ BLOCK_PRINT(
   ""
   "CUDA_DRIVER_LIBRARIES=${CUDA_DRIVER_LIBRARIES}"
 )
+
+# cuBLAS is called directly from src/sparse_ops/sparse_permute102.cu, but
+# ${TORCH_LIBRARIES} does not put a libcublas DT_NEEDED entry on our targets.
+# Consumers dlopen() our .SO files with RTLD_LOCAL, so the cuBLAS that PyTorch
+# preloads is not visible in our lookup scope either, and the symbols come out
+# undefined at import time.  Link it ourselves.
+set(CUDA_CUBLAS_LIBRARIES "")
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+  if(NOT TARGET CUDA::cublas)
+    find_package(CUDAToolkit QUIET)
+  endif()
+
+  if(TARGET CUDA::cublas)
+    set(CUDA_CUBLAS_LIBRARIES CUDA::cublas)
+  else()
+    message(WARNING
+      "CUDA::cublas target not found; fbgemm_gpu_py will be built without an "
+      "explicit libcublas link and may fail to load with an undefined "
+      "cublas* symbol.")
+  endif()
+endif()
+
+BLOCK_PRINT(
+  "CUDA cuBLAS"
+  ""
+  "CUDA_CUBLAS_LIBRARIES=${CUDA_CUBLAS_LIBRARIES}"
+)

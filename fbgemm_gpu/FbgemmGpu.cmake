@@ -210,6 +210,9 @@ gpu_cpp_library(
     fbgemm_gpu_tbe_cache
     fbgemm_gpu_tbe_optimizers
     fbgemm_gpu_tbe_utils
+    # sparse_permute102.cu calls cublasGemmStridedBatchedEx() directly; see the
+    # note in cmake/modules/CudaSetup.cmake.  Empty for CPU and ROCm builds.
+    ${CUDA_CUBLAS_LIBRARIES}
     ${DEP_MAYBE_TBB}
   DESTINATION
     fbgemm_gpu)

@@ -245,6 +245,15 @@ gpu_cpp_library(
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm_gpu_tbe_training_backward
+    # NOTE: These are symbol providers for this target, and must be listed
+    # explicitly even though fbgemm_gpu_tbe_training_backward already links
+    # them.  fbgemm_gpu/__init__.py dlopen()s each .SO with RTLD_LOCAL, and once
+    # fbgemm_gpu_tbe_training_backward.so is already in the process, the loader
+    # does not re-expand its DT_NEEDED entries into this target's lookup scope.
+    # Relying on the transitive edge yields `undefined symbol` at import time.
+    fbgemm_gpu_config
+    fbgemm_gpu_sparse_async_cumsum
+    fbgemm_gpu_tbe_utils
   DESTINATION
     fbgemm_gpu)
 
@@ -263,6 +272,11 @@ gpu_cpp_library(
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm_gpu_tbe_training_backward
+    # NOTE: See the note on fbgemm_gpu_tbe_training_backward_gwd above -- these
+    # symbol providers cannot be inherited transitively under RTLD_LOCAL.
+    fbgemm_gpu_config
+    fbgemm_gpu_sparse_async_cumsum
+    fbgemm_gpu_tbe_utils
   DESTINATION
     fbgemm_gpu)
 
@@ -282,6 +296,10 @@ gpu_cpp_library(
   DEPS
     fbgemm_gpu_tbe_training_backward
     fbgemm_gpu_config
+    # NOTE: See the note on fbgemm_gpu_tbe_training_backward_gwd above -- this
+    # target calls transpose_embedding_input() et al. directly, so it needs its
+    # own DT_NEEDED entry rather than inheriting one under RTLD_LOCAL.
+    fbgemm_gpu_tbe_utils
   DESTINATION
     fbgemm_gpu)
 
