@@ -75,13 +75,16 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         container-image: [ "ubuntu:22.04" ]
-        build-target: [ "default", "genai" ]
+        # DEBUG PR: trimmed from ["default","genai"] x ["7.0","7.1"] x ["gcc","clang"]
+        # to a single combination.  The probe needs no FBGEMM wheel at all, so
+        # building the full matrix would just occupy shared runners for hours.
+        build-target: [ "default" ]
         # NOTE: we test only a subset of Python versions to reduce CI expenses
         python-version: [ "3.14" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
-        rocm-version: [ "7.0", "7.1" ]
-        compiler: [ "gcc", "clang" ]
+        rocm-version: [ "7.1" ]
+        compiler: [ "gcc" ]
 
     steps:
     - name: Setup Build Container
@@ -161,13 +164,19 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.rocm.gpu.gfx942.1" },
+          # DEBUG PR: the gfx942 label on main is unserved, so jobs using it queue
+          # and are cancelled without ever running.  The probe has to land on the
+          # MI350 runner, which is the environment under investigation.
+          { arch: x86, instance: "linux.rocm.gpu.ecosystem.mi350.1" },
         ]
-        build-target: [ "default", "genai" ]
+        build-target: [ "default" ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.14" ]
         rocm-version: [ "7.1" ]
-        compiler: [ "gcc", "clang" ]
+        compiler: [ "gcc" ]
+    # DEBUG PR: the build dependency is back - profiling the real test needs the
+    # FBGEMM wheel.  The matrix is trimmed to one combination, so this costs ~50
+    # minutes rather than the ~3 hours the full matrix would.
     needs: build_artifact
 
     steps:
@@ -220,12 +229,120 @@ jobs:
       if: ${{ success() || failure() }}
       run: if . $PRELUDE && which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
+    # DEBUG PR: the whole point of this run.  Placed before any FBGEMM step so it
+    # cannot be affected by the wheel, and so its output survives regardless of
+    # what happens later.  Deliberately does not fail the job: we want the numbers
+    # in the log, not a red/green verdict.
+    - name: GPU Virtualization Latency Probe
+      timeout-minutes: 40
+      continue-on-error: true
+      run: |
+        # Resolve the interpreter explicitly; conda is not reliably on PATH in a
+        # fresh step, and a wrong interpreter is the easiest way to waste a round.
+        PY="${HOME}/miniconda/envs/${BUILD_ENV}/bin/python"
+        if [ ! -x "$PY" ]; then
+          echo "[PROBE] $PY not found, falling back to conda run"
+          PY=""
+        fi
+        echo "[PROBE] interpreter: ${PY:-conda run -n $BUILD_ENV python}"
+        ls -la "$(dirname "$PY")" 2>/dev/null | head -5 || true
+        echo "[PROBE] candidate HIP libraries visible:"
+        ls -la /opt/rocm/lib/libamdhip64* 2>/dev/null || echo "  none under /opt/rocm/lib"
+        if [ -n "$PY" ]; then
+          "$PY" -u .github/scripts/vf_latency_probe.py
+        else
+          . $PRELUDE
+          conda run --no-capture-output -n "$BUILD_ENV" python -u .github/scripts/vf_latency_probe.py
+        fi
+
+    # DEBUG PR: replicate the conditions of the hanging UVM tests directly -
+    # the real shapes from the CI log, the same HIP call sequence, per-step
+    # timing, plus the guest and cgroup memory limits that nothing in this
+    # pipeline has ever reported.
+    # Runs the ladder twice, without HSA_XNACK and with HSA_XNACK=1, reporting
+    # gcnArchName in each.  The arch string is the decisive field: it reads
+    # xnack+ only when XNACK actually took effect, so this shows whether the
+    # runner can enter the fast path at all, and what allocation costs if it
+    # cannot.  test_all_fbgemm_gpu_modules sets HSA_XNACK=1 for ROCm, so the
+    # tests run in whichever regime the runner ends up in.
+    - name: UVM Allocation Reproduction
+      timeout-minutes: 55
+      continue-on-error: true
+      env:
+        # Deliberately bounded.  Allocation cost is linear in size on bare metal
+        # (55 ms/GiB from 8 to 58 GiB), so the slope measured at safe sizes
+        # extrapolates to the 786 GiB shapes the real test uses.  Running those
+        # directly would burn the step budget - a 415 GiB allocation blocked for
+        # over 12 minutes on bare metal - and tell us nothing extra.
+        VF_REPRO_BAIL_SECONDS: "30"
+        VF_REPRO_MAX_GIB: "32"
+      run: |
+        PY="${HOME}/miniconda/envs/${BUILD_ENV}/bin/python"
+        [ -x "$PY" ] || PY=""
+        if [ -n "$PY" ]; then
+          "$PY" -u .github/scripts/vf_uvm_repro.py
+        else
+          . $PRELUDE
+          conda run --no-capture-output -n "$BUILD_ENV" python -u .github/scripts/vf_uvm_repro.py
+        fi
+
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Install FBGEMM_GPU Wheel
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
-    - name: Test with PyTest
-      timeout-minutes: 90
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
+    # DEBUG PR: profile the one test that is 51x slower on this runner and that
+    # no primitive measurement has explained.  Runs that nodeid only - the rest
+    # of the suite is not what this measures.
+    #
+    # The env below replicates what __configure_fbgemm_gpu_test_rocm sets, since
+    # we bypass test_all_fbgemm_gpu_modules: without CI=true Hypothesis picks a
+    # different example sequence, and without HIP_LAUNCH_BLOCKING the timing may
+    # not reproduce at all.
+    #
+    # cProfile, not py-spy.  py-spy was tried and rejected: --native has to
+    # symbolize through libtorch/libamdhip64/the FBGEMM .so and fell 221s behind
+    # at 50Hz, and even without --native it made an ~8s test exceed 60s.
+    # cProfile costs ~15% here (9.19s vs ~8s) and answers the first question -
+    # whether the time sits inside the op call or in gradcheck's Python
+    # machinery.  If it turns out to be inside one C++ call, a native profiler
+    # is the follow-up, not the starting point.
+    - name: Profile test_index_select_dim0
+      timeout-minutes: 45
+      continue-on-error: true
+      env:
+        CI: "true"
+        FBGEMM_TEST_WITH_ROCM: "1"
+        HIP_LAUNCH_BLOCKING: "1"
+        HSA_XNACK: "1"
+        FBGEMM_TBE_ROCM_INFERENCE_PACKED_BAGS: "1"
+      run: |
+        PY="${HOME}/miniconda/envs/${BUILD_ENV}/bin/python"
+        [ -x "$PY" ] || PY="$(command -v python)"
+        # Bypassing test_all_fbgemm_gpu_modules skips the dependency install it
+        # performs as well as the environment it sets: pytest and expecttest are
+        # in neither requirements.txt nor install_build_tools, and are installed
+        # by fbgemm_gpu_testing_setup.  Call that directly rather than
+        # reimplementing it.  It pushd's into a scratch directory, so pop back.
+        . $PRELUDE
+        fbgemm_gpu_testing_setup "$BUILD_ENV"
+        popd 2>/dev/null || true
+
+        cd fbgemm_gpu/test
+        NODEID="./sparse/index_select_test.py::IndexSelectTest::test_index_select_dim0"
+
+        start=$(date +%s)
+        "$PY" -u -m cProfile -o /tmp/prof.out -m pytest -q -s \
+          -W ignore::pytest.PytestCollectionWarning --cache-clear "$NODEID" \
+          || echo "[PROFILE] pytest returned non-zero"
+        echo "[PROFILE] wall time: $(( $(date +%s) - start ))s"
+
+        "$PY" - <<'PYEOF'
+        import pstats
+        p = pstats.Stats("/tmp/prof.out")
+        print("\n=== top 40 by cumulative time ===")
+        p.sort_stats("cumulative").print_stats(40)
+        print("\n=== top 40 by total (self) time ===")
+        p.sort_stats("tottime").print_stats(40)
+        PYEOF
