@@ -15,9 +15,13 @@ import re
 import jinja2
 
 try:
+    from .optimizer_args import maybe_unused_args
     from .scripts_argsparse import args
     from .torch_type_utils import TensorType
 except Exception:
+    # pyre-ignore[21]
+    from optimizer_args import maybe_unused_args
+
     # pyre-ignore[21]
     from scripts_argsparse import args
 
@@ -472,3 +476,4 @@ env.filters["make_pta_acc_builder_format"] = make_pta_acc_builder_format
 env.filters["replace_pta_namespace"] = replace_pta_namespace
 env.filters["replace_placeholder_types"] = replace_placeholder_types
 env.filters["to_upper_placeholder_types"] = to_upper_placeholder_types
+env.filters["maybe_unused_args"] = maybe_unused_args

@@ -59,13 +59,13 @@ Tensor batch_index_select_dim0_codegen_backward_meta(
 Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_meta(
 {%- endif %}
     const Tensor& grad_output [[maybe_unused]],
-    const Tensor& dev_weights,
+    {{ "" if (dense or optimizer == "none") else "[[maybe_unused]] " }}const Tensor& dev_weights,
     {%- if not dense %}
     const Tensor& uvm_weights [[maybe_unused]],
     const Tensor& lxu_cache_weights [[maybe_unused]],
     const Tensor& weights_placements [[maybe_unused]],
     {%- endif %}
-    const Tensor& weights_offsets,
+    {{ "" if (nobag and not is_index_select) else "[[maybe_unused]] " }}const Tensor& weights_offsets,
     {%- if not nobag or is_index_select %}
     const Tensor& D_offsets,
     const c10::SymInt max_D,
@@ -121,13 +121,13 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     const bool permute_output_dim_0_1
     {%- elif optimizer != "none" %}
     {%- if is_gwd %}
-    const Tensor& prev_iter_dev,
+    [[maybe_unused]] const Tensor& prev_iter_dev,
     {%- if "iter" not in args.split_function_arg_names %}
-    const int64_t iter,
+    [[maybe_unused]] const int64_t iter,
     {%- endif %}
-    const double gwd_lower_bound,
+    [[maybe_unused]] const double gwd_lower_bound,
     {%- endif -%}
-    {{ args.split_function_args_no_defaults | join(", ") }}
+    {{ args.split_function_args_no_defaults_by_surface["meta"] | join(", ") }}
     {%- else %}
     // This is actually passed via args.split_function_args_no_defaults but explicitly list
     // it here for code readability

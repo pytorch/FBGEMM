@@ -215,7 +215,7 @@ void _bounds_check_indices_cuda_v2(
     Tensor& offsets,
     BoundsCheckMode bounds_check_mode,
     Tensor& warning,
-    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& /*weights*/,
     const std::optional<Tensor>& B_offsets,
     int64_t /*max_B*/,
     const std::optional<Tensor>& b_t_map,

@@ -18,6 +18,10 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+{#- /* Without CPU support the V1 lookup function keeps its registered schema
+      but its body is only a deprecation TORCH_CHECK, so no argument is read. */ #}
+{%- set mu_stub = "" if has_cpu_support else "[[maybe_unused]] " %}
+
 {% if has_cpu_support %}
 /// @defgroup embedding-cpu Embedding CPU Operators
 
@@ -201,24 +205,24 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
 {%- if args.split_function_args_v1 is not none %}
 ///@ingroup embedding-cpu
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
-    Tensor host_weights,
-    Tensor weights_placements,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    c10::SymInt total_D,
-    c10::SymInt max_D,
-    Tensor hash_size_cumsum,
-    int64_t total_hash_size_bits,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
-    std::optional<Tensor> indice_weights,
-    std::optional<Tensor> feature_requires_grad,
-    bool gradient_clipping,
-    double max_gradient,
-    bool stochastic_rounding,
-    {{ args.split_function_args_v1 }},
-    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+    {{ mu_stub }}Tensor host_weights,
+    {{ mu_stub }}Tensor weights_placements,
+    {{ mu_stub }}Tensor weights_offsets,
+    {{ mu_stub }}Tensor D_offsets,
+    {{ mu_stub }}c10::SymInt total_D,
+    {{ mu_stub }}c10::SymInt max_D,
+    {{ mu_stub }}Tensor hash_size_cumsum,
+    {{ mu_stub }}int64_t total_hash_size_bits,
+    {{ mu_stub }}Tensor indices,
+    {{ mu_stub }}Tensor offsets,
+    {{ mu_stub }}int64_t pooling_mode,
+    {{ mu_stub }}std::optional<Tensor> indice_weights,
+    {{ mu_stub }}std::optional<Tensor> feature_requires_grad,
+    {{ mu_stub }}bool gradient_clipping,
+    {{ mu_stub }}double max_gradient,
+    {{ mu_stub }}bool stochastic_rounding,
+    {{ args.split_function_args_v1 | maybe_unused_args(not has_cpu_support) }},
+    {{ mu_stub }}int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   {% if has_cpu_support %}
   {%- if "learning_rate_tensor" in args.split_function_arg_names %}
   // `learning rate` is changed to tensor to prevent recompilation.
