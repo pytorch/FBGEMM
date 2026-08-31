@@ -277,9 +277,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
       total_adjusted_D += T * kINT8QparamsBytes;
     }
     output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
-    if (!output_is_int8 && !output_is_int4) {
-      output.fill_(0);
-    }
+    // No pre-zero of the pooled output: the SpMDM kernel writes every output
+    // element itself (each bag's row is emitted via fill_output, and empty bags
+    // are zeroed via fillZero before it). For FP32/FP16/BF16, total_adjusted_D ==
+    // total_D and D_offsets fully partition [0, total_D), so every column of every
+    // row is overwritten. int8/int4 are never pre-zeroed (they carry inline
+    // qparam bytes the kernel writes). On kernel failure the output is zeroed and
+    // an error is thrown before it can be observed (see the !success path below).
     {% else %}
     constexpr int kINT8QparamsBytes = 4; // no bag int8 output aligns with fbgemm weights storage size and layout
     constexpr int kINT4QparamsElems = 8; // scale + bias takes 4 bytes which are 8 int4 elements
@@ -518,6 +522,29 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                         "Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
                 }
                 if (!success) {
+                    {% if not nobag %}
+                    // Zero only THIS table's own column slice [D_start, D_end) across
+                    // all B rows -- never the whole `output` (that would race: this
+                    // runs inside parallel_for_table_threads's OpenMP region, where
+                    // other tables are still concurrently writing their own disjoint
+                    // slices of the same shared tensor via D_offsets partitioning).
+                    // report_embedding_error only bounds-checks index values, not
+                    // `end` against `index_size`, so a `!success` caused by corrupt
+                    // offsets (rather than an out-of-bounds index) can in principle
+                    // return without throwing; this keeps that path from returning
+                    // uninitialized memory for this table's slice. Skipped for
+                    // int8/int4, which pack inline qparam bytes the kernel writes
+                    // per-row -- a raw zero-fill isn't a meaningful value there, same
+                    // as the removed pre-fill above.
+                    if (!output_is_int8 && !output_is_int4) {
+                      for (const auto b : c10::irange(B)) {
+                        std::memset(
+                            output_acc + static_cast<int64_t>(b) * output_stride + D_start,
+                            0,
+                            static_cast<size_t>(D) * sizeof(output_t));
+                      }
+                    }
+                    {% endif %}
                     fbgemm_gpu::report_embedding_error(
                         t,
                         B,
