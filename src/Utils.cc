@@ -594,7 +594,9 @@ void radix_sort_kernel(
     local_histogram[i] = 0;
   }
 
+#ifdef _OPENMP
 #pragma omp for schedule(static)
+#endif
   for (int64_t i = 0; i < elements_count_4; i += 4) {
     const auto key_1 = input_keys[i];
     const auto key_2 = input_keys[i + 1];
@@ -612,7 +614,9 @@ void radix_sort_kernel(
       local_histogram[(key >> (pass * 8)) & 0xFF]++;
     }
   }
+#ifdef _OPENMP
 #pragma omp barrier
+#endif
   // Step 2: prefix sum
   if (tid == 0) {
     if (pass_with_sign_bit) {
@@ -623,10 +627,14 @@ void radix_sort_kernel(
       combine_prefix_sum(nthreads, elements_count, histogram, histogram_ps);
     }
   }
+#ifdef _OPENMP
 #pragma omp barrier
+#endif
 
   // Step 3: scatter
+#ifdef _OPENMP
 #pragma omp for schedule(static)
+#endif
   for (int64_t i = 0; i < elements_count_4; i += 4) {
     const auto key_1 = input_keys[i];
     const auto key_2 = input_keys[i + 1];
@@ -700,7 +708,9 @@ std::pair<K*, V*> radix_sort_parallel(
 
   const unsigned int num_passes = (num_bits + 7) / 8;
 
+#ifdef _OPENMP
 #pragma omp parallel
+#endif
   {
     K* input_keys = inp_key_buf;
     V* input_values = inp_value_buf;
@@ -721,7 +731,9 @@ std::pair<K*, V*> radix_sort_parallel(
 
       std::swap(input_keys, output_keys);
       std::swap(input_values, output_values);
+#ifdef _OPENMP
 #pragma omp barrier
+#endif
       {
       }
     }
