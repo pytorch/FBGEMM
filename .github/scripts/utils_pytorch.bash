@@ -27,10 +27,19 @@ __verify_pytorch_gpu_integration () {
   local torch_version_cuda=$(conda run ${env_prefix} python -c "import torch; print(torch.version.cuda)")
   # shellcheck disable=SC2086,SC2155
   local torch_version_hip=$(conda run ${env_prefix} python -c "import torch; print(torch.version.hip)")
-  # shellcheck disable=SC2086,SC2155
-  local torch_device_compatibility=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.get_device_capability())")
-  # shellcheck disable=SC2086,SC2155
-  local torch_device_name=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.get_device_name(torch.cuda.current_device()))")
+  # Only query CUDA device properties when CUDA is actually available.  On the
+  # CPU lane (torch built without CUDA), get_device_capability()/get_device_name()
+  # raise "Torch not compiled with CUDA enabled" and fail the whole check.
+  local torch_device_compatibility torch_device_name
+  if [ "${torch_cuda_available}" == "True" ]; then
+    # shellcheck disable=SC2086,SC2155
+    torch_device_compatibility=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.get_device_capability())")
+    # shellcheck disable=SC2086,SC2155
+    torch_device_name=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.get_device_name(torch.cuda.current_device()))")
+  else
+    torch_device_compatibility="N/A (CUDA not available)"
+    torch_device_name="N/A (CUDA not available)"
+  fi
 
   echo ""
   echo "################################################################################"
