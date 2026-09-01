@@ -27,5 +27,8 @@ gpu_cpp_library(
     ${fbgemm_thirdparty_include_directories}
   OTHER_SRCS
     ${asmjit_sources}
+  # asmjit is third-party code, so do not apply this warning to its sources.
+  EXCLUDED_WARNING_FLAGS
+    -Wunused-const-variable
   DESTINATION
     fbgemm_gpu)

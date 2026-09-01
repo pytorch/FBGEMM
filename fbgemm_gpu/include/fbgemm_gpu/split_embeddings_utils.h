@@ -13,10 +13,11 @@
 // These values are adjusted in backward based on B and T
 constexpr int DEFAULT_INFO_NUM_BITS = 32;
 constexpr int DEFAULT_INFO_B_NUM_BITS = 26;
-constexpr uint32_t DEFAULT_INFO_B_MASK = (1u << DEFAULT_INFO_B_NUM_BITS) - 1;
-constexpr uint32_t MAX_T =
+[[maybe_unused]] constexpr uint32_t DEFAULT_INFO_B_MASK =
+    (1u << DEFAULT_INFO_B_NUM_BITS) - 1;
+[[maybe_unused]] constexpr uint32_t MAX_T =
     (1u << (DEFAULT_INFO_NUM_BITS - DEFAULT_INFO_B_NUM_BITS)) - 1;
-constexpr uint32_t MAX_B = (1u << DEFAULT_INFO_B_NUM_BITS) - 1;
+[[maybe_unused]] constexpr uint32_t MAX_B = (1u << DEFAULT_INFO_B_NUM_BITS) - 1;
 
 std::tuple<int64_t, int64_t>
 get_infos_metadata(at::Tensor unused, int64_t B, int64_t T);
