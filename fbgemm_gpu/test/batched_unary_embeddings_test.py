@@ -24,10 +24,10 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_memory_lt_gb, gpu_unavailable
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable, skipIfRocm
 
 except Exception:
-    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable, skipIfRocm
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
@@ -226,6 +226,10 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `test_utils.gpu_unavailable` to decorator factory `unittest.skipIf`.
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm(
+        "Known failure on ROCm: the permute sub-test faults with a GPU memory "
+        "access violation"
+    )
     def test_gpu(self) -> None:
         self._test_main(gpu_infer=True)
 

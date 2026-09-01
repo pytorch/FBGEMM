@@ -20,7 +20,7 @@ namespace fbgemm {
 // Tuning constants (Neoverse-V2 / CG1).
 constexpr int64_t CACHE_LINE_SIZE = 64;
 constexpr int64_t DEFAULT_L1_PREFETCH_DISTANCE = 16;
-constexpr int64_t MAX_TLB_PRIME_INDEX_SIZE = 256;
+[[maybe_unused]] constexpr int64_t MAX_TLB_PRIME_INDEX_SIZE = 256;
 constexpr int64_t DEFAULT_L2_LARGE_TABLE_MB = 64;
 
 // Enable the farther L2 tier only when its per-row overhead can pay off: the

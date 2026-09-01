@@ -19,7 +19,7 @@ namespace fbgemm {
 
 /// Number of columns in the rowwise min/max buffer passed to the quantization
 /// function(s)
-constexpr int kRowwiseMinMaxNumCols = 2;
+[[maybe_unused]] constexpr int kRowwiseMinMaxNumCols = 2;
 
 /// Struct from <a href="https://github.com/google/gemmlowp">`gemmlowp`</a>
 ///

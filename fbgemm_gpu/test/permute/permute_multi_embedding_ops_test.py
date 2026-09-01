@@ -80,6 +80,55 @@ class PermuteMultiEmbeddingOpsTest(unittest.TestCase):
         torch.testing.assert_close(outputs[1], pooled_embs[1])
 
     @unittest.skipIf(*gpu_unavailable)
+    def test_permute_multi_embedding_index_tensors_on_other_device(self) -> None:
+        """The index tensors are relocated to pooled_embs[0]'s device instead of
+        being required to already match it.
+
+        A statically exported graph resolves these buffers to one device when
+        the weights are materialized, while pooled_embs follows whichever device
+        the executing runtime is on, so the two legitimately disagree. Uses CPU
+        index tensors so the relocation path is covered on a single-GPU host;
+        the cross-GPU case takes the identical branch.
+        """
+        device = torch.accelerator.current_accelerator()
+        batch_size = 4
+        in_lengths = [4, 8]
+        out_lengths = [4, 8]
+
+        # Deliberately left on CPU while pooled_embs are on the accelerator.
+        permutes = torch.tensor(
+            [
+                [0, 0, 0, 0, 4, -1],
+                [1, 1, 0, 0, 8, -1],
+            ],
+            dtype=PERMUTES_DTYPE,
+        )
+        in_shapes = torch.tensor(in_lengths, dtype=SHAPES_DTYPE)
+        out_shapes = torch.tensor(out_lengths, dtype=SHAPES_DTYPE)
+        self.assertEqual(permutes.device.type, "cpu")
+
+        pooled_embs = [
+            torch.arange(batch_size * length, dtype=torch.float32, device=device)
+            .view(batch_size, length)
+            .contiguous()
+            for length in in_lengths
+        ]
+
+        outputs = torch.ops.fbgemm.permute_multi_embedding(
+            pooled_embs,
+            permutes,
+            in_shapes,
+            out_shapes,
+            out_lengths,
+        )
+
+        self.assertEqual(len(outputs), 2)
+        torch.testing.assert_close(outputs[0], pooled_embs[0])
+        torch.testing.assert_close(outputs[1], pooled_embs[1])
+        # The caller's tensors are not mutated by the relocation.
+        self.assertEqual(permutes.device.type, "cpu")
+
+    @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(4))
     def test_permute_multi_embedding_large_grid(self) -> None:
         """

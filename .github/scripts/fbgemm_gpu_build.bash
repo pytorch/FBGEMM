@@ -204,6 +204,12 @@ __configure_fbgemm_gpu_build_docs () {
 __configure_fbgemm_gpu_build_rocm () {
   local fbgemm_variant_targets="$1"
 
+  # Set from the CI build matrix.  Without it the arch_list selection below
+  # reads an unset array, so gfx950 is dropped and the wheel has no MI350 code
+  # object.
+  # shellcheck disable=SC2206
+  local rocm_version_arr=(${BUILD_ROCM_VERSION//./ })
+
   # By default, we build for a limited number of target architectures to save on
   # build time.  This list needs to be updated if the CI ROCm machines have
   # different hardware.

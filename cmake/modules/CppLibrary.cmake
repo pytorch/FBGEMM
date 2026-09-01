@@ -118,7 +118,18 @@ function(fbgemm_get_warning_flags)
     # than -Wshorten-64-to-32, because it is diffuse: only 19% sit in the top
     # five files, versus 79% for -Wshadow. Rank by file count and
     # concentration, not by raw count.
-    -Wzero-as-null-pointer-constant)
+    -Wzero-as-null-pointer-constant
+    # ---- Parity gap G1: unused-family flags fbcode enables globally ---------
+    # Probed accepted on g++ 11.5 AND clang 22, so portable.
+    # -Wunused-variable and -Wunused-but-set-variable are already [enabled] by
+    # -Wall/-Wextra (verified with `g++ -Wall -Wextra -Q --help=warning`), so
+    # naming them explicitly is parity, not a behaviour change. It also makes
+    # the pre-existing -Wno-error=unused-but-set-variable escapes meaningful:
+    # an escape without its positive flag is inert.
+    # -Wunused-const-variable IS a real addition (gcc maps it to level =2).
+    -Wunused-variable
+    -Wunused-const-variable
+    -Wunused-but-set-variable)
 
   # Clang-only warning flags. These are appended to `_cc` ONLY when the host
   # compiler is clang (see the guarded append below), because the OSS CI matrix

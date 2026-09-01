@@ -168,6 +168,7 @@ function(gpu_cpp_library)
         CC_FLAGS            # General compilation flags applicable to all build variants
         NVCC_FLAGS          # Compilation flags specific to NVCC
         HIPCC_FLAGS         # Compilation flags specific to HIPCC
+        EXCLUDED_WARNING_FLAGS # Shared warning flags not applied to this target
         INCLUDE_DIRS        # First-party include directories for compilation
         SYSTEM_INCLUDE_DIRS # Third-party include directories, passed as SYSTEM to suppress their warnings
         DEPS                # Target dependencies, i.e. built STATIC targets
@@ -240,6 +241,12 @@ function(gpu_cpp_library)
         HIPCC_FLAGS_VAR _hipcc_warning_flags
         EXTRA_MSVC_FLAGS ${args_MSVC_FLAGS}
         EXTRA_CC_FLAGS   ${args_CC_FLAGS})
+
+    foreach(_flag IN LISTS args_EXCLUDED_WARNING_FLAGS)
+        list(REMOVE_ITEM _cc_flags "${_flag}")
+        list(REMOVE_ITEM _nvcc_warning_flags "-Xcompiler=${_flag}")
+        list(REMOVE_ITEM _hipcc_warning_flags "${_flag}")
+    endforeach()
 
     if(MSVC)
         set(lib_cc_flags ${_msvc_flags})
