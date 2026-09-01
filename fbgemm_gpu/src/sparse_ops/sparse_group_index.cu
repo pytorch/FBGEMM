@@ -398,9 +398,11 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
     const int group_size,
     const bool use_index_select,
     const bool use_var_cols,
-    const bool use_contiguous_warps,
-    const bool use_cache,
-    const bool use_packed_rows) {
+    // Read only by the ROCm variant selection below; the CUDA build pins all
+    // three to std::false_type.
+    [[maybe_unused]] const bool use_contiguous_warps,
+    [[maybe_unused]] const bool use_cache,
+    [[maybe_unused]] const bool use_packed_rows) {
   if (group_size == 0) {
     return;
   }

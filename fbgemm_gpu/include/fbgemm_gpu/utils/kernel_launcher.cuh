@@ -167,7 +167,9 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
 
   constexpr inline void checkThreadCountNotExceeded(
       const cudaDeviceProp& properties,
-      const dim3& grid,
+      // Read only by the total-thread bound check below, which is compiled for
+      // HIP and pre-SM70 CUDA.
+      [[maybe_unused]] const dim3& grid,
       const dim3& block) const {
     const uint64_t threads_per_block =
         U64(block.x) * U64(block.y) * U64(block.z);
