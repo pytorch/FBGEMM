@@ -146,7 +146,7 @@ static void run_benchmark(
             batch_size,
             lengths_sum,
             num_rows,
-            reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
+            embedding_table_fp16.data(),
             indices_32.data(),
             offsets.data(),
             has_weight ? weights.data() : nullptr,
@@ -158,7 +158,7 @@ static void run_benchmark(
             batch_size,
             lengths_sum,
             num_rows,
-            reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
+            embedding_table_fp16.data(),
             indices.data(),
             offsets.data(),
             has_weight ? weights.data() : nullptr,
@@ -172,7 +172,7 @@ static void run_benchmark(
             batch_size,
             lengths_sum,
             num_rows,
-            reinterpret_cast<const uint16_t*>(embedding_table_bf16.data()),
+            embedding_table_bf16.data(),
             indices_32.data(),
             offsets.data(),
             has_weight ? weights.data() : nullptr,
@@ -184,7 +184,7 @@ static void run_benchmark(
             batch_size,
             lengths_sum,
             num_rows,
-            reinterpret_cast<const uint16_t*>(embedding_table_bf16.data()),
+            embedding_table_bf16.data(),
             indices.data(),
             offsets.data(),
             has_weight ? weights.data() : nullptr,
@@ -223,26 +223,14 @@ static void run_benchmark(
         embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
     auto kernel_fp32_i64 = GenerateEmbeddingSpMDM<float, int64_t>(
         embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
-    auto kernel_fp16_i32 = GenerateEmbeddingSpMDM<uint16_t, int32_t>(
+    auto kernel_fp16_i32 = GenerateEmbeddingSpMDM<float16, int32_t>(
         embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
-    auto kernel_fp16_i64 = GenerateEmbeddingSpMDM<uint16_t, int64_t>(
+    auto kernel_fp16_i64 = GenerateEmbeddingSpMDM<float16, int64_t>(
         embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
-    auto kernel_bf16_i32 = GenerateEmbeddingSpMDM<uint16_t, int32_t>(
-        embedding_dim,
-        has_weight,
-        normalize_by_lengths,
-        prefetch ? 16 : 0,
-        /*is_weight_positional=*/false,
-        /*use_offsets=*/true,
-        /*is_bf16_out=*/true);
-    auto kernel_bf16_i64 = GenerateEmbeddingSpMDM<uint16_t, int64_t>(
-        embedding_dim,
-        has_weight,
-        normalize_by_lengths,
-        prefetch ? 16 : 0,
-        /*is_weight_positional=*/false,
-        /*use_offsets=*/true,
-        /*is_bf16_out=*/true);
+    auto kernel_bf16_i32 = GenerateEmbeddingSpMDM<fbgemm::bfloat16, int32_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+    auto kernel_bf16_i64 = GenerateEmbeddingSpMDM<fbgemm::bfloat16, int64_t>(
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
@@ -254,8 +242,7 @@ static void run_benchmark(
                     batch_size,
                     lengths_sum,
                     num_rows,
-                    reinterpret_cast<const uint16_t*>(
-                        embedding_table_fp16.data()),
+                    embedding_table_fp16.data(),
                     indices_32.data(),
                     offsets.data(),
                     has_weight ? weights.data() : nullptr,
@@ -265,8 +252,7 @@ static void run_benchmark(
                     batch_size,
                     lengths_sum,
                     num_rows,
-                    reinterpret_cast<const uint16_t*>(
-                        embedding_table_fp16.data()),
+                    embedding_table_fp16.data(),
                     indices.data(),
                     offsets.data(),
                     has_weight ? weights.data() : nullptr,
@@ -278,8 +264,7 @@ static void run_benchmark(
                     batch_size,
                     lengths_sum,
                     num_rows,
-                    reinterpret_cast<const uint16_t*>(
-                        embedding_table_bf16.data()),
+                    embedding_table_bf16.data(),
                     indices_32.data(),
                     offsets.data(),
                     has_weight ? weights.data() : nullptr,
@@ -289,8 +274,7 @@ static void run_benchmark(
                     batch_size,
                     lengths_sum,
                     num_rows,
-                    reinterpret_cast<const uint16_t*>(
-                        embedding_table_bf16.data()),
+                    embedding_table_bf16.data(),
                     indices.data(),
                     offsets.data(),
                     has_weight ? weights.data() : nullptr,

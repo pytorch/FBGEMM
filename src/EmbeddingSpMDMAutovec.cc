@@ -30,8 +30,6 @@
 #include <cassert>
 #include <cstring>
 #include <memory>
-#include <type_traits>
-#include <utility>
 
 /// @defgroup tbe-cpu-autovec TBE CPU Autovectorization (FP8/16/32)
 
@@ -62,30 +60,9 @@ template <typename OutType>
 static inline void fill_output(
     OutType* out,
     const float* src,
-    const int64_t block_size,
-    const bool is_bf16_out) {
-  if constexpr (std::is_same_v<OutType, float>) {
-    for (int j = 0; j < block_size; ++j) {
-      out[j] = src[j];
-    }
-  } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-    if (is_bf16_out) {
-      for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2bfloat16(src[j]).val;
-      }
-    } else {
-      for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2half(src[j]).val;
-      }
-    }
-  } else if constexpr (std::is_same_v<OutType, float16>) {
-    for (int j = 0; j < block_size; ++j) {
-      out[j] = cpu_float2half(src[j]);
-    }
-  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
-    for (int j = 0; j < block_size; ++j) {
-      out[j] = cpu_float2bfloat16(src[j]);
-    }
+    const int64_t block_size) {
+  for (int j = 0; j < block_size; ++j) {
+    out[j] = from_float<OutType>(src[j]);
   }
 }
 
@@ -130,18 +107,13 @@ static inline void fillZero(float* ptr, int64_t count) {
 }
 
 template <typename OutType>
-static constexpr EmbeddingStatsTracker::DataType get_output_type(
-    const bool is_bf16_out) {
+static inline EmbeddingStatsTracker::DataType get_output_type() {
   if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
   } else if constexpr (std::is_same_v<OutType, bfloat16>) {
     return EmbeddingStatsTracker::DataType::BF16;
-  } else if constexpr (std::is_same_v<OutType, float16>) {
-    return EmbeddingStatsTracker::DataType::FP16;
   } else {
-    // uint16_t legacy storage: fp16 vs bf16 is selected at runtime.
-    return is_bf16_out ? EmbeddingStatsTracker::DataType::BF16
-                       : EmbeddingStatsTracker::DataType::FP16;
+    return EmbeddingStatsTracker::DataType::FP16;
   }
 }
 
@@ -162,12 +134,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last,
-    const bool no_bag,
-    const bool is_bf16_out) {
+    const bool no_bag) {
   constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
   }
+  constexpr int64_t CACHE_LINE_SIZE = 64;
   constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
   const int64_t prefetch_stride =
       std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
@@ -213,9 +185,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
           bias = *(
               reinterpret_cast<const float*>(scale_bias_addr + sizeof(float)));
         } else {
-          scale = cpu_half2float(
+          scale = to_float(
               *reinterpret_cast<const float16*>(scale_bias_addr));
-          bias = cpu_half2float(*reinterpret_cast<const float16*>(
+          bias = to_float(*reinterpret_cast<const float16*>(
               scale_bias_addr + sizeof(float16)));
         }
         if (weights) {
@@ -236,7 +208,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
           uint8_t value = input_row[j];
           buf[j] = std::fma(scale, static_cast<float>(value), bias);
         }
-        fill_output(out, buf, block_size, is_bf16_out);
+        fill_output(out, buf, block_size);
       }
       out += output_stride;
     } // m
@@ -246,7 +218,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         block_size,
         EmbeddingStatsTracker::DataType::INT8,
         isOutput8bit ? EmbeddingStatsTracker::DataType::INT8
-                     : get_output_type<OutType>(is_bf16_out),
+                     : get_output_type<OutType>(),
         output_size,
         1);
     return true;
@@ -268,7 +240,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         data_size,
         block_size,
         EmbeddingStatsTracker::DataType::INT8,
-        get_output_type<OutType>(is_bf16_out),
+        get_output_type<OutType>(),
         output_size,
         len);
 
@@ -286,7 +258,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         do_prefetch(prefetch_addr + offset, 1);
       }
       if (idx < 0 || idx >= data_size) {
-        // Skip pruned rows.
+        // Skip pruned rows. When scale_bias_last == false, this is a table
+        // batched embedding (TBE) forward where -1 marks a pruned row that
+        // contributes nothing to the pooled result.
         if (idx == -1 && !scale_bias_last) {
           if (weights_addr != nullptr) {
             weights_addr++;
@@ -307,8 +281,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
             *(reinterpret_cast<const float*>(scale_bias_addr + sizeof(float)));
       } else {
         scale =
-            cpu_half2float(*reinterpret_cast<const float16*>(scale_bias_addr));
-        bias = cpu_half2float(*reinterpret_cast<const float16*>(
+            to_float(*reinterpret_cast<const float16*>(scale_bias_addr));
+        bias = to_float(*reinterpret_cast<const float16*>(
             scale_bias_addr + sizeof(float16)));
       }
 
@@ -337,7 +311,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         buf[j] *= scale;
       }
     }
-    fill_output(out, buf, block_size, is_bf16_out);
+    fill_output(out, buf, block_size);
     out += output_stride;
   }
   return current == index_size;
@@ -361,7 +335,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last,
-    const bool is_bf16_out,
     const bool no_bag,
     int output_bit_rate) {
   nbit_embedding_sanity_check<OutType>(input_bit_rate, output_bit_rate, no_bag);
@@ -483,7 +456,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         block_size,
         input_bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
                             : EmbeddingStatsTracker::DataType::INT2,
-        get_output_type<OutType>(is_bf16_out),
+        get_output_type<OutType>(),
         output_size,
         len);
     fillZero(buf, rounded_block_size);
@@ -512,8 +485,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
           *reinterpret_cast<const float16*>(scale_bias_addr + sizeof(float16));
       static_assert(sizeof(scale16) + sizeof(bias16) == scale_bias_size);
 
-      float scale = cpu_half2float(scale16);
-      float bias = cpu_half2float(bias16);
+      float scale = to_float(scale16);
+      float bias = to_float(bias16);
       if (weights != nullptr) {
         float weight = *weights_addr++;
         scale *= weight;
@@ -607,7 +580,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         buf[j] *= scale;
       }
     }
-    fill_output(out, buf, block_size, is_bf16_out);
+    fill_output(out, buf, block_size);
     out += output_stride;
   }
   return current == index_size;
@@ -674,8 +647,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
       const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
 
       float scale =
-          cpu_half2float(*reinterpret_cast<const float16*>(scale_bias_addr));
-      float bias = cpu_half2float(
+          to_float(*reinterpret_cast<const float16*>(scale_bias_addr));
+      float bias = to_float(
           *reinterpret_cast<const float16*>(scale_bias_addr + sizeof(float16)));
 
       if (weights != nullptr) {
@@ -788,10 +761,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
 /// set to `true` for FP32 autovec implementation (`bool`)
 /// @param no_bag If `true`, no embedding bag; set to `false` for FP32 autovec
 /// implementation (`bool`)
-/// @param is_bf16_out If `true`, output is `BFLOAT16` type; set to `false` for
-/// FP32 autovec implementation (`bool`)
-/// @param is_bf16_in If `true`, input is `BFLOAT16` type; set to `false` for
-/// FP32 autovec implementation (`bool`)
 template <
     typename InType,
     typename IndexType,
@@ -813,9 +782,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last,
-    const bool no_bag,
-    const bool is_bf16_out,
-    const bool is_bf16_in) {
+    const bool no_bag) {
   if (data_size < 0) {
     return false;
   }
@@ -843,36 +810,36 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = weight * convert_to_float_ref(*inptr, is_bf16_in);
+          buf[j] = weight * to_float(*inptr);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = weight * convert_to_float_ref(*inptr, is_bf16_in);
+          buf[j] = weight * to_float(*inptr);
         }
       } else {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = convert_to_float_ref(*inptr, is_bf16_in);
+          buf[j] = to_float(*inptr);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = convert_to_float_ref(*inptr, is_bf16_in);
+          buf[j] = to_float(*inptr);
         }
       }
-      fill_output(out, buf, block_size, is_bf16_out);
+      fill_output(out, buf, block_size);
       out += output_stride;
     } // m
 
     EmbeddingStatsTracker::getInstance().recordPattern(
         data_size,
         block_size,
-        is_bf16_in ? EmbeddingStatsTracker::DataType::BF16
+        std::is_same_v<InType, bfloat16> ? EmbeddingStatsTracker::DataType::BF16
                    : EmbeddingStatsTracker::DataType::FP32,
-        get_output_type<OutType>(is_bf16_out),
+        get_output_type<OutType>(),
         output_size,
         1);
 
@@ -885,6 +852,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
   constexpr int64_t max_prefetch_bytes = 4096;
   // 16 is manually tuned for Neoverse-V2 for best performance
   constexpr int64_t max_initial_prefetch_rows = 8;
+  constexpr int64_t CACHE_LINE_SIZE = 64;
   const int64_t rows_to_prefetch =
       std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
   const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
@@ -913,9 +881,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
     EmbeddingStatsTracker::getInstance().recordPattern(
         data_size,
         block_size,
-        is_bf16_in ? EmbeddingStatsTracker::DataType::BF16
+        std::is_same_v<InType, bfloat16> ? EmbeddingStatsTracker::DataType::BF16
                    : EmbeddingStatsTracker::DataType::FP32,
-        get_output_type<OutType>(is_bf16_out),
+        get_output_type<OutType>(),
         output_size,
         len);
 
@@ -960,12 +928,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
       for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
         InType value = *input_row++;
-        buf[j] = std::fma(w, convert_to_float_ref(value, is_bf16_in), buf[j]);
+        buf[j] = std::fma(w, to_float(value), buf[j]);
       }
 #endif
       for (; j < block_size; ++j) {
         InType value = *input_row++;
-        buf[j] = std::fma(w, convert_to_float_ref(value, is_bf16_in), buf[j]);
+        buf[j] = std::fma(w, to_float(value), buf[j]);
       }
 
       ++current;
@@ -978,7 +946,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
       }
     }
 
-    fill_output(out, buf, block_size, is_bf16_out);
+    fill_output(out, buf, block_size);
     out += output_stride;
   }
   return current == index_size;
@@ -1127,28 +1095,18 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input_row++;
-          float in_val = 0.f;
-          if constexpr (std::is_same_v<InType, float16>) {
-            in_val = cpu_half2float(*inptr);
-          } else if constexpr (std::is_same_v<InType, uint16_t>) {
-            in_val = cpu_half2float(float16{*inptr});
-          } else {
-            in_val = *inptr;
-          }
-          out[j] = std::fma(weight, in_val, out[j]);
+          out[j] = std::fma(
+              weight,
+              to_float(*inptr),
+              out[j]);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input_row++;
-          float in_val = 0.f;
-          if constexpr (std::is_same_v<InType, float16>) {
-            in_val = cpu_half2float(*inptr);
-          } else if constexpr (std::is_same_v<InType, uint16_t>) {
-            in_val = cpu_half2float(float16{*inptr});
-          } else {
-            in_val = *inptr;
-          }
-          out[j] = std::fma(weight, in_val, out[j]);
+          out[j] = std::fma(
+              weight,
+              to_float(*inptr),
+              out[j]);
         }
       }
       if (normalize_by_lengths && len) {
@@ -1214,8 +1172,6 @@ void Float8ToFloat_ref_batch(
 /// for FP8 autovec implementation (`int64_t`)
 /// @param exponent_bits Bits to use in exponent
 /// @param exponent_bias Bias to use in exponent
-/// @param is_bf16_out If `true`, output is `BFLOAT16` type; set to `false` for
-/// FP8 autovec implementation (`bool`)
 template <typename IndexType, typename OffsetType, typename OutType>
 static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const int64_t block_size,
@@ -1233,8 +1189,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const int64_t output_stride,
     const int64_t input_stride,
     const int exponent_bits,
-    const int exponent_bias,
-    const bool is_bf16_out) {
+    const int exponent_bias) {
   if (data_size < 0) {
     return false;
   }
@@ -1259,6 +1214,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
   constexpr int64_t max_prefetch_bytes = 4096;
   // 16 is manually tuned for Neoverse-V2 for best performance
   constexpr int64_t max_initial_prefetch_rows = 16;
+  constexpr int64_t CACHE_LINE_SIZE = 64;
   const int64_t rows_to_prefetch =
       std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
   const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
@@ -1290,7 +1246,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
         data_size,
         block_size,
         EmbeddingStatsTracker::DataType::FP8,
-        get_output_type<OutType>(is_bf16_out),
+        get_output_type<OutType>(),
         output_size,
         len);
 
@@ -1365,7 +1321,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
       }
     }
 
-    fill_output(out, buf, block_size, is_bf16_out);
+    fill_output(out, buf, block_size);
     out += output_stride;
   }
   return current == index_size;
@@ -1404,9 +1360,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
         int64_t output_stride,
         int64_t input_stride,
         bool scale_bias_last,
-        bool no_bag,
-        bool is_bf16_out,
-        bool is_bf16_in) {
+        bool no_bag) {
   return [=](int64_t output_size,
              int64_t index_size,
              int64_t data_size,
@@ -1421,7 +1375,6 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       weights = nullptr;
     }
     if constexpr (std::is_same_v<InType, uint8_t>) {
-      assert(!is_bf16_in);
       return EmbeddingSpMDM8Bit_autovec(
           block_size,
           output_size,
@@ -1438,8 +1391,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           output_stride,
           input_stride,
           scale_bias_last,
-          no_bag,
-          is_bf16_out);
+          no_bag);
     } else {
       return EmbeddingSpMDM_autovec(
           block_size,
@@ -1457,9 +1409,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           output_stride,
           input_stride,
           scale_bias_last,
-          no_bag,
-          is_bf16_out,
-          is_bf16_in);
+          no_bag);
     }
   };
 }
@@ -1478,10 +1428,7 @@ template <
     typename OutType>
 typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
     Type
-    make_spmdm_fixed_block_size(
-        int64_t output_stride,
-        bool is_bf16_out,
-        bool is_bf16_in) {
+    make_spmdm_fixed_block_size(int64_t output_stride) {
   // Pinned by every FBGEMM_MORE_SPECIALIZATION variant.
   constexpr bool kNormalizeByLengths = false;
   constexpr bool kIsWeightPositional = false;
@@ -1505,7 +1452,6 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       weights = nullptr;
     }
     if constexpr (std::is_same_v<InType, uint8_t>) {
-      assert(!is_bf16_in);
       return EmbeddingSpMDM8Bit_autovec(
           BlockSize,
           output_size,
@@ -1522,8 +1468,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           output_stride,
           kInputStride,
           ScaleBiasLast,
-          kNoBag,
-          is_bf16_out);
+          kNoBag);
     } else {
       return EmbeddingSpMDM_autovec(
           BlockSize,
@@ -1541,9 +1486,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           output_stride,
           kInputStride,
           ScaleBiasLast,
-          kNoBag,
-          is_bf16_out,
-          is_bf16_in);
+          kNoBag);
     }
   };
 }
@@ -1563,9 +1506,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
     try_spmdm_fixed_block_size(
         int64_t block_size,
         int64_t input_stride,
-        int64_t output_stride,
-        bool is_bf16_out,
-        bool is_bf16_in) {
+        int64_t output_stride) {
   // Block sizes that get a compile-time-specialized kernel. Listing them as
   // data lets the fold below enumerate them instead of a macro per value.
   static constexpr std::array<int64_t, 18> kBlockSizes{
@@ -1607,7 +1548,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
                 InType,
                 IndexType,
                 OffsetType,
-                OutType>(output_stride, is_bf16_out, is_bf16_in);
+                OutType>(output_stride);
           }
         }(),
         ...);
@@ -1634,9 +1575,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
         int64_t output_stride,
         int64_t input_stride,
         bool scale_bias_last,
-        bool no_bag,
-        bool is_bf16_out,
-        bool is_bf16_in) {
+        bool no_bag) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1664,8 +1603,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           InType,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size, input_stride, output_stride, is_bf16_out, is_bf16_in);
+          OutType>(block_size, input_stride, output_stride);
     } else if (!has_weight && !scale_bias_last) {
       kernel = try_spmdm_fixed_block_size<
           false,
@@ -1673,8 +1611,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           InType,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size, input_stride, output_stride, is_bf16_out, is_bf16_in);
+          OutType>(block_size, input_stride, output_stride);
     } else if (has_weight && scale_bias_last) {
       kernel = try_spmdm_fixed_block_size<
           true,
@@ -1682,8 +1619,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           InType,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size, input_stride, output_stride, is_bf16_out, is_bf16_in);
+          OutType>(block_size, input_stride, output_stride);
     } else {
       kernel = try_spmdm_fixed_block_size<
           false,
@@ -1691,8 +1627,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
           InType,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size, input_stride, output_stride, is_bf16_out, is_bf16_in);
+          OutType>(block_size, input_stride, output_stride);
     }
     if (kernel) {
       return kernel;
@@ -1724,9 +1659,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       output_stride,
       input_stride,
       scale_bias_last,
-      no_bag,
-      is_bf16_out,
-      is_bf16_in);
+      no_bag);
 }
 
 static constexpr int64_t stride_SpMDMNBitWith(
@@ -1761,7 +1694,6 @@ make_nbit_generic(
     int64_t output_stride,
     int64_t input_stride,
     bool scale_bias_last,
-    bool is_bf16_out,
     bool no_bag,
     int output_bit_rate) {
   return [=](int64_t output_size,
@@ -1794,7 +1726,6 @@ make_nbit_generic(
         output_stride,
         input_stride,
         scale_bias_last,
-        is_bf16_out,
         no_bag,
         output_bit_rate);
   };
@@ -1816,7 +1747,7 @@ typename EmbeddingSpMDMKernelSignature<
     IndexType,
     OffsetType,
     OutType>::Type
-make_nbit_fixed_block_size(int64_t output_stride, bool is_bf16_out) {
+make_nbit_fixed_block_size(int64_t output_stride) {
   // Pinned by every FBGEMM_MORE_SPECIALIZATION variant.
   constexpr bool kNormalizeByLengths = false;
   constexpr bool kIsWeightPositional = false;
@@ -1855,7 +1786,6 @@ make_nbit_fixed_block_size(int64_t output_stride, bool is_bf16_out) {
         output_stride,
         kInputStride,
         ScaleBiasLast,
-        is_bf16_out,
         kNoBag,
         kOutputBitRate);
   };
@@ -1880,8 +1810,7 @@ try_nbit_fixed_block_size(
     int64_t block_size,
     int64_t input_stride,
     int64_t output_stride,
-    int output_bit_rate,
-    bool is_bf16_out) {
+    int output_bit_rate) {
   static constexpr std::array<int64_t, 14> kBlockSizes{
       {32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024}};
   using KernelType = typename EmbeddingSpMDMKernelSignature<
@@ -1906,7 +1835,7 @@ try_nbit_fixed_block_size(
                 ScaleBiasLast,
                 IndexType,
                 OffsetType,
-                OutType>(output_stride, is_bf16_out);
+                OutType>(output_stride);
           }
         }(),
         ...);
@@ -1933,7 +1862,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int64_t output_stride,
     int64_t input_stride,
     bool scale_bias_last,
-    bool is_bf16_out,
+    [[maybe_unused]] bool is_bf16_out,
     bool no_bag,
     int output_bit_rate) {
   if (output_bit_rate == -1) {
@@ -1967,12 +1896,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
           false,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size,
-          input_stride,
-          output_stride,
-          output_bit_rate,
-          is_bf16_out);
+          OutType>(block_size, input_stride, output_stride, output_bit_rate);
     } else if (!has_weight && !scale_bias_last) {
       kernel = try_nbit_fixed_block_size<
           4,
@@ -1980,12 +1904,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
           false,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size,
-          input_stride,
-          output_stride,
-          output_bit_rate,
-          is_bf16_out);
+          OutType>(block_size, input_stride, output_stride, output_bit_rate);
     } else if (has_weight && scale_bias_last) {
       kernel = try_nbit_fixed_block_size<
           4,
@@ -1993,12 +1912,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
           true,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size,
-          input_stride,
-          output_stride,
-          output_bit_rate,
-          is_bf16_out);
+          OutType>(block_size, input_stride, output_stride, output_bit_rate);
     } else {
       kernel = try_nbit_fixed_block_size<
           4,
@@ -2006,12 +1920,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
           true,
           IndexType,
           OffsetType,
-          OutType>(
-          block_size,
-          input_stride,
-          output_stride,
-          output_bit_rate,
-          is_bf16_out);
+          OutType>(block_size, input_stride, output_stride, output_bit_rate);
     }
     if (kernel) {
       return kernel;
@@ -2048,7 +1957,6 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
         output_stride,
         input_stride,
         scale_bias_last,
-        is_bf16_out,
         no_bag,
         output_bit_rate);
   }
@@ -2062,7 +1970,6 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
         output_stride,
         input_stride,
         scale_bias_last,
-        is_bf16_out,
         no_bag,
         output_bit_rate);
   }
@@ -2083,8 +1990,7 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
     int64_t output_stride,
     int64_t input_stride,
     int exponent_bits,
-    int exponent_bias,
-    bool is_bf16_out) {
+    int exponent_bias) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -2115,8 +2021,7 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
         /*output_stride=*/output_stride,
         /*input_stride=*/input_stride,
         /*exponent_bits=*/exponent_bits,
-        /*exponent_bias=*/exponent_bias,
-        /*is_bf16_out=*/is_bf16_out);
+        /*exponent_bias=*/exponent_bias);
   };
 }
 
@@ -2202,8 +2107,7 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
       int64_t output_stride,                                     \
       int64_t input_stride,                                      \
       int exponent_bits,                                         \
-      int exponent_bias,                                         \
-      bool is_bf16_out);
+      int exponent_bias);
 
 #define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)        \
   INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
@@ -2212,7 +2116,7 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)    \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)    \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16)  \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, uint16_t) \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, bfloat16) \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, uint8_t)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
@@ -2259,15 +2163,13 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
       int64_t output_stride,                                               \
       int64_t input_stride,                                                \
       bool scale_bias_last,                                                \
-      bool no_bag,                                                         \
-      bool is_bf16_out,                                                    \
-      bool is_bf16_in);
+      bool no_bag);
 
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)         \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)         \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)       \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint16_t) \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t)  \
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, bfloat16)     \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
   INSTANTIATE_SPMDM_ROWWISE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
@@ -2280,7 +2182,7 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 
 INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
-INSTANTIATE_SPMDM_INDEX_T(std::uint16_t)
+INSTANTIATE_SPMDM_INDEX_T(bfloat16)
 INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 
 #undef INSTANTIATE_SPMDM_ROWWISE

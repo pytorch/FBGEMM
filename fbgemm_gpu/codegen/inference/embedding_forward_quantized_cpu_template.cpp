@@ -19,6 +19,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm/FbgemmEmbedding.h"
+#include "fbgemm/Types.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 
@@ -275,7 +276,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor output;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT4);
-    bool output_is_bf16 = o_dtype == SparseType::BF16;
     bool output_is_int8 = o_dtype == SparseType::INT8;
     bool output_is_int4 = o_dtype == SparseType::INT4;
     {% if not nobag %}
@@ -317,8 +317,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         const float* indice_weights_acc = indice_weights.const_data_ptr<float>();
         {% endif %}
 
-        using float16 = uint16_t;
-        using bfloat16 = uint16_t;
+        constexpr bool output_is_bf16 = std::is_same_v<output_t, at::BFloat16>;
+
+        using float16 = fbgemm::float16;
+        using bfloat16 = fbgemm::bfloat16;
         using int8 = uint8_t;
         using base_fbgemm_out_t = std::conditional_t<
             std::is_same_v<output_t, at::Half>,

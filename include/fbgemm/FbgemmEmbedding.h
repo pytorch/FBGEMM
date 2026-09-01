@@ -80,8 +80,8 @@ GenerateEmbeddingSpMDM(
     int prefetch = 16,
     bool is_weight_positional = false,
     bool use_offsets = true,
-    bool is_bf16_out = false,
-    bool is_bf16_in = false);
+    [[maybe_unused]] bool is_bf16_out = false,
+    [[maybe_unused]] bool is_bf16_in = false);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
@@ -113,8 +113,8 @@ GenerateEmbeddingSpMDMWithStrides(
     std::int64_t input_stride = -1,
     bool scale_bias_last = true,
     bool no_bag = false,
-    bool is_bf16_out = false,
-    bool is_bf16_in = false);
+    [[maybe_unused]] bool is_bf16_out = false,
+    [[maybe_unused]] bool is_bf16_in = false);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
@@ -169,7 +169,7 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
     bool scale_bias_last = true,
-    const bool is_bf16_out = false,
+    [[maybe_unused]] const bool is_bf16_out = false,
     const bool no_bag = false,
     int output_bit_rate = -1);
 
@@ -200,7 +200,7 @@ GenerateEmbeddingSpMDMFP8WithStrides(
     std::int64_t input_stride = -1,
     int exponent_bits = 4,
     int exponent_bias = 7,
-    bool is_bf16_out = false);
+    [[maybe_unused]] bool is_bf16_out = false);
 
 template <
     typename InType,
