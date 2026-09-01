@@ -260,7 +260,13 @@ function(fbgemm_get_warning_flags)
     -Wdeprecated-implementations
     -Wsemicolon-before-method-body
     -Wimport-preprocessor-directive-pedantic
-    -Wincompatible-function-pointer-types)
+    -Wincompatible-function-pointer-types
+    # g++ does not know these four flags. Unlike the four flags above, these
+    # four can occur in C++ code.
+    -Wambiguous-reversed-operator
+    -Wbitwise-instead-of-logical
+    -Wunreachable-code-fallthrough
+    -Wunused-local-typedef)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`
