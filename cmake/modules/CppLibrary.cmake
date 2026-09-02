@@ -251,7 +251,22 @@ function(fbgemm_get_warning_flags)
     # are casts in index arithmetic, where a wrong cast is a silent numerical
     # or OOB bug rather than a compile error. Enabling it demoted makes the
     # backlog visible without forcing rushed casts.
-    -Wshorten-64-to-32)
+    -Wshorten-64-to-32
+    # ---- Parity gap G2: clang-only, ObjC/C-oriented -------------------------
+    # g++ rejects all four outright (probed), so they are clang-only. They are
+    # no-ops for C++/CUDA/HIP translation units, but they are in fbcode's
+    # global CLANG_WARNINGS_TO_ENABLE and carrying them keeps the two lists
+    # literally in sync -- which is the whole point of the parity work.
+    -Wdeprecated-implementations
+    -Wsemicolon-before-method-body
+    -Wimport-preprocessor-directive-pedantic
+    -Wincompatible-function-pointer-types
+    # g++ does not know these four flags. Unlike the four flags above, these
+    # four can occur in C++ code.
+    -Wambiguous-reversed-operator
+    -Wbitwise-instead-of-logical
+    -Wunreachable-code-fallthrough
+    -Wunused-local-typedef)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
   # know these flags, and an unknown `-W` option stops the build when `-Werror`

@@ -586,13 +586,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     "Tensor indice_weights, "
     {%- endif %}
     "bool stochastic_rounding, "
-    "{{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}"
+    "{{ args.split_function_schemas | join(", ") }}"
     {%- if not nobag %}
     ", int output_dtype = 0"
     {%- endif %}
     ") -> ()");
   {% else %}
-  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}) -> Tensor");
+  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ args.split_function_schemas | join(", ") }}) -> Tensor");
   {% endif %}
   DISPATCH_TO_CPU("split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu", split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu);
 
