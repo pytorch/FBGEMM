@@ -119,11 +119,12 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
     shape[0] = max_length; // Set first element to max_len
     shape.insert(
         shape.begin(), lengths_c.numel()); // Insert batch size at beginning
-    packed_tensor = at::zeros(shape, t_in_c.options());
 
     if (t_in_c.size(0) == 0 || lengths_c.size(0) == 0) {
+      packed_tensor = at::zeros(shape, t_in_c.options());
       return; // Return empty output (with the proper shape)
     }
+    packed_tensor = at::empty(shape, t_in_c.options());
 
     auto lengths_prefix_sum =
         fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths_c);
