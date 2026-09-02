@@ -883,11 +883,6 @@ class ForwardTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skip(
-        "Known failure on the MI350 runner: the device decodes NFP8 with the "
-        "arch-native OCP encoding while Python labels the tensor fnuz, so the "
-        "two disagree by one exponent bias"
-    )
     @skipIfNotRocm("NFP8 format-selection corner case is ROCm-specific")
     def test_forward_gpu_nfp8_format_matches_host_decode(self) -> None:
         # Pins that the device NFP8 decode matches a host decode through the same
