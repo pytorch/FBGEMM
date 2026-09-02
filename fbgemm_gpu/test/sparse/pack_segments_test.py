@@ -283,6 +283,44 @@ class PackedSegmentsTest(unittest.TestCase):
         self.assertEqual(tuple(actual.shape), (3, 5, 4))
         self.assertTrue(torch.equal(actual, torch.zeros_like(actual)))
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_pack_segments_small_n_dispatch(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        max_length = 4
+        cell_size = 4
+
+        for num_seq in (35, 128, 129):
+            for lengths_dtype in (torch.int32, torch.int64):
+                with self.subTest(num_seq=num_seq, lengths_dtype=lengths_dtype):
+                    length_values = [i % (max_length + 1) for i in range(num_seq)]
+                    total_length = sum(length_values)
+                    lengths_cpu = torch.tensor(length_values, dtype=lengths_dtype)
+                    input_cpu = torch.arange(
+                        total_length * cell_size,
+                        dtype=torch.float32,
+                    ).reshape(total_length, cell_size)
+                    expected = torch.ops.fbgemm.pack_segments(
+                        input_cpu,
+                        lengths_cpu,
+                        max_length,
+                    )
+
+                    lengths_device = torch.tensor(
+                        length_values, dtype=lengths_dtype, device=device
+                    )
+                    input_device = torch.arange(
+                        total_length * cell_size,
+                        dtype=torch.float32,
+                        device=device,
+                    ).reshape(total_length, cell_size)
+                    actual = torch.ops.fbgemm.pack_segments(
+                        input_device,
+                        lengths_device,
+                        max_length,
+                    )
+
+                    self.assertTrue(torch.equal(expected, actual.cpu()))
+
     @given(
         n=st.integers(2, 10),
         k=st.integers(2, 10),

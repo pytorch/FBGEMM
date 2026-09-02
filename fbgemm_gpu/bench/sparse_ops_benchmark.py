@@ -2151,5 +2151,72 @@ def block_bucketize_sparse_features_bench(
         )
 
 
+@cli.command("pack-segments")
+@click.option("--num-segments", default=35, type=int)
+@click.option("--segment-length", default=62, type=int)
+@click.option("--max-length", default=100, type=int)
+@click.option("--cell-size", default=128, type=int)
+@click.option(
+    "--data-type", type=click.Choice(["float", "half", "bfloat16"]), default="float"
+)
+@click.option("--length-type", type=click.Choice(["int", "long"]), default="long")
+@click.option("--warmups", default=1000, type=int)
+@click.option("--iterations", default=20000, type=int)
+def pack_segments_bench(
+    num_segments: int,
+    segment_length: int,
+    max_length: int,
+    cell_size: int,
+    data_type: str,
+    length_type: str,
+    warmups: int,
+    iterations: int,
+) -> None:
+    if segment_length > max_length:
+        raise click.UsageError("segment-length must not exceed max-length")
+
+    device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+    data_dtype = {
+        "float": torch.float32,
+        "half": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }[data_type]
+    length_dtype = {"int": torch.int32, "long": torch.int64}[length_type]
+    lengths = torch.full(
+        (num_segments,),
+        segment_length,
+        dtype=length_dtype,
+        device=device,
+    )
+    t_input = torch.randn(
+        num_segments * segment_length,
+        cell_size,
+        dtype=data_dtype,
+        device=device,
+    )
+
+    def run() -> torch.Tensor:
+        return torch.ops.fbgemm.pack_segments(t_input, lengths, max_length)
+
+    elapsed, _ = benchmark_torch_function(
+        run,
+        (),
+        num_warmups=warmups,
+        iters=iterations,
+        device="cuda",
+    )
+    logger.info(
+        "pack_segments: %.3f us, num_segments=%d, segment_length=%d, "
+        "max_length=%d, cell_size=%d, data_type=%s, length_type=%s",
+        elapsed * 1e6,
+        num_segments,
+        segment_length,
+        max_length,
+        cell_size,
+        data_type,
+        length_type,
+    )
+
+
 if __name__ == "__main__":
     cli()
