@@ -6,11 +6,20 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
+
 #include "common.cuh"
 
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+
+namespace {
+// Blocks per SM to aim for when fanning a segment out over gridDim.y, and the
+// hard cap on that fan-out. Only used by reorder_batched_ad_indices_gpu.
+constexpr uint32_t kBlocksPerSM = 4;
+constexpr uint32_t kMaxSegmentFanout = 512;
+} // namespace
 
 template <typename Dtype>
 __global__
@@ -284,6 +293,12 @@ __launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kerne
   const auto b_t_init = blockIdx.x * blockDim.y +
       threadIdx.y; // can be more efficient through bitwise op
   const auto stride = gridDim.x * blockDim.y;
+  // Segment lengths are heavily skewed in production: a handful of features can
+  // hold nearly all of the indices, so one warp per segment leaves the copy
+  // running on a couple of warps. gridDim.y fans each segment out over multiple
+  // blocks; blocks with no work for their slice fall straight through.
+  const auto seg_tid = blockIdx.y * blockDim.x + threadIdx.x;
+  const auto seg_nthreads = gridDim.y * blockDim.x;
   for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
     const int32_t b = b_t % B;
     const int32_t t = b_t / B;
@@ -305,8 +320,7 @@ __launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kerne
     Dtype* dst_ptr = reordered_cat_ad_indices.data() + output_segment_start;
     Dtype* src_ptr = cat_ad_indices.data() + input_segment_start;
     if (broadcast_indices) {
-      for (auto i = threadIdx.x; i < num_ads_b * num_elements;
-           i += blockDim.x) {
+      for (auto i = seg_tid; i < num_ads_b * num_elements; i += seg_nthreads) {
         reordered_cat_ad_indices[output_segment_start + i] =
             cat_ad_indices[input_segment_start + i % num_elements];
       }
@@ -315,8 +329,8 @@ __launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kerne
       // a}) from starting point (given by cat_ad_offsets[b, t]) to end point
       // (given by reordered_cat_ad_indices[t][b])
       if (num_elements <= 64 || !(sizeof(Dtype) == 4 || sizeof(Dtype) == 8)) {
-        for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
-             i += blockDim.x) {
+        for (auto i = seg_tid; i < input_segment_end - input_segment_start;
+             i += seg_nthreads) {
           // coalesced global memory access, can be optimzed through ILP with
           // the help of shared memory or vector load/store (if num_ads_b>=64)
           reordered_cat_ad_indices[output_segment_start + i] =
@@ -331,16 +345,16 @@ __launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kerne
           // Use vectorized loads if properly aligned
           auto dst = (vec2_t*)dst_ptr;
           auto src = (vec2_t*)src_ptr;
-          for (auto i = threadIdx.x; i < num_elements / 2; i += blockDim.x) {
+          for (auto i = seg_tid; i < num_elements / 2; i += seg_nthreads) {
             dst[i] = src[i];
           }
-          if ((num_elements % 2) && threadIdx.x == 31) {
+          if ((num_elements % 2) && seg_tid == 0) {
             reordered_cat_ad_indices[output_segment_start + num_elements - 1] =
                 cat_ad_indices[input_segment_start + num_elements - 1];
           }
         } else {
           // Fall back to scalar loads if misaligned
-          for (auto i = threadIdx.x; i < num_elements; i += blockDim.x) {
+          for (auto i = seg_tid; i < num_elements; i += seg_nthreads) {
             reordered_cat_ad_indices[output_segment_start + i] =
                 cat_ad_indices[input_segment_start + i];
           }
@@ -354,19 +368,19 @@ __launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kerne
           // Use vectorized loads if properly aligned
           auto dst = (vec4_t*)dst_ptr;
           auto src = (vec4_t*)src_ptr;
-          for (auto i = threadIdx.x; i < num_elements / 4; i += blockDim.x) {
+          for (auto i = seg_tid; i < num_elements / 4; i += seg_nthreads) {
             dst[i] = src[i];
           }
           int remainder = num_elements % 4;
-          if (remainder && threadIdx.x < remainder) {
+          if (remainder && seg_tid < remainder) {
             reordered_cat_ad_indices
-                [output_segment_start + num_elements - threadIdx.x - 1] =
+                [output_segment_start + num_elements - seg_tid - 1] =
                     cat_ad_indices
-                        [input_segment_start + num_elements - threadIdx.x - 1];
+                        [input_segment_start + num_elements - seg_tid - 1];
           }
         } else {
           // Fall back to scalar loads if misaligned
-          for (auto i = threadIdx.x; i < num_elements; i += blockDim.x) {
+          for (auto i = seg_tid; i < num_elements; i += seg_nthreads) {
             reordered_cat_ad_indices[output_segment_start + i] =
                 cat_ad_indices[input_segment_start + i];
           }
@@ -475,26 +489,39 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
               constexpr auto reorder_batched_ad_indices_kernel_name =
                   reorder_batched_ad_indices_kernel_vec<scalar_t, index_t>;
 #if defined __HIP_PLATFORM_AMD__
-              constexpr auto NUM_WARPS = 4;
-              const dim3 threads(32, NUM_WARPS); // 32 x 4
+              constexpr uint32_t MAX_WARPS = 4;
 #else
-              constexpr auto NUM_WARPS = 32;
-              auto maxWarpSize = kMaxThreads / NUM_WARPS;
-              const dim3 threads(
-                  NUM_WARPS,
-                  maxWarpSize < kWarpSizeHost() ? maxWarpSize
-                                                : kWarpSizeHost()); // 32 x 32
+              constexpr uint32_t MAX_WARPS = 32;
 #endif
+              // One warp per (b, t) segment, so a block covers at most
+              // MAX_WARPS segments. Shrink blockDim.y when there are fewer
+              // segments than that rather than launching idle warps.
+              const auto num_segments =
+                  static_cast<uint32_t>(std::max<int64_t>(B * T, 1));
+              const uint32_t warps_per_block =
+                  std::min<uint32_t>(MAX_WARPS, num_segments);
+              const dim3 threads(kWarpSizeHost(), warps_per_block);
               // HIP enforces a hard limit of 2^32 total threads per launch
               // (unlike CUDA, which silently wraps).
               // reorder_batched_ad_indices_kernel_vec grid-strides over b_t,
               // so capping is correctness-preserving.
               // See: https://github.com/ROCm/hip/issues/2253
-              const dim3 blocks(
-                  utils::cuda::cap_grid_dim_x(
-                      cuda_calc_xblock_count(B * T, NUM_WARPS),
-                      static_cast<int64_t>(threads.x) * threads.y,
-                      at::cuda::getCurrentCUDAStream()));
+              const uint32_t blocks_x = utils::cuda::cap_grid_dim_x(
+                  cuda_calc_xblock_count(num_segments, warps_per_block),
+                  static_cast<int64_t>(threads.x) * threads.y,
+                  at::cuda::getCurrentCUDAStream());
+              // Segment lengths are heavily skewed, so parallelising only over
+              // segments can leave the copy on a couple of warps. Fan each
+              // segment out over gridDim.y blocks until the device is filled;
+              // the kernel grid-strides over the segment, so any fan-out is
+              // correct and over-provisioned blocks exit immediately.
+              const uint32_t sm_count = static_cast<uint32_t>(
+                  at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
+              const uint32_t blocks_y = std::clamp<uint32_t>(
+                  (kBlocksPerSM * sm_count + blocks_x - 1) / blocks_x,
+                  1,
+                  kMaxSegmentFanout);
+              const dim3 blocks(blocks_x, blocks_y);
               FBGEMM_LAUNCH_KERNEL(
                   (reorder_batched_ad_indices_kernel_name),
                   blocks,
