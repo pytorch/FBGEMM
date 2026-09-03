@@ -136,7 +136,7 @@ class DramKVInferenceEmbedding
         uniform_init_lower,
         uniform_init_upper,
         row_storage_bitwidth,
-        false /* disable_random_init */);
+        disable_random_init);
     if (table_dims.has_value()) {
       TORCH_CHECK_TENSOR_PROPERTIES(table_dims, at::ScalarType::Long);
       TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
