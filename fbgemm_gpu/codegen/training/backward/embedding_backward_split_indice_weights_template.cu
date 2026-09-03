@@ -608,30 +608,33 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
 }
 
 
+{#- /* The meta shadow mirrors the CUDA op's schema but only needs the shapes
+      that determine the output, so the weight, cache, and VBE metadata
+      arguments below are declared for the contract and never read. */ #}
 Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
     const Tensor& grad_output,
-    const Tensor& dev_weights,
+    [[maybe_unused]] const Tensor& dev_weights,
     {%- if not dense %}
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
+    [[maybe_unused]] const Tensor& uvm_weights,
+    [[maybe_unused]] const Tensor& lxu_cache_weights,
+    [[maybe_unused]] const Tensor& weights_placements,
     {%- endif %}
-    const Tensor& weights_offsets,
+    [[maybe_unused]] const Tensor& weights_offsets,
     const Tensor& D_offsets,
     const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not dense %}
-    const Tensor& {{ locs_or_addrs_tensor }},
+    [[maybe_unused]] const Tensor& {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if vbe %}
-    const Tensor& feature_requires_grad,
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    const int64_t info_B_num_bits, // int32_t
-    const int64_t info_B_mask_int64 // uint32_t
+    [[maybe_unused]] const Tensor& feature_requires_grad,
+    [[maybe_unused]] const Tensor& vbe_row_output_offsets,
+    [[maybe_unused]] const Tensor& vbe_b_t_map,
+    [[maybe_unused]] const int64_t info_B_num_bits, // int32_t
+    [[maybe_unused]] const int64_t info_B_mask_int64 // uint32_t
     {%- else %}
-    const Tensor& feature_requires_grad
+    [[maybe_unused]] const Tensor& feature_requires_grad
     {%- endif %}
 ) {
 
