@@ -378,9 +378,7 @@ def execute_backward_adagrad(  # noqa C901
         )
     )
 
-    fp32_io = (
-        weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
-    )
+    fp32_io = weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
     tolerance = (
         1.0e-4
         if fp32_io
