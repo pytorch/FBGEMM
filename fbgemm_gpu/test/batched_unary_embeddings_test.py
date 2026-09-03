@@ -218,9 +218,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         ).to(device)
         # T=2 tables, so offsets must hold T*B+1 entries. With B=4 that is 9
         # offsets delimiting 8 unit-length segments over the 8 values.
-        offsets = torch.tensor(
-            [0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long
-        ).to(device)
+        offsets = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long).to(device)
         values = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long).to(device)
         for _ in range(10):
             output = unary_embedding_module(offsets, values).transpose(1, 0)
