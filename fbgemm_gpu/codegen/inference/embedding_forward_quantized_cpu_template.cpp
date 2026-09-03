@@ -19,6 +19,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm/FbgemmEmbedding.h"
+#include "fbgemm/Utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 
@@ -94,6 +95,64 @@ inline void parallel_for_table_threads(
         #ifdef _OPENMP
         #pragma omp critical(tbe_table_threads_err)
         #endif
+        {
+            if (!have_err) {
+                have_err = true;
+                eptr = std::current_exception();
+            }
+        }
+    }
+  }
+  if (eptr) {
+    std::rethrow_exception(eptr);
+  }
+}
+
+// Same contract as parallel_for_table_threads, but the unit of work is a
+// (table, row-range) chunk instead of a whole table. Used by the NOBAG path,
+// where splitting a table's rows is safe because each output row is an
+// independent gather writing a disjoint output slice.
+template <typename F>
+inline void parallel_for_row_chunks(
+    const std::vector<fbgemm_gpu::RowChunk>& chunks,
+    int num_threads,
+    const F& f) {
+  if (num_threads <= 1 || chunks.size() <= 1) {
+    for (const auto& c : chunks) {
+      f(c.t, c.r0, c.r1);
+    }
+    return;
+  }
+
+  // Raw OpenMP does not carry the caller's ThreadLocalState (dispatch keys,
+  // grad/inference mode, autocast, ...) to worker threads the way
+  // at::parallel_for does. See parallel_for_table_threads.
+  const at::ThreadLocalState tls;
+
+  bool have_err = false;
+  std::exception_ptr eptr;
+  const int64_t n_chunks = static_cast<int64_t>(chunks.size());
+
+  #pragma omp parallel num_threads(num_threads)
+  {
+    try {
+        const at::ThreadLocalStateGuard tls_guard(tls);
+        #pragma omp for schedule(dynamic) nowait
+        for (int64_t i = 0; i < n_chunks; ++i) {
+            try {
+                f(chunks[i].t, chunks[i].r0, chunks[i].r1);
+            } catch (...) {
+                #pragma omp critical(tbe_row_chunks_err)
+                {
+                    if (!have_err) {
+                        have_err = true;
+                        eptr = std::current_exception();
+                    }
+                }
+            }
+        }
+    } catch (...) {
+        #pragma omp critical(tbe_row_chunks_err)
         {
             if (!have_err) {
                 have_err = true;
@@ -348,16 +407,31 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 std::ranges::unique(physical_offsets).begin(),
                 physical_offsets.end());
 
-            parallel_for_table_threads(0, T, [&](int begin, int end) {
-              for (int t = begin; t < end; ++t) {
+            // Output rows produced by table t: one row per index in NOBAG, one
+            // row per bag in the pooled path.
+            const auto rows_of = [&](int t) -> int64_t {
+                {% if nobag %}
+                return static_cast<int64_t>(offsets_acc[(t + 1) * B]) -
+                    static_cast<int64_t>(offsets_acc[t * B]);
+                {% else %}
+                (void)t;
+                return B;
+                {% endif %}
+            };
+
+            // Processes rows [r0, r1) of table t. Only NOBAG ever passes a
+            // partial range; the pooled path always gets the whole table.
+            const auto run_chunk = [&](int t, int64_t r0, int64_t r1) {
                 {% if not nobag %}
+                (void)r0;
+                (void)r1;
                 const auto* D_offsets_acc = D_offsets.const_data_ptr<int32_t>();
                 const int32_t D_start = D_offsets_acc[t];
                 const int32_t D_end = D_offsets_acc[t + 1];
                 const int32_t D = D_end - D_start;
                 {% else %}
-                const int32_t elems_D = (o_dtype == SparseType::INT4) ? at::divup(adjusted_D, 2) : adjusted_D;
-                const int32_t D_start = offsets_acc[t * B] * elems_D;
+                // int64: a large batch can push the output byte offset past 2^31.
+                const int64_t elems_D = (o_dtype == SparseType::INT4) ? at::divup(adjusted_D, 2) : adjusted_D;
                 {% endif %}
 
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
@@ -392,7 +466,17 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 constexpr bool has_weight = {{ "true" if weighted else "false" }};
                 const bool normalize_by_lengths = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
 
+                {% if nobag %}
+                // Chunked: the kernel is invoked on rows [r0, r1) of this table
+                // exactly as it would be on the whole table, just rebased. The
+                // whole-table call is the special case r0=0, r1=rows_of(t).
+                const index_t chunk_first_row =
+                    *offsets_begin_ptr + static_cast<index_t>(r0);
+                const index_t index_size = static_cast<index_t>(r1 - r0);
+                const int64_t D_start = static_cast<int64_t>(chunk_first_row) * elems_D;
+                {% else %}
                 const index_t index_size = offsets_acc[(t + 1) * B] - *offsets_begin_ptr;
+                {% endif %}
                 const int32_t output_stride = {{ "total_D" if not nobag else "adjusted_D" }};
 
                 {% if nobag %}
@@ -403,7 +487,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 // kernels is an allocation plus an index_size-sized fill of pure overhead.
                 Tensor offsets_nobag;
                 const auto make_virtual_offsets = [&]() {
-                  offsets_nobag = at::arange(*offsets_begin_ptr, offsets_acc[(t + 1) * B] + 1, offsets.options());
+                  offsets_nobag = at::arange(chunk_first_row, chunk_first_row + index_size + 1, offsets.options());
                   const index_t* offsets_nobag_ptr = offsets_nobag.const_data_ptr<index_t>();
                   TORCH_CHECK(offsets_nobag.numel() == index_size + 1);
                   TORCH_CHECK(offsets_nobag_ptr[index_size] - offsets_nobag_ptr[0] == index_size);
@@ -492,7 +576,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     index_size,
                     num_rows,
                     reinterpret_cast<const {{ weight_type }}*>(weights),
-                    indices_acc + *offsets_begin_ptr,
+                    {{ "indices_acc + chunk_first_row" if nobag else "indices_acc + *offsets_begin_ptr" }},
                     offset_ptr,
                     indice_weights_ptr,
                     reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
@@ -536,8 +620,53 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                         num_rows,
                         /*allow_minus_one=*/true);
                 }
+            };
+
+            {% if nobag %}
+            // NOBAG: parallelise over row ranges rather than tables, so a
+            // single dominant table cannot cap the speedup at
+            // sum(rows) / max(rows in one table). int8 output consumes the
+            // per-bag offsets pointer rather than the synthesised unit-stride
+            // one, so it stays on the whole-table path.
+            //
+            // With FBGEMM_STATS_ENABLE=1 each kernel invocation records one
+            // EmbeddingStatsTracker sample as recordPattern(..., output_size,
+            // 1). Splitting a logical table into row chunks would turn that one
+            // table-level sample into one sample per chunk and report chunk
+            // sizes instead of the table's row count, inflating frequencies and
+            // making telemetry depend on the thread/grain settings. Keep
+            // whole-table execution while stats are enabled to preserve the
+            // per-table semantics.
+            if (output_is_int8 || fbgemm::is_stats_enabled()) {
+              parallel_for_table_threads(0, T, [&](int begin, int end) {
+                for (int t = begin; t < end; ++t) {
+                  run_chunk(t, 0, rows_of(t));
+                }
+              });
+            } else {
+              int64_t total_rows = 0;
+              for (int t = 0; t < T; ++t) {
+                total_rows += rows_of(t);
+              }
+              const int num_threads =
+                  fbgemm_gpu::choose_num_threads_for_rows(total_rows);
+              if (num_threads <= 1) {
+                for (int t = 0; t < T; ++t) {
+                  run_chunk(t, 0, rows_of(t));
+                }
+              } else {
+                const auto chunks = fbgemm_gpu::build_row_chunks(
+                    T, total_rows, num_threads, rows_of);
+                parallel_for_row_chunks(chunks, num_threads, run_chunk);
+              }
+            }
+            {% else %}
+            parallel_for_table_threads(0, T, [&](int begin, int end) {
+              for (int t = begin; t < end; ++t) {
+                run_chunk(t, 0, rows_of(t));
               }
             });
+            {% endif %}
             return;
         });
     });
