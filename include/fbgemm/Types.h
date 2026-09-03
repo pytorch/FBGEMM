@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <type_traits>
 
@@ -34,6 +35,10 @@ static_assert(alignof(float16) == alignof(uint16_t));
 static_assert(std::is_standard_layout_v<bfloat16>);
 static_assert(std::is_trivially_copyable_v<bfloat16>);
 static_assert(alignof(bfloat16) == alignof(uint16_t));
+
+// Half-precision float concept
+template <typename T>
+concept FbgemmHalfType = std::same_as<T, float16> || std::same_as<T, bfloat16>;
 
 constexpr int64_t round_up(int64_t val, int64_t unit) {
   return (val + unit - 1) / unit * unit;

@@ -749,9 +749,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     OutputType* output,
     bool scale_bias_last) {
   static_assert(
-      std::is_same_v<OutputType, float> ||
-          std::is_same_v<OutputType, float16> ||
-          std::is_same_v<OutputType, bfloat16>,
+      std::is_same_v<OutputType, float> || std::is_same_v<OutputType, float16>
+          || std::is_same_v<OutputType, bfloat16>,
       "Only float, float16 or bfloat16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
   const int64_t output_columns =
@@ -796,11 +795,6 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     int input_columns,
     OutputType* output,
     bool scale_bias_last [[maybe_unused]]) {
-  auto ref_fallback = [&]() {
-    FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
-        bit_rate, input, input_rows, input_columns, output);
-  };
-
 #if HAVE_SVE
   switch (bit_rate) {
     case 2:
@@ -816,9 +810,11 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
           input, input_rows, input_columns, output);
       break;
     default:
-      ref_fallback();
+      FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+          bit_rate, input, input_rows, input_columns, output);
   }
 #else
+
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     switch (bit_rate) {
@@ -835,12 +831,14 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
             input, input_rows, input_columns, output);
         break;
       default:
-        ref_fallback();
+        FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+            bit_rate, input, input_rows, input_columns, output);
     }
-    return;
 #endif
+  } else {
+    FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+        bit_rate, input, input_rows, input_columns, output);
   }
-  ref_fallback();
 #endif
 }
 
