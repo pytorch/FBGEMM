@@ -106,7 +106,12 @@ Tensor batched_unary_embeddings_forward_meta(
     const Tensor& /* indices */) {
   at::SymInt N = weight.sym_sizes()[0];
   at::SymInt T = table_offsets.sym_numel() - 1;
+  TORCH_SYM_CHECK(T.sym_gt(0), "number of tables T must be positive");
+  TORCH_SYM_CHECK(
+      ((offsets.sym_numel() - 1) % T).sym_eq(0),
+      "offsets.sym_numel() - 1 must be divisible by the number of tables T");
   at::SymInt B = (offsets.sym_numel() - 1) / T;
+  TORCH_SYM_CHECK(B.sym_gt(0), "batch size B must be positive");
   return at::empty_symint({N, B, T}, weight.options());
 }
 
