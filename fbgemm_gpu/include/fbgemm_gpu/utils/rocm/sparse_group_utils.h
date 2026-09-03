@@ -62,7 +62,6 @@ __device__ __forceinline__ void warp_upper_bound(
   const auto active_mask = __activemask();
   using mask_t = std::remove_const_t<decltype(active_mask)>;
 
-  constexpr int kHardwareWarpSize = kWarpSize;
   constexpr int kMaskBits = sizeof(mask_t) * 8;
 
   const int hardware_lane = __lane_id();

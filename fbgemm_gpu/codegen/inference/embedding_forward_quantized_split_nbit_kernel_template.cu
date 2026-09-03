@@ -199,7 +199,6 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 
         #pragma unroll
         for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
-          uint32_t i = outer_i + inner_i;
           bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && row_valid_v[inner_i]);
           bool final_valid = row_valid_v[inner_i] && (idx_v[inner_i] != -1);
           if (!DeviceOnly && cache_valid && cache_idx_v[inner_i] != kCacheLocationMissing) {

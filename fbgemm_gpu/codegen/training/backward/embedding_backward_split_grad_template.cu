@@ -157,7 +157,6 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
     FixedDivisor fd_B
     {% endif %}
 ) {
-  int32_t T = D_offsets.size(0) - 1;
   [[maybe_unused]] int32_t b;
   int32_t t;
   const auto total_B = offsets.size(0) - 1;

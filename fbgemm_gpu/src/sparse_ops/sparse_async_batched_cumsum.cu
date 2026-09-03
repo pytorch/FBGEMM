@@ -14,7 +14,7 @@
 #include <algorithm>
 #include "common.cuh"
 
-static constexpr uint32_t kMaxThreads = 1024;
+[[maybe_unused]] static constexpr uint32_t kMaxThreads = 1024;
 
 #ifdef __HIP_PLATFORM_AMD__
 namespace cub = hipcub;

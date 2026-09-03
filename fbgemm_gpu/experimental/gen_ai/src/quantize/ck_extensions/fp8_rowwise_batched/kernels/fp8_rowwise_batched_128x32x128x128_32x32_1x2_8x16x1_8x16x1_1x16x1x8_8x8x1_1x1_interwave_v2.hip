@@ -18,8 +18,6 @@ fp8_rowwise_batched_128x32x128x128_32x32_1x2_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_in
   // A kernel that seems to work well on mid sized tensors.
 
   // Check if this input needs to be padded.
-  int M = XQ.size(1);
-  int N = WQ.size(1);
   int K = WQ.size(2);
   bool pad = (K % 128 != 0);
 
