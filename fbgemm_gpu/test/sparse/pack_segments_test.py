@@ -247,6 +247,42 @@ class PackedSegmentsTest(unittest.TestCase):
                 packed_cuda.backward(grad_cpu.cuda())
                 packed_cuda_v2.backward(grad_cpu_v2.cuda())
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_pack_segments_nonempty_input_writes_padding(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        lengths = torch.tensor([2, 0, 1], dtype=torch.int32, device=device)
+        t_input = torch.tensor(
+            [[1, 2], [3, 4], [5, 6]], dtype=torch.int32, device=device
+        )
+        expected = torch.tensor(
+            [
+                [[1, 2], [3, 4], [0, 0]],
+                [[0, 0], [0, 0], [0, 0]],
+                [[5, 6], [0, 0], [0, 0]],
+            ],
+            dtype=torch.int32,
+            device=device,
+        )
+
+        actual = torch.ops.fbgemm.pack_segments(
+            t_in=t_input, lengths=lengths, max_length=3
+        )
+
+        self.assertTrue(torch.equal(actual, expected))
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_pack_segments_empty_input_writes_padding(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        lengths = torch.zeros(3, dtype=torch.int32, device=device)
+        t_input = torch.empty((0, 4), dtype=torch.int32, device=device)
+
+        actual = torch.ops.fbgemm.pack_segments(
+            t_in=t_input, lengths=lengths, max_length=5
+        )
+
+        self.assertEqual(tuple(actual.shape), (3, 5, 4))
+        self.assertTrue(torch.equal(actual, torch.zeros_like(actual)))
+
     @given(
         n=st.integers(2, 10),
         k=st.integers(2, 10),
