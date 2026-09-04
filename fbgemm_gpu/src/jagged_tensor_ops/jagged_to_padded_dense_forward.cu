@@ -137,7 +137,6 @@ stacked_jagged_2d_to_dense_forward_cuda(
   CUDA_DEVICE_GUARD(values);
 
   const auto lengths_contig = lengths.contiguous();
-  int32_t D = values.size(1);
   int32_t B = lengths.size(1);
   int32_t T = lengths.size(0);
   std::vector<Tensor> padded_values_per_key;

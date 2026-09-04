@@ -220,7 +220,6 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
 
         {{ compute_global_weight_decay(is_gwd_kernel) }}
 
-        const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
         const int32_t sl_start = 0;
         const int32_t sl_end = SL;
         Vec4TAcc<cache_t> grad_sum[kFixedMaxVecsPerThread];
@@ -477,7 +476,6 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
 
             {{ compute_global_weight_decay(is_gwd_kernel) }}
 
-            const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
             const int32_t sl_start = 0;
             const int32_t sl_end = SL;
             Vec4TAcc<cache_t> grad_sum[kFixedMaxVecsPerThread];
@@ -668,7 +666,6 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
             // now, each segment corresponds to exactly one table `t` and row in
             // that table (`idx`). Thus, we can hoist out some of the book-keeping.
 
-            const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
             const int32_t sl_start = 0;
             const int32_t sl_end = SL;
 

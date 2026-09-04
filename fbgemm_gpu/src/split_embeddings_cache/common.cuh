@@ -84,7 +84,7 @@ cache_slot(const int64_t h_in, const int32_t C) {
 // too small nor too big.
 constexpr int MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS = 16;
 
-int get_max_thread_blocks_for_cache_kernels_() {
+[[maybe_unused]] int get_max_thread_blocks_for_cache_kernels_() {
   return get_device_sm_cnt_() * MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS;
 }
 

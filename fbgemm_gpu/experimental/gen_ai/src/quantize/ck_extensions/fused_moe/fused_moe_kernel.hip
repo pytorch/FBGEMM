@@ -110,7 +110,8 @@ at::Tensor fused_moe_impl(
       static_cast<int>(block_m),
       1,
       static_cast<int>(gate_only),
-      static_cast<int>(fused_quant)};
+      static_cast<int>(fused_quant),
+      false};
 
   // Set up arguments structure
   fused_moe_args args{

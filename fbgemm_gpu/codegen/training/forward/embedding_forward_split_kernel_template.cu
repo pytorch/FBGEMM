@@ -350,7 +350,7 @@ using namespace fbgemm_gpu;
 
             for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
-                auto j = outer_j + inner_j;
+                [[maybe_unused]] auto j = outer_j + inner_j;
                 {%- if is_index_select %}
                 overflow_safe_int_t output_j = L_start + l_start + j;
                 {%- elif nobag %}
@@ -366,7 +366,8 @@ using namespace fbgemm_gpu;
 
                 {%- endif %}
                 {%- if weighted %}
-                at::acc_type<cache_t, true> idx_weight_j = idx_weight_j_[inner_j];
+                [[maybe_unused]] at::acc_type<cache_t, true> idx_weight_j =
+                    idx_weight_j_[inner_j];
                 {%- endif %}
 
 
@@ -407,7 +408,7 @@ using namespace fbgemm_gpu;
             {%- if not nobag %}
             for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
-                auto j = outer_j + inner_j;
+                [[maybe_unused]] auto j = outer_j + inner_j;
 
                 {%- if is_index_select %}
                 overflow_safe_int_t output_j = L_start + l_start + j;
@@ -422,7 +423,8 @@ using namespace fbgemm_gpu;
                 [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j = {{ locs_or_addrs_idx }}_j_[inner_j];
                 {%- endif %}
                 {%- if weighted %}
-                at::acc_type<cache_t, true> idx_weight_j = idx_weight_j_[inner_j];
+                [[maybe_unused]] at::acc_type<cache_t, true> idx_weight_j =
+                    idx_weight_j_[inner_j];
                 {%- endif %}
                 {%- if is_gwd_kernel %}
                 const auto global_weight_decay_j = SHFL_SYNC(global_weight_decay, j);
@@ -489,7 +491,8 @@ using namespace fbgemm_gpu;
 
             {%- if weighted %}
             // Load positional weight index from thread j in the group
-            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
+            [[maybe_unused]] at::acc_type<cache_t, true> idx_weight_j =
+                SHFL_SYNC(idx_weight, j);
             {%- endif %}
             {%- if is_gwd_kernel %}
             const auto global_weight_decay_j = SHFL_SYNC(global_weight_decay, j);
@@ -655,8 +658,10 @@ batch_index_select_dim0_codegen_forward_kernel(
     fd_B.DivMod(b_t, &t, &b);
     {%- endif %}
 
+    {%- if is_index_select %}
     // Get total number of tables
     int32_t T = weights_offsets.size(0);
+    {%- endif %}
 
     {%- if is_index_select %}
     overflow_safe_int_t indices_start;

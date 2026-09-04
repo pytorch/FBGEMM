@@ -106,7 +106,6 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     [[maybe_unused]] int error_code = 0;
     [[maybe_unused]] int64_t error_value = 0;
 
-    int32_t T = D_offsets.size(0) - 1;
     // On ROCm the launch caps the grid to stay within the HIP 2^32
     // threads-per-launch limit, so we grid-stride to cover the full workload.
     // On CUDA the grid is not capped and the loop body runs once per warp.

@@ -67,7 +67,9 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     // If 2D, shape is [B][total_D]
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     ) {
+    {%- if is_index_select %}
     int32_t T = weights_offsets.size(0);
+    {%- endif %}
     {%- if not is_index_select %}
     // On ROCm the launch caps the grid to stay within the HIP 2^32
     // threads-per-launch limit, so we grid-stride to cover the full workload.

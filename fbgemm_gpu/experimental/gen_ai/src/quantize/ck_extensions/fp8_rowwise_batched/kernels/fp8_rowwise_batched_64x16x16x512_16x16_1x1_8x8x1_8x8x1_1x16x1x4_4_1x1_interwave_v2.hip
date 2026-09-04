@@ -16,8 +16,6 @@ fp8_rowwise_batched_64x16x16x512_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4_1x1_interwave_
     at::Tensor w_scale,
     at::Tensor Y) {
   // Check if this input needs to be padded.
-  int M = XQ.size(1);
-  int N = WQ.size(1);
   int K = WQ.size(2);
   bool pad = (K % 512 != 0);
 
