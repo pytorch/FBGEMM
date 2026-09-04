@@ -1006,7 +1006,9 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
   }
 
   if (output_stride == -1) {
-    output_stride = block_size;
+    output_stride = no_bag && output_bit_rate == 4
+        ? nbit_embedding_int4_row_size_in_bytes(block_size)
+        : block_size;
   }
   if (input_stride == -1) {
     int64_t num_elem_per_byte = 8 / input_bit_rate;
