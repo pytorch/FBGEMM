@@ -459,7 +459,10 @@ function(fbgemm_get_warning_flags)
     # already be unnecessary. It is kept until a full ROCm census confirms a
     # zero count -- 02c.3 has only covered 13% of the build so far.
     # TODO(T169200065): drop once the ROCm census shows zero header-hygiene.
-    -Wno-error=header-hygiene)
+    -Wno-error=header-hygiene
+    # ROCm can miss Composable Kernel's requested occupancy for some gfx908
+    # kernels. This is a backend tuning diagnostic, not an invalid program.
+    -Wno-error=pass-failed)
 
   set(_hipcc
     ${_cc_common}

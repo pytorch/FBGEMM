@@ -173,7 +173,9 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
   const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
   constexpr int VEC_WIDTH = 4;
+  {%- if not dense and optimizer != "none" %}
   constexpr auto kIsInt8 = std::is_same_v<emb_t, uint8_t>;
+  {%- endif %}
   int32_t T = weights_offsets.size(0);
   const int32_t num_long_runs = num_long_run_ids[0];
   const auto warp_id = threadIdx.y;
@@ -330,7 +332,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
                 )
             }}
 
-            int counter;
+            int counter = 0;
             if (threadIdx.x == 0) {
                 __threadfence();
                 counter = gpuAtomicAdd(&grad_accum_counter[really_long_run_id], -1);

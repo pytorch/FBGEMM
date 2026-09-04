@@ -97,9 +97,7 @@ at::Tensor f8f8bf16_blockwise_impl(
   using EDataType = ck::bhalf_t;
 
   using ALayout = Row;
-  using AScaleLayout = Row;
   using BLayout = Col;
-  using BScaleLayout = Col;
   using DsLayout = ck::Tuple<>;
   using ELayout = Row;
 
