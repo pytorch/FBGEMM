@@ -8,20 +8,19 @@ include_guard(GLOBAL)
 
 # Shared compiler warning flags for both CPU and GPU builds
 #
-# Produces up to four lists from ONE source of truth:
+# This function makes up to four lists from one set of flags:
 #
 #   MSVC_FLAGS_VAR   MSVC warning flags
 #   CC_FLAGS_VAR     host C/C++ flags (gcc or clang, per CMAKE_CXX_COMPILER_ID)
-#   NVCC_FLAGS_VAR   the CC list, each entry wrapped as -Xcompiler=<flag>
-#   HIPCC_FLAGS_VAR  the clang-shaped list, for hipcc
+#   NVCC_FLAGS_VAR   the CC list, each flag with an -Xcompiler= prefix
+#   HIPCC_FLAGS_VAR  the list for hipcc, which is always clang
 #
-# Adding a warning to `_cc_common` (or, when it is populated, `_cc_clang_only`)
-# must automatically reach CXX, nvcc and hipcc with no further edits. That is the
-# entire point of deriving them here rather than at the call sites.
+# Add a warning to `_cc_common`, or to `_cc_clang_only`. The warning then
+# reaches CXX, nvcc and hipcc. No other file needs a change. This is the reason
+# to make the lists here, and not at each call site.
 #
-# NOTE: this function PRODUCES the nvcc/hipcc lists; it does not apply them.
-# Wiring them into COMPILE_OPTIONS / HIPCC_OPTIONS is deliberately separate, so a
-# bad activation can be reverted without losing this refactor.
+# This function makes the lists. Other files apply them. The two steps stay
+# separate, so a change to one of them is easy to reverse.
 function(fbgemm_get_warning_flags)
   cmake_parse_arguments(ARG ""
     "MSVC_FLAGS_VAR;CC_FLAGS_VAR;NVCC_FLAGS_VAR;HIPCC_FLAGS_VAR"
@@ -35,237 +34,110 @@ function(fbgemm_get_warning_flags)
     /wd4305
     /wd4309)
 
-  # Portable warning flags. Additions that apply to every compiler go here.
+  # Portable flags. g++ and clang both accept these flags. A test with each
+  # compiler shows this. Do not assume the result from the name of a flag.
   #
-  # The `-Wall`-implied group below is redundant with `-Wall` today. It is listed
-  # explicitly on purpose: the flags survive any future narrowing of `-Wall`.
-  # Do not "clean up" as redundant.
+  # Use this list, and not `_cc_clang_only`, when both compilers accept a
+  # flag. A flag in this list also applies to the gcc builds.
   #
-  # Every flag here must be accepted by BOTH gcc and clang -- the OSS CI matrix
-  # builds with each. A clang-only flag belongs in `_cc_clang_only`; putting one
-  # here makes gcc emit "unrecognized command line option", which `-Werror`
-  # turns into a build failure.
+  # `-Wall` includes some of the flags below. This list gives their names,
+  # because a later version of `-Wall` can remove them. Do not delete them.
   set(_cc_common
     -Wall
     -Wextra
     -Werror
-    # -Wall-implied
     -Waddress
     -Wenum-compare
     -Wmisleading-indentation
     -Wparentheses
-    # -Wall-implied. Note the PLURAL -Wunused-local-typedefs: clang's singular
-    # spelling is rejected by g++ outright. The plural is accepted by both and
-    # produces the same diagnostic, so it goes here rather than in
-    # `_cc_clang_only`, buying coverage on the gcc leg.
     -Wpessimizing-move
     -Wunused-label
+    # Use the plural name. g++ stops with an error if it gets the singular
+    # name `-Wunused-local-typedef`. Both compilers accept the plural name,
+    # and both give the same warning.
     -Wunused-local-typedefs
-    # `-Wall`-implied and therefore inert on the host surface (clang enables it
-    # by default; gcc via -Wall). Its value is on DEVICE code, which reaches it
-    # via `_hipcc` -- but only once that list is applied. Until then this is
-    # host-only and should produce nothing.
     -Wunused-value
-    # Init and control flow. `-Winfinite-recursion` and `-Wself-assign` are
-    # g++-rejected and live in `_cc_clang_only`.
     -Wimplicit-fallthrough
     -Wuninitialized
-    # g++ accepts `-Wvexing-parse`, so it goes in the portable bucket for
-    # gcc-leg coverage.
     -Wvexing-parse
-    # This one is NOT free. `-Wall` implies it on clang but NOT on gcc
-    # (measured: g++ -Wall gives 0 diagnostics on a missing-braces probe, 1 only
-    # when the flag is explicit), so it genuinely enables a new warning on the
-    # OSS gcc host leg, under `-Werror`.
-    #
-    # It is portable, so `_cc_common` is the correct bucket. HIP is unaffected,
-    # because hipcc is clang and `_hipcc` already carries `-Wall`.
+    # `-Wall` includes this flag on clang, but not on gcc. The flag
+    # therefore adds a new warning to the gcc builds.
     -Wmissing-braces
-    # Portable: accepted and diagnosing on BOTH g++ 11.5 and clang 22
-    # (probed). Subplan 04 grouped it with the clang-only A2.2 flags, which
-    # would have stranded it behind the clang guard and silently lost gcc-leg
-    # coverage. It belongs here.
     -Wmismatched-tags
-    # ---- A2.4 (portable half) ------------------------------------------
-    # Accepted and diagnosing on BOTH g++ 11.5 and clang 22 (probed), so it
-    # goes here rather than behind the clang guard. Subplan 04 called this out
-    # correctly.
     -Waddress-of-packed-member
-    # ---- Phase B2: shadowing ----------------------------------------------
-    # Portable: probed accepted AND diagnosing on both g++ 11.5 and clang 22
-    # (the bare flag; -Wshadow-all, -Wshadow-uncaptured-local and
-    # -Wshadow-field-in-constructor are clang-only and are NOT added here).
-    #
-    # This is enabled DEMOTED -- see -Wno-error=shadow in the shared
-    # suppressions. The B0 census measured 299 first-party diagnostics across
-    # 22 files, so enabling it at full strength would break the build outright.
-    # Demoting makes those 299 visible in CI and keeps the census reproducible
-    # instead of being a one-off local probe, while the fixups land
-    # incrementally. The escape comes out when the count reaches zero.
-    #
-    # -Wshadow is the right first Phase B flag on two measurements: it is the
-    # most concentrated (79% of diagnostics in 5 files) and it is the only one
-    # of the three with ZERO third-party exposure, so unlike
-    # -Wshorten-64-to-32 and -Wzero-as-null-pointer-constant it is not blocked
-    # on giving PyTorch/ATen/c10 headers -isystem treatment.
+    # The two flags below are on, but they do not stop the build. See the
+    # `-Wno-error=` lines in `_cc_suppressions_common`. Those lines give the
+    # condition to remove them.
     -Wshadow
-    # ---- Phase B3: zero as null pointer -----------------------------------
-    # Portable: probed accepted AND diagnosing on g++ 11.5 and clang 22.
-    # Enabled DEMOTED -- see -Wno-error=zero-as-null-pointer-constant.
-    #
-    # B0 measured 449 first-party diagnostics across 130 files. That is the
-    # LARGEST job of the three B flags despite having ~260 fewer diagnostics
-    # than -Wshorten-64-to-32, because it is diffuse: only 19% sit in the top
-    # five files, versus 79% for -Wshadow. Rank by file count and
-    # concentration, not by raw count.
     -Wzero-as-null-pointer-constant
-    # ---- Parity gap G1: unused-family flags fbcode enables globally ---------
-    # Probed accepted on g++ 11.5 AND clang 22, so portable.
-    # -Wunused-variable and -Wunused-but-set-variable are already [enabled] by
-    # -Wall/-Wextra (verified with `g++ -Wall -Wextra -Q --help=warning`), so
-    # naming them explicitly is parity, not a behaviour change. It also makes
-    # the pre-existing -Wno-error=unused-but-set-variable escapes meaningful:
-    # an escape without its positive flag is inert.
-    # -Wunused-const-variable IS a real addition (gcc maps it to level =2).
     -Wunused-variable
     -Wunused-const-variable
     -Wunused-but-set-variable)
 
-  # Clang-only warning flags. These are appended to `_cc` ONLY when the host
-  # compiler is clang (see the guarded append below), because the OSS CI matrix
-  # builds with gcc on half its legs and g++ treats an unknown `-W` as a hard
-  # error -- not a warning, so `-Werror` is not even required to break the build.
+  # Clang-only flags. g++ does not know these flags. g++ stops with an error
+  # when it gets an unknown `-W` option. This error occurs even when `-Werror`
+  # is absent. The code therefore adds these flags to `_cc` only when the host
+  # compiler is clang.
   #
-  # They ARE included unconditionally in `_hipcc`, because hipcc is always clang.
+  # `_hipcc` always contains these flags, because hipcc is always clang.
   #
-  # Prefer a portable spelling in `_cc_common` over a clang-only one here when
-  # both exist: `-Wunused-local-typedefs` (plural) is accepted and diagnoses on
-  # both compilers, whereas clang's `-Wunused-local-typedef` (singular) is a hard
-  # error on gcc. Verified by compiling a probe with each.
+  # Put the `-Wno-error=` form of these flags in this list too. g++ stops with
+  # an error if it gets `-Wno-error=` for a warning that it does not know. g++
+  # accepts an unknown `-Wno-` form without an error, but it does not accept
+  # the `-Wno-error=` form.
   set(_cc_clang_only
-    # clang has no gcc equivalent for this one.
     -Wmove
-    # g++ rejects both of these outright.
-    #
-    # `-Winfinite-recursion` is `-Wall`-implied in clang (measured: 0 diagnostics
-    # at baseline, 1 with `-Wall`), so the OSS clang leg already has it and is
-    # green. No suppression is needed.
     -Winfinite-recursion
     -Wself-assign
-    # g++ rejects these two; only `-Wvexing-parse` is portable.
     -Wnull-conversion
     -Wstring-concatenation
-    # ---- A2.1: deprecated C++ constructs -------------------------------
-    # All four are rejected outright by g++ 11.5 ("unrecognized command line
-    # option"), so they must stay behind the clang guard. Probed, not assumed.
-    #
-    # `-Wdeprecated-dynamic-exception-spec` is NOT on by default: measured
-    # `-Wall -Wextra -Werror` against a `throw()` declaration and got a clean
-    # compile, so this flag genuinely enables a new diagnostic rather than
-    # restating one. See the paired `-Wno-error=` escape in
-    # `_cc_suppressions_clang_base` for why it is demoted.
+    # This flag is on, but it does not stop the build. See
+    # `_cc_suppressions_clang_base`.
     -Wdeprecated-dynamic-exception-spec
-    # `[=]` implicitly capturing `this` is deprecated in C++20 and FBGEMM is a
-    # C++20 codebase with heavy lambda use around kernel dispatch. If this
-    # fires, the fix is `[=, this]` or an explicit capture list -- not a
-    # suppression.
+    # C++20 deprecates the capture of `this` with `[=]`. To correct a site,
+    # use `[=, this]` or a full capture list. Do not add a suppression.
     -Wdeprecated-this-capture
     -Wdeprecated-copy-with-user-provided-copy
-    # ---- A2.2: type and template hygiene -------------------------------
-    # g++ 11.5 rejects all three (probed). `-Wmismatched-tags`, the fourth
-    # member of this chunk in subplan 04, is portable and lives in
-    # `_cc_common` instead.
-    #
-    # `-Wundefined-var-template` may fire where an explicit instantiation lives
-    # in a different TU; the fix is an explicit instantiation declaration, not
-    # a suppression.
     -Wundefined-var-template
-    # Warns where clang accepts something gcc will not. Genuinely useful here
-    # because OSS builds with both, and this flag is the only one in the set
-    # that actively protects the gcc leg from clang-only constructs.
+    # This flag finds code that only clang accepts. It protects the gcc
+    # builds.
     -Wgcc-compat
-    # ---- A2.3: conversions and literals --------------------------------
-    # All four are g++-rejected (probed).
-    #
-    # `-Wstring-conversion` is already enabled for `deeplearning/` in fbcode
-    # and globally at 100%, so this is OSS-only catch-up.
     -Wstring-conversion
     -Wimplicitly-unsigned-literal
     -Wuninitialized-const-reference
-    # Inert unless the code carries clang thread-safety annotations
-    # (`guarded_by` and friends). FBGEMM does not use them, so this is list
-    # parity rather than new coverage. Kept because it costs nothing and the
-    # annotations may arrive later.
+    # This flag does nothing until the code uses clang thread-safety
+    # annotations.
     -Wthread-safety
-    # ---- A2.4 (clang half) ---------------------------------------------
-    # Intentionally enable clang's full lifetime-diagnostic umbrella. g++ 11.5
-    # has no bare `-Wdangling` (it has `-Wdangling-pointer` and
-    # `-Wdangling-reference` instead), so this spelling is clang-only.
+    # This is clang's full lifetime-diagnostic umbrella. g++ has only
+    # `-Wdangling-pointer` and `-Wdangling-reference`.
     -Wdangling
-    # ---- A2.5: shift-sign-overflow -------------------------------------
-    # The first genuinely risky flag in Phase A. Fires on signed left-shift
-    # overflow, and FBGEMM is full of hand-written bit manipulation in
-    # AVX2/AVX512/NEON/SVE intrinsic paths and in quantization code. The fix is
-    # casting to unsigned before shifting -- and a wrong "fix" in that code is
-    # a silent numerical bug, not a compile error.
-    #
-    # Deliberately alone in its own diff so review can focus. If the OSS legs
-    # report a non-trivial count, split the fixups by ISA
-    # (src/*Avx2.cc, src/*Avx512.cc, src/*Neon.cc, src/*Sve.cc) and treat it as
-    # Phase B work rather than a parity chunk.
+    # This flag finds a signed left shift. The kernels contain much bit
+    # manipulation, so the warning can occur frequently. To correct a site,
+    # change the value to unsigned before the shift. A wrong change makes a
+    # silent numerical error, and the compiler does not report it.
     -Wshift-sign-overflow
-    # ---- A2.6a: unused exception parameter ------------------------------
-    # g++-rejected (probed). Already on for `deeplearning/` in fbcode and at
-    # 100% globally, so OSS-only catch-up.
-    #
-    # NOTE: the other half of subplan 04's A2.6, `-Wheader-hygiene`, is NOT
-    # here. It reaches HIP device code through `_hipcc`, and fbcode carries
-    # `-Wno-header-hygiene` in `_hip_warning_suppressions` precisely because it
-    # fires on ROCm/CK headers. Enabling it needs a HIP-only suppression list
-    # that does not exist yet -- see the A2.6b notes in subplan 04.
     -Wunused-exception-parameter
-    # ---- A2.6b: header hygiene ------------------------------------------
-    # `using namespace` at header scope. g++-rejected (probed), so clang-only.
-    #
-    # This reaches HIP DEVICE code via `_hipcc`, and fbcode carries a blanket
-    # `-Wno-header-hygiene` in `_hip_warning_suppressions` because it fires on
-    # ROCm/CK headers. We do NOT mirror that blanket suppression here: measured
-    # that `-isystem` fully neutralises this diagnostic (an `-I` include of a
-    # header-scope `using namespace` errors; the same header via `-isystem` is
-    # silent), and subplan 01 already moved CUTLASS/CK/asmjit/ATen to SYSTEM
-    # includes. The blanket suppression would therefore give up device coverage
-    # we may no longer need to give up.
-    #
-    # Instead the HIP path gets `-Wno-error=header-hygiene` (see
-    # `_hipcc_suppressions`), which keeps the diagnostic VISIBLE so 02c.3's
-    # census can count it, without breaking the build if some CK header is
-    # still reached via `-I`.
+    # This flag finds a `using namespace` line in a header. `-isystem` stops
+    # the warning completely, so it does not occur for third-party headers.
+    # On the HIP path the warning does not stop the build. See
+    # `_hipcc_suppressions`.
     -Wheader-hygiene
-    # ---- Phase B4: 64-to-32 narrowing -------------------------------------
-    # clang-only: g++ 11.5 rejects the flag outright (probed).
-    # Enabled DEMOTED -- see -Wno-error=shorten-64-to-32 in the clang
-    # suppressions, which must ALSO be clang-guarded (see there).
-    #
-    # B0 measured 711 first-party diagnostics across 76 files, 55% in the top
-    # five. Subplan 09 calls this the hardest chunk in the project: the fixups
-    # are casts in index arithmetic, where a wrong cast is a silent numerical
-    # or OOB bug rather than a compile error. Enabling it demoted makes the
-    # backlog visible without forcing rushed casts.
+    # This flag is on, but it does not stop the build. See
+    # `_cc_suppressions_clang_base`.
     -Wshorten-64-to-32
-    # ---- Parity gap G2: clang-only, ObjC/C-oriented -------------------------
-    # g++ rejects all four outright (probed), so they are clang-only. They are
-    # no-ops for C++/CUDA/HIP translation units, but they are in fbcode's
-    # global CLANG_WARNINGS_TO_ENABLE and carrying them keeps the two lists
-    # literally in sync -- which is the whole point of the parity work.
+    # The four flags below do nothing for C++, CUDA or HIP code. They apply
+    # to Objective-C methods and to C function pointers. This list keeps them,
+    # so that the set of flags stays complete.
     -Wdeprecated-implementations
     -Wsemicolon-before-method-body
     -Wimport-preprocessor-directive-pedantic
     -Wincompatible-function-pointer-types
-    # g++ does not know these four flags. Unlike the four flags above, these
-    # four can occur in C++ code.
     -Wambiguous-reversed-operator
     -Wbitwise-instead-of-logical
     -Wunreachable-code-fallthrough
+    # This is the singular name. This list keeps it, so that the set of
+    # flags stays complete. The plural name in `_cc_common` already applies to
+    # both compilers.
     -Wunused-local-typedef)
 
   # Clang-only flags that also need a RECENT clang. An older clang does not
@@ -281,10 +153,16 @@ function(fbgemm_get_warning_flags)
     # clang 17 added this flag too. clang 16 and older stop with an error.
     -Wpacked-non-pod)
 
-  # Suppressions. These are appended LAST so they win over everything above.
+  # Suppressions. The code adds these lines last, so they have priority over
+  # all the lists above.
   #
-  # To ENABLE a warning suppressed here, DELETE it from these lists. Adding the
-  # positive flag to `_cc_common` will not work; these come later.
+  # To enable a warning in these lists, delete its line. Do not add the flag
+  # to `_cc_common`. These lists come later, so they have priority.
+  #
+  # `-Wno-<name>` hides a warning completely. `-Wno-error=<name>` shows the
+  # warning but does not let it stop the build. Use the second form, because
+  # it keeps the work visible. A `-Wno-error=` line does nothing if no list
+  # above enables the warning.
   set(_cc_suppressions_common
     -Wno-deprecated-declarations
     -Wno-deprecated-enum-enum-conversion
@@ -294,57 +172,26 @@ function(fbgemm_get_warning_flags)
     -Wno-error=unused-parameter
     -Wno-error=unknown-pragmas
     -Wno-error=attributes
-    # Phase B2 is landing demoted while its 299 first-party diagnostics are
-    # fixed; see -Wshadow in _cc_common. Portable escape -- probed demoting to
-    # a warning on both g++ and clang, unlike the A2.1 escape which g++
-    # hard-errors on and which therefore had to be clang-guarded.
-    # TODO(T169200065): delete once the -Wshadow count reaches zero. This is
-    # the whole point of enabling it demoted rather than silently.
+    # Both compilers accept this line. Remove it when the warning count is
+    # zero.
     -Wno-error=shadow
-    # Phase B3, landing demoted while its 449 diagnostics across 130 files
-    # are fixed; see -Wzero-as-null-pointer-constant in _cc_common. Portable
-    # escape -- probed demoting to a warning on both g++ and clang.
-    #
-    # This escape also covers the 48 diagnostics coming from PyTorch / ATen /
-    # c10 / folly / thrift headers, which are NOT FBGEMM's to fix. Those need
-    # -isystem treatment (unowned work that B0 newly identified) before this
-    # flag can go to hard error, independently of the first-party backlog.
-    # TODO(T169200065): delete once the count reaches zero AND the external
-    # headers are -isystem.
+    # Both compilers accept this line. The warning also occurs in
+    # third-party headers, and those headers need `-isystem`. Remove this line
+    # when the count is zero and the headers are system includes.
     -Wno-error=zero-as-null-pointer-constant)
 
-  # Clang suppressions, split by the clang version that made them necessary.
-  # The CXX path applies these conditionally on the HOST clang version (below);
-  # the hipcc path takes all of them, because hipcc is always a recent clang.
+  # Clang suppressions. The clang version controls which lines apply. The
+  # CXX path uses the version of the host clang. The hipcc path uses all of
+  # the lines, because hipcc is always a recent clang.
   set(_cc_suppressions_clang_base
     -Wno-unused-command-line-argument
     -Wno-c99-extensions
     -Wno-gnu-zero-variadic-macro-arguments
-    # CUDA 13.3's `crt/host_runtime.h` declares `atexit(...) throw()`, a
-    # deprecated dynamic exception spec. It is an NVIDIA system header we
-    # cannot edit, and since 02c.1 forwards the host warning set to nvcc via
-    # `-Xcompiler=`, nvcc's host pass sees it too. fbcode carries the identical
-    # escape in `buck2/platform/cxx/fbcode/warnings.bzl`
-    # (`CLANG_WARNINGS_TO_DISABLE`), so fbcode is not clean for this flag
-    # either -- it is enabled and demoted, exactly as here.
-    #
-    # This MUST live in the clang-guarded list. g++ hard-errors on
-    # `-Wno-error=<warning it does not know>`:
-    #   cc1plus: error: '-Wno-error=deprecated-dynamic-exception-spec':
-    #                   no option '-Wdeprecated-dynamic-exception-spec'
-    # Note that this is stricter than a bare unknown `-Wno-<name>`, which g++
-    # accepts silently. The leniency does not extend to the `=` form.
-    # TODO(T169200065): drop once the toolchain stops surfacing this header.
+    # A CUDA header declares `atexit(...) throw()`. This is a deprecated
+    # dynamic exception specification. The header comes from the vendor, so we
+    # cannot change it. Remove this line when the vendor corrects the header.
     -Wno-error=deprecated-dynamic-exception-spec
-    # Phase B4, landing demoted; see -Wshorten-64-to-32 in _cc_clang_only.
-    #
-    # This escape MUST stay clang-guarded. g++ hard-errors on
-    # -Wno-error=<warning it does not know>, even without -Werror:
-    #   cc1plus: error: '-Wno-error=shorten-64-to-32': no option
-    #                   '-Wshorten-64-to-32'
-    # Same landmine as the A2.1 escape. Putting it in _cc_suppressions_common
-    # would break every gcc leg of the OSS matrix.
-    # TODO(T169200065): delete once the count reaches zero.
+    # Remove this line when the warning count is zero.
     -Wno-error=shorten-64-to-32)
 
   set(_cc_suppressions_clang_gt13
@@ -407,58 +254,49 @@ function(fbgemm_get_warning_flags)
 
   list(APPEND _cc ${_cc_suppressions})
 
-  # nvcc does not understand host warning flags directly; they must be forwarded
-  # to the host compiler. Use the `-Xcompiler=<flag>` single-token form: the
-  # two-token `-Xcompiler <flag>` form can be split or de-duplicated when CMake
-  # expands a `;`-separated list into COMPILE_OPTIONS.
+  # nvcc does not accept host warning flags. It must send them to the host
+  # compiler. Use the one-token form `-Xcompiler=<flag>`. CMake can divide
+  # or remove the two-token form `-Xcompiler <flag>` when it expands a list
+  # into COMPILE_OPTIONS.
   set(_nvcc "")
   foreach(_flag IN LISTS _cc)
     list(APPEND _nvcc "-Xcompiler=${_flag}")
   endforeach()
 
-  # hipcc is ALWAYS clang, regardless of CMAKE_CXX_COMPILER_ID -- the OSS ROCm CI
-  # matrix builds with both gcc and clang as the HOST compiler
-  # (.github/workflows/fbgemm_gpu_ci_rocm.yml). So this list is built from the
-  # clang-shaped inputs unconditionally. Deriving it from `_cc` would silently
-  # drop every clang-only flag on the gcc leg, with no failure to signal it.
+  # hipcc is always clang. The host compiler can be gcc or clang, because
+  # the ROCm CI builds with both. This list therefore always uses the clang
+  # inputs. A list made from `_cc` loses every clang-only flag on the gcc
+  # builds, and no error reports the loss.
   #
-  # Unlike nvcc, these reach DEVICE code -- the only surface where they do.
+  # These flags reach device code. No other path does this.
   #
-  # ⚠ `_cc_suppressions_clang` here is the FULL clang set, including the entries
-  # the CXX path gates behind CMAKE_CXX_COMPILER_VERSION. Those gates describe the
-  # HOST compiler and say nothing about hipcc's clang, which is a separate and
-  # generally newer toolchain. Before these flags are ever applied, confirm the
-  # hipcc in the supported ROCm versions accepts all of them -- an unknown
-  # `-Wno-*` becomes an error under `-Werror`. Producing the list is harmless;
-  # applying it is not.
-  # `_cc_suppressions_common` is included deliberately. Omitting it would give
-  # hipcc `-Werror` while withholding -Wno-deprecated-declarations,
-  # -Wno-strict-aliasing, -Wno-sign-compare, -Wno-vla and the -Wno-error=*
-  # entries that the host path relies on, and applying such a list would fail
-  # immediately. The common suppressions are portable `-Wno-*` that hipcc, being
-  # clang, accepts. Including them makes `_hipcc` the clang analogue of `_cc`:
-  # everything except the caller's EXTRA_CC_FLAGS, with the FULL clang
-  # suppression set in place of the host-conditional one.
+  # WARNING: `_cc_suppressions_clang` is the full clang set. It includes the
+  # lines that the CXX path selects by the version of the host clang. Those
+  # version tests apply to the host compiler only. The clang in hipcc is a
+  # different and usually newer compiler. Make sure that the hipcc in each
+  # supported ROCm version accepts all of these lines. An unknown `-Wno-`
+  # line becomes an error when `-Werror` is present.
+  # This list contains `_cc_suppressions_common` on purpose. Without it,
+  # hipcc gets `-Werror`, but it does not get -Wno-deprecated-declarations,
+  # -Wno-strict-aliasing, -Wno-sign-compare, -Wno-vla and the -Wno-error=
+  # lines. The host path needs those lines, and a build without them fails
+  # immediately.
+  #
+  # The common suppressions are portable `-Wno-` lines. hipcc is clang, so it
+  # accepts them. With them, `_hipcc` becomes the clang equivalent of `_cc`.
+  # It contains everything except the EXTRA_CC_FLAGS from the caller, and it
+  # uses the full clang suppression set.
 
-  # Suppressions that apply ONLY to the hipcc/device list.
-  #
-  # `_hipcc` otherwise shares the host suppression lists, so before this there
-  # was no way to relax a flag on device code without also relaxing it on the
-  # host. `-Wheader-hygiene` is the first flag that needs exactly that.
-  #
-  # Appended LAST in `_hipcc` so it wins, matching the ordering contract the
-  # host path uses.
+  # Suppressions for device code only. `_hipcc` uses the same suppression
+  # lists as the host. Without this list, a change to a flag on device code
+  # also changes it on the host. The code adds this list last in `_hipcc`, so
+  # it has priority. The host path uses the same order.
   set(_hipcc_suppressions
-    # ROCm/CK headers use `using namespace` at header scope. fbcode silences
-    # this outright for HIP (`_hip_warning_suppressions` in build_utils.bzl);
-    # we demote instead of silencing so the diagnostic still appears in the
-    # 02c.3 census and we can tell when it reaches zero.
-    #
-    # Measured: `-isystem` alone neutralises this diagnostic, and subplan 01
-    # already made the third-party include dirs SYSTEM, so this escape may
-    # already be unnecessary. It is kept until a full ROCm census confirms a
-    # zero count -- 02c.3 has only covered 13% of the build so far.
-    # TODO(T169200065): drop once the ROCm census shows zero header-hygiene.
+    # ROCm headers contain `using namespace` lines. This line shows the
+    # warning but does not let it stop the build, so the count stays visible.
+    # The third-party include directories are already SYSTEM, and that alone
+    # stops the warning. This line can therefore be unnecessary. Remove it
+    # when a full ROCm build reports zero.
     -Wno-error=header-hygiene
     # ROCm can miss Composable Kernel's requested occupancy for some gfx908
     # kernels. This is a backend tuning diagnostic, not an invalid program.
