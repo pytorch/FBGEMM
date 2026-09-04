@@ -43,6 +43,43 @@ transpose_embedding_input(
     const int64_t fixed_L_per_warp = 0,
     const int64_t num_warps_per_feature = 0);
 
+namespace fbgemm_gpu {
+
+// Combined grad-independent index-preprocessing op for the TBE backward
+// (transpose_embedding_input + find_long_segments). Defined AND CUDA-dispatched
+// in the generated embedding_backward_split_grad.cu (dispatch must be
+// co-located with the definition to link); only the schema m.def lives in
+// src/split_embeddings_utils/. Do NOT give these params C++ default arguments:
+// the dispatcher always passes all args (Python-facing defaults come from the
+// schema string), and defaults baked into the function type break TORCH_FN in
+// the CUDA-compiled dispatch TU.
+std::tuple<
+    at::Tensor, // linear_indices
+    at::Tensor, // linear_indices_sorted
+    at::Tensor, // sorted_linear_indices_run
+    at::Tensor, // sorted_linear_indices_run_lengths
+    at::Tensor, // sorted_linear_indices_num_runs
+    at::Tensor, // sorted_linear_indices_cumulative_run_lengths
+    at::Tensor, // infos_sorted
+    at::Tensor, // long_run_ids
+    at::Tensor, // num_long_run_ids
+    at::Tensor, // long_run_id_to_really_long_run_ids
+    at::Tensor, // num_really_long_run_ids
+    at::Tensor> // grad_accum_counter
+tbe_bwd_indices_preproc_cuda(
+    const at::Tensor& hash_size_cumsum,
+    const int64_t total_hash_size_bits,
+    const at::Tensor& indices,
+    const at::Tensor& offsets,
+    const int64_t info_B_num_bits,
+    const int64_t info_B_mask,
+    const int64_t total_unique_indices,
+    const std::optional<at::Tensor>& vbe_b_t_map,
+    const bool nobag,
+    const bool is_index_select);
+
+} // namespace fbgemm_gpu
+
 // Use these functions instead of directly calling cub functions
 // to reduce code size and compilation time.
 // Arguments are the same as cub::DeviceRadixSort::SortPairs

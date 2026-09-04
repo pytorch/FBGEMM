@@ -127,6 +127,32 @@ def transpose_embedding_input_ref(
     )
 
 
+def find_long_segments_ref(
+    sorted_linear_indices_run_lengths: torch.Tensor,
+    num_runs: int,
+    max_segment_length_per_warp: int,
+    max_segment_length_per_cta: int,
+) -> tuple[int, int]:
+    """
+    reference implementation of
+    split_embedding_backward_codegen_find_long_segments. A run of length >=
+    max_segment_length_per_warp is "long" and is split across
+    ceil(length / max_segment_length_per_cta) CTAs, each contributing one entry
+    to long_run_ids -- so num_long_run_ids counts CTAs, not runs; a run needing
+    more than one CTA is also "really long".
+    """
+    num_long_run_ids = 0
+    num_really_long_run_ids = 0
+    for run_id in range(num_runs):
+        run_length = int(sorted_linear_indices_run_lengths[run_id].item())
+        if run_length >= max_segment_length_per_warp:
+            num_ctas_for_run = -(-run_length // max_segment_length_per_cta)
+            num_long_run_ids += num_ctas_for_run
+            if num_ctas_for_run > 1:
+                num_really_long_run_ids += 1
+    return num_long_run_ids, num_really_long_run_ids
+
+
 class SplitEmbeddingsUtilsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -211,6 +237,114 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             )
         )
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=8),
+        B=st.integers(min_value=1, max_value=32),
+        max_len=st.integers(min_value=1, max_value=32),
+        E=st.integers(min_value=1, max_value=16),
+    )
+    @settings(deadline=30000)
+    def test_tbe_bwd_indices_preproc(
+        self, T: int, B: int, max_len: int, E: int
+    ) -> None:
+        # Validate both halves of the 12-tensor bundle against pure-Python
+        # references over many (T, B, L) draws. Small hash sizes force collisions
+        # so runs reach the long-segment warp threshold (>=32 on CUDA),
+        # exercising Part B. Per-table indices total <= B * max_len <= 1024, so
+        # every long run fits one CTA and num_really_long_run_ids stays 0
+        # regardless of the platform-dependent CTA threshold.
+        hash_sizes = [random.randint(1, E) for _ in range(T)]
+        total_hash_size_bits: int = int(math.log2(sum(hash_sizes)) + 1)
+        hash_size_cumsum = torch.tensor(
+            [0] + list(accumulate(hash_sizes)), dtype=torch.int64
+        )
+
+        indices, offsets = gen_inputs(hash_sizes, B, max_len)
+        assume(indices.numel() > 0)  # skip degenerate all-empty-bag draws
+
+        hash_size_cumsum_cuda = hash_size_cumsum.cuda()
+        info_B_num_bits, info_B_mask = torch.ops.fbgemm.get_infos_metadata(
+            hash_size_cumsum_cuda, B, T
+        )
+
+        (
+            linear_indices,
+            linear_indices_sorted,
+            sorted_linear_indices_run,
+            sorted_linear_indices_run_lengths,
+            sorted_linear_indices_num_runs,
+            sorted_linear_indices_cumulative_run_lengths,
+            infos_sorted,
+            _long_run_ids,
+            num_long_run_ids,
+            _long_run_id_to_really_long_run_ids,
+            num_really_long_run_ids,
+            _grad_accum_counter,
+        ) = torch.ops.fbgemm.tbe_bwd_indices_preproc(
+            hash_size_cumsum_cuda,
+            total_hash_size_bits,
+            indices.cuda(),
+            offsets.cuda(),
+            info_B_num_bits=info_B_num_bits,
+            info_B_mask=info_B_mask,
+        )
+
+        (
+            linear_indices_ref,
+            linear_indices_sorted_ref,
+            infos_sorted_ref,
+            sorted_linear_indices_run_ref,
+            sorted_linear_indices_run_lengths_ref,
+            sorted_linear_indices_num_runs_ref,
+            sorted_linear_indices_cumulative_run_lengths_ref,
+        ) = transpose_embedding_input_ref(
+            hash_size_cumsum, indices, offsets, info_B_num_bits
+        )
+
+        # Part A: transpose outputs match the reference, in the bundle's order.
+        self.assertTrue(torch.equal(linear_indices.cpu(), linear_indices_ref))
+        self.assertTrue(
+            torch.equal(linear_indices_sorted.cpu(), linear_indices_sorted_ref)
+        )
+        self.assertTrue(
+            torch.equal(infos_sorted.cpu(), infos_sorted_ref.to(torch.int32))
+        )
+        # fbgemm pads the run tensors to indices.numel(); slice to the ref length.
+        num = sorted_linear_indices_num_runs_ref.item()
+        self.assertEqual(sorted_linear_indices_num_runs.item(), num)
+        self.assertTrue(
+            torch.equal(
+                sorted_linear_indices_run.cpu()[:num], sorted_linear_indices_run_ref
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                sorted_linear_indices_run_lengths.cpu()[:num],
+                sorted_linear_indices_run_lengths_ref,
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                sorted_linear_indices_cumulative_run_lengths.cpu()[: num + 1],
+                sorted_linear_indices_cumulative_run_lengths_ref,
+            )
+        )
+
+        # Part B: long / really-long counts match the reference. CTA threshold is
+        # immaterial given the bound above, so pass its smallest value, 1024.
+        is_rocm = torch.version.hip is not None
+        max_segment_length_per_warp = 16384 if is_rocm else 32
+        max_segment_length_per_cta = 1024
+        num_long_run_ids_ref, num_really_long_run_ids_ref = find_long_segments_ref(
+            sorted_linear_indices_run_lengths_ref,
+            num,
+            max_segment_length_per_warp,
+            max_segment_length_per_cta,
+        )
+        self.assertEqual(num_long_run_ids.item(), num_long_run_ids_ref)
+        self.assertEqual(num_really_long_run_ids.item(), num_really_long_run_ids_ref)
+
     @given(
         T=st.integers(min_value=1, max_value=64),
         B=st.integers(min_value=1, max_value=64),
@@ -289,7 +423,11 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 feature_dims_cpu=torch.tensor(
                     [-1] * T, device="cpu", dtype=torch.int64
                 ),  # unused
-                device=torch.device("cuda") if not use_cpu else torch.device("cpu"),
+                device=(
+                    torch.accelerator.current_accelerator("cuda")
+                    if not use_cpu
+                    else torch.device("cpu")
+                ),
             )
             B_offsets = vbe_metadata.B_offsets
             assert isinstance(B_offsets, torch.Tensor), "B_offsets must be tensor"
@@ -304,7 +442,11 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 vbe_metadata.output_offsets_feature_rank,
                 torch.tensor(
                     [-1] * (T + 1),
-                    device=torch.device("cuda") if not use_cpu else torch.device("cpu"),
+                    device=(
+                        torch.accelerator.current_accelerator("cuda")
+                        if not use_cpu
+                        else torch.device("cpu")
+                    ),
                     dtype=torch.int,
                 ),  # unused D_offsets
                 -1,  # unused max_D

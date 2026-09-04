@@ -10,6 +10,11 @@
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/config/feature_gates.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include <ATen/cuda/CUDAContext.h>
+#include <torch/library.h>
 
 using Tensor = at::Tensor;
 
@@ -247,5 +252,173 @@ void grad_mean{{ vdesc }}_kernel
 {% endfor %} // for vbe in [True, False]
 
 }
+
+{% if not is_index_select %}
+// ===========================================================================
+// tbe_bwd_indices_preproc: combined index-preprocessing op for the TBE
+// backward. Folded into this TU so it shares find_long_segments above; compiled
+// once, no separate build target. Wraps the two grad-independent steps --
+// transpose_embedding_input (linearize -> radix-sort -> RLE + cumsum) and
+// find_long_segments (segment partition) -- so they can run off the backward
+// critical path. CUDA, common path (bagged, non-index-select). Output order
+// matches the driver's preproc_tensors[0..11] unpack contract in
+// embedding_backward_split_template.cu.
+// Design doc:
+// docs.google.com/document/d/1Z8_1zI_4WSF-gsaHKVLY3wUNPyAZSYRJLDSbDZfRE2o
+// ===========================================================================
+namespace fbgemm_gpu {
+
+std::tuple<
+    Tensor, // linear_indices
+    Tensor, // linear_indices_sorted
+    Tensor, // sorted_linear_indices_run
+    Tensor, // sorted_linear_indices_run_lengths
+    Tensor, // sorted_linear_indices_num_runs
+    Tensor, // sorted_linear_indices_cumulative_run_lengths
+    Tensor, // infos_sorted
+    Tensor, // long_run_ids
+    Tensor, // num_long_run_ids
+    Tensor, // long_run_id_to_really_long_run_ids
+    Tensor, // num_really_long_run_ids
+    Tensor> // grad_accum_counter
+tbe_bwd_indices_preproc_cuda(
+    const Tensor& hash_size_cumsum,
+    const int64_t total_hash_size_bits,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t info_B_num_bits,
+    const int64_t info_B_mask,
+    const int64_t total_unique_indices,
+    const std::optional<Tensor>& vbe_b_t_map,
+    const bool nobag,
+    const bool is_index_select) {
+  CUDA_DEVICE_GUARD(indices);
+
+  // Confirm the index-preproc op runs (vs. the inline backward path). Once per
+  // process; the payload identifies the call context.
+  TORCH_WARN_ONCE(
+      "[tbe_bwd_indices_preproc] index-preproc op launched: ",
+      "num_indices=", indices.numel(),
+      ", total_unique_indices=", total_unique_indices,
+      ", nobag=", nobag,
+      ", is_index_select=", is_index_select);
+
+  // ---- Part A: transpose_embedding_input ----------------------------------
+  auto
+      [linear_indices,
+       linear_indices_sorted,
+       infos_sorted,
+       sorted_linear_indices_run,
+       sorted_linear_indices_run_lengths,
+       sorted_linear_indices_num_runs,
+       sorted_linear_indices_cumulative_run_lengths] =
+          transpose_embedding_input(
+              hash_size_cumsum,
+              total_hash_size_bits,
+              indices,
+              offsets,
+              nobag,
+              vbe_b_t_map,
+              info_B_num_bits,
+              info_B_mask,
+              total_unique_indices,
+              is_index_select);
+
+  // ---- Part B: find_long_segments -----------------------------------------
+  // Grid bound: when total_unique_indices is unknown (-1, i.e. computed in the
+  // forward before the run count is available), fall back to indices.numel() --
+  // a safe upper bound on the run count. The kernel bounds its real work by the
+  // device-side run count, so extra blocks are no-ops (over-launch only, still
+  // correct).
+  const auto num_unique =
+      total_unique_indices >= 0 ? total_unique_indices : indices.numel();
+
+  auto long_run_ids =
+      at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
+  auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
+
+  const bool use_deterministic_algorithms =
+      at::globalContext().deterministicAlgorithms();
+
+  // max_segment_length_per_warp is a fixed policy constant (warp/CTA routing
+  // threshold), not a runtime input -- derived internally to mirror the driver.
+#ifdef USE_ROCM
+  constexpr int32_t max_segment_length_per_warp = 16384;
+  const int max_segment_length_per_cta =
+      use_deterministic_algorithms ? INT_MAX : 4096;
+#else
+  constexpr int32_t max_segment_length_per_warp = 32;
+  const auto device_properties = at::cuda::getCurrentDeviceProperties();
+  int default_segment_length = 1024;
+  const bool b200_feature_enabled =
+      (device_properties->major >= 10) &&
+      fbgemm_gpu::config::is_feature_enabled(
+          fbgemm_gpu::config::FeatureGateName::
+              TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200);
+  if (b200_feature_enabled) {
+    default_segment_length = 4096;
+  }
+  const int max_segment_length_per_cta =
+      use_deterministic_algorithms ? INT_MAX : default_segment_length;
+#endif
+
+  Tensor long_run_id_to_really_long_run_ids;
+  if (use_deterministic_algorithms) {
+    long_run_id_to_really_long_run_ids =
+        at::empty(0, sorted_linear_indices_run_lengths.options());
+  } else {
+    long_run_id_to_really_long_run_ids = at::empty(
+        {indices.numel()}, sorted_linear_indices_run_lengths.options());
+  }
+
+  auto num_really_long_run_ids =
+      at::zeros({1}, indices.options().dtype(at::kInt));
+  auto grad_accum_counter = at::empty(
+      use_deterministic_algorithms
+          ? 0
+          : (indices.numel() / max_segment_length_per_cta),
+      indices.options().dtype(at::kInt));
+
+  constexpr auto fls_ctx = "find_long_segments";
+  FBGEMM_LAUNCH_KERNEL(
+      embedding_ops::split_embedding_backward_codegen_find_long_segments,
+      div_round_up(num_unique, kMaxThreads),
+      kMaxThreads,
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(sorted_linear_indices_num_runs, int32_t, 1, 32).build(fls_ctx),
+      PTA_B(sorted_linear_indices_run_lengths, int32_t, 1, 32).build(fls_ctx),
+      PTA_B(long_run_ids, int32_t, 1, 32).build(fls_ctx),
+      PTA_B(num_long_run_ids, int32_t, 1, 32).build(fls_ctx),
+      PTA_B(long_run_id_to_really_long_run_ids, int32_t, 1, 32).build(fls_ctx),
+      PTA_B(num_really_long_run_ids, int32_t, 1, 32).build(fls_ctx),
+      PTA_B(grad_accum_counter, int32_t, 1, 32).build(fls_ctx),
+      max_segment_length_per_warp,
+      max_segment_length_per_cta,
+      use_deterministic_algorithms);
+
+  return {
+      linear_indices,
+      linear_indices_sorted,
+      sorted_linear_indices_run,
+      sorted_linear_indices_run_lengths,
+      sorted_linear_indices_num_runs,
+      sorted_linear_indices_cumulative_run_lengths,
+      infos_sorted,
+      long_run_ids,
+      num_long_run_ids,
+      long_run_id_to_really_long_run_ids,
+      num_really_long_run_ids,
+      grad_accum_counter};
+}
+
+} // namespace fbgemm_gpu
+
+// CUDA dispatch is registered here, co-located with the codegen definition so
+// the symbol links; the schema m.def lives in src/split_embeddings_utils/.
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  DISPATCH_TO_CUDA("tbe_bwd_indices_preproc", tbe_bwd_indices_preproc_cuda);
+}
+{% endif %}
 
 // clang-format on
