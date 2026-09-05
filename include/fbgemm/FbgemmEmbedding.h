@@ -84,7 +84,7 @@ GenerateEmbeddingSpMDM(
     bool is_bf16_in = false);
 
 /**
- * @param output_stride If -1, output_stride is same as block_size
+ * @param output_stride If -1, output_stride is same as block_size.
  * @param input_stride If -1, input_stride is same as block_size
  * @param scale_bias_last if false, scale and bias appear at the beginning
  *        of each row and are in fp16 for table batched embedding (TBE)
@@ -140,7 +140,12 @@ GenerateEmbeddingSpMDMNBit(
     bool use_offsets = true);
 
 /**
- * @param output_stride If -1, output_stride is same as block_size
+ * @param output_stride If -1, output_stride is same as block_size. For no-bag
+ *        INT4 output, -1 uses the packed fused-row size in bytes:
+ *        ceil(block_size / 2) + 2 * sizeof(uint16_t).
+ *        The returned no-bag INT4 kernel writes output_stride bytes per row,
+ *        including zero-filled padding. The output buffer must contain at
+ *        least output_size * output_stride bytes.
  * @param input_stride in Bytes. If -1, input_stride is same as
  *                     block_size / num_elem_per_byte + 2 * sizeof(float16)
  * @param scale_bias_last if false, scale and bias appear at the beginning

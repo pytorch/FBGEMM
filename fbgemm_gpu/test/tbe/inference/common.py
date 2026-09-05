@@ -88,6 +88,7 @@ class NBitFowardTestCommon(unittest.TestCase):
         mixed_weights_ty: bool,
         indices_dtype: torch.dtype,
         output_dtype: SparseType,
+        row_alignment: int | None = None,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
@@ -259,6 +260,7 @@ class NBitFowardTestCommon(unittest.TestCase):
                 fp8_config.get("exponent_bias") if has_fp8_weight else None
             ),
             indices_dtype=indices_dtype,
+            row_alignment=row_alignment,
         )
         # Initialize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()

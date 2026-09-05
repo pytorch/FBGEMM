@@ -434,6 +434,38 @@ FBGEMM_API void set_autovec_disabled(bool val);
 FBGEMM_API void set_autovec_forced(bool val);
 FBGEMM_API void set_asmjit_disabled(bool val);
 
+#define WARN_ONCE(...)              \
+  do {                              \
+    static bool _warned = false;    \
+    if (!_warned) {                 \
+      _warned = true;               \
+      fprintf(stderr, __VA_ARGS__); \
+    }                               \
+  } while (0)
+
+constexpr int64_t nbit_embedding_int4_row_size_in_bytes(
+    const int64_t block_size) {
+  constexpr int64_t kScaleBiasSize = 2 * sizeof(uint16_t);
+  return (block_size + 1) / 2 + kScaleBiasSize;
+}
+
+inline bool nbit_embedding_int4_validate_strides(
+    const int64_t block_size,
+    const int64_t input_stride,
+    const int64_t output_stride) {
+  const auto row_size = nbit_embedding_int4_row_size_in_bytes(block_size);
+  if (input_stride >= row_size && output_stride >= row_size) {
+    return true;
+  }
+  WARN_ONCE(
+      "no_bag strides must be at least the packed INT4 row size: "
+      "input_stride=%ld output_stride=%ld packed_row_size=%ld\n",
+      static_cast<long>(input_stride),
+      static_cast<long>(output_stride),
+      static_cast<long>(row_size));
+  return false;
+}
+
 /**
  * @brief A function to check if the input parameter in the nbit CPU TBE kernel
  * is valid.
@@ -459,14 +491,5 @@ void nbit_embedding_sanity_check(
         "output_bit_rate should be equal to 8 * sizeof(OutType)");
   }
 }
-
-#define WARN_ONCE(...)              \
-  do {                              \
-    static bool _warned = false;    \
-    if (!_warned) {                 \
-      _warned = true;               \
-      fprintf(stderr, __VA_ARGS__); \
-    }                               \
-  } while (0)
 
 } // namespace fbgemm
