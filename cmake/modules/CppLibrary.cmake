@@ -72,7 +72,9 @@ function(fbgemm_get_warning_flags)
     -Wzero-as-null-pointer-constant
     -Wunused-variable
     -Wunused-const-variable
-    -Wunused-but-set-variable)
+    -Wunused-but-set-variable
+    -Wunused-function
+    -Wunused-result)
 
   # Clang-only flags. g++ does not know these flags. g++ stops with an error
   # when it gets an unknown `-W` option. This error occurs even when `-Werror`
