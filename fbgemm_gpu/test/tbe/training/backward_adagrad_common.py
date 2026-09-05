@@ -378,9 +378,18 @@ def execute_backward_adagrad(  # noqa C901
         )
     )
 
+    fp32_io = weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
+    # FBGEMM uses fused FP32 multiply-add on ROCm, while the EmbeddingBag
+    # reference rounds multiply and add separately. At a BF16 midpoint, their
+    # one-FP32-ULP difference can therefore round to adjacent BF16 values.
+    rocm_fp32_bf16_output = (
+        TEST_WITH_ROCM
+        and weights_precision == SparseType.FP32
+        and output_dtype == SparseType.BF16
+    )
     tolerance = (
         1.0e-4
-        if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
+        if fp32_io
         else 1.0e-2 if weights_precision != SparseType.NFP8 else 1.0e-1
     )
 
@@ -396,7 +405,11 @@ def execute_backward_adagrad(  # noqa C901
         fc2,
         ref_output,
         atol=tolerance,
-        rtol=1.0e-2 if weights_precision != SparseType.FP32 else 1.0e-4,
+        rtol=(
+            1.0e-2
+            if weights_precision != SparseType.FP32 or rocm_fp32_bf16_output
+            else 1.0e-4
+        ),
         msg=f"Forward output mismatch: VBE={mixed_B} pooling_mode={pooling_mode}, weight_precision={weights_precision} output_dtype={output_dtype} output_shape={fc2.shape}",
     )
     if do_pooling:
