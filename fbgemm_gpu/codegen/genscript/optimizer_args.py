@@ -82,6 +82,19 @@ def annotate_unused_declaration(
     return f"[[maybe_unused]] {declaration}" if surface in unused_on else declaration
 
 
+def maybe_unused_args(args_str: str, apply: bool = True) -> str:
+    """Prefix every parameter of an already-rendered argument list.
+
+    The V1 optimizer argument lists reach the templates as one pre-joined
+    string, so a declaration that reads none of them -- a deprecation stub --
+    cannot annotate them individually. `apply` is the generated variant's
+    predicate, so a variant that does read the arguments renders unchanged.
+    """
+    if not apply:
+        return args_str
+    return ", ".join(f"[[maybe_unused]] {arg.strip()}" for arg in args_str.split(","))
+
+
 ######################################################################
 # Optimizer Args Set Item
 ######################################################################
@@ -1213,7 +1226,11 @@ class OptimizerArgsSet:
                 f"{name}_placements",
                 default,
                 is_optional=is_optional,
-                unused_on=unused_on,
+                # A placements tensor tells the CUDA path which of the device,
+                # UVM, or cache copies to read. The CPU kernel only ever has
+                # the host copy, so it forwards the tensor to keep the
+                # signature uniform and never dereferences it.
+                unused_on=unused_on | {DeclSurface.CPU_KERNEL},
             ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
