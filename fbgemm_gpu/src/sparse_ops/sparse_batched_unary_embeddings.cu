@@ -61,10 +61,21 @@ Tensor batched_unary_embeddings_forward_cuda(
   // N: number of tasks, T: number of tables, B: batch size
   const int32_t N = weight.size(0);
   const int32_t T = table_offsets.numel() - 1;
-  const int32_t B = (offsets.numel() - 1) / T;
   TORCH_CHECK(N > 0);
-  TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
+  // offsets delimits a flattened [T, B] grid of segments, so it must hold
+  // exactly T*B+1 entries. Reject inputs whose length is not T*B+1 for any
+  // integer B: otherwise the trailing partial row is silently dropped here
+  // while the backward pass walks it with an out-of-range table id.
+  TORCH_CHECK(
+      (offsets.numel() - 1) % T == 0,
+      "offsets.numel() - 1 (",
+      offsets.numel() - 1,
+      ") must be divisible by the number of tables T (",
+      T,
+      ")");
+  const int32_t B = (offsets.numel() - 1) / T;
+  TORCH_CHECK(B > 0);
   TORCH_CHECK(T <= 65535);
   TORCH_CHECK(N <= 65535);
   int32_t threads = std::min<int32_t>(B, 512);
@@ -203,6 +214,20 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
   TORCH_CHECK(N > 0);
   TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
+  // offsets delimits a flattened [T, B] grid of segments, so it must hold
+  // exactly T*B+1 entries. A shorter/longer offsets tensor makes the index
+  // linearization walk segments with an out-of-range table id, writing
+  // grad_weight out of bounds.
+  TORCH_CHECK(
+      offsets.numel() == static_cast<int64_t>(T) * B + 1,
+      "offsets.numel() (",
+      offsets.numel(),
+      ") must equal T*B+1 (",
+      static_cast<int64_t>(T) * B + 1,
+      ") for T=",
+      T,
+      ", B=",
+      B);
 
   int32_t info_B_num_bits;
   uint32_t info_B_mask;
