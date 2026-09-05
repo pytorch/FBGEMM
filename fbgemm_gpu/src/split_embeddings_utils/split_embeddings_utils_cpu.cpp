@@ -200,6 +200,20 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    int fixed_L_per_warp=0, "
       "    int num_warps_per_feature=0"
       ") -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
+  m.def(
+      "tbe_bwd_indices_preproc("
+      "    Tensor hash_size_cumsum, "
+      "    int total_hash_size_bits, "
+      "    Tensor indices, "
+      "    Tensor offsets, "
+      "    int info_B_num_bits=26, "
+      "    int info_B_mask=0x2FFFFFF, "
+      "    int total_unique_indices=-1, "
+      "    Tensor? vbe_b_t_map=None, "
+      "    bool nobag=False, "
+      "    bool is_index_select=False"
+      ") -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, "
+      "Tensor, Tensor, Tensor, Tensor)");
   m.def("get_infos_metadata(Tensor unused, int B, int T) -> (int, int)");
   m.def(
       "generate_vbe_metadata("
