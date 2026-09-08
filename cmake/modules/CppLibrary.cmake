@@ -104,6 +104,10 @@ function(fbgemm_get_warning_flags)
     # This flag finds code that only clang accepts. It protects the gcc
     # builds.
     -Wgcc-compat
+    # clang has this on by default, so naming it does not change the
+    # behaviour. g++ does not know the flag, and g++ treats the construct as
+    # an error in any case.
+    -Wextra-qualification
     -Wstring-conversion
     -Wimplicitly-unsigned-literal
     -Wuninitialized-const-reference
