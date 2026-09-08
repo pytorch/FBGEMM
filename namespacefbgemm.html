@@ -2121,7 +2121,7 @@ template&lt;typename IndexType, typename OffsetType = std::int32_t, typename Out
 </div><div class="memdoc">
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_stride</td><td>If -1, output_stride is same as block_size </td></tr>
+    <tr><td class="paramname">output_stride</td><td>If -1, output_stride is same as block_size. For no-bag INT4 output, -1 uses the packed fused-row size in bytes: ceil(block_size / 2) + 2 * sizeof(uint16_t). The returned no-bag INT4 kernel writes output_stride bytes per row, including zero-filled padding. The output buffer must contain at least output_size * output_stride bytes. </td></tr>
     <tr><td class="paramname">input_stride</td><td>in Bytes. If -1, input_stride is same as block_size / num_elem_per_byte + 2 * sizeof(float16) </td></tr>
     <tr><td class="paramname">scale_bias_last</td><td>if false, scale and bias appear at the beginning of each row and are in fp16 for table batched embedding (TBE) in FBGEMM_GPU. If false, it can also take -1 indices (output from pruned embedding id mapping) </td></tr>
   </table>
@@ -2253,7 +2253,7 @@ template&lt;typename InType, typename IndexType, typename OffsetType = std::int3
 </div><div class="memdoc">
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_stride</td><td>If -1, output_stride is same as block_size </td></tr>
+    <tr><td class="paramname">output_stride</td><td>If -1, output_stride is same as block_size. </td></tr>
     <tr><td class="paramname">input_stride</td><td>If -1, input_stride is same as block_size </td></tr>
     <tr><td class="paramname">scale_bias_last</td><td>if false, scale and bias appear at the beginning of each row and are in fp16 for table batched embedding (TBE) in FBGEMM_GPU. If false, it can also take -1 indices (output from pruned embedding id mapping) </td></tr>
   </table>
