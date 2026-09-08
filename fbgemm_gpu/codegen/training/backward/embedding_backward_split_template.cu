@@ -618,7 +618,8 @@ Tensor {{ embedding_cuda_op }}(
     const c10::SymInt D_,
     {%- endif %}
     {%- if not nobag and not is_index_select %}
-    const bool mixed_D,
+    {#- /* Read only by the ROCm-optimized non-VBE warp kernel dispatch below. */ #}
+    {{ "" if has_hip_optimized_nonvbe_support else "[[maybe_unused]] " }}const bool mixed_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
