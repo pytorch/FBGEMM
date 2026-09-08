@@ -296,6 +296,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
       adjusted_D += kINT8QparamsBytes;
     } else if (o_dtype == SparseType::INT4) {
       adjusted_D += kINT4QparamsElems;
+      TORCH_CHECK(
+          adjusted_D % 2 == 0,
+          "INT4 no-bag output requires an even embedding dimension, got D=",
+          D);
     }
     output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
     if (!output_is_int8 && !output_is_int4) {
@@ -356,7 +360,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const int32_t D_end = D_offsets_acc[t + 1];
                 const int32_t D = D_end - D_start;
                 {% else %}
-                const int32_t elems_D = (o_dtype == SparseType::INT4) ? at::divup(adjusted_D, 2) : adjusted_D;
+                const int32_t elems_D = (o_dtype == SparseType::INT4) ? adjusted_D / 2 : adjusted_D;
                 const int32_t D_start = offsets_acc[t * B] * elems_D;
                 {% endif %}
 
@@ -393,7 +397,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const bool normalize_by_lengths = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
 
                 const index_t index_size = offsets_acc[(t + 1) * B] - *offsets_begin_ptr;
-                const int32_t output_stride = {{ "total_D" if not nobag else "adjusted_D" }};
+                const int32_t output_stride = {{ "total_D" if not nobag else "elems_D" }};
 
                 {% if nobag %}
                 TORCH_CHECK(index_size >= 0, "offsets must be non-decreasing, got index_size ", index_size, " for table ", t);
