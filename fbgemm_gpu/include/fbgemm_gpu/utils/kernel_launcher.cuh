@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 
 #include "fbgemm_gpu/utils/kernel_execution_timer.cuh"
@@ -317,7 +318,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
     // launching the kernel.  This has roughly the same effect as setting
     // `CUDA_LAUNCH_BLOCKING=1` as an environment variable.
     if constexpr (EnableBarrierIsolation) {
-      cudaDeviceSynchronize();
+      C10_CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     // If execution timer is enabled, initialize and start the CUDAEvents-based
@@ -362,7 +363,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
     // If barrier isolation is enabled, synchronize the stream again to wait for
     // kernel execution to complete
     if constexpr (EnableBarrierIsolation) {
-      cudaDeviceSynchronize();
+      C10_CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     // Check for CUDA errors.  This is a replacement for
