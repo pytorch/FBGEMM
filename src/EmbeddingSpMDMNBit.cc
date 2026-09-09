@@ -18,6 +18,7 @@
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h" // @manual
+#include "./JitPerfMap.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
@@ -961,6 +962,29 @@ GenEmbeddingSpMDMNBitLookup<
           cout << "Error: in fn add" << '\n';
           return nullptr;
         }
+
+        registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+          return embeddingKernelSymbol(
+              "EmbeddingSpMDMNBit",
+              std::to_string(bit_rate) + "bit_D-" + std::to_string(block_size),
+              {.indices64 = areIndices64b,
+               .offsets64 = std::is_same_v<offsetType, int64_t>,
+               .thread_local_cache = THREAD_LOCAL,
+               .avx512 = instSet == inst_set_t::avx512,
+               .prefetch = prefetch,
+               .output_stride = output_stride,
+               .input_stride = input_stride,
+               .weighted = has_weight,
+               .positional = is_weight_positional,
+               .normalize = normalize_by_lengths,
+               .lengths = !use_offsets,
+               .rowwise_sparse = ROWWISE_SPARSE,
+               .scale_bias_first = !scale_bias_last,
+               // outType selects the instantiation, so a float-output kernel
+               // and a float16-output one of the same shape are distinct code.
+               .fp16_out = is_16bit_storage_v<outType> && !is_bf16_out,
+               .bf16_out = is_bf16_out});
+        });
 
 #if defined(FBGEMM_LOG_CODE)
         fclose(codeLogFile);

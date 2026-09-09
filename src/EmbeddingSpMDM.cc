@@ -20,6 +20,7 @@
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h"
+#include "./JitPerfMap.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/FbgemmEmbedding.h"
@@ -962,6 +963,31 @@ GenEmbeddingSpMDMLookup<
           std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }
+
+        registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+          const char* inTypeName = is_8bit_in ? "u8"
+              : is_16bit_in                   ? (is_bf16_in ? "bf16" : "fp16")
+                                              : "fp32";
+          return embeddingKernelSymbol(
+              "EmbeddingSpMDM",
+              "in-" + std::string(inTypeName) + "_D-" +
+                  std::to_string(block_size),
+              {.indices64 = areIndices64b,
+               .offsets64 = std::is_same_v<offsetType, int64_t>,
+               .thread_local_cache = THREAD_LOCAL,
+               .avx512 = instSet == inst_set_t::avx512,
+               .prefetch = prefetch,
+               .output_stride = output_stride,
+               .input_stride = input_stride,
+               .weighted = has_weight,
+               .positional = is_weight_positional,
+               .normalize = normalize_by_lengths,
+               .lengths = !use_offsets,
+               .rowwise_sparse = ROWWISE_SPARSE,
+               .scale_bias_first = !scale_bias_last,
+               .fp16_out = is_fp16_out,
+               .bf16_out = is_bf16_out});
+        });
 
         return fn;
       });
