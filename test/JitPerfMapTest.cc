@@ -8,6 +8,10 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
+#include <string>
+#include <vector>
+
 #include "src/JitPerfMap.h" // @manual
 
 #ifndef _MSC_VER
@@ -21,12 +25,67 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
-#include <string>
 #include <thread>
-#include <vector>
 #endif
 
 using namespace fbgemm;
+
+// JitSymbolBuilder decides the whole on-disk symbol format, and symbols are
+// only built when FBGEMM_JIT_PERF_MAP is set, so a formatting regression would
+// otherwise surface only in a profile.
+TEST(JitPerfMapTest, SymbolBuilderFormat) {
+  EXPECT_EQ(
+      JitSymbolBuilder("gemm")
+          .field("MC", 16)
+          .field("isa", "avx2")
+          .flag("accum", true)
+          .flag("trans", false)
+          .str(),
+      "fbgemm::gemm_MC-16_isa-avx2_accum-1_trans-0");
+  // A kernel with no fields is still namespace-qualified.
+  EXPECT_EQ(JitSymbolBuilder("bare").str(), "fbgemm::bare");
+}
+
+// Every inst_set_t has to name itself. instSetName() ends in an "anyarch"
+// fallback, so an enumerator added without a branch there would silently share
+// a name with anyarch, and kernels built for it would read in a profile as the
+// wrong instruction set. Distinctness is what catches that.
+TEST(JitPerfMapTest, EveryInstSetHasADistinctName) {
+  // The list below is hand-written because instSetName() is templated, so this
+  // switch is what keeps it honest: it has no default, so adding an
+  // inst_set_t enumerator makes it non-exhaustive and -Wswitch fails the
+  // build until both it and the list are updated.
+  const auto exhaustive = [](inst_set_t set) {
+    switch (set) {
+      case inst_set_t::anyarch:
+      case inst_set_t::avx2:
+      case inst_set_t::avx512:
+      case inst_set_t::avx512_ymm:
+      case inst_set_t::avx512_vnni:
+      case inst_set_t::avx512_vnni_ymm:
+      case inst_set_t::sve:
+        return true;
+    }
+    return false;
+  };
+  EXPECT_TRUE(exhaustive(inst_set_t::anyarch));
+
+  const std::vector<std::string> names = {
+      instSetName<inst_set_t::anyarch>(),
+      instSetName<inst_set_t::avx2>(),
+      instSetName<inst_set_t::avx512>(),
+      instSetName<inst_set_t::avx512_ymm>(),
+      instSetName<inst_set_t::avx512_vnni>(),
+      instSetName<inst_set_t::avx512_vnni_ymm>(),
+      instSetName<inst_set_t::sve>(),
+  };
+  for (const auto& name : names) {
+    EXPECT_FALSE(name.empty());
+  }
+  const std::set<std::string> unique(names.begin(), names.end());
+  EXPECT_EQ(unique.size(), names.size())
+      << "two inst_set_t values share a perf-map name";
+}
 
 #ifdef _MSC_VER
 

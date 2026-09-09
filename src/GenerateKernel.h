@@ -13,6 +13,7 @@
 #include <string>
 #include <tuple>
 #include "./CodeCache.h" // @manual
+#include "./JitPerfMap.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/SimdUtils.h"
 // #define FBGEMM_LOG_CODE 1
@@ -103,12 +104,44 @@ class CodeGenBase {
       int KCB,
       int MR,
       int NR) {
+    return getKernelName<instSet>(accum, mc, nc, NCB, KCB, MR, NR) + ".txt";
+  }
+
+  /**
+   * @brief The perf-map symbol for this kernel.
+   *
+   * Shares getKernelName() with the debug dump filename so the two cannot
+   * drift, and keeps the "fbgemm::" prefix here rather than repeating it in
+   * every generator.
+   */
+  template <inst_set_t instSet>
+  static std::string getKernelSymbol(
+      bool accum,
+      int mc,
+      int nc,
+      int NCB,
+      int KCB,
+      int MR,
+      int NR) {
+    return "fbgemm::" + getKernelName<instSet>(accum, mc, nc, NCB, KCB, MR, NR);
+  }
+
+  // The code-logging filename without its extension, so the same descriptive
+  // shape can be reused as a JIT symbol name. Deliberately unprefixed: this
+  // also feeds getCodeLoggingFile(), and a "fbgemm::" prefix would put a colon
+  // in the dump filename, which is not legal on Windows. Callers registering a
+  // perf-map symbol prepend the namespace themselves.
+  template <inst_set_t instSet>
+  static std::string
+  getKernelName(bool accum, int mc, int nc, int NCB, int KCB, int MR, int NR) {
     std::ostringstream oss;
     oss << "gemm_";
     if constexpr (std::is_same_v<accT, std::int16_t>) {
       oss << "acc16_";
     } else if constexpr (std::is_same_v<accT, std::int32_t>) {
       oss << "acc32_";
+    } else if constexpr (std::is_same_v<accT, std::int64_t>) {
+      oss << "acc64_";
     } else {
       oss << "unknown_";
     }
@@ -116,16 +149,11 @@ class CodeGenBase {
         << "_NC-" + std::to_string(nc) << "_NCB-" + std::to_string(NCB)
         << "_KCB-" + std::to_string(KCB) << "_MR-" + std::to_string(MR)
         << "_NR-" + std::to_string(NR);
-    if constexpr (instSet == inst_set_t::avx512_vnni) {
-      oss << "_avx512vnni";
-    } else if constexpr (instSet == inst_set_t::avx512) {
-      oss << "_avx512";
-    } else if constexpr (instSet == inst_set_t::avx512_ymm) {
-      oss << "_avx512_ymm";
-    } else if constexpr (instSet == inst_set_t::avx2) {
-      oss << "_avx2";
-    }
-    oss << ".txt";
+    // instSetName() rather than a local chain: it is the same spelling the
+    // embedding kernels use, and it has a fallback, so an instSet nobody
+    // thought to list here still names itself instead of silently producing a
+    // symbol with no ISA at all.
+    oss << "_" << instSetName<instSet>();
     return oss.str();
   }
 
