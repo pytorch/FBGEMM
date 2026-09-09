@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', codefold.init);
 <div class="header">
   <div class="summary">
 <a href="#pub-methods">Public Member Functions</a> &#124;
+<a href="#pub-static-methods">Static Public Member Functions</a> &#124;
 <a href="classfbgemm_1_1_code_gen_base-members.html">List of all members</a>  </div>
   <div class="headertitle"><div class="title">CodeGenBase&lt; TA, TB, TC, accT &gt; Class Template Reference</div></div>
 </div><!--header-->
@@ -133,6 +134,11 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4050603658b0e5cf634fd9a989cb84bc" id="r_a4050603658b0e5cf634fd9a989cb84bc"><td class="memItemLeft"><a class="el" href="#a843f4289cb9de379bac477ed0dcba1cf">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int32_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight"><a class="el" href="#a4050603658b0e5cf634fd9a989cb84bc">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
 <tr class="memitem:ae77c932081bd645537c86f30ea9527ba" id="r_ae77c932081bd645537c86f30ea9527ba"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ae77c932081bd645537c86f30ea9527ba">genComputeBlock</a> (x86::Emitter *a, const x86::Gp &amp;buffer_A, const x86::Gp &amp;buffer_B, const x86::Gp &amp;, int rowRegs, int colRegs, int lda)</td></tr>
 <tr class="memitem:a4050603658b0e5cf634fd9a989cb84bc" id="r_a4050603658b0e5cf634fd9a989cb84bc"><td class="memItemLeft"><a class="el" href="#a843f4289cb9de379bac477ed0dcba1cf">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int32_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight"><a class="el" href="#a4050603658b0e5cf634fd9a989cb84bc">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-pub-static-methods" class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
+Static Public Member Functions</h2></td></tr>
+<tr class="memitem:abccad0b4348973e069ff2d6c5e5f7507" id="r_abccad0b4348973e069ff2d6c5e5f7507"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </td></tr>
+<tr class="memitem:abccad0b4348973e069ff2d6c5e5f7507 template"><td class="memItemLeft">static std::string&#160;</td><td class="memItemRight"><a class="el" href="#abccad0b4348973e069ff2d6c5e5f7507">getKernelSymbol</a> (bool accum, int mc, int nc, int NCB, int KCB, int MR, int NR)</td></tr>
 </table>
 <a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
 <div class="textblock"><div class="compoundTemplParams">template&lt;typename TA, typename TB, typename TC, typename accT&gt;<br />
@@ -378,6 +384,67 @@ class fbgemm::CodeGenBase&lt; TA, TB, TC, accT &gt;</div><dl class="tparams"><dt
       </table>
 </div><div class="memdoc">
 <p>Generate AVX512 instructions for computing block in the rank-k update of 32-bit Accumulation kernel. </p>
+
+</div>
+</div>
+<a id="abccad0b4348973e069ff2d6c5e5f7507" name="abccad0b4348973e069ff2d6c5e5f7507"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abccad0b4348973e069ff2d6c5e5f7507">&#9670;&#160;</a></span>getKernelSymbol()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename TA, typename TB, typename TC, typename accT&gt; </div>
+<div class="memtemplate">
+template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::string getKernelSymbol </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>mc</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>nc</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>NCB</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>KCB</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>MR</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>NR</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel static">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>The perf-map symbol for this kernel. </p>
+<p>Shares getKernelName() with the debug dump filename so the two cannot drift, and keeps the "fbgemm::" prefix here rather than repeating it in every generator. </p>
 
 </div>
 </div>
