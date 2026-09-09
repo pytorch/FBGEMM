@@ -158,6 +158,39 @@ set(fbgemm_sources_include_directories
 #
 # Do NOT add first-party paths to this list: doing so silently disables all
 # warnings for that code.
+if(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_GENAI
+  AND FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM
+  AND EXISTS "${THIRDPARTY}/composable_kernel/include/ck/config.h.in")
+  set(CK_ENABLE_ALL_DTYPES ON)
+  if(AMDGPU_TARGETS MATCHES "gfx9")
+    set(CK_USE_XDL ON)
+  endif()
+  if(AMDGPU_TARGETS MATCHES "gfx94|gfx95")
+    set(CK_USE_GFX94 ON)
+  endif()
+  if(AMDGPU_TARGETS MATCHES "gfx11|gfx12")
+    set(CK_USE_WMMA ON)
+  endif()
+  if(AMDGPU_TARGETS MATCHES "gfx12")
+    set(CK_USE_WMMA_FP8 ON)
+  endif()
+  if(AMDGPU_TARGETS MATCHES "gfx12|gfx950")
+    set(CK_USE_OCP_FP8 ON)
+  endif()
+  if(AMDGPU_TARGETS MATCHES "gfx90a|gfx94")
+    set(CK_USE_FNUZ_FP8 ON)
+  endif()
+  if(AMDGPU_TARGETS MATCHES "gfx950")
+    set(CK_USE_NATIVE_MX_SUPPORT ON)
+  endif()
+
+  set(ck_generated_include_directory
+    "${CMAKE_CURRENT_BINARY_DIR}/composable_kernel/include")
+  configure_file(
+    "${THIRDPARTY}/composable_kernel/include/ck/config.h.in"
+    "${ck_generated_include_directory}/ck/config.h")
+endif()
+
 set(fbgemm_thirdparty_include_directories
   # PyTorch
   ${TORCH_INCLUDE_DIRS}
@@ -168,6 +201,7 @@ set(fbgemm_thirdparty_include_directories
   ${THIRDPARTY}/cutlass/tools/util/include
   ${THIRDPARTY}/composable_kernel/include
   ${THIRDPARTY}/composable_kernel/library/include
+  ${ck_generated_include_directory}
   ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 
