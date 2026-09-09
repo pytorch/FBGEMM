@@ -77,9 +77,10 @@ Tensor permute_pooled_embs_split_gpu_impl(
       "current shape is: ",
       torch_tensor_shape_str(pooled_embs));
 
-  // inv_permute_list is not being used so it's not checked here.
-  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      pooled_embs, offset_dim_list, permute_list, inv_offset_dim_list);
+  // Relocation below aligns the index tensors to pooled_embs' device, but it
+  // cannot make a CPU input valid for this GPU impl -- keep failing loudly
+  // for that, which TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL used to cover.
+  TENSOR_ON_CUDA_GPU(pooled_embs);
 
   CUDA_DEVICE_GUARD(pooled_embs);
 
@@ -87,13 +88,39 @@ Tensor permute_pooled_embs_split_gpu_impl(
   // passs after D22767058. TODO: optimize and make sure pooled_embs is
   // contiguous.
   auto pooled_embs_contiguous = pooled_embs.contiguous();
+
+  // `offset_dim_list`, `permute_list` and `inv_offset_dim_list` are small
+  // constant index tensors describing how to slice `pooled_embs` -- on the
+  // order of a few KiB, against pooled embeddings that are typically hundreds
+  // of MiB. Requiring the caller to place them on the same device is not
+  // always satisfiable: in a statically exported graph they are buffers,
+  // resolved to a device once when the weights are materialized, while
+  // `pooled_embs` follows whichever device the runtime executing the request
+  // happens to be on. Relocate them rather than failing, matching
+  // permute_multi_embedding (D117957553).
+  // inv_permute_list is not being used so it's not relocated here.
+  const auto offset_dim_list_dev = torch_tensor_to_same_device(
+      offset_dim_list,
+      pooled_embs_contiguous,
+      "offset_dim_list",
+      "pooled_embs",
+      /*non_blocking=*/true);
+  const auto permute_list_dev = torch_tensor_to_same_device(
+      permute_list,
+      pooled_embs_contiguous,
+      "permute_list",
+      "pooled_embs",
+      /*non_blocking=*/true);
+  const auto inv_offset_dim_list_dev = torch_tensor_to_same_device(
+      inv_offset_dim_list,
+      pooled_embs_contiguous,
+      "inv_offset_dim_list",
+      "pooled_embs",
+      /*non_blocking=*/true);
+
   const int64_t B = pooled_embs_contiguous.size(0);
-  const int64_t T = permute_list.numel();
+  const int64_t T = permute_list_dev.numel();
   const int64_t dim_sum = pooled_embs_contiguous.size(1);
-  // inv_permute_list is not being used so it's not checked here.
-  TENSORS_ON_SAME_DEVICE(pooled_embs_contiguous, offset_dim_list);
-  TENSORS_ON_SAME_DEVICE(pooled_embs_contiguous, permute_list);
-  TENSORS_ON_SAME_DEVICE(pooled_embs_contiguous, inv_offset_dim_list);
 
   // Last index in inv_offset_dim_list contains the size of output.
   // This will cause a D->H sync.
@@ -136,9 +163,9 @@ Tensor permute_pooled_embs_split_gpu_impl(
             0,
             at::cuda::getCurrentCUDAStream(),
             pooled_embs_contiguous.data_ptr<scalar_t>(),
-            offset_dim_list.data_ptr<int64_t>(),
-            permute_list.data_ptr<int64_t>(),
-            inv_offset_dim_list.data_ptr<int64_t>(),
+            offset_dim_list_dev.data_ptr<int64_t>(),
+            permute_list_dev.data_ptr<int64_t>(),
+            inv_offset_dim_list_dev.data_ptr<int64_t>(),
             permuted_pooled_embs.data_ptr<scalar_t>(),
             B,
             T,

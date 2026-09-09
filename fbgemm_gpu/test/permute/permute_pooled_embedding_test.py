@@ -263,6 +263,84 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         self.assertEqual(result.shape, pooled_embs.shape)
         self.assertTrue(torch.all(result == 0).item())
 
+    @unittest.skipIf(*typed_gpu_unavailable)
+    def test_permute_pooled_embedding_split_index_tensors_on_other_device(
+        self,
+    ) -> None:
+        """The index tensors are relocated to pooled_embs' device instead of
+        being required to already match it.
+
+        A statically exported graph resolves these buffers to one device when
+        the weights are materialized, while pooled_embs follows whichever device
+        the executing runtime is on, so the two legitimately disagree. Uses CPU
+        index tensors so the relocation path is covered on a single-GPU host;
+        the cross-GPU case takes the identical branch.
+        """
+        embs_dims = [4, 4, 8]
+        T = len(embs_dims)
+        B = 3
+        permute = [2, 0, 1]
+        inv_permute = [1, 2, 0]
+
+        offsets = torch.zeros(T + 1, dtype=torch.int64)
+        offsets[1:] = torch.cumsum(torch.tensor(embs_dims, dtype=torch.int64), dim=0)
+        permuted_dims = [embs_dims[i] for i in permute]
+        inv_offsets = torch.zeros(T + 1, dtype=torch.int64)
+        inv_offsets[1:] = torch.cumsum(
+            torch.tensor(permuted_dims, dtype=torch.int64), dim=0
+        )
+
+        # Deliberately left on CPU while pooled_embs are on the accelerator.
+        self.assertEqual(offsets.device.type, "cpu")
+        self.assertEqual(inv_offsets.device.type, "cpu")
+
+        pooled_embs = (
+            torch.arange(B * sum(embs_dims), dtype=torch.float32, device=self.device)
+            .view(B, sum(embs_dims))
+            .contiguous()
+        )
+
+        result = torch.ops.fbgemm.permute_pooled_embs_auto_grad_split(
+            pooled_embs,
+            offsets,
+            torch.tensor(permute, dtype=torch.int64),
+            inv_offsets,
+            torch.tensor(inv_permute, dtype=torch.int64),
+        )
+
+        self.assertEqual(result.device.type, pooled_embs.device.type)
+        self.assertEqual(result.shape, pooled_embs.shape)
+
+        # Values must match the permutation, not merely come back the right shape.
+        expected = torch.cat(
+            [pooled_embs[:, offsets[i] : offsets[i + 1]] for i in permute],
+            dim=1,
+        )
+        torch.testing.assert_close(result, expected)
+
+    @unittest.skipIf(*typed_gpu_unavailable)
+    @optests.dontGenerateOpCheckTests("negative test: the op is expected to raise")
+    def test_permute_pooled_embedding_split_rejects_cpu_pooled_embs(self) -> None:
+        """Relocation aligns the index tensors to pooled_embs' device; it must not
+        make a CPU pooled_embs acceptable to the GPU impl.
+        """
+        embs_dims = [4, 4]
+        T = len(embs_dims)
+        offsets = torch.zeros(T + 1, dtype=torch.int64)
+        offsets[1:] = torch.cumsum(torch.tensor(embs_dims, dtype=torch.int64), dim=0)
+        permute_t = torch.tensor([1, 0], dtype=torch.int64)
+
+        cpu_pooled_embs = torch.zeros(2, sum(embs_dims), dtype=torch.float32)
+
+        with self.assertRaises(RuntimeError):
+            torch.ops.fbgemm.permute_pooled_embs_split(
+                cpu_pooled_embs,
+                offsets.to(self.device),
+                permute_t.to(self.device),
+                offsets.to(self.device),
+                permute_t.to(self.device),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
