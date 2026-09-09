@@ -116,6 +116,7 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/sparse_ops/sparse_compute_frequency_sequence.cu
       src/sparse_ops/sparse_expand_into_jagged_permute.cu
       src/sparse_ops/sparse_group_index.cu
+      src/sparse_ops/sparse_group_index_segment_reduce.cu
       src/sparse_ops/sparse_index_add.cu
       src/sparse_ops/sparse_index_select.cu
       src/sparse_ops/sparse_invert_permute.cu
