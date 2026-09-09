@@ -31,25 +31,78 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-#define DISPATCH_NON_VEC_BLOCKING_KERNEL(MAX_D, ...) \
-  [&] {                                              \
+{%- if has_wave64 %}
+#define DISPATCH_NON_VEC_BLOCKING_KERNEL_WAVE64(MAX_D, ...) \
+  [&] {                                                     \
     {{
        dispatch_non_vec_blocking_kernel(
-           items_per_warp,
+           items_per_wave64,
            fixed_max_vecs_per_thread["backward_indice_weights"],
            use_subwarp_shuffle=False,
        )
     -}}
   }()
-
-#define DISPATCH_VEC_BLOCKING_KERNEL(MAX_D, ...)     \
-  [&] {                                              \
+#define DISPATCH_VEC_BLOCKING_KERNEL_WAVE64(MAX_D, ...) \
+  [&] {                                                 \
     {{
        dispatch_vec_blocking_kernel(
-           items_per_warp,
+           items_per_wave64,
            fixed_max_vecs_per_thread["backward_indice_weights"],
        )
     -}}
+  }()
+{%- endif %}
+
+{%- if has_wave32 %}
+#define DISPATCH_NON_VEC_BLOCKING_KERNEL_WAVE32(MAX_D, ...) \
+  [&] {                                                     \
+    {{
+       dispatch_non_vec_blocking_kernel(
+           items_per_warp32,
+           fixed_max_vecs_per_thread["backward_indice_weights"],
+           use_subwarp_shuffle=False,
+       )
+    -}}
+  }()
+#define DISPATCH_VEC_BLOCKING_KERNEL_WAVE32(MAX_D, ...) \
+  [&] {                                                 \
+    {{
+       dispatch_vec_blocking_kernel(
+           items_per_warp32,
+           fixed_max_vecs_per_thread["backward_indice_weights"],
+       )
+    -}}
+  }()
+{%- endif %}
+
+#define DISPATCH_NON_VEC_BLOCKING_KERNEL(MAX_D, ...) \
+  [&] {                                              \
+{%- if has_wave32 and has_wave64 %}
+    if (kWarpSizeHost() == 64) {                                                 \
+      return DISPATCH_NON_VEC_BLOCKING_KERNEL_WAVE64(MAX_D, __VA_ARGS__);      \
+    } else {                                                                   \
+      return DISPATCH_NON_VEC_BLOCKING_KERNEL_WAVE32(MAX_D, __VA_ARGS__);      \
+    }                                                                          \
+{%- elif has_wave64 %}
+    return DISPATCH_NON_VEC_BLOCKING_KERNEL_WAVE64(MAX_D, __VA_ARGS__);        \
+{%- else %}
+    return DISPATCH_NON_VEC_BLOCKING_KERNEL_WAVE32(MAX_D, __VA_ARGS__);        \
+{%- endif %}
+  }()
+
+#define DISPATCH_VEC_BLOCKING_KERNEL(MAX_D, ...)     \
+  [&] {                                              \
+{%- if has_wave32 and has_wave64 %}
+    if (kWarpSizeHost() == 64) {                                                 \
+      return DISPATCH_VEC_BLOCKING_KERNEL_WAVE64(MAX_D, __VA_ARGS__);          \
+    } else {                                                                   \
+      return DISPATCH_VEC_BLOCKING_KERNEL_WAVE32(MAX_D, __VA_ARGS__);          \
+    }                                                                          \
+{%- elif has_wave64 %}
+    return DISPATCH_VEC_BLOCKING_KERNEL_WAVE64(MAX_D, __VA_ARGS__);            \
+{%- else %}
+    return DISPATCH_VEC_BLOCKING_KERNEL_WAVE32(MAX_D, __VA_ARGS__);            \
+{%- endif %}
   }()
 
 {%- for vbe in ([True, False]) %}
