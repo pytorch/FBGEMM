@@ -996,6 +996,17 @@ batch_index_select_dim0_codegen_forward_kernel
     codegen/embedding_common_code_generator.py for more details
 */ #}
 
+{%- if is_rocm and vbe and not dense and not ssd and not weighted and not is_gwd %}
+{{ template_instantiation(
+    "at::Half",
+    "at::Half",
+    "float",
+    "int64_t",
+    "false",
+    1,
+    32)
+}}
+{%- endif %}
 {{ instantiate_templates(use_subwarp_shuffle=False) }}
 
 ////////////////////////////////////////////////////////////////////////////////
