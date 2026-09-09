@@ -636,14 +636,14 @@ batch_index_select_dim0_codegen_forward_cuda(
               index_t,
               kEmbeddingSize / 4>),
             {%- if is_index_select %}
-            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            div_round_up(total_B, kForwardMaxThreads / kWarpSizeHost()),
             {%- else %}
             utils::cuda::cap_grid_dim_x(
-                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                div_round_up(total_B, kForwardMaxThreads / kWarpSizeHost()),
                 kForwardMaxThreads,
                 at::cuda::getCurrentCUDAStream()),
             {%- endif %}
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(dev_weights, emb_t, 1, 64),
@@ -693,14 +693,14 @@ batch_index_select_dim0_codegen_forward_cuda(
               {%- endif %}
             ),
             {%- if is_index_select %}
-            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            div_round_up(total_B, kForwardMaxThreads / kWarpSizeHost()),
             {%- else %}
             utils::cuda::cap_grid_dim_x(
-                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                div_round_up(total_B, kForwardMaxThreads / kWarpSizeHost()),
                 kForwardMaxThreads,
                 at::cuda::getCurrentCUDAStream()),
             {%- endif %}
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(dev_weights, emb_t, 1, 64),
