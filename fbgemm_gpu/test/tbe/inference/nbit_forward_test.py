@@ -1459,6 +1459,28 @@ class NBitFowardTest(NBitFowardTestCommon):
             output_dtype=SparseType.INT4,
         )
 
+    def test_nbit_forward_cpu_seq_int4_unaligned_row(self) -> None:
+        self.execute_nbit_forward_(
+            T=2,
+            D=100,
+            B=2,
+            log_E=2,
+            L=2,
+            weighted=False,
+            mixed=False,
+            pooling_mode=PoolingMode.NONE,
+            weights_ty=SparseType.INT4,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            use_cpu=True,
+            use_array_for_index_remapping=True,
+            do_pruning=False,
+            mixed_weights_ty=False,
+            indices_dtype=torch.int32,
+            output_dtype=SparseType.INT4,
+            row_alignment=8,
+        )
+
     def test_nbit_forward_cpu_seq_rejects_index_at_row_count(self) -> None:
         """The sequence gather rejects an index equal to the table's row count.
 

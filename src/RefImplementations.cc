@@ -1453,7 +1453,11 @@ bool EmbeddingSpMDMNBit_ref(
   int num_elem_per_byte = 8 / input_bit_rate;
 
   if (output_stride == -1) {
-    output_stride = block_size;
+    if (no_bag && output_bit_rate == 4) {
+      output_stride = nbit_embedding_int4_row_size_in_bytes(block_size);
+    } else {
+      output_stride = block_size;
+    }
   }
 
   // block_size is the number of elements and fused_block_size is the size of
@@ -1470,6 +1474,12 @@ bool EmbeddingSpMDMNBit_ref(
     // here to double check and also avoid "unused variable" warning
     if (input_bit_rate != 4 || output_bit_rate != 4) {
       WARN_ONCE("no_bag is only supported for int4 to int4");
+      return false;
+    }
+    const int64_t packed_row_size =
+        nbit_embedding_int4_row_size_in_bytes(block_size);
+    if (!nbit_embedding_int4_validate_strides(
+            block_size, input_stride, output_stride)) {
       return false;
     }
     // This loop is not reference-only on x86: the asmjit nbit generator is
@@ -1501,8 +1511,12 @@ bool EmbeddingSpMDMNBit_ref(
             prefetch_distance);
       }
       const uint8_t* input_row = input + input_stride * idx;
-      memcpy(out, input_row, sizeof(uint8_t) * input_stride);
-      out += input_stride;
+      memcpy(out, input_row, sizeof(uint8_t) * packed_row_size);
+      memset(
+          out + packed_row_size,
+          0,
+          sizeof(uint8_t) * (output_stride - packed_row_size));
+      out += output_stride;
     }
     return true;
   }

@@ -72,7 +72,9 @@ function(fbgemm_get_warning_flags)
     -Wzero-as-null-pointer-constant
     -Wunused-variable
     -Wunused-const-variable
-    -Wunused-but-set-variable)
+    -Wunused-but-set-variable
+    -Wunused-function
+    -Wunused-result)
 
   # Clang-only flags. g++ does not know these flags. g++ stops with an error
   # when it gets an unknown `-W` option. This error occurs even when `-Werror`
@@ -102,6 +104,10 @@ function(fbgemm_get_warning_flags)
     # This flag finds code that only clang accepts. It protects the gcc
     # builds.
     -Wgcc-compat
+    # clang has this on by default, so naming it does not change the
+    # behaviour. g++ does not know the flag, and g++ treats the construct as
+    # an error in any case.
+    -Wextra-qualification
     -Wstring-conversion
     -Wimplicitly-unsigned-literal
     -Wuninitialized-const-reference
