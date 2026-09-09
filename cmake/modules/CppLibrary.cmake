@@ -74,7 +74,11 @@ function(fbgemm_get_warning_flags)
     -Wunused-const-variable
     -Wunused-but-set-variable
     -Wunused-function
-    -Wunused-result)
+    -Wunused-result
+    # The internal build of this library uses these two flags. This list keeps
+    # the two builds the same.
+    -Wignored-qualifiers
+    -Wtautological-compare)
 
   # Clang-only flags. g++ does not know these flags. g++ stops with an error
   # when it gets an unknown `-W` option. This error occurs even when `-Werror`
