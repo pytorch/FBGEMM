@@ -9,6 +9,7 @@
 #include <iostream>
 #include "./CodeGenHelpers.h" // @manual
 #include "./DirectConv.h" // @manual
+#include "./JitPerfMap.h" // @manual
 
 namespace fbgemm {
 
@@ -405,6 +406,18 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
       return nullptr;
     }
 
+    registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+      return JitSymbolBuilder("directconv_acc32")
+          .field("isa", instSetName<instSet>())
+          .flag("accum", accum)
+          .field("O1", O1)
+          .field("i1Xich", i1Xich)
+          .field("strideXich", strideXich)
+          .field("MR", mRegBlockSize)
+          .field("NR", nRegBlockSize)
+          .str();
+    });
+
 #if defined(FBGEMM_LOG_CODE)
     fclose(codeLogfile);
     delete codeLogger;
@@ -764,6 +777,16 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
+
+    registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+      return JitSymbolBuilder("directconvT_acc32")
+          .field("isa", instSetName<instSet>())
+          .flag("accum", accum)
+          .field("stride", stride)
+          .field("MR", mRegBlockSize)
+          .field("NR", nRegBlockSize)
+          .str();
+    });
 
 #if defined(FBGEMM_LOG_CODE)
     fclose(codeLogfile);

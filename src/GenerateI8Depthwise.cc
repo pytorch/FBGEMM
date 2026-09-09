@@ -16,6 +16,7 @@
 
 #include "./CodeCache.h" // @manual
 #include "./CodeGenHelpers.h" // @manual
+#include "./JitPerfMap.h" // @manual
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
@@ -575,6 +576,24 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
           "kernel with the asmjit runtime (asmjit error " +
           std::to_string(err) + ")");
     }
+
+    registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+      return JitSymbolBuilder("i8_depthwise")
+          .field("D", D)
+          .field("F0", F[0])
+          .field("F1", F[1])
+          .field("F2", F[2])
+          .field("ocpg", oc_per_g)
+          .flag("asum", compute_a_sum)
+          .field("rem", remainder)
+          .field("prevskip", prev_skip)
+          .field("nextskip", next_skip)
+          .field("topskip", top_skip)
+          .field("bottomskip", bottom_skip)
+          .field("leftskip", left_skip)
+          .field("rightskip", right_skip)
+          .str();
+    });
 
 #ifdef FBGEMM_LOG_CODE
     fclose(codeLogFile);

@@ -15,6 +15,7 @@
 #include <tuple>
 #include <type_traits>
 #include "./CodeGenHelpers.h" // @manual
+#include "./JitPerfMap.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/SimdUtils.h"
@@ -314,6 +315,25 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
     cout << "Error: in fn add" << '\n';
     return nullptr;
   }
+
+  registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+    return JitSymbolBuilder("groupwise_conv")
+        .field("G", this->G_)
+        .field("KpG", this->K_per_G_)
+        .field("CpG", this->C_per_G_)
+        .field("stride", this->STRIDE_)
+        .field("sdim", SPATIAL_DIM)
+        .field("isa", instSetName<INST_SET>())
+        .flag("azp0", this->isAZeroPointZero_)
+        .flag("rowoffset", this->needRowOffset_)
+        .flag("top", this->isTopEdgeIncluded_)
+        .flag("bottom", this->isBottomEdgeIncluded_)
+        .flag("same", this->isTopBottomEdgeSame_)
+        .flag("bpad", this->use_bottom_padding_)
+        .flag("rpad", this->use_right_padding_)
+        .flag("accum", this->accum_)
+        .str();
+  });
 
 #if defined(FBGEMM_LOG_CODE)
   fclose(codeLogfile);

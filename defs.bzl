@@ -36,6 +36,7 @@ def default_compiler_flags():
 def get_fbgemm_base_srcs():
     return [
         "src/GenerateI8Depthwise.cc",
+        "src/JitPerfMap.cc",
         "src/RefImplementations.cc",
         "src/Utils.cc",
     ]
@@ -66,7 +67,6 @@ def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
         "src/GroupwiseConv.cc",
         "src/GroupwiseConvAcc32Avx2.cc",
         "src/GroupwiseConvAcc32Avx512.cc",
-        "src/JitPerfMap.cc",
         "src/PackAMatrix.cc",
         "src/PackAWithIm2Col.cc",
         "src/PackAWithQuantRowOffset.cc",

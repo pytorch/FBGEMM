@@ -9,9 +9,11 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 #include "fbgemm/Utils.h" // inst_set_t
 
@@ -104,6 +106,53 @@ template <typename IndexType>
 constexpr const char* indexWidthName() {
   return sizeof(IndexType) == 8 ? "idx64" : "idx32";
 }
+
+// Builds a JIT symbol as `fbgemm::<kernel>_<name>-<value>...`, so every field
+// is labelled and the reading order in a profile matches the order written
+// here. Generators whose code-cache key is a plain tuple use this instead of
+// hand-rolled concatenation: a key that gains a member is then one `.field()`
+// away from being represented, rather than a silent mismatch.
+class JitSymbolBuilder {
+ public:
+  explicit JitSymbolBuilder(std::string_view kernel) {
+    sym_.reserve(96);
+    sym_ += "fbgemm::";
+    sym_ += kernel;
+  }
+
+  JitSymbolBuilder& field(std::string_view name, int64_t value) {
+    sep(name);
+    sym_ += std::to_string(value);
+    return *this;
+  }
+
+  JitSymbolBuilder& field(std::string_view name, std::string_view value) {
+    sep(name);
+    sym_ += value;
+    return *this;
+  }
+
+  // Booleans are emitted as 0/1 rather than omitted, so the field count is the
+  // same for every kernel of a given family and stays greppable.
+  JitSymbolBuilder& flag(std::string_view name, bool value) {
+    return field(name, value ? 1 : 0);
+  }
+
+  // Not rvalue-qualified: the chaining setters return an lvalue reference, so
+  // the terminal call is made on an lvalue.
+  std::string str() {
+    return std::move(sym_);
+  }
+
+ private:
+  void sep(std::string_view name) {
+    sym_ += "_";
+    sym_ += name;
+    sym_ += "-";
+  }
+
+  std::string sym_;
+};
 
 // Registers a freshly JIT-ed kernel with the perf map. `makeName` is invoked
 // only when emission is enabled, so building the symbol costs nothing on the
