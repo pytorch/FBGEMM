@@ -1380,7 +1380,7 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4DropsInputRowPadding) {
       EXPECT_TRUE(all_of(
           output.begin() + kOutputSize * kInt4NoBagPackedRowSize,
           output.end(),
-          [](uint8_t value) { return value == kCanary; }))
+          [canary = kCanary](uint8_t value) { return value == canary; }))
           << "kernel_choice=" << kernel_choice
           << ", requested_output_stride=" << requested_output_stride;
     }
@@ -1419,7 +1419,7 @@ TEST(
     EXPECT_TRUE(all_of(
         output.begin() + expected.size(),
         output.end(),
-        [](uint8_t value) { return value == kCanary; }))
+        [canary = kCanary](uint8_t value) { return value == canary; }))
         << path;
   };
 

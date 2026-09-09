@@ -572,30 +572,32 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
     int64_t length = sampling_offsets_a[i + 1] - sampling_offsets_a[i];
     size_t temp_storage_bytes = 0;
 
-    cub::DeviceRadixSort::SortKeys(
-        nullptr,
-        temp_storage_bytes,
-        sampled_utilities.const_data_ptr<float>() + sampling_offsets_a[i],
-        sampled_utilities_sorted.data_ptr<float>() + sampling_offsets_a[i],
-        length,
-        0,
-        sizeof(float) * 8,
-        at::cuda::getCurrentCUDAStream());
+    AT_CUDA_CHECK(
+        cub::DeviceRadixSort::SortKeys(
+            nullptr,
+            temp_storage_bytes,
+            sampled_utilities.const_data_ptr<float>() + sampling_offsets_a[i],
+            sampled_utilities_sorted.data_ptr<float>() + sampling_offsets_a[i],
+            length,
+            0,
+            sizeof(float) * 8,
+            at::cuda::getCurrentCUDAStream()));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     auto temp_storage = at::empty(
         {static_cast<int64_t>(temp_storage_bytes)},
         row_utils.options().dtype(at::kByte));
 
-    cub::DeviceRadixSort::SortKeys(
-        temp_storage.data_ptr(),
-        temp_storage_bytes,
-        sampled_utilities.const_data_ptr<float>() + sampling_offsets_a[i],
-        sampled_utilities_sorted.data_ptr<float>() + sampling_offsets_a[i],
-        length,
-        0,
-        sizeof(float) * 8,
-        at::cuda::getCurrentCUDAStream());
+    AT_CUDA_CHECK(
+        cub::DeviceRadixSort::SortKeys(
+            temp_storage.data_ptr(),
+            temp_storage_bytes,
+            sampled_utilities.const_data_ptr<float>() + sampling_offsets_a[i],
+            sampled_utilities_sorted.data_ptr<float>() + sampling_offsets_a[i],
+            length,
+            0,
+            sizeof(float) * 8,
+            at::cuda::getCurrentCUDAStream()));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   // Second, get util thresholds
@@ -805,30 +807,32 @@ Tensor remap_indices_update_utils_cuda(
                 at::zeros({full_length}, full_values.options());
             size_t temp_storage_bytes_0 = 0;
 
-            cub::DeviceRadixSort::SortKeys(
-                nullptr,
-                temp_storage_bytes_0,
-                full_values.const_data_ptr<index_t>() + full_start,
-                values_sorted.data_ptr<index_t>(),
-                full_length,
-                0,
-                sizeof(index_t) * 8,
-                at::cuda::getCurrentCUDAStream());
+            AT_CUDA_CHECK(
+                cub::DeviceRadixSort::SortKeys(
+                    nullptr,
+                    temp_storage_bytes_0,
+                    full_values.const_data_ptr<index_t>() + full_start,
+                    values_sorted.data_ptr<index_t>(),
+                    full_length,
+                    0,
+                    sizeof(index_t) * 8,
+                    at::cuda::getCurrentCUDAStream()));
             C10_CUDA_KERNEL_LAUNCH_CHECK();
 
             auto temp_storage_0 = at::empty(
                 {static_cast<index_t>(temp_storage_bytes_0)},
                 values.options().dtype(at::kByte));
 
-            cub::DeviceRadixSort::SortKeys(
-                temp_storage_0.data_ptr(),
-                temp_storage_bytes_0,
-                full_values.const_data_ptr<index_t>() + full_start,
-                values_sorted.data_ptr<index_t>(),
-                full_length,
-                0,
-                sizeof(index_t) * 8,
-                at::cuda::getCurrentCUDAStream());
+            AT_CUDA_CHECK(
+                cub::DeviceRadixSort::SortKeys(
+                    temp_storage_0.data_ptr(),
+                    temp_storage_bytes_0,
+                    full_values.const_data_ptr<index_t>() + full_start,
+                    values_sorted.data_ptr<index_t>(),
+                    full_length,
+                    0,
+                    sizeof(index_t) * 8,
+                    at::cuda::getCurrentCUDAStream()));
             C10_CUDA_KERNEL_LAUNCH_CHECK();
 
             // run length encode to count access frequency to each row
@@ -839,30 +843,32 @@ Tensor remap_indices_update_utils_cuda(
                 at::zeros({1}, values_sorted.options().dtype(at::kInt));
             size_t temp_storage_bytes_1 = 0;
 
-            cub::DeviceRunLengthEncode::Encode(
-                nullptr,
-                temp_storage_bytes_1,
-                values_sorted.const_data_ptr<index_t>(),
-                values_sorted_unique_run.data_ptr<index_t>(),
-                values_sorted_counts_run.data_ptr<int32_t>(),
-                values_sorted_num_runs.data_ptr<int32_t>(),
-                full_length,
-                at::cuda::getCurrentCUDAStream());
+            AT_CUDA_CHECK(
+                cub::DeviceRunLengthEncode::Encode(
+                    nullptr,
+                    temp_storage_bytes_1,
+                    values_sorted.const_data_ptr<index_t>(),
+                    values_sorted_unique_run.data_ptr<index_t>(),
+                    values_sorted_counts_run.data_ptr<int32_t>(),
+                    values_sorted_num_runs.data_ptr<int32_t>(),
+                    full_length,
+                    at::cuda::getCurrentCUDAStream()));
             C10_CUDA_KERNEL_LAUNCH_CHECK();
 
             auto temp_storage_1 = at::empty(
                 {static_cast<index_t>(temp_storage_bytes_1)},
                 values.options().dtype(at::kByte));
 
-            cub::DeviceRunLengthEncode::Encode(
-                temp_storage_1.data_ptr(),
-                temp_storage_bytes_1,
-                values_sorted.const_data_ptr<index_t>(),
-                values_sorted_unique_run.data_ptr<index_t>(),
-                values_sorted_counts_run.data_ptr<int32_t>(),
-                values_sorted_num_runs.data_ptr<int32_t>(),
-                full_length,
-                at::cuda::getCurrentCUDAStream());
+            AT_CUDA_CHECK(
+                cub::DeviceRunLengthEncode::Encode(
+                    temp_storage_1.data_ptr(),
+                    temp_storage_bytes_1,
+                    values_sorted.const_data_ptr<index_t>(),
+                    values_sorted_unique_run.data_ptr<index_t>(),
+                    values_sorted_counts_run.data_ptr<int32_t>(),
+                    values_sorted_num_runs.data_ptr<int32_t>(),
+                    full_length,
+                    at::cuda::getCurrentCUDAStream()));
             C10_CUDA_KERNEL_LAUNCH_CHECK();
 
             // remap indices and update row utils

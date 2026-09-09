@@ -246,10 +246,10 @@ inline uint32_t cap_grid_dim_x_from_workload(
 inline auto get_compute_versions() {
   static const auto versions = [] {
     int runtime_version = 0;
-    cudaRuntimeGetVersion(&runtime_version);
+    C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtime_version));
 
     int driver_version = 0;
-    cudaDriverGetVersion(&driver_version);
+    C10_CUDA_CHECK(cudaDriverGetVersion(&driver_version));
 
     return std::tuple{runtime_version, driver_version};
   }();

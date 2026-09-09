@@ -378,7 +378,7 @@ transpose_embedding_input(
                 rocprim::default_config,
                 rocprim::default_config,
                 400000>;
-	        rocprim::radix_sort_pairs<config>(
+	        AT_CUDA_CHECK(rocprim::radix_sort_pairs<config>(
                     nullptr,
                     temp_storage_bytes,
                     linear_indices.data_ptr<index_t>(),
@@ -389,11 +389,11 @@ transpose_embedding_input(
                     0,
                     total_hash_size_bits,
                     at::cuda::getCurrentCUDAStream(),
-                    false);
+                    false));
                 auto temp_storage = at::empty(
                     {static_cast<int64_t>(temp_storage_bytes)},
                     indices.options().dtype(at::kByte));
-                rocprim::radix_sort_pairs<config>(
+                AT_CUDA_CHECK(rocprim::radix_sort_pairs<config>(
                     temp_storage.data_ptr(),
                     temp_storage_bytes,
                     linear_indices.data_ptr<index_t>(),
@@ -404,7 +404,7 @@ transpose_embedding_input(
                     0,
                     total_hash_size_bits,
                     at::cuda::getCurrentCUDAStream(),
-                    false);
+                    false));
 #endif
               }
               if (total_unique_indices != -1) {
