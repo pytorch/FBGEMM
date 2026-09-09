@@ -566,10 +566,10 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                         index_t,
                         kFixedMaxVecsPerThread>),
                     utils::cuda::cap_grid_dim_x(
-                        div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                        div_round_up(total_B, kForwardMaxThreads / kWarpSizeHost()),
                         kForwardMaxThreads,
                         at::cuda::getCurrentCUDAStream()),
-                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    dim3(kWarpSizeHost(), kForwardMaxThreads / kWarpSizeHost()),
                     0,
                     at::cuda::getCurrentCUDAStream(),
                     PTA_B(grad_output_reshaped, grad_t, 2, 64),
