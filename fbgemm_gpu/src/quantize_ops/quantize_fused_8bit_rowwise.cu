@@ -359,10 +359,12 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
       // Cap grid.y so total threads (gridDim.x * gridDim.y * threads_per_block)
       // stay under the HIP 2^32 limit; the kernel grid-strides over rows.
-      // OverflowOnly => no-op on CUDA.
-      const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+      // OverflowOnly skips the total-thread cap on CUDA, while the helper still
+      // enforces CUDA's grid.y driver limit.
+      const auto gridDim_y = utils::cuda::cap_grid_dim_y_with_xz_blocks(
           cuda_calc_block_count(nrows, blockDim.y),
-          static_cast<int64_t>(gridDim_x) * threads_per_block,
+          threads_per_block,
+          static_cast<int64_t>(gridDim_x),
           at::cuda::getCurrentCUDAStream());
       dim3 gridDim(gridDim_x, gridDim_y);
 
@@ -487,10 +489,12 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
   // Cap grid.y so total threads (gridDim.x * gridDim.y * threads_per_block)
   // stay under the HIP 2^32 limit; the kernel grid-strides over rows.
-  // OverflowOnly => no-op on CUDA.
-  const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+  // OverflowOnly skips the total-thread cap on CUDA, while the helper still
+  // enforces CUDA's grid.y driver limit.
+  const auto gridDim_y = utils::cuda::cap_grid_dim_y_with_xz_blocks(
       cuda_calc_block_count(nrows, blockDim.y),
-      static_cast<int64_t>(gridDim_x) * threads_per_block,
+      threads_per_block,
+      static_cast<int64_t>(gridDim_x),
       at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 

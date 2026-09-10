@@ -313,9 +313,10 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
           std::min(ncols, static_cast<int64_t>(threads_per_block));
       dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
       const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
-      const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+      const auto gridDim_y = utils::cuda::cap_grid_dim_y_with_xz_blocks(
           cuda_calc_block_count(nrows, blockDim.y),
-          static_cast<int64_t>(gridDim_x) * threads_per_block,
+          threads_per_block,
+          static_cast<int64_t>(gridDim_x),
           at::cuda::getCurrentCUDAStream());
       dim3 gridDim(gridDim_x, gridDim_y);
 
@@ -407,9 +408,10 @@ Tensor _FP8rowwise_to_float_gpu_t(
   const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
 
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
-  const auto gridDim_y = utils::cuda::cap_grid_dim_x(
+  const auto gridDim_y = utils::cuda::cap_grid_dim_y_with_xz_blocks(
       cuda_calc_block_count(nrows, blockDim.y),
-      static_cast<int64_t>(gridDim_x) * threads_per_block,
+      threads_per_block,
+      static_cast<int64_t>(gridDim_x),
       at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
