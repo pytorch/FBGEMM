@@ -39,6 +39,12 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
     outputs.push_back(at::empty({B, lengths[i]}, pooled_embs[0].options()));
     TORCH_CHECK(outputs[i].is_contiguous());
   }
+  if (permutes.size(0) == 0) {
+    for (auto& output : outputs) {
+      output.zero_();
+    }
+    return outputs;
+  }
   FBGEMM_DISPATCH_FLOATING_TYPES(
       pooled_embs[0].scalar_type(), "permute_multi_embs_cpu", [&] {
         at::parallel_for(0, B, 0, [&](int32_t start, int32_t end) {

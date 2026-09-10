@@ -153,18 +153,11 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
               }
 
               const int num_y_blocks = (D + stride_D - 1) / stride_D;
-              // HIP enforces a hard limit of 2^32 total threads per launch
-              // (unlike CUDA, which silently wraps).
-              // index_add_2d_with_unique_indices_kernel grid-strides over the
-              // unique index (x) dim, so capping x is correctness-preserving.
-              // The y dim is not grid-strided, so fold num_y_blocks into the
-              // per-launch thread count used for the overflow check, keeping
-              // the cap accounting consistent with the launcher's total-thread
-              // check (grid.x * grid.y * block_size). See:
-              // https://github.com/ROCm/hip/issues/2253
-              const auto blocks_x = utils::cuda::cap_grid_dim_x(
+              // The kernel grid-strides over the unique-index dimension.
+              const auto blocks_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
                   cuda_calc_xblock_count(num_unique_indices, 1),
-                  static_cast<int64_t>(block_size) * num_y_blocks,
+                  block_size,
+                  num_y_blocks,
                   at::cuda::getCurrentCUDAStream());
               const dim3 grid_size(blocks_x, num_y_blocks, 1);
 

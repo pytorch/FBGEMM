@@ -201,13 +201,12 @@ generate_vbe_metadata(
       at::empty({total_B_}, output_offsets_feature_rank.options());
   Tensor b_t_map = at::empty({total_B_}, B_offsets.options());
 
-  // Cap grid.x on ROCm so total threads (grid.x * kMaxThreads * num_ranks * T)
-  // stay under the HIP 2^32 threads-per-launch limit; the kernel grid-strides
-  // over b. grid.y (num_ranks) and grid.z (T) are factored into the per-x-block
-  // thread count for the overflow check. No-op on CUDA.
-  const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
+  // The kernel grid-strides over B.
+  const int64_t yz_blocks = static_cast<int64_t>(num_ranks) * T;
+  const auto grid_dim_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
       div_round_up(max_B_feature_rank_, kMaxThreads),
-      static_cast<int64_t>(kMaxThreads) * num_ranks * T,
+      kMaxThreads,
+      yz_blocks,
       at::cuda::getCurrentCUDAStream());
   const dim3 grid_size(grid_dim_x, num_ranks, T);
   const auto& [max_grid_x, max_grid_y, max_grid_z] = get_max_grid_size();
