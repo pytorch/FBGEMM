@@ -17,6 +17,7 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+#include <c10/cuda/CUDAException.h>
 #include <c10/hip/HIPStream.h>
 
 #include "ck/ck.hpp"
@@ -217,11 +218,11 @@ void set_static_kernel_args(
       ggemm_kargs.push_back(group_args);
     }
     // Copy data onto device.
-    hipMemcpy(
+    C10_CUDA_CHECK(hipMemcpy(
         kernel_args.data_ptr(), // Destination
         ggemm_kargs.data(), // Source
         sizeof(KernelArguments) * group_count, // Number of bytes
-        hipMemcpyHostToDevice); // Copy Type
+        hipMemcpyHostToDevice)); // Copy Type
   } else {
     // Launch a kernel for each group to set kernel memory on device.
     // Using multiple kernels this way allows us to support arbitrary M,N,K.
