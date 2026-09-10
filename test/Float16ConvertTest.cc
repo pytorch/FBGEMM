@@ -7,11 +7,13 @@
  */
 
 #include <gtest/gtest.h>
+#include <array>
 #include <cmath>
 #include <random>
 
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/FloatConversion.h"
 #include "src/RefImplementations.h" // @manual
 
 using namespace std;
@@ -19,12 +21,25 @@ using namespace fbgemm;
 
 namespace {
 class FBGemmFloat16Test : public testing::TestWithParam<bool> {};
+
+template <FbgemmHalfType T>
+void expectScalarRoundTrips() {
+  constexpr std::array values{-42.0f, -1.5f, 0.0f, 1.5f, 42.0f};
+  for (const float value : values) {
+    EXPECT_FLOAT_EQ(to_float(from_float<T>(value)), value);
+  }
+}
 }; // namespace
 
 INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmFloat16Test,
     ::testing::Bool());
+
+TEST(FBGemmHalfConversionTest, ScalarHelpersRoundTrip) {
+  expectScalarRoundTrips<float16>();
+  expectScalarRoundTrips<bfloat16>();
+}
 
 TEST_P(FBGemmFloat16Test, Conversion) {
   bool do_clip = GetParam();
