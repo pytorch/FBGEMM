@@ -60,19 +60,26 @@ jobs:
       # cuda: the Nova default is linux.g5.4xlarge.nvidia.gpu, which is
       #   FBGEMM's *test* machine, not its build machine.  In-repo,
       #   `.github/scripts/generate_ci_matrix.py` `host_machines()` reserves
-      #   that label for the CUDA test job - where the GPU is real - and builds
-      #   CUDA on linux.24xlarge / linux.12xlarge.memory / linux.24xlarge.memory
-      #   depending on target.  Nova collapses build and test into one job and
-      #   gets the test box for both, and the GPU is not even visible there
-      #   (the container reports torch.cuda.is_available() == False, so the
-      #   post-build suite runs CPU-only regardless).
+      #   that label for the CUDA test job and builds CUDA on much larger
+      #   hosts (linux.24xlarge / linux.12xlarge.memory / linux.24xlarge.memory
+      #   depending on target).  Nova collapses build and test into one job, so
+      #   the CUDA wheel gets built on the small test box: 8 physical cores and
+      #   64 GB, for a build that runs well over an hour.
       #
-      #   linux.12xlarge.memory (r5.12xlarge) is a strict improvement on every
-      #   axis that matters here vs g5.4xlarge: 24 physical cores vs 8, 384 GB
-      #   vs 64, 600 GB disk vs 150.  Cores are what count - `-j` is derived
-      #   from `lscpu` cores x sockets, not vCPUs, so it is 8 today and would
-      #   stay 8 on any other 4xlarge.  It is also the machine the GenAI CUDA
-      #   build already uses in-repo, so the capacity is established.
+      #   The replacement has to stay on a *.nvidia.gpu label.  test-infra's
+      #   build_wheels_linux.yml runs the job container with `--gpus all` for
+      #   every gpu_arch_type == cuda row, so a CPU-only runner cannot start
+      #   the container at all ("could not select device driver") - regardless
+      #   of the fact that the build itself never touches the GPU, and that
+      #   the container reports torch.cuda.is_available() == False even on the
+      #   default runner.
+      #
+      #   linux.g5.12xlarge.nvidia.gpu (g5.12xlarge) is the same instance
+      #   family and AMI as the default, so `--gpus all` is satisfied, but with
+      #   24 physical cores instead of 8 and 192 GB instead of 64.  Cores are
+      #   what count - `-j` is derived from `lscpu` cores x sockets, not vCPUs,
+      #   so this triples build parallelism.  Disk is 150 GB either way, which
+      #   the current build already fits inside.
       #
       #   Scoped to RC/final tag pushes, i.e. the release pipeline only.  The
       #   general Nova CI - nightly, main, PRs and manual dispatch - is left on
@@ -84,7 +91,7 @@ jobs:
 
         runner_args=()
         if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
-          runner_args=(--runner 'gpu_arch_type:cuda=linux.12xlarge.memory')
+          runner_args=(--runner 'gpu_arch_type:cuda=linux.g5.12xlarge.nvidia.gpu')
         fi
 
         MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' "${runner_args[@]}" )"

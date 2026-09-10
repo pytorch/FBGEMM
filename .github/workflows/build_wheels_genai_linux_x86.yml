@@ -62,12 +62,13 @@ jobs:
       #
       # Nova Runner Overrides (release pipeline only):
       # cuda: see build_wheels_linux_x86.yml - the Nova default
-      #   linux.g5.4xlarge.nvidia.gpu is FBGEMM's CUDA *test* machine (8 cores,
-      #   64 GB, and a GPU the build container cannot even see).  RC/final tag
-      #   pushes build on linux.12xlarge.memory instead, which is exactly what
-      #   `generate_ci_matrix.py` `host_machines()` already selects for the
-      #   GenAI CUDA build in-repo.  The general Nova CI - nightly, main, PRs
-      #   and manual dispatch - is left on the Nova default runner.
+      #   linux.g5.4xlarge.nvidia.gpu is FBGEMM's CUDA *test* machine, only 8
+      #   physical cores and 64 GB.  RC/final tag pushes build on
+      #   linux.g5.12xlarge.nvidia.gpu instead: 24 cores and 192 GB, same g5
+      #   family so test-infra's unconditional `--gpus all` for cuda rows is
+      #   still satisfied.  A CPU-only runner is not an option here even
+      #   though the build never uses the GPU.  The general Nova CI - nightly,
+      #   main, PRs and manual dispatch - is left on the Nova default runner.
       run: |
         set -ex
         pwd
@@ -75,7 +76,7 @@ jobs:
 
         runner_args=()
         if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
-          runner_args=(--runner 'gpu_arch_type:cuda=linux.12xlarge.memory')
+          runner_args=(--runner 'gpu_arch_type:cuda=linux.g5.12xlarge.nvidia.gpu')
         fi
 
         MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' --filter 'gpu_arch_type:rocm;gpu_arch_version:7.14' "${runner_args[@]}" )"
