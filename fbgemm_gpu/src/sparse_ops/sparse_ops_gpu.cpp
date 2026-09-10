@@ -23,6 +23,7 @@
 #include <torch/library.h>
 #include <torch/script.h>
 #include <cstdint>
+#include <limits>
 #include <stdexcept> // for logic_error
 #include <utility>
 
@@ -601,9 +602,17 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   }
 
   // Allocate Tensor for ptrs of grad output and input, and indices
+#ifdef USE_ROCM
+  // The segment-reduction path also needs device-visible destination-row
+  // offsets. Keep them in the existing packed argument transfer.
+  Tensor args_tensor = at::empty(
+      {group_size * 6 + 1},
+      at::TensorOptions().dtype(at::kLong).pinned_memory(true));
+#else
   Tensor args_tensor = at::empty(
       {group_size * 5},
       at::TensorOptions().dtype(at::kLong).pinned_memory(true));
+#endif
   // Ensure that args_tensor is contiguous
   TORCH_CHECK(
       args_tensor.is_contiguous(), "Tensor args_tensor must be contiguous.");
@@ -616,6 +625,19 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       args_tensor.data_ptr<int64_t>() + 3 * group_size;
   int64_t* reverse_indices_ptrs =
       args_tensor.data_ptr<int64_t>() + 4 * group_size;
+#ifdef USE_ROCM
+  int64_t* row_offsets_group =
+      args_tensor.mutable_data_ptr<int64_t>() + 5 * group_size;
+  row_offsets_group[0] = 0;
+
+  constexpr int64_t kMinSegmentReduceDupFactor = 32;
+  constexpr int64_t kMinSegmentReduceCols = 32;
+  const auto input_scalar_type = fwd_input.scalar_type();
+  bool use_segment_reduce = group_size > 0 && num_input_rows > 0 &&
+      (input_scalar_type == at::kHalf || input_scalar_type == at::kBFloat16 ||
+       input_scalar_type == at::kFloat);
+  int64_t total_num_rows = 0;
+#endif
 
   int64_t group_grad_input_numel = 0;
   std::vector<int64_t> grad_input_numels;
@@ -634,10 +656,32 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     grad_output_contigs.push_back(grad.expect_contiguous());
 
     // Compute the total number of elements for all grad_inputs
+#ifdef USE_ROCM
+    const int64_t num_destination_rows = output_shape_group[i * output_dim];
+    int64_t grad_input_numel = num_destination_rows;
+#else
     int64_t grad_input_numel = output_shape_group[i * output_dim];
+#endif
     for (auto j = (i * output_dim) + 1; j < (i + 1) * output_dim; j++) {
       grad_input_numel *= output_shape_group[j];
     }
+#ifdef USE_ROCM
+    const auto& indices = indices_group[i];
+    use_segment_reduce = use_segment_reduce &&
+        grad.scalar_type() == input_scalar_type &&
+        indices.numel() == num_input_rows &&
+        indices.scalar_type() == first_indices.scalar_type() &&
+        (indices.scalar_type() == at::kInt ||
+         indices.scalar_type() == at::kLong) &&
+        grad.numel() / num_input_rows >= kMinSegmentReduceCols &&
+        num_destination_rows > 0 &&
+        num_input_rows / num_destination_rows >= kMinSegmentReduceDupFactor;
+    use_segment_reduce = use_segment_reduce &&
+        total_num_rows <
+            std::numeric_limits<int32_t>::max() - num_destination_rows;
+    total_num_rows += num_destination_rows;
+    row_offsets_group[i + 1] = total_num_rows;
+#endif
     grad_input_numels.push_back(grad_input_numel);
     group_grad_input_numel += grad_input_numel;
 
@@ -646,12 +690,24 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         reinterpret_cast<int64_t>(grad_output_contigs[i]->const_data_ptr());
   }
 
-  // Allocate a big tensor to avoid calling many small elementwise kernels
+  // Allocate a big tensor to avoid calling many small elementwise kernels.
   const auto group_grad_input =
       at::zeros({group_grad_input_numel}, fwd_input.options());
   TORCH_CHECK(
       group_grad_input.is_contiguous(),
       "Tensor group_grad_input must be contiguous.");
+#ifdef USE_ROCM
+  // Multi-chunk Half/BFloat16 rows must accumulate atomically in FP32. Native
+  // 16-bit atomics can lose concurrent updates, and casting every chunk before
+  // the atomic also discards the accuracy gained by register accumulation.
+  const bool use_fp32_segment_accum = use_segment_reduce &&
+      (input_scalar_type == at::kHalf || input_scalar_type == at::kBFloat16);
+  const auto segment_grad_input = use_fp32_segment_accum
+      ? at::zeros(
+            {group_grad_input_numel}, fwd_input.options().dtype(at::kFloat))
+      : group_grad_input;
+  auto segment_output_group = segment_grad_input.split(grad_input_numels, 0);
+#endif
 
   // Split to output_group
   auto output_group = group_grad_input.split(grad_input_numels, 0);
@@ -675,8 +731,13 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         " of ",
         group_size,
         " must be contiguous.");
+#ifdef USE_ROCM
+    grad_input_ptrs[i] =
+        reinterpret_cast<int64_t>(segment_output_group[i].const_data_ptr());
+#else
     grad_input_ptrs[i] =
         reinterpret_cast<int64_t>(output_group[i].const_data_ptr());
+#endif
 
     // 2) Add group_size gradients for inputs
     outputs.push_back(output_group[i]);
@@ -693,7 +754,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   at::Tensor sort_original_positions;
   at::Tensor all_sorted_indices;
   at::Tensor all_reverse_indices;
-  int64_t sort_num_items = static_cast<int64_t>(indices_group[0].numel());
+  const int64_t sort_num_items = static_cast<int64_t>(indices_group[0].numel());
   // Choose the sort backend by per-segment size:
   //   * LARGE segments (num_items > k_sort_merge_threshold): per-group batch
   //     path (radix_sort_pairs<sort_config>, which rocprim runs as onesweep
@@ -703,7 +764,8 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   //     launches.
   const bool use_segmented_sort =
       static_cast<size_t>(sort_num_items) <= rocm::k_sort_merge_threshold;
-  if (use_sorted_indices) {
+  const bool sort_indices_for_bwd = use_sorted_indices || use_segment_reduce;
+  if (sort_indices_for_bwd) {
     const auto stream = at::cuda::getCurrentCUDAStream();
     const size_t temp_bytes = use_segmented_sort
         ? rocm::get_segmented_sort_temp_storage_bytes(
@@ -747,7 +809,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     reverse_indices_ptrs[i] = 0;
   }
 #ifdef USE_ROCM
-  if (use_sorted_indices) {
+  if (sort_indices_for_bwd) {
     // Fill sorted/reverse ptr tables via direct pointer arithmetic.
     const int64_t idx_elem_bytes = first_indices.element_size();
     auto* sorted_base = static_cast<char*>(all_sorted_indices.data_ptr());
@@ -807,6 +869,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   args_tensor = args_tensor.to(first_indices.device(), /*non_blocking=*/true);
 
 #ifdef USE_ROCM
+  row_offsets_group = args_tensor.data_ptr<int64_t>() + 5 * group_size;
   // enable_cache_and_contig is computed in the forward (see the heuristic
   // there)
   const bool use_contiguous_warps = enable_cache_and_contig;
@@ -816,27 +879,47 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   constexpr bool use_cache = false;
 #endif
 
-  group_index_select_or_add_cuda(
-      args_tensor.const_data_ptr<int64_t>(),
-      args_tensor.const_data_ptr<int64_t>() + group_size,
-      args_tensor.const_data_ptr<int64_t>() + 2 * group_size,
-      use_sorted_indices ? args_tensor.data_ptr<int64_t>() + 3 * group_size
-                         : nullptr,
-      use_sorted_indices ? args_tensor.data_ptr<int64_t>() + 4 * group_size
-                         : nullptr,
-      warp_offsets_group,
-      num_cols_group,
-      fwd_input.scalar_type(),
-      first_indices.scalar_type(),
-      fwd_input.device().index(),
-      num_input_rows,
-      total_num_warps,
-      group_size,
-      /*use_index_select=*/false,
-      use_var_cols,
-      use_contiguous_warps,
-      use_cache,
-      use_packed_rows);
+#ifdef USE_ROCM
+  if (use_segment_reduce) {
+    group_index_add_2d_segment_cuda(
+        args_tensor.const_data_ptr<int64_t>(),
+        args_tensor.const_data_ptr<int64_t>() + group_size,
+        args_tensor.const_data_ptr<int64_t>() + 3 * group_size,
+        args_tensor.const_data_ptr<int64_t>() + 4 * group_size,
+        row_offsets_group,
+        num_cols_group,
+        fwd_input.scalar_type(),
+        first_indices.scalar_type(),
+        fwd_input.device().index(),
+        num_input_rows,
+        total_num_rows,
+        group_size);
+    if (use_fp32_segment_accum) {
+      group_grad_input.copy_(segment_grad_input);
+    }
+  } else
+#endif
+    group_index_select_or_add_cuda(
+        args_tensor.const_data_ptr<int64_t>(),
+        args_tensor.const_data_ptr<int64_t>() + group_size,
+        args_tensor.const_data_ptr<int64_t>() + 2 * group_size,
+        use_sorted_indices ? args_tensor.data_ptr<int64_t>() + 3 * group_size
+                           : nullptr,
+        use_sorted_indices ? args_tensor.data_ptr<int64_t>() + 4 * group_size
+                           : nullptr,
+        warp_offsets_group,
+        num_cols_group,
+        fwd_input.scalar_type(),
+        first_indices.scalar_type(),
+        fwd_input.device().index(),
+        num_input_rows,
+        total_num_warps,
+        group_size,
+        /*use_index_select=*/false,
+        use_var_cols,
+        use_contiguous_warps,
+        use_cache,
+        use_packed_rows);
 
   return outputs;
 }
