@@ -248,6 +248,23 @@ batch_index_select_dim0_codegen_forward_kernel(
 #else
 #define {{ dispatch_macro_name }}(MAX_D, ...) \
   [&] {                                        \
+    {%- if is_rocm and vbe and not dense and not ssd and not weighted and not is_gwd %}
+    if constexpr (                              \
+        std::is_same_v<emb_t, at::Half> &&      \
+        std::is_same_v<cache_t, at::Half> &&    \
+        std::is_same_v<output_t, float> &&      \
+        std::is_same_v<index_t, int64_t> && !use_cache_t) { \
+      /* Use two half-wave groups: at small D most full-wave lanes are idle, */ \
+      /* so a 32-lane group doubles the fraction of useful lanes. */ \
+      if (MAX_D <= 128) {                      \
+        [[maybe_unused]] const int max_vecs_per_thread = 1; \
+        constexpr int kFixedMaxVecsPerThread = 1; \
+        [[maybe_unused]] constexpr int kThreadGroupSize = 32; \
+        [[maybe_unused]] constexpr bool kUseVecBlocking = false; \
+        return __VA_ARGS__();                  \
+      }                                       \
+    }                                         \
+    {%- endif %}
     {{
        dispatch_non_vec_blocking_kernel(
            items_per_warp,
