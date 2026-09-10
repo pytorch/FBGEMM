@@ -565,7 +565,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
       if constexpr (std::is_same_v<InputType, float>) {
         input_row_float[col] = input_row[col];
       } else {
-        input_row_float[col] = cpu_half2float(input_row[col]);
+        input_row_float[col] = to_float(input_row[col]);
       }
     }
 
@@ -574,12 +574,12 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     // Truncate since bias will be represented by fp16. Keep higher precision
     // max untouched.
     float16 minimum_element_fp16 = cpu_float2half_rn(minimum_element);
-    minimum_element = cpu_half2float(minimum_element_fp16);
+    minimum_element = to_float(minimum_element_fp16);
     const float range = maximum_element - minimum_element;
 
     float scale = range == 0 ? 1.0f : range / ((1 << bit_rate) - 1);
     float16 scale_fp16 = cpu_float2half_rn(scale);
-    scale = cpu_half2float(scale_fp16);
+    scale = to_float(scale_fp16);
     if (scale == 0) {
       // Corner case handling when maximum_element == minimum_element
       // Any scale would work because X - minimum_element will be 0 for all X
@@ -699,7 +699,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
       if constexpr (std::is_same_v<InputType, float>) {
         input_row_float[col] = input_row[col];
       } else {
-        input_row_float[col] = cpu_half2float(input_row[col]);
+        input_row_float[col] = to_float(input_row[col]);
       }
     }
 
@@ -765,8 +765,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
         (scale_bias_last
              ? (output_columns + num_elem_per_byte - 1) / num_elem_per_byte
              : 0));
-    float scale = cpu_half2float(input_row_scale_bias[0]);
-    float bias = cpu_half2float(input_row_scale_bias[1]);
+    float scale = to_float(input_row_scale_bias[0]);
+    float bias = to_float(input_row_scale_bias[1]);
     const std::uint8_t* nums =
         (scale_bias_last) ? input_row : input_row + 2 * sizeof(float16);
     OutputType* output_row = output + row * output_columns;
@@ -780,7 +780,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
       if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else if constexpr (std::is_same_v<OutputType, bfloat16>) {
-        output_row[col] = cpu_float2bfloat16(output_value);
+        output_row[col] = from_float<OutputType>(output_value);
       } else {
         output_row[col] = cpu_float2half_rn(output_value);
       }
@@ -883,7 +883,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
       if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else if constexpr (std::is_same_v<OutputType, bfloat16>) {
-        output_row[col] = cpu_float2bfloat16(output_value);
+        output_row[col] = from_float<OutputType>(output_value);
       } else {
         output_row[col] = cpu_float2half_rn(output_value);
       }
