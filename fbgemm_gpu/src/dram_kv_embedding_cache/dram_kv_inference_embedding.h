@@ -211,11 +211,21 @@ class DramKVInferenceEmbedding
     throw std::runtime_error("get_kv_db_sync is not implemented for DRAM");
   }
 
+  std::optional<int64_t> get_storage_row_bytes() const override {
+    return max_D_;
+  }
+
   folly::SemiFuture<std::vector<folly::Unit>> inference_set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
       std::optional<uint32_t> inplace_update_ts) override {
+    TORCH_CHECK(
+        weights.dim() == 2,
+        "Embedding updates must be a two-dimensional tensor");
+    TORCH_CHECK(
+        weights.size(1) <= max_D_,
+        "Embedding update row is wider than DRAM KV storage");
     auto shardid_to_indexes = shard_input(indices, count);
     std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     futures.reserve(shardid_to_indexes.size());
@@ -285,6 +295,11 @@ class DramKVInferenceEmbedding
                                 weights_data_ptr + tensor_offset * stride,
                                 weights_data_ptr + (tensor_offset + 1) * stride,
                                 data_ptr);
+                            // Clear physical padding after every logical row.
+                            std::fill(
+                                data_ptr + stride,
+                                data_ptr + max_D_,
+                                weight_type{});
                             // update provided ts for existing blocks
                             if (feature_evict_config_.has_value() &&
                                 feature_evict_config_.value()->trigger_mode_ !=
@@ -317,6 +332,11 @@ class DramKVInferenceEmbedding
                               weights_data_ptr + tensor_offset * stride,
                               weights_data_ptr + (tensor_offset + 1) * stride,
                               data_ptr);
+                          // Clear physical padding after every logical row.
+                          std::fill(
+                              data_ptr + stride,
+                              data_ptr + max_D_,
+                              weight_type{});
 
                           // update provided ts for new allocated blocks
                           if (feature_evict_config_.has_value() &&
