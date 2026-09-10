@@ -13,6 +13,21 @@
 
 #include <cub/device/device_scan.cuh>
 
+#include <cstdlib>
+
+namespace {
+// Opt-in device-wide sync before jagged->dense kernel launches, gated by the
+// FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH environment variable. Disabled by
+// default (zero behavior/perf change). Same cross-stream read-after-write
+// rationale as sparse_permute_2d.cu.
+inline bool fbgemm_sync_before_jagged_launch() {
+  static const int val = std::getenv("FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH")
+      ? std::atoi(std::getenv("FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH"))
+      : 0;
+  return val != 0;
+}
+} // namespace
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -31,6 +46,16 @@ at::Tensor jagged_to_padded_dense_forward(
       " != num_jagged_dim, ",
       num_jagged_dim);
   CUDA_DEVICE_GUARD(values);
+
+  // Opt-in guard for cross-stream read-after-write hazards: values/offsets
+  // may be produced by kernels on a different stream (e.g. a custom
+  // embedding lookup stream) with no explicit stream dependency; calling
+  // recordStream() on the inputs does not prevent premature reads. Enabled
+  // only when FBGEMM_GPU_DEVICE_SYNC_BEFORE_LAUNCH=1; otherwise this is a
+  // single branch on a cached static bool.
+  if (fbgemm_sync_before_jagged_launch()) {
+    cudaDeviceSynchronize();
+  }
 
   const Tensor values_canonicalized = values.view(
       {values.size(0),
