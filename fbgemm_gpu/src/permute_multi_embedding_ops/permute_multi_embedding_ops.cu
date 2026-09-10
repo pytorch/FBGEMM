@@ -296,6 +296,15 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
         at::empty({batch_size, lengths[i]}, pooled_embs[0].options());
     outputs.push_back(output);
   }
+  if (batch_size == 0) {
+    return outputs;
+  }
+  if (permute_size == 0) {
+    for (auto& output : outputs) {
+      output.zero_();
+    }
+    return outputs;
+  }
 
   // This kernel is moving one feature/key per warp.
   // We are launching ( permute_size//warp_per_block, batch_size, ?)
@@ -310,16 +319,12 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
   const int32_t grid_dim_y =
       std::min(static_cast<int32_t>(batch_size), max_grid_dim);
   const int32_t grid_dim_z = (batch_size + max_grid_dim - 1) / max_grid_dim;
-  // HIP enforces a hard limit of 2^32 total threads per launch.
-  // permute_multi_embs_kernel grid-strides over permute_id, so capping grid.x
-  // is correctness-preserving. cap_grid_dim_x bounds the *total* launch, so we
-  // must fold every other launch dimension (block threads and the y/z batch
-  // dims) into its per-column thread count -- otherwise a large batch_size
-  // multiplies past 2^32 even though grid.x alone fits.
-  // See: https://github.com/ROCm/hip/issues/2253
-  const auto blocks_x = utils::cuda::cap_grid_dim_x(
+  // The kernel grid-strides over permute_id.
+  const int64_t yz_blocks = static_cast<int64_t>(grid_dim_y) * grid_dim_z;
+  const auto blocks_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
       fbgemm_gpu::div_round_up(permute_size, warp_per_block),
-      static_cast<int64_t>(block_dim.x) * block_dim.y * grid_dim_y * grid_dim_z,
+      static_cast<int64_t>(block_dim.x) * block_dim.y,
+      yz_blocks,
       at::cuda::getCurrentCUDAStream());
   const dim3 grid_dim(blocks_x, grid_dim_y, grid_dim_z);
 

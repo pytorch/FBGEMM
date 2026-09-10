@@ -39,6 +39,90 @@ SHAPES_DTYPE: torch.dtype = torch.int32
 
 class PermuteMultiEmbeddingOpsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
+    def test_permute_multi_embedding_returns_empty_batch(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        lengths = [4]
+        permutes = torch.tensor(
+            [[0, 0, 0, 0, 4, -1]], dtype=PERMUTES_DTYPE, device=device
+        )
+        shapes = torch.tensor(lengths, dtype=SHAPES_DTYPE, device=device)
+        pooled_embs = [torch.empty((0, lengths[0]), device=device)]
+
+        outputs = torch.ops.fbgemm.permute_multi_embedding(
+            pooled_embs,
+            permutes,
+            shapes,
+            shapes,
+            lengths,
+        )
+
+        self.assertEqual(len(outputs), 1)
+        self.assertEqual(outputs[0].shape, (0, lengths[0]))
+        self.assertEqual(outputs[0].numel(), 0)
+
+    def _assert_empty_permutes_return_zeros(self, device: torch.device) -> None:
+        batch_size = 2
+        lengths = [4]
+        permutes = torch.empty((0, 6), dtype=PERMUTES_DTYPE, device=device)
+        shapes = torch.tensor(lengths, dtype=SHAPES_DTYPE, device=device)
+        pooled_embs = [
+            torch.ones((batch_size, lengths[0]), device=device, requires_grad=True)
+        ]
+
+        outputs = torch.ops.fbgemm.permute_multi_embedding(
+            pooled_embs,
+            permutes,
+            shapes,
+            shapes,
+            lengths,
+        )
+
+        self.assertEqual(len(outputs), 1)
+        self.assertEqual(outputs[0].shape, (batch_size, lengths[0]))
+        torch.testing.assert_close(
+            outputs[0], torch.zeros_like(outputs[0]), rtol=0, atol=0
+        )
+
+        outputs[0].sum().backward()
+        torch.testing.assert_close(
+            pooled_embs[0].grad,
+            torch.zeros_like(pooled_embs[0]),
+            rtol=0,
+            atol=0,
+        )
+
+    def test_permute_multi_embedding_returns_empty_permutes_cpu(self) -> None:
+        deterministic_algorithms_enabled = torch.are_deterministic_algorithms_enabled()
+        deterministic_warn_only_enabled = (
+            torch.is_deterministic_algorithms_warn_only_enabled()
+        )
+        torch.use_deterministic_algorithms(True)
+        try:
+            self._assert_empty_permutes_return_zeros(torch.device("cpu"))
+        finally:
+            torch.use_deterministic_algorithms(
+                deterministic_algorithms_enabled,
+                warn_only=deterministic_warn_only_enabled,
+            )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_permute_multi_embedding_returns_empty_permutes_gpu(self) -> None:
+        deterministic_algorithms_enabled = torch.are_deterministic_algorithms_enabled()
+        deterministic_warn_only_enabled = (
+            torch.is_deterministic_algorithms_warn_only_enabled()
+        )
+        torch.use_deterministic_algorithms(True)
+        try:
+            self._assert_empty_permutes_return_zeros(
+                torch.device(torch.accelerator.current_accelerator() or "cuda")
+            )
+        finally:
+            torch.use_deterministic_algorithms(
+                deterministic_algorithms_enabled,
+                warn_only=deterministic_warn_only_enabled,
+            )
+
+    @unittest.skipIf(*gpu_unavailable)
     def test_permute_multi_embedding_smoke(self) -> None:
         """Small-input correctness regression. Gates the kernel-side
         grid-stride transformation against breakage on small inputs."""

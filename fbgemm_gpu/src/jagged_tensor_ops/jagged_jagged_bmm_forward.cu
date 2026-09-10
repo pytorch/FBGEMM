@@ -212,20 +212,20 @@ Tensor jagged_jagged_bmm_forward_cuda(
           THREADS_PER_BLOCK % BLOCK_TILE_N == 0,
           "THREADS_PER_BLOCK needs to be multiple of BLOCK_TILE_N");
 
-      // HIP enforces a hard limit of 2^32 total threads per launch.
-      // The kernel grid-strides over (block_col, block_row, b), so capping
-      // is correctness-preserving.
-      // See: https://github.com/ROCm/hip/issues/2253
-      const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
-          div_round_up(N, BLOCK_TILE_N),
-          THREADS_PER_BLOCK,
-          at::cuda::getCurrentCUDAStream());
       const auto grid_dim_y = div_round_up(M, BLOCK_TILE_M);
       TORCH_CHECK(
           grid_dim_y <= kMaxBlockYDim,
           "M cannot be larger than",
           kMaxBlockYDim * BLOCK_TILE_M + 1 - BLOCK_TILE_M);
       const auto grid_dim_z = std::min(B, kMaxBlockZDim);
+
+      const int64_t yz_blocks = static_cast<int64_t>(grid_dim_y) * grid_dim_z;
+      const auto grid_dim_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
+          div_round_up(N, BLOCK_TILE_N),
+          THREADS_PER_BLOCK,
+          yz_blocks,
+          at::cuda::getCurrentCUDAStream(),
+          utils::cuda::BlockCapPolicy::OverflowOnly);
       const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
 
       AT_DISPATCH_INDEX_TYPES(
@@ -266,20 +266,20 @@ Tensor jagged_jagged_bmm_forward_cuda(
           THREADS_PER_BLOCK % BLOCK_TILE_N == 0,
           "THREADS_PER_BLOCK needs to be multiple of BLOCK_TILE_N");
 
-      // HIP enforces a hard limit of 2^32 total threads per launch.
-      // The kernel grid-strides over (block_col, block_row, b), so capping
-      // is correctness-preserving.
-      // See: https://github.com/ROCm/hip/issues/2253
-      const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
-          div_round_up(N, BLOCK_TILE_N),
-          THREADS_PER_BLOCK,
-          at::cuda::getCurrentCUDAStream());
       const auto grid_dim_y = div_round_up(M, BLOCK_TILE_M);
       TORCH_CHECK(
           grid_dim_y <= kMaxBlockYDim,
           "M cannot be larger than",
           kMaxBlockYDim * BLOCK_TILE_M + 1 - BLOCK_TILE_M);
       const auto grid_dim_z = std::min(B, kMaxBlockZDim);
+
+      const int64_t yz_blocks = static_cast<int64_t>(grid_dim_y) * grid_dim_z;
+      const auto grid_dim_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
+          div_round_up(N, BLOCK_TILE_N),
+          THREADS_PER_BLOCK,
+          yz_blocks,
+          at::cuda::getCurrentCUDAStream(),
+          utils::cuda::BlockCapPolicy::OverflowOnly);
       const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
 
       AT_DISPATCH_INDEX_TYPES(
