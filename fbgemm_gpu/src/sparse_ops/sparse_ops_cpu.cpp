@@ -2373,9 +2373,20 @@ Tensor batched_unary_embeddings_forward_cpu(
   // N: number of tasks, T: number of tables, B: batch size
   const int64_t N = weight.sizes()[0];
   const int64_t T = table_offsets.numel() - 1;
-  const int64_t B = (offsets.numel() - 1) / T;
   TORCH_CHECK(N > 0);
   TORCH_CHECK(T > 0);
+  // offsets delimits a flattened [T, B] grid of segments, so it must hold
+  // exactly T*B+1 entries. Reject inputs whose length is not T*B+1 for any
+  // integer B: otherwise the trailing partial row is silently dropped here
+  // while the backward pass walks it with an out-of-range table id.
+  TORCH_CHECK(
+      (offsets.numel() - 1) % T == 0,
+      "offsets.numel() - 1 (",
+      offsets.numel() - 1,
+      ") must be divisible by the number of tables T (",
+      T,
+      ")");
+  const int64_t B = (offsets.numel() - 1) / T;
   TORCH_CHECK(B > 0);
 
   // Make sure the index_t are consistent among table_offsets, offsets and

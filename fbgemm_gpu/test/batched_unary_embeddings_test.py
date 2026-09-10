@@ -216,7 +216,9 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             hash_sizes=[71, 107],
             long_index=True,
         ).to(device)
-        offsets = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.long).to(device)
+        # T=2 tables, so offsets must hold T*B+1 entries. With B=4 that is 9
+        # offsets delimiting 8 unit-length segments over the 8 values.
+        offsets = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long).to(device)
         values = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long).to(device)
         for _ in range(10):
             output = unary_embedding_module(offsets, values).transpose(1, 0)
@@ -426,6 +428,34 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
                 # Other rows in this table should be 0.
                 for r in range(1, small_hash_sizes[t]):
                     self.assertEqual(gpu_grad[n, row0_idx + r].item(), 0.0)
+
+    def test_batched_unary_embeddings_meta(self) -> None:
+        # The meta kernel must mirror the eager forward validation so that
+        # FakeTensor/export reject the same malformed offsets eager rejects
+        # (rather than floor-dividing and reporting a misleading B). Runs on
+        # the meta device, so no GPU is required.
+        T = 2  # tables -> offsets must hold T*B+1 entries
+        B = 4
+        N = 3
+        weight = torch.empty(N, sum([71, 107]), 1, device="meta")
+        table_offsets = torch.tensor([0, 71, 178], dtype=torch.long, device="meta")
+
+        # Well-formed: T*B+1 = 9 offsets -> output shape [N, B, T].
+        good_offsets = torch.empty(T * B + 1, dtype=torch.long, device="meta")
+        indices = torch.empty(T * B, dtype=torch.long, device="meta")
+        out = torch.ops.fbgemm.batched_unary_embeddings(
+            weight, table_offsets, good_offsets, indices
+        )
+        self.assertEqual(list(out.shape), [N, B, T])
+        self.assertEqual(out.device.type, "meta")
+
+        # Malformed: length T*B gives numel-1 = 7, which is not a multiple of
+        # T=2. Eager now rejects this; the meta kernel must too.
+        bad_offsets = torch.empty(T * B, dtype=torch.long, device="meta")
+        with self.assertRaises(RuntimeError):
+            torch.ops.fbgemm.batched_unary_embeddings(
+                weight, table_offsets, bad_offsets, indices
+            )
 
 
 if __name__ == "__main__":
