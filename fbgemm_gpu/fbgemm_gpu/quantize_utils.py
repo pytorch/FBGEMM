@@ -12,6 +12,7 @@ import logging
 import torch  # isort:skip
 
 import fbgemm_gpu
+from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.triton.common import RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
@@ -209,7 +210,23 @@ def mx4_to_float(
         )
 
 
+@torch.compiler.assume_constant_result
+def _fp16_comm_inplace_clamp_enabled() -> bool:
+    # The C++ feature gate cache is fixed for the lifetime of the process.
+    return FeatureGate.is_enabled(FeatureGateName.FP16_COMM_INPLACE_CLAMP)
+
+
 def fp32_to_fp16_with_clamp(tensor: torch.Tensor) -> torch.Tensor:
+    if (
+        not torch.is_grad_enabled()
+        and isinstance(tensor, torch.Tensor)
+        and tensor.dtype == torch.float32
+        and _fp16_comm_inplace_clamp_enabled()
+    ):
+        # Keep the temporary in FP16; autograd requires the original clamp order.
+        return tensor.to(torch.float16, copy=True).clamp_(
+            TORCH_HALF_MIN, TORCH_HALF_MAX
+        )
     return torch.clamp(tensor, TORCH_HALF_MIN, TORCH_HALF_MAX).half()
 
 
