@@ -455,8 +455,8 @@ TEST_P(EmbeddingSpMDMTest, noBagUint8Test) {
       GetParam();
   ScopedKernelOverride kernel_override(kernel_choice);
 
-  // Fix the input and output types to be uint8_t
-  const auto in_type = QINT8, out_type = QINT8;
+  // This test always uses uint8_t input and output, so the parameterised
+  // input/output types are discarded as `_tmp1` and `_tmp2` above.
 
   // Skip corner cases for this focused test
   if (corner_case != NONE) {

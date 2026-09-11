@@ -17,7 +17,6 @@ def default_compiler_flags():
             "-Wno-gnu-zero-variadic-macro-arguments",
             "-Wno-c99-extensions",
             "-Wno-unused-parameter",
-            "-Wno-unused-variable",
             "-Wimplicit-fallthrough",
             "-Wignored-qualifiers",
             "-Wno-vla",
