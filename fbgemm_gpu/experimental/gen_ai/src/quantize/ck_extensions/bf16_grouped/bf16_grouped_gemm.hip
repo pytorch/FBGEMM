@@ -17,7 +17,7 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
-#include <c10/cuda/CUDAException.h>
+#include <c10/hip/HIPException.h>
 #include <c10/hip/HIPStream.h>
 
 #include "ck/ck.hpp"
