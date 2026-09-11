@@ -90,6 +90,11 @@ class OptimizerArgs(NamedTuple):
                                 # convention where alpha means learning rate).
     ema_beta: float = 0.99      # EMA decay for momentum1 (g²)
     min_shrinkage: float = 0.1  # floor on the decay multiplier; 0.0 = full soft-reset
+    # FTRL knobs (ignored by other optimizers; `ftrl_`-prefixed because this
+    # NamedTuple is a flat namespace shared by every optimizer).
+    ftrl_learning_rate_power: float = -0.5  # exponent on accum; -0.5 == 1/sqrt schedule
+    ftrl_l1_reg: float = 0.0                # L1 strength; pins small weights to exactly 0
+    ftrl_l2_reg: float = 0.0                # proximal L2; enters as 2*l2 in the denominator
 
 
 class Momentum(NamedTuple):

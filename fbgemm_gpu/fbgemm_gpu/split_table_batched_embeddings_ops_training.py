@@ -527,7 +527,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (10) `EMAINPLACE_ROWWISE_ADAGRAD` = Ema inplace rowwise-Adagrad
 
-            (11) `NONE` = Not applying an optimizer update in the backward pass
+            (11) `FTRL` = FTRL-Proximal
+
+            (12) `NONE` = Not applying an optimizer update in the backward pass
                 and outputting a sparse weight gradient
 
         record_cache_metrics (RecordCacheMetrics | None = None): Record
@@ -733,6 +735,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ar_alpha: float = 0.0,  # paper's adaptive coefficient
         ema_beta: float = 0.99,  # EMA decay for momentum1 (g²)
         min_shrinkage: float = 0.1,  # floor on decay multiplier; 0.0 = full soft-reset
+        # FTRL knobs (ignored by other optimizers).  Prefixed with `ftrl_`
+        # because OptimizerArgs is a flat namespace shared by every optimizer.
+        ftrl_learning_rate_power: float = -0.5,  # exponent on accum; -0.5 == 1/sqrt
+        ftrl_l1_reg: float = 0.0,  # L1 strength; pins small weights to exactly 0
+        ftrl_l2_reg: float = 0.0,  # proximal L2; enters as 2*l2 in the denominator
         eta: float = 0.001,
         beta1: float = 0.9,
         beta2: float = 0.999,
@@ -1135,6 +1142,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EXACT_SGD,
                 OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 OptimType.ROWWISE_RMSPROP_AR,
+                OptimType.FTRL,
             ), f"Optimizer {optimizer} is not supported in CPU mode."
         else:
             assert optimizer in (
@@ -1149,8 +1157,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                 OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 OptimType.ROWWISE_RMSPROP_AR,
+                OptimType.FTRL,
                 OptimType.NONE,
             ), f"Optimizer {optimizer} is not supported."
+
+        if optimizer == OptimType.FTRL:
+            # The FTRL update divides by the learning rate, so lr == 0 would
+            # produce inf/NaN weights rather than a no-op step.
+            assert (
+                learning_rate > 0
+            ), "OptimType.FTRL requires learning_rate > 0 (the update divides by it)"
 
         self.stochastic_rounding = stochastic_rounding
         self.optimizer = optimizer
@@ -1293,6 +1309,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ar_alpha=ar_alpha,
             ema_beta=ema_beta,
             min_shrinkage=min_shrinkage,
+            # FTRL knobs (defaults are no-ops for other optimizers).
+            ftrl_learning_rate_power=ftrl_learning_rate_power,
+            ftrl_l1_reg=ftrl_l1_reg,
+            ftrl_l2_reg=ftrl_l2_reg,
         )
 
         if optimizer != OptimType.NONE:
@@ -1349,6 +1369,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.LAMB,
                 OptimType.PARTIAL_ROWWISE_LAMB,
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                OptimType.FTRL,
             ):
                 rowwise = optimizer in (
                     OptimType.PARTIAL_ROWWISE_ADAM,
@@ -2675,10 +2696,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.NONE,
                 OptimType.ADAM,
                 OptimType.ROWWISE_RMSPROP_AR,
+                OptimType.FTRL,
             ), (
                 "Variable batch size TBE support is enabled for "
                 "OptimType.EXACT_ROWWISE_ADAGRAD,EXACT_SGD, "
-                "ENSEMBLE_ROWWISE_ADAGRAD, ROWWISE_RMSPROP_AR, NONE, and ADAM only"
+                "ENSEMBLE_ROWWISE_ADAGRAD, ROWWISE_RMSPROP_AR, FTRL, NONE, "
+                "and ADAM only"
             )
         return generate_vbe_metadata(
             offsets,
@@ -3123,6 +3146,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     iter_int,
                 ),
             )
+        if self.optimizer == OptimType.FTRL:
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_ftrl.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    momentum2,
+                    mixed_D=self.mixed_D,
+                ),
+            )
+
         if self.optimizer == OptimType.LAMB:
             return self._report_io_size_count(
                 "fwd_output",
@@ -3859,6 +3894,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 }
                 for states in split_optimizer_states
             ]
+        elif self.optimizer == OptimType.FTRL:
+            # Slot names match TensorFlow's FtrlOptimizer.
+            list_of_state_dict = [
+                {"accum": states[0], "linear": states[1]}
+                for states in split_optimizer_states
+            ]
         else:
             raise NotImplementedError(
                 f"Getting optimizer state {self.optimizer} is not implmeneted"
@@ -3902,7 +3943,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (9) `ENSEMBLE_ROWWISE_ADAGRAD`: `momentum1` (rowwise), `momentum2`
 
-            (10) `NONE`: no states (throwing an error)
+            (10) `FTRL`: `momentum1` (the FTRL `accum` state), `momentum2`
+                (the FTRL `linear` state)
+
+            (11) `NONE`: no states (throwing an error)
 
         """
         if self.optimizer == OptimType.NONE:
@@ -3970,6 +4014,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.LAMB,
             OptimType.PARTIAL_ROWWISE_LAMB,
             OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+            OptimType.FTRL,
         ):
             states.append(
                 get_optimizer_states(
