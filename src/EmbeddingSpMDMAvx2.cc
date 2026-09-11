@@ -26,7 +26,7 @@ bool EmbeddingSpMDMBlockSize1_(
     float* out,
     bool is_weight_positional,
     bool use_offsets,
-    bool is_bf16) {
+    [[maybe_unused]] bool is_bf16) {
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     out[m] = 0;
@@ -113,7 +113,7 @@ bool EmbeddingSpMDMBlockSize1_(
       }
 
       const InType* inptr = input + indices[current];
-      temp = std::fma(w, convert_to_float_ref(*inptr, is_bf16), temp);
+      temp = std::fma(w, to_float(*inptr), temp);
 
       ++current;
     }
