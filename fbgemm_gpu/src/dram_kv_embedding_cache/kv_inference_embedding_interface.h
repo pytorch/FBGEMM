@@ -29,6 +29,11 @@ class KVInferenceEmbeddingInterface {
  public:
   virtual ~KVInferenceEmbeddingInterface() = default;
 
+  /// Return the physical row capacity in bytes when it is known.
+  virtual std::optional<int64_t> get_storage_row_bytes() const {
+    return std::nullopt;
+  }
+
   /// Initialize the initializers for weight initialization
   ///
   /// @param num_shards number of shards for the kvstore

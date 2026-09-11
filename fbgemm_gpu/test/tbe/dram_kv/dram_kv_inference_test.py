@@ -27,6 +27,205 @@ if not open_source:
 
 @unittest.skipIf(open_source, "Not supported in open source yet")
 class DramKvInferenceTest(unittest.TestCase):
+    def test_int4_logical_lookup_width(self) -> None:
+        scale_bias_bytes = 4
+        storage_alignment = 8
+        for dim in (8, 10, 12, 14, 16, 18, 20, 22, 100, 256):
+            with self.subTest(dim=dim):
+                logical_bytes = dim // 2 + scale_bias_bytes
+                storage_bytes = (
+                    (logical_bytes + storage_alignment - 1) // storage_alignment
+                ) * storage_alignment
+                cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
+                    1, 0.0, 0.0, True
+                )
+                cache.init_with_row_alignments(
+                    [(4, dim, SparseType.INT4.as_int())],
+                    1,
+                    storage_alignment,
+                    scale_bias_bytes,
+                    torch.tensor([0, 4], dtype=torch.int64),
+                )
+                expected = torch.arange(logical_bytes, dtype=torch.uint8).reshape(
+                    1, logical_bytes
+                )
+                cache.set_embeddings(torch.tensor([0]), expected)
+
+                actual = cache.get_embeddings(torch.tensor([0]))
+
+                self.assertEqual(tuple(actual.shape), (1, logical_bytes))
+                self.assertTrue(torch.equal(actual, expected))
+                self.assertEqual(cache.get_max_row_bytes(), storage_bytes)
+                self.assertEqual(cache.get_lookup_row_bytes(), logical_bytes)
+
+    def test_int4_zeroes_storage_padding(self) -> None:
+        dim = 100
+        logical_bytes = dim // 2 + 4
+        storage_alignment = 8
+        storage_bytes = (
+            (logical_bytes + storage_alignment - 1) // storage_alignment
+        ) * storage_alignment
+        specs = [(4, dim, SparseType.INT4.as_int())]
+        hash_size_cumsum = torch.tensor([0, 4], dtype=torch.int64)
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+        cache.init_with_row_alignments(
+            specs, storage_alignment, storage_alignment, 4, hash_size_cumsum
+        )
+        cache.set_embeddings(
+            torch.tensor([0]), torch.full((1, storage_bytes), 0xFF, dtype=torch.uint8)
+        )
+        expected = torch.arange(logical_bytes, dtype=torch.uint8).reshape(
+            1, logical_bytes
+        )
+        cache.set_embeddings(torch.tensor([0]), expected)
+
+        stored = cache.get_embeddings(torch.tensor([0]))
+
+        self.assertTrue(torch.equal(stored[:, :logical_bytes], expected))
+        self.assertTrue(
+            torch.equal(
+                stored[:, logical_bytes:],
+                torch.zeros((1, storage_bytes - logical_bytes), dtype=torch.uint8),
+            )
+        )
+
+    def test_rejects_empty_specs(self) -> None:
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+
+        with self.assertRaisesRegex(RuntimeError, "specs must not be empty"):
+            cache.init_with_row_alignments(
+                [], 1, 8, 4, torch.tensor([0], dtype=torch.int64)
+            )
+
+    def test_rejects_operations_before_init(self) -> None:
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+
+        with self.assertRaisesRegex(RuntimeError, "must be initialized before use"):
+            cache.get_embeddings(torch.tensor([0]))
+        with self.assertRaisesRegex(RuntimeError, "must be initialized before use"):
+            cache.set_embeddings(
+                torch.tensor([0]), torch.zeros((1, 8), dtype=torch.uint8)
+            )
+
+    def test_rejects_update_wider_than_storage(self) -> None:
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+        cache.init_with_row_alignments(
+            [(4, 8, SparseType.INT4.as_int())],
+            1,
+            8,
+            4,
+            torch.tensor([0, 4], dtype=torch.int64),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "wider than KV storage"):
+            cache.set_embeddings(
+                torch.tensor([0]), torch.zeros((1, 9), dtype=torch.uint8)
+            )
+
+    def test_rejects_non_matrix_update(self) -> None:
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+        cache.init_with_row_alignments(
+            [(4, 8, SparseType.INT4.as_int())],
+            1,
+            8,
+            4,
+            torch.tensor([0, 4], dtype=torch.int64),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "two-dimensional tensor"):
+            cache.set_embeddings(torch.tensor([0]), torch.zeros(8, dtype=torch.uint8))
+
+    def test_rejects_heterogeneous_separate_row_widths(self) -> None:
+        for sparse_type, dims in (
+            (SparseType.INT4, (8, 10)),
+            (SparseType.INT8, (8, 16)),
+        ):
+            with self.subTest(sparse_type=sparse_type):
+                cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
+                    1, 0.0, 0.0, True
+                )
+                with self.assertRaisesRegex(RuntimeError, "one logical row width"):
+                    cache.init_with_row_alignments(
+                        [
+                            (4, dims[0], sparse_type.as_int()),
+                            (4, dims[1], sparse_type.as_int()),
+                        ],
+                        8,
+                        8,
+                        4,
+                        torch.tensor([0, 4, 8], dtype=torch.int64),
+                    )
+
+    def test_preserves_sub_byte_unaligned_row_sizing(self) -> None:
+        for sparse_type, dim, logical_bytes, storage_bytes in (
+            (SparseType.INT4, 9, 8, 8),
+            (SparseType.INT2, 9, 6, 8),
+        ):
+            cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
+                1, 0.0, 0.0, True
+            )
+            cache.init_with_row_alignments(
+                [(4, dim, sparse_type.as_int())],
+                1,
+                8,
+                4,
+                torch.tensor([0, 4], dtype=torch.int64),
+            )
+
+            self.assertEqual(cache.get_lookup_row_bytes(), logical_bytes)
+            self.assertEqual(cache.get_max_row_bytes(), storage_bytes)
+
+    def test_rejects_reinit_with_different_storage_width(self) -> None:
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+        cache.init_with_row_alignments(
+            [(4, 8, SparseType.INT4.as_int())],
+            1,
+            8,
+            4,
+            torch.tensor([0, 4], dtype=torch.int64),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Cannot change KV storage row width"):
+            cache.init_with_row_alignments(
+                [(4, 100, SparseType.INT4.as_int())],
+                1,
+                8,
+                4,
+                torch.tensor([0, 4], dtype=torch.int64),
+            )
+
+    def test_legacy_init_preserves_heterogeneous_int4_sizing(self) -> None:
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+
+        cache.init(
+            [
+                (4, 8, SparseType.INT4.as_int()),
+                (4, 10, SparseType.INT4.as_int()),
+            ],
+            8,
+            4,
+            torch.tensor([0, 4, 8], dtype=torch.int64),
+        )
+
+        self.assertEqual(cache.get_max_row_bytes(), 16)
+        self.assertEqual(cache.get_lookup_row_bytes(), 16)
+
+    def test_legacy_init_preserves_mixed_type_sizing(self) -> None:
+        cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(1, 0.0, 0.0, True)
+
+        cache.init(
+            [
+                (4, 8, SparseType.INT8.as_int()),
+                (4, 100, SparseType.INT4.as_int()),
+            ],
+            8,
+            4,
+            torch.tensor([0, 4, 8], dtype=torch.int64),
+        )
+
+        self.assertEqual(cache.get_max_row_bytes(), 104)
+        self.assertEqual(cache.get_lookup_row_bytes(), 104)
+
     def test_serialize(self) -> None:
         num_shards = 32
         uniform_init_lower: float = -0.01

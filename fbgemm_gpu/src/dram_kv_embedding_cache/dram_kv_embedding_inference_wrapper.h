@@ -34,6 +34,13 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
       const int64_t scale_bias_size_in_bytes,
       const std::optional<at::Tensor>& hash_size_cumsum);
 
+  void init_with_row_alignments(
+      const std::vector<SerializedSepcType>& specs,
+      const int64_t logical_row_alignment,
+      const int64_t storage_row_alignment,
+      const int64_t scale_bias_size_in_bytes,
+      const std::optional<at::Tensor>& hash_size_cumsum);
+
   void set_embeddings(
       const at::Tensor& indices,
       const at::Tensor& weights,
@@ -62,14 +69,35 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
 
   int64_t get_max_row_bytes() const;
 
+  int64_t get_lookup_row_bytes() const;
+
  private:
+  enum class InitMode {
+    Legacy,
+    SeparateAlignments,
+  };
+
+  void init_impl(
+      const std::vector<SerializedSepcType>& specs,
+      int64_t logical_row_alignment,
+      int64_t storage_row_alignment,
+      int64_t scale_bias_size_in_bytes,
+      const std::optional<at::Tensor>& hash_size_cumsum,
+      InitMode mode);
+
+  void check_initialized() const;
+
   int64_t num_shards_ = 32;
   double uniform_init_lower_ = 0.0;
   double uniform_init_upper_ = 0.0;
   bool disable_random_init_ = false;
 
   std::shared_ptr<kv_mem::KVInferenceEmbeddingInterface<uint8_t>> kv_backend_;
-  int64_t max_row_bytes_ = 0;
+  bool uses_dram_backend_ = false;
+  bool initialized_ = false;
+  std::optional<int64_t> backend_storage_row_bytes_;
+  int64_t storage_max_row_bytes_ = 0;
+  int64_t lookup_max_row_bytes_ = 0;
 };
 
 } // namespace fbgemm_gpu
