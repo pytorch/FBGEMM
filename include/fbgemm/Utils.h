@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "./Assert.h" // @manual
 #include "./FbgemmBuild.h" // @manual
 #include "./UtilsAvx2.h" // @manual
 
@@ -434,36 +435,10 @@ FBGEMM_API void set_autovec_disabled(bool val);
 FBGEMM_API void set_autovec_forced(bool val);
 FBGEMM_API void set_asmjit_disabled(bool val);
 
-#define WARN_ONCE(...)              \
-  do {                              \
-    static bool _warned = false;    \
-    if (!_warned) {                 \
-      _warned = true;               \
-      fprintf(stderr, __VA_ARGS__); \
-    }                               \
-  } while (0)
-
 constexpr int64_t nbit_embedding_int4_row_size_in_bytes(
     const int64_t block_size) {
   constexpr int64_t kScaleBiasSize = 2 * sizeof(uint16_t);
   return (block_size + 1) / 2 + kScaleBiasSize;
-}
-
-inline bool nbit_embedding_int4_validate_strides(
-    const int64_t block_size,
-    const int64_t input_stride,
-    const int64_t output_stride) {
-  const auto row_size = nbit_embedding_int4_row_size_in_bytes(block_size);
-  if (input_stride >= row_size && output_stride >= row_size) {
-    return true;
-  }
-  WARN_ONCE(
-      "no_bag strides must be at least the packed INT4 row size: "
-      "input_stride=%ld output_stride=%ld packed_row_size=%ld\n",
-      static_cast<long>(input_stride),
-      static_cast<long>(output_stride),
-      static_cast<long>(row_size));
-  return false;
 }
 
 /**
@@ -472,24 +447,98 @@ inline bool nbit_embedding_int4_validate_strides(
  */
 template <typename OutType>
 void nbit_embedding_sanity_check(
-    // assertions are ignored in release mode, in which case these parameters
-    // will be unused
-    const int input_bit_rate [[maybe_unused]],
-    const int output_bit_rate [[maybe_unused]],
-    const bool no_bag [[maybe_unused]]) {
-  assert(
-      (input_bit_rate == 2 || input_bit_rate == 4) &&
-      "input_bit_rate must be 2 or 4");
+    const int input_bit_rate,
+    const int output_bit_rate,
+    const bool no_bag) {
+  FBGEMM_CHECK(
+      input_bit_rate == 2 || input_bit_rate == 4,
+      "N-bit embedding input_bit_rate must be 2 or 4, got ",
+      input_bit_rate);
+  if (no_bag) {
+    FBGEMM_CHECK(
+        input_bit_rate == 4 && output_bit_rate == 4,
+        "N-bit no-bag mode requires INT4 input and output, got input_bit_rate=",
+        input_bit_rate,
+        ", output_bit_rate=",
+        output_bit_rate);
+  }
   // NOLINTNEXTLINE(bugprone-branch-clone)
   if constexpr (std::is_same_v<OutType, uint8_t>) {
-    assert(
-        (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
-        "we currently only support int4 to int4 for sequential TBE");
+    FBGEMM_CHECK(
+        no_bag,
+        "uint8_t N-bit output requires no-bag mode, got no_bag=",
+        no_bag,
+        ", input_bit_rate=",
+        input_bit_rate);
   } else {
-    assert(
-        (output_bit_rate == 8 * sizeof(OutType)) &&
-        "output_bit_rate should be equal to 8 * sizeof(OutType)");
+    FBGEMM_CHECK(
+        output_bit_rate == 8 * sizeof(OutType),
+        "N-bit embedding output_bit_rate must match OutType width, got ",
+        output_bit_rate,
+        " bits for sizeof(OutType)=",
+        sizeof(OutType));
   }
 }
+
+template <typename IndexType, typename OutType>
+int64_t nbit_embedding_no_bag_copy_size(
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t output_stride,
+    const int64_t input_stride,
+    const uint8_t* input,
+    const IndexType* indices,
+    OutType* out) {
+  FBGEMM_CHECK(
+      block_size > 0,
+      "INT4 no-bag block_size must be positive, got ",
+      block_size);
+  FBGEMM_CHECK(
+      output_size >= 0,
+      "INT4 no-bag output_size must be non-negative, got ",
+      output_size);
+  FBGEMM_CHECK(
+      index_size == output_size,
+      "INT4 no-bag requires one output row per index, got output_size=",
+      output_size,
+      ", index_size=",
+      index_size);
+  const int64_t packed_row_size =
+      nbit_embedding_int4_row_size_in_bytes(block_size);
+  FBGEMM_CHECK(
+      input_stride >= packed_row_size,
+      "INT4 no-bag input_stride is smaller than the packed row, got input_stride=",
+      input_stride,
+      ", packed_row_size=",
+      packed_row_size,
+      ", block_size=",
+      block_size);
+  FBGEMM_CHECK(
+      output_stride >= packed_row_size,
+      "INT4 no-bag output_stride is smaller than the packed row, got output_stride=",
+      output_stride,
+      ", packed_row_size=",
+      packed_row_size,
+      ", block_size=",
+      block_size);
+
+  if (output_size > 0) {
+    FBGEMM_CHECK(input != nullptr, "INT4 no-bag input pointer is null");
+    FBGEMM_CHECK(indices != nullptr, "INT4 no-bag indices pointer is null");
+    FBGEMM_CHECK(out != nullptr, "INT4 no-bag output pointer is null");
+  }
+
+  return packed_row_size;
+}
+
+#define WARN_ONCE(...)              \
+  do {                              \
+    static bool _warned = false;    \
+    if (!_warned) {                 \
+      _warned = true;               \
+      fprintf(stderr, __VA_ARGS__); \
+    }                               \
+  } while (0)
 
 } // namespace fbgemm
