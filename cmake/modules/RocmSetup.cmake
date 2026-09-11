@@ -24,8 +24,7 @@ if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     -Wno-cuda-compat
     -Wno-deprecated-declarations
     -Wno-format
-    -Wno-ignored-attributes
-    -Wno-unused-result)
+    -Wno-ignored-attributes)
 
   # is this hipify v2?
   execute_process(
