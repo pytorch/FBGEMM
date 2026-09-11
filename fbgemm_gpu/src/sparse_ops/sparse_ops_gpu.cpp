@@ -507,6 +507,7 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
       warp_offsets_group,
       num_cols_group,
       first_input.scalar_type(),
+      first_input.scalar_type(),
       first_indices.scalar_type(),
       first_input.device().index(),
       num_output_rows,
@@ -697,16 +698,16 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       group_grad_input.is_contiguous(),
       "Tensor group_grad_input must be contiguous.");
 #ifdef USE_ROCM
-  // Multi-chunk Half/BFloat16 rows must accumulate atomically in FP32. Native
-  // 16-bit atomics can lose concurrent updates, and casting every chunk before
-  // the atomic also discards the accuracy gained by register accumulation.
-  const bool use_fp32_segment_accum = use_segment_reduce &&
-      (input_scalar_type == at::kHalf || input_scalar_type == at::kBFloat16);
-  const auto segment_grad_input = use_fp32_segment_accum
+  // Accumulate BF16 backward results in FP32 for both implementations. The
+  // segment path needs FP32 for multi-chunk rows, while the fallback otherwise
+  // uses a contended scalar BF16 atomicCAS loop on ROCm.
+  const bool use_fp32_accum = input_scalar_type == at::kBFloat16 ||
+      (use_segment_reduce && input_scalar_type == at::kHalf);
+  const auto accum_grad_input = use_fp32_accum
       ? at::zeros(
             {group_grad_input_numel}, fwd_input.options().dtype(at::kFloat))
       : group_grad_input;
-  auto segment_output_group = segment_grad_input.split(grad_input_numels, 0);
+  auto accum_output_group = accum_grad_input.split(grad_input_numels, 0);
 #endif
 
   // Split to output_group
@@ -733,7 +734,7 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         " must be contiguous.");
 #ifdef USE_ROCM
     grad_input_ptrs[i] =
-        reinterpret_cast<int64_t>(segment_output_group[i].const_data_ptr());
+        reinterpret_cast<int64_t>(accum_output_group[i].const_data_ptr());
 #else
     grad_input_ptrs[i] =
         reinterpret_cast<int64_t>(output_group[i].const_data_ptr());
@@ -894,9 +895,6 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         num_input_rows,
         total_num_rows,
         group_size);
-    if (use_fp32_segment_accum) {
-      group_grad_input.copy_(segment_grad_input);
-    }
   } else
 #endif
     group_index_select_or_add_cuda(
@@ -910,6 +908,11 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         warp_offsets_group,
         num_cols_group,
         fwd_input.scalar_type(),
+#ifdef USE_ROCM
+        accum_grad_input.scalar_type(),
+#else
+      fwd_input.scalar_type(),
+#endif
         first_indices.scalar_type(),
         fwd_input.device().index(),
         num_input_rows,
@@ -920,6 +923,12 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         use_contiguous_warps,
         use_cache,
         use_packed_rows);
+
+#ifdef USE_ROCM
+  if (use_fp32_accum) {
+    group_grad_input.copy_(accum_grad_input);
+  }
+#endif
 
   return outputs;
 }
