@@ -128,6 +128,8 @@ class BoundsCheckMode(enum.IntEnum):
     V2_WARNING = 5
     # FATAL with V2 enabled
     V2_FATAL = 6
+    # WARNING, but permit unused indices after the final offset.
+    WARNING_ALLOW_TRAILING_INDICES = 7
 
 
 class ComputeDevice(enum.IntEnum):
