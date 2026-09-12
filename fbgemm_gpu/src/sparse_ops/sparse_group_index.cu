@@ -47,7 +47,8 @@ int get_group_index_select_unroll_factor() {
 
 template <
     typename index_t,
-    typename scalar_t,
+    typename input_t,
+    typename output_t,
     bool USE_INDEX_SELECT,
     bool USE_VAR_COLS,
     bool USE_CONTIGUOUS_WARPS,
@@ -108,10 +109,10 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         const auto col_offset = (threadIdx.x * UNROLL_FACTOR) % num_cols;
         const int64_t current_row = start_row + local_row;
         if (local_row < rows_per_warp && current_row < num_work_rows) {
-          scalar_t* input =
-              reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
-          scalar_t* output =
-              reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+          input_t* input =
+              reinterpret_cast<input_t*>(input_ptrs[member_id]) + col_offset;
+          output_t* output =
+              reinterpret_cast<output_t*>(output_ptrs[member_id]) + col_offset;
           index_t* indices =
               reinterpret_cast<index_t*>(indices_ptrs[member_id]);
           const index_t idx = indices[current_row];
@@ -129,10 +130,10 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         const auto col_offset =
             ((member_warp_id % warps_per_row) << LOG_COLS_PER_WARP) +
             (threadIdx.x * UNROLL_FACTOR);
-        scalar_t* input =
-            reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
-        scalar_t* output =
-            reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+        input_t* input =
+            reinterpret_cast<input_t*>(input_ptrs[member_id]) + col_offset;
+        output_t* output =
+            reinterpret_cast<output_t*>(output_ptrs[member_id]) + col_offset;
         index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
         const index_t idx = indices[row];
 #pragma unroll
@@ -150,7 +151,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
   [[maybe_unused]] int64_t cached_upper_bound = -1;
   [[maybe_unused]] int32_t last_member_id_for_accum = -1;
   [[maybe_unused]] int32_t last_member_num_cols = 0;
-  [[maybe_unused]] scalar_t* last_member_output_tile = nullptr;
+  [[maybe_unused]] output_t* last_member_output_tile = nullptr;
 
   int64_t start_warp_id = 0;
   int64_t warp_end = 0;
@@ -172,10 +173,10 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     warp_stride = gridDim.x * blockDim.y;
   }
 
-  auto storage = scalar_t(0);
+  auto storage = output_t(0);
   auto cached_idx = kInvalidIdx;
   // TODO: Account for UNROLL_FACTOR
-  auto flush_cache_accumulator = [&](scalar_t* target_output,
+  auto flush_cache_accumulator = [&](output_t* target_output,
                                      int32_t target_num_cols) {
     if constexpr (!USE_INDEX_SELECT && USE_CACHE) {
       if (target_output && cached_idx != kInvalidIdx) {
@@ -305,10 +306,10 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       col_offset =
           (col_tile << LOG_COLS_PER_WARP) + (threadIdx.x * UNROLL_FACTOR);
     }
-    scalar_t* input =
-        reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
-    scalar_t* output =
-        reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+    input_t* input =
+        reinterpret_cast<input_t*>(input_ptrs[member_id]) + col_offset;
+    output_t* output =
+        reinterpret_cast<output_t*>(output_ptrs[member_id]) + col_offset;
 
     const index_t idx = indices[logical_row];
     // TODO: Account for UNROLL_FACTOR
@@ -391,6 +392,7 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
     const int64_t* warp_offsets_group,
     const int32_t* num_cols_group,
     const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& output_scalar_type,
     const c10::ScalarType& indices_scalar_type,
     const c10::DeviceIndex& device,
     const int num_work_rows,
@@ -420,7 +422,8 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
   dim3 block_size(EMULATED_WARP_SIZE, num_warps_per_threadblock, 1);
 
   auto invoke_group_index_select_or_add = [&]<typename index_t,
-                                              typename scalar_t,
+                                              typename input_t,
+                                              typename output_t,
                                               bool USE_INDEX_SELECT,
                                               bool USE_VAR_COLS,
                                               bool USE_CONTIGUOUS_WARPS,
@@ -430,7 +433,8 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
     FBGEMM_LAUNCH_KERNEL(
         (group_index_select_or_add_2d_kernel<
             index_t,
-            scalar_t,
+            input_t,
+            output_t,
             USE_INDEX_SELECT,
             USE_VAR_COLS,
             USE_CONTIGUOUS_WARPS,
@@ -492,31 +496,49 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       indices_scalar_type, "group_index_select_2d_wrapper_1", [&] {
+        auto dispatch_value_types = [&]<typename input_t, typename output_t>() {
+          std::visit(
+              [&](auto use_index_select_arg,
+                  auto use_var_cols_arg,
+                  auto use_contiguous_warps_arg,
+                  auto use_sorted_indices_arg,
+                  auto use_cache_arg,
+                  auto use_packed_rows_arg) {
+                invoke_group_index_select_or_add.template operator()<
+                    index_t,
+                    input_t,
+                    output_t,
+                    use_index_select_arg.value,
+                    use_var_cols_arg.value,
+                    use_contiguous_warps_arg.value,
+                    use_sorted_indices_arg.value,
+                    use_cache_arg.value,
+                    use_packed_rows_arg.value>();
+              },
+              use_index_select_variant,
+              use_var_cols_variant,
+              use_contiguous_warps_variant,
+              use_sorted_indices_variant,
+              use_cache_variant,
+              use_packed_rows_variant);
+        };
+
+#ifdef USE_ROCM
+        if (input_scalar_type == at::kBFloat16 &&
+            output_scalar_type == at::kFloat) {
+          dispatch_value_types.template operator()<at::BFloat16, float>();
+          return;
+        }
+#endif
+        TORCH_CHECK(
+            input_scalar_type == output_scalar_type,
+            "group_index_select_or_add_cuda does not support input dtype ",
+            input_scalar_type,
+            " with output dtype ",
+            output_scalar_type);
         FBGEMM_DISPATCH_FLOATING_TYPES(
             input_scalar_type, "group_index_select_2d_wrapper_2", [&] {
-              std::visit(
-                  [&](auto use_index_select_arg,
-                      auto use_var_cols_arg,
-                      auto use_contiguous_warps_arg,
-                      auto use_sorted_indices_arg,
-                      auto use_cache_arg,
-                      auto use_packed_rows_arg) {
-                    invoke_group_index_select_or_add.template operator()<
-                        index_t,
-                        scalar_t,
-                        use_index_select_arg.value,
-                        use_var_cols_arg.value,
-                        use_contiguous_warps_arg.value,
-                        use_sorted_indices_arg.value,
-                        use_cache_arg.value,
-                        use_packed_rows_arg.value>();
-                  },
-                  use_index_select_variant,
-                  use_var_cols_variant,
-                  use_contiguous_warps_variant,
-                  use_sorted_indices_variant,
-                  use_cache_variant,
-                  use_packed_rows_variant);
+              dispatch_value_types.template operator()<scalar_t, scalar_t>();
             });
       });
 }
