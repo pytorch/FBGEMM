@@ -42,6 +42,7 @@
 {%- set has_hip_optimized_nonvbe_support = has_hip_optimized_support and not vbe %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/prev_iter_ref.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 {%- if optimizer != "none" and not dense %}
@@ -134,7 +135,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     const int32_t max_vecs_per_thread,
     {%- if is_gwd_kernel %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
@@ -895,7 +896,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
           params, so a top-level `const` on this parameter would make the stub
           `const T&` while the kernel definition yields `T&`, and the explicit
           instantiation would fail to match the device-stub template. */ #}
-    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,

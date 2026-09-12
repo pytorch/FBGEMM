@@ -21,6 +21,7 @@
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/prev_iter_ref.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
@@ -143,7 +144,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     const int32_t max_vecs_per_thread,
     {%- if is_gwd_kernel %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
@@ -229,7 +230,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     const int32_t max_vecs_per_thread,
     {%- if is_gwd_kernel %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
@@ -1304,7 +1305,7 @@ Tensor {{ embedding_cuda_op }}(
                         use_deterministic_algorithms,
                         max_vecs_per_thread,
                         {%- if is_gwd_kernel %}
-                        PTA_B(prev_iter_dev, float, 1, 64),
+                        make_prev_iter_ref(prev_iter_dev),
                         {%- if "iter" not in args.split_function_arg_names %}
                         iter,
                         {%- endif %}
@@ -1557,7 +1558,7 @@ Tensor {{ embedding_cuda_op }}(
                         max_D,
                         max_vecs_per_thread,
                         {%- if is_gwd_kernel %}
-                        PTA_ACC_B(prev_iter_dev, float, 1, 64),
+                        make_prev_iter_ref(prev_iter_dev),
                         {%- if "iter" not in args.split_function_arg_names %}
                         iter,
                         {%- endif %}

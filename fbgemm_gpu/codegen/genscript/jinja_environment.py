@@ -338,10 +338,10 @@ def compute_global_weight_decay(is_global_weight_decay_kernel: bool) -> str:
     """
     if is_global_weight_decay_kernel:
         return """
-        const auto prev_iter = prev_iter_dev[linear_index];
-        const auto global_weight_decay = prev_iter == 0 ? 1 : max(gwd_lower_bound, powf(weight_decay_base, max(iter - prev_iter - 1, 0.0f)));
+        const auto global_weight_decay = prev_iter_dev.gwd(
+            linear_index, iter, weight_decay_base, gwd_lower_bound);
         if (threadIdx.x == 0) {
-            prev_iter_dev[linear_index] = iter;
+            prev_iter_dev.store(linear_index, iter);
         }
         """
     else:
