@@ -75,6 +75,9 @@ class FeatureGateName(Enum):
     # Gate the bounds_check_indices offsets-adjustment assertions
     DISABLE_OFFSETS_ADJUSTMENT = auto()
 
+    # Store global weight decay's `prev_iter` as int64 instead of float32
+    TBE_GWD_PREV_ITER_INT64 = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 

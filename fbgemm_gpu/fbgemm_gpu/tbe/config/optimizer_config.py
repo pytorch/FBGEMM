@@ -110,6 +110,13 @@ class CowClipDefinition:
 class GlobalWeightDecayDefinition:
     start_iter: int = 0
     lower_bound: float = 0.0
+    # Store `prev_iter` as int64 instead of float32. float32 holds integers
+    # exactly only up to 2^24, past which the recorded iteration -- and hence
+    # the decay exponent -- is wrong. Opt-in because the frontend and backend
+    # packages version independently: an int64 buffer reaching a backend that
+    # predates int64 support throws on the accessor dtype check. Can also be
+    # turned on fleet-wide via the TBE_GWD_PREV_ITER_INT64 feature gate.
+    use_int64_prev_iter: bool = False
 
 
 @dataclass(frozen=True)
