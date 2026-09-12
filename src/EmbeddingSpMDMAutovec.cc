@@ -370,7 +370,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
   if (data_size < 0) {
     return false;
   }
-
+  const int64_t no_bag_copy_size = no_bag ? nbit_embedding_no_bag_copy_size(
+                                                block_size,
+                                                output_size,
+                                                index_size,
+                                                output_stride,
+                                                input_stride,
+                                                input,
+                                                indices,
+                                                out)
+                                          : 0;
   const int64_t l1_distance = tbe_l1_prefetch_distance();
   const int64_t l2_distance = tbe_l2_prefetch_distance();
   const bool use_tuned_l1_prefetch = l1_distance > 0;
@@ -410,20 +419,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
   }
 
   if (no_bag) {
-    // We currently only support int4 to int4 for sequential TBE in this nbit
-    // kernel. Note that assert() will be ignored in release mode, so we check
-    // here to double check and also avoid "unused variable" warning
-    if (input_bit_rate != 4 || output_bit_rate != 4) {
-      WARN_ONCE("no_bag is only supported for int4 to int4");
-      return false;
-    }
-    const int64_t no_bag_row_size =
-        nbit_embedding_int4_row_size_in_bytes(block_size);
-    if (!nbit_embedding_int4_validate_strides(
-            block_size, input_stride, output_stride)) {
-      return false;
-    }
-
     // The preamble above only warms indices [0, l1_prefetch_distance), so
     // without a rolling prefetch every row past that is a cold, dependent load:
     // the gather is one scattered row per iteration over a table far larger
@@ -449,11 +444,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
             l1_prefetch_distance);
       }
       const uint8_t* input_row = input + input_stride * idx;
-      memcpy(out, input_row, sizeof(uint8_t) * no_bag_row_size);
+      memcpy(out, input_row, sizeof(uint8_t) * no_bag_copy_size);
       memset(
-          out + no_bag_row_size,
+          out + no_bag_copy_size,
           0,
-          sizeof(uint8_t) * (output_stride - no_bag_row_size));
+          sizeof(uint8_t) * (output_stride - no_bag_copy_size));
       out += output_stride;
     }
 
@@ -1954,11 +1949,9 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     output_bit_rate = 8 * sizeof(OutType);
   }
   if (output_stride == -1) {
-    if (no_bag && output_bit_rate == 4) {
-      output_stride = nbit_embedding_int4_row_size_in_bytes(block_size);
-    } else {
-      output_stride = block_size;
-    }
+    output_stride = no_bag && output_bit_rate == 4
+        ? nbit_embedding_int4_row_size_in_bytes(block_size)
+        : block_size;
   }
 
   if (input_stride == -1) {

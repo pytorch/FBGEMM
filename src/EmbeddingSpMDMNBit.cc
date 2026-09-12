@@ -1020,14 +1020,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
   if (output_bit_rate == -1) {
     output_bit_rate = sizeof(outType) * 8;
   }
-  assert(
-      (input_bit_rate == 2 || input_bit_rate == 4) &&
-      "input_bit_rate must be 2 or 4");
-  if constexpr (std::is_same_v<outType, uint8_t>) {
-    assert(
-        (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
-        "we currently only support int4 to int4 when using sequential TBE");
-  }
+  nbit_embedding_sanity_check<outType>(input_bit_rate, output_bit_rate, no_bag);
 
   if (output_stride == -1) {
     output_stride = no_bag && output_bit_rate == 4
