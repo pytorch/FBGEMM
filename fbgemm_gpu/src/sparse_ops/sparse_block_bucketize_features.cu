@@ -136,7 +136,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
             : (idx % global_num_blks) / local_num_blks;
         atomicAdd(&new_lengths_data[p * lengths_size + b_t], 1);
       }
-      return;
+      continue;
     }
 
     const index_t bucketize_max_idx = (t + 1) * (my_size + 1) - 1;
