@@ -79,7 +79,11 @@ void adjust_block_bucketize_sparse_features_2d_weights_kernel_launch_configs_bas
       block_dims->y > 0,
       "block_bucketize_sparse_features_2d_weights does not have sufficient shared memory."
       "Please contact the FBGEMM team.")
-  grid_dims->x = cuda_calc_xblock_count(lengths_size, block_dims->y);
+  grid_dims->x = utils::cuda::cap_grid_dim_x(
+      cuda_calc_xblock_count(lengths_size, block_dims->y),
+      static_cast<int64_t>(block_dims->x) * block_dims->y,
+      at::cuda::getCurrentCUDAStream(),
+      utils::cuda::BlockCapPolicy::OverflowOnly);
 }
 
 // Kernel for bucketize lengths, with the Block distribution (vs. cyclic,
@@ -131,7 +135,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
             : (idx % global_num_blks) / local_num_blks;
         atomicAdd(&new_lengths_data[p * lengths_size + b_t], 1);
       }
-      return;
+      continue;
     }
 
     const index_t bucketize_max_idx = (t + 1) * (my_size + 1) - 1;
@@ -658,7 +662,10 @@ _block_bucketize_sparse_features_2d_weights_cuda(
     // is correctness-preserving (the loop iterates over all work items).
     // See: https://github.com/ROCm/hip/issues/2253
     const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
-        max_B * T, threads_per_block, at::cuda::getCurrentCUDAStream());
+        max_B * T,
+        threads_per_block,
+        at::cuda::getCurrentCUDAStream(),
+        utils::cuda::BlockCapPolicy::OverflowOnly);
 
     AT_DISPATCH_INDEX_TYPES(
         offsets_contig.scalar_type(),
@@ -703,7 +710,12 @@ _block_bucketize_sparse_features_2d_weights_cuda(
   }
   static_assert(kMaxThreads % kWarpSize == 0);
   dim3 block_dims(kWarpSizeHost(), kMaxThreads / kWarpSizeHost());
-  dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
+  dim3 grid_dims(
+      utils::cuda::cap_grid_dim_x(
+          cuda_calc_xblock_count(lengths_size, block_dims.y),
+          static_cast<int64_t>(block_dims.x) * block_dims.y,
+          at::cuda::getCurrentCUDAStream(),
+          utils::cuda::BlockCapPolicy::OverflowOnly));
   const auto smem_adjust_threshold =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
   AT_DISPATCH_INDEX_TYPES(
@@ -746,8 +758,11 @@ _block_bucketize_sparse_features_2d_weights_cuda(
             });
       });
   constexpr auto threads_per_block = 256;
-  const auto num_blocks =
-      cuda_calc_xblock_count(lengths_size, threads_per_block);
+  const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+      lengths_size,
+      threads_per_block,
+      at::cuda::getCurrentCUDAStream(),
+      utils::cuda::BlockCapPolicy::OverflowOnly);
   // bucketize nonzeros
   new_offsets = asynchronous_exclusive_cumsum_gpu(new_lengths);
   if (sequence) {
