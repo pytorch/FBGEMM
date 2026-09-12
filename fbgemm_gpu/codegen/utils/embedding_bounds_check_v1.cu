@@ -79,6 +79,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     auto indices_start = offsets[b_t];
     auto indices_end = offsets[b_t + 1];
     const index_t num_indices = indices.size(0);
+    const bool is_warning_mode =
+        bounds_check_mode == BoundsCheckMode::WARNING ||
+        bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES;
 
     if (disable_offsets_adjustment ||
         bounds_check_mode == BoundsCheckMode::FATAL) {
@@ -93,7 +96,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     } else if (
         indices_start < 0 || indices_start > indices_end ||
         indices_end > num_indices) {
-      if (bounds_check_mode == BoundsCheckMode::WARNING) {
+      if (is_warning_mode) {
         if (threadIdx.x == 0 && gpuAtomicIncrement(&warning[0]) == 0) {
           printf(
               "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
@@ -132,7 +135,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
             idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
         CUDA_KERNEL_ASSERT(
             idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
-      } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+      } else if (is_warning_mode) {
         if (idx < 0 || idx >= num_rows) {
           if (gpuAtomicIncrement(&warning[0]) == 0) {
             printf(
@@ -158,18 +161,21 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
       }
     }
 
+    const bool invalid_final_offset = offsets[total_B] > num_indices ||
+        (bounds_check_mode != BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES &&
+         offsets[total_B] != num_indices);
     if (disable_offsets_adjustment ||
         bounds_check_mode == BoundsCheckMode::FATAL) {
       if (b_t == 0 && threadIdx.x == 0) {
         CUDA_KERNEL_ASSERT(
-            num_indices == offsets[total_B] &&
+            !invalid_final_offset &&
             "num_indices must match the last element in offsets");
       }
-    } else if (num_indices != offsets[total_B]) {
+    } else if (invalid_final_offset) {
       // The last-element check is a single global condition; one thread handles
       // the warning and the correction (for both WARNING and IGNORE).
       if (b_t == 0 && threadIdx.x == 0) {
-        if (bounds_check_mode == BoundsCheckMode::WARNING) {
+        if (is_warning_mode) {
           if (gpuAtomicIncrement(&warning[0]) == 0) {
             printf(
                 "EmbeddingBoundsCheck (VBE %s): the last element in offsets is incorrect for "
@@ -216,7 +222,8 @@ void _bounds_check_indices_cuda_v1(
 
   CUDA_DEVICE_GUARD(rows_per_table);
 
-  if (bounds_check_mode == BoundsCheckMode::WARNING) {
+  if (bounds_check_mode == BoundsCheckMode::WARNING ||
+      bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES) {
     warning.zero_();
   }
 

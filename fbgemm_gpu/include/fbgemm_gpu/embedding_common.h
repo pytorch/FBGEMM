@@ -45,6 +45,7 @@ enum class BoundsCheckMode : uint8_t {
   FATAL = 0,
   WARNING = 1,
   IGNORE = 2,
+  WARNING_ALLOW_TRAILING_INDICES = 7,
 };
 
 // ---------------------------------------------------------------------------

@@ -98,7 +98,9 @@ void bounds_check_indices_cpu(
       vbe ? B_offsets.value().const_data_ptr<int32_t>() : nullptr;
 
   auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
-  if (bounds_check_mode == BoundsCheckMode::WARNING) {
+  const bool is_warning_mode = bounds_check_mode == BoundsCheckMode::WARNING ||
+      bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES;
+  if (is_warning_mode) {
     warning.zero_();
   }
 
@@ -125,10 +127,14 @@ void bounds_check_indices_cpu(
     }
     check_weights_dim_matches_indices(weights, num_indices);
 
+    const auto final_offset = offsets_acc[total_B];
+    const bool invalid_final_offset = final_offset > num_indices ||
+        (bounds_check_mode != BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES &&
+         final_offset != num_indices);
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      TORCH_CHECK(num_indices == offsets_acc[total_B]);
-    } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-      if (num_indices != offsets_acc[total_B]) {
+      TORCH_CHECK(!invalid_final_offset);
+    } else if (is_warning_mode) {
+      if (invalid_final_offset) {
         if (atomic_ref<int64_t>(warning_acc[0])
                 .fetch_add(1, std::memory_order_relaxed) == 0) {
           LOG(ERROR)
@@ -143,7 +149,7 @@ void bounds_check_indices_cpu(
         offsets_acc[total_B] = num_indices;
       }
     } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-      if (num_indices != offsets_acc[total_B]) {
+      if (invalid_final_offset) {
         offsets_acc[total_B] = num_indices;
       }
     }
@@ -158,7 +164,7 @@ void bounds_check_indices_cpu(
           TORCH_CHECK(indices_start >= 0);
           TORCH_CHECK(indices_start <= indices_end);
           TORCH_CHECK(indices_end <= num_indices);
-        } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+        } else if (is_warning_mode) {
           if (indices_start < 0 || indices_start > indices_end ||
               indices_end > num_indices) {
             if (atomic_ref<int64_t>(warning_acc[0])
@@ -197,7 +203,7 @@ void bounds_check_indices_cpu(
           if (bounds_check_mode == BoundsCheckMode::FATAL) {
             TORCH_CHECK(idx >= 0);
             TORCH_CHECK(idx < num_rows);
-          } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+          } else if (is_warning_mode) {
             if (idx < 0 || idx >= num_rows) {
               if (atomic_ref<int64_t>(warning_acc[0])
                       .fetch_add(1, std::memory_order_relaxed) == 0) {
