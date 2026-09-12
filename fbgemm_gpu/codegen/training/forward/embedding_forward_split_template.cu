@@ -44,6 +44,7 @@
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/prev_iter_ref.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
@@ -203,7 +204,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endif %} // if dense
     {%- if is_gwd_kernel %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     const float learning_rate,
     const float weight_decay,
     const int64_t iter,
@@ -825,7 +826,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               {%- endif %} // if not dense
               {%- if is_gwd_kernel %}
               PTA_B(hash_size_cumsum, int64_t, 1, 32),
-              PTA_B(prev_iter_dev, float, 1, 64),
+              make_prev_iter_ref(prev_iter_dev),
               learning_rate,
               weight_decay,
               iter,
