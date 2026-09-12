@@ -172,7 +172,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
   const int64_t prefetch_stride =
       std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
   for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
+    [[maybe_unused]] const uint8_t* prefetch_addr =
+        input + input_stride * indices[pf_idx];
     for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
       do_prefetch(prefetch_addr + offset, 0, 0);
     }
@@ -280,7 +281,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 
       IndexType prefetch_idx =
           indices[std::min(current + prefetch_stride, index_size - 1)];
-      const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
+      [[maybe_unused]] const uint8_t* prefetch_addr =
+          input + input_stride * prefetch_idx;
       for (int64_t offset = 0; offset < input_stride;
            offset += CACHE_LINE_SIZE) {
         do_prefetch(prefetch_addr + offset, 1);
@@ -588,7 +590,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
             data_size,
             l1_prefetch_distance);
       } else if (l1_distance == -1) {
-        const int64_t prefetch_idx =
+        [[maybe_unused]] const int64_t prefetch_idx =
             indices[std::min(current + l1_prefetch_distance, last_index)];
         // Prefetch of an out-of-range address is a harmless no-op, so the
         // default path issues it unconditionally (matching the
@@ -903,8 +905,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
   // input_stride being greater or not greater than cache line size will make
   // the branch predictor work better. Same for line 113-126.
   for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    const uint8_t* prefetch_addr = reinterpret_cast<const uint8_t*>(
-        input + input_stride * indices[pf_idx]);
+    [[maybe_unused]] const uint8_t* prefetch_addr =
+        reinterpret_cast<const uint8_t*>(
+            input + input_stride * indices[pf_idx]);
     for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
       do_prefetch(prefetch_addr + offset, 0, 0);
     }
@@ -942,7 +945,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
         return false;
       }
 
-      int64_t prefetch_idx =
+      [[maybe_unused]] int64_t prefetch_idx =
           indices[std::min(current + prefetch_stride, index_size - 1)];
 
       do_prefetch(
@@ -1277,7 +1280,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
   // greater or not greater than cache line size will make the branch predictor
   // work better. Same for line 113-126.
   for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
+    [[maybe_unused]] const uint8_t* prefetch_addr =
+        input + input_stride * indices[pf_idx];
     for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
       do_prefetch(prefetch_addr + offset, 0, 0);
     }
@@ -1320,7 +1324,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
         return false;
       }
 
-      int64_t prefetch_idx =
+      [[maybe_unused]] int64_t prefetch_idx =
           indices[std::min(current + prefetch_stride, index_size - 1)];
 
       do_prefetch(
