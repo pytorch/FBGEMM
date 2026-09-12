@@ -43,5 +43,6 @@ var searchData=
   ['packweightmatrixforgconv_3c_20t_2c_20acct_2c_20spatial_5fdim_20_3e_40',['PackWeightMatrixForGConv&lt; T, accT, SPATIAL_DIM &gt;',['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html',1,'fbgemm']]],
   ['packweightsforconv_41',['PackWeightsForConv',['../classfbgemm_1_1_pack_weights_for_conv.html',1,'fbgemm']]],
   ['packweightsforconv_3c_20spatial_5fdim_2c_20t_2c_20acct_20_3e_42',['PackWeightsForConv&lt; SPATIAL_DIM, T, accT &gt;',['../classfbgemm_1_1_pack_weights_for_conv.html',1,'fbgemm']]],
-  ['params_43',['Params',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html',1,'cutlass::epilogue::thread::LinearCombinationOnDevice']]]
+  ['params_43',['Params',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html',1,'cutlass::epilogue::thread::LinearCombinationOnDevice']]],
+  ['previterref_44',['PrevIterRef',['../structfbgemm__gpu_1_1_prev_iter_ref.html',1,'fbgemm_gpu']]]
 ];
