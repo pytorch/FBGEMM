@@ -1199,6 +1199,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.gwd_start_iter: int = global_weight_decay.start_iter
         self.gwd_lower_bound: float = global_weight_decay.lower_bound
+        # `getattr` because a model packaged before this field existed can
+        # unpickle a GlobalWeightDecayDefinition that lacks it.
+        self.gwd_use_int64_prev_iter: bool = getattr(
+            global_weight_decay, "use_int64_prev_iter", False
+        ) or self._feature_is_enabled(FeatureGateName.TBE_GWD_PREV_ITER_INT64)
+        if self._used_rowwise_adagrad_with_global_weight_decay:
+            self.log(f"Using int64 prev_iter = {self.gwd_use_int64_prev_iter}")
 
         if ensemble_mode is None:
             ensemble_mode = EnsembleModeDefinition()
@@ -1426,12 +1433,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         cacheable=False,
                     ),
                     prefix="prev_iter",
-                    # TODO: ideally we should use int64 to track iter but it failed to compile.
-                    # It may be related to low precision training code. Currently using float32
-                    # as a workaround while investigating the issue.
+                    # `prev_iter` records the iteration a row was last touched,
+                    # so it is exact only as an integer: float32 loses 1-step
+                    # resolution past 2^24 iterations. Opt-in until every
+                    # backend package can read int64; see
+                    # `GlobalWeightDecayDefinition.use_int64_prev_iter`.
                     # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
-                    #  but got `type[torch.float32]`.
-                    dtype=torch.float32,
+                    #  but got `dtype`.
+                    dtype=(
+                        torch.int64 if self.gwd_use_int64_prev_iter else torch.float32
+                    ),
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
                 self._register_nonpersistent_buffers("row_counter")
