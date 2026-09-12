@@ -65,7 +65,7 @@ Tensor permute_pooled_embs_gpu_impl(
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list,
+    [[maybe_unused]] const Tensor& inv_permute_list,
     const bool& allow_duplicates = false) {
   if (pooled_embs.numel() == 0) {
     return pooled_embs;
@@ -113,16 +113,12 @@ Tensor permute_pooled_embs_gpu_impl(
   const dim3 threads(fbgemm_gpu::kMaxThreads);
   const int32_t blocks_y = std::min(static_cast<int32_t>(B), max_grid_dim_y);
   const int32_t blocks_z = (B + max_grid_dim_y - 1) / max_grid_dim_y;
-  // HIP enforces a hard limit of 2^32 total threads per launch.
-  // permute_pooled_embs_kernel grid-strides over t, so capping grid.x is
-  // correctness-preserving. cap_grid_dim_x bounds the *total* launch, so we
-  // must fold every other launch dimension (block threads and the y/z batch
-  // dims) into its per-column thread count -- otherwise a large B multiplies
-  // past 2^32 even though grid.x alone fits.
-  // See: https://github.com/ROCm/hip/issues/2253
-  const auto blocks_x = utils::cuda::cap_grid_dim_x(
+  // The kernel grid-strides over T.
+  const int64_t yz_blocks = static_cast<int64_t>(blocks_y) * blocks_z;
+  const auto blocks_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
       fbgemm_gpu::div_round_up(T, warp_per_block),
-      static_cast<int64_t>(threads.x) * blocks_y * blocks_z,
+      threads.x,
+      yz_blocks,
       at::cuda::getCurrentCUDAStream());
   const dim3 blocks(blocks_x, blocks_y, blocks_z);
 

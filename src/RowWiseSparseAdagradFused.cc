@@ -12,6 +12,7 @@
 #include <cpuinfo.h>
 #include <mutex>
 #include "./CodeCache.h" // @manual
+#include "./JitPerfMap.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
@@ -741,6 +742,20 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           cout << "Error: in fn add" << '\n';
           return nullptr;
         }
+
+        registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+          return JitSymbolBuilder("rowwise_sparse_adagrad_fused")
+              .field("idx", indexWidthName<indxType>())
+              .field("offbits", static_cast<int64_t>(sizeof(offsetType) * 8))
+              .field("wbits", static_cast<int64_t>(sizeof(dataType) * 8))
+              .field("isa", instSetName<instSet>())
+              .field("D", block_size)
+              .field("prefetch", prefetch)
+              .flag("offsets", use_offsets)
+              .flag("sr", use_stochastic_rounding)
+              .field("gstride", grad_stride)
+              .str();
+        });
 
 #if defined(FBGEMM_LOG_CODE)
         fclose(codeLogFile);

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "./GenerateKernel.h" // @manual
+#include "./JitPerfMap.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/PackingTraits-inl.h"
 
@@ -378,6 +379,11 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
       cout << "Error: in fn add" << '\n';
       return nullptr;
     }
+
+    registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+      return getKernelSymbol<instSet>(
+          accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
+    });
 
 #ifdef FBGEMM_LOG_CODE
     fclose(codeLogfile);

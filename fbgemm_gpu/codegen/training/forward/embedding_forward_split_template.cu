@@ -44,6 +44,7 @@
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/prev_iter_ref.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
@@ -203,7 +204,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endif %} // if dense
     {%- if is_gwd_kernel %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     const float learning_rate,
     const float weight_decay,
     const int64_t iter,
@@ -248,6 +249,23 @@ batch_index_select_dim0_codegen_forward_kernel(
 #else
 #define {{ dispatch_macro_name }}(MAX_D, ...) \
   [&] {                                        \
+    {%- if is_rocm and vbe and not dense and not ssd and not weighted and not is_gwd %}
+    if constexpr (                              \
+        std::is_same_v<emb_t, at::Half> &&      \
+        std::is_same_v<cache_t, at::Half> &&    \
+        std::is_same_v<output_t, float> &&      \
+        std::is_same_v<index_t, int64_t> && !use_cache_t) { \
+      /* Use two half-wave groups: at small D most full-wave lanes are idle, */ \
+      /* so a 32-lane group doubles the fraction of useful lanes. */ \
+      if (MAX_D <= 128) {                      \
+        [[maybe_unused]] const int max_vecs_per_thread = 1; \
+        constexpr int kFixedMaxVecsPerThread = 1; \
+        [[maybe_unused]] constexpr int kThreadGroupSize = 32; \
+        [[maybe_unused]] constexpr bool kUseVecBlocking = false; \
+        return __VA_ARGS__();                  \
+      }                                       \
+    }                                         \
+    {%- endif %}
     {{
        dispatch_non_vec_blocking_kernel(
            items_per_warp,
@@ -397,10 +415,12 @@ batch_index_select_dim0_codegen_forward_cuda(
     const double gwd_lower_bound,
     {%- endif %}
     {%- if vbe and not dense %}
-    const bool is_experimental,
+    {#- /* Selects the TBE v2 forward, which exists only for the bagged,
+          non-VBE, non-SSD configuration. */ #}
+    {{ "" if has_experimental else "[[maybe_unused]] " }}const bool is_experimental,
     std::optional<Tensor> vbe_output
     {%- else %}
-    const bool is_experimental
+    {{ "" if has_experimental else "[[maybe_unused]] " }}const bool is_experimental
     {%- endif %}
     {%- endif %} {#- /*if is_index_select*/ #}
 ) {
@@ -806,7 +826,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               {%- endif %} // if not dense
               {%- if is_gwd_kernel %}
               PTA_B(hash_size_cumsum, int64_t, 1, 32),
-              PTA_B(prev_iter_dev, float, 1, 64),
+              make_prev_iter_ref(prev_iter_dev),
               learning_rate,
               weight_decay,
               iter,

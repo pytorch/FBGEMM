@@ -201,20 +201,19 @@ Tensor jagged_dense_bmm_forward_cuda(
 
       const dim3 block(
           (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N));
-      // HIP enforces a hard limit of 2^32 total threads per launch.
-      // The kernel grid-strides over (block_col, block_row, b), so capping
-      // is correctness-preserving.
-      // See: https://github.com/ROCm/hip/issues/2253
-      const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
-          div_round_up(N, BLOCK_TILE_N),
-          (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N),
-          at::cuda::getCurrentCUDAStream());
       const auto grid_dim_y = div_round_up(max_L, BLOCK_TILE_M);
       TORCH_CHECK(
           grid_dim_y <= kMaxBlockYDim,
           "max_L cannot be larger than",
           kMaxBlockYDim * BLOCK_TILE_M + 1 - BLOCK_TILE_M);
       const auto grid_dim_z = std::min(B, kMaxBlockZDim);
+      const int64_t yz_blocks = static_cast<int64_t>(grid_dim_y) * grid_dim_z;
+      const auto grid_dim_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
+          div_round_up(N, BLOCK_TILE_N),
+          block.x,
+          yz_blocks,
+          at::cuda::getCurrentCUDAStream(),
+          utils::cuda::BlockCapPolicy::OverflowOnly);
       const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
 
       AT_DISPATCH_INDEX_TYPES(
@@ -246,20 +245,19 @@ Tensor jagged_dense_bmm_forward_cuda(
       constexpr int BLOCK_TILE_N = 32;
       const dim3 block(
           (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N));
-      // HIP enforces a hard limit of 2^32 total threads per launch.
-      // The kernel grid-strides over (block_col, block_row, b), so capping
-      // is correctness-preserving.
-      // See: https://github.com/ROCm/hip/issues/2253
-      const auto grid_dim_x = utils::cuda::cap_grid_dim_x(
-          div_round_up(N, BLOCK_TILE_N),
-          (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N),
-          at::cuda::getCurrentCUDAStream());
       const auto grid_dim_y = div_round_up(max_L, BLOCK_TILE_M);
       TORCH_CHECK(
           grid_dim_y <= kMaxBlockYDim,
           "max_L cannot be larger than",
           kMaxBlockYDim * BLOCK_TILE_M + 1 - BLOCK_TILE_M);
       const auto grid_dim_z = std::min(B, kMaxBlockZDim);
+      const int64_t yz_blocks = static_cast<int64_t>(grid_dim_y) * grid_dim_z;
+      const auto grid_dim_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
+          div_round_up(N, BLOCK_TILE_N),
+          block.x,
+          yz_blocks,
+          at::cuda::getCurrentCUDAStream(),
+          utils::cuda::BlockCapPolicy::OverflowOnly);
       const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
 
       AT_DISPATCH_INDEX_TYPES(

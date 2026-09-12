@@ -2373,10 +2373,14 @@ Tensor batched_unary_embeddings_forward_cpu(
   // N: number of tasks, T: number of tables, B: batch size
   const int64_t N = weight.sizes()[0];
   const int64_t T = table_offsets.numel() - 1;
-  const int64_t B = (offsets.numel() - 1) / T;
   TORCH_CHECK(N > 0);
   TORCH_CHECK(T > 0);
-  TORCH_CHECK(B > 0);
+  TORCH_CHECK(
+      offsets.numel() >= 1, "offsets must contain at least one element");
+  TORCH_CHECK(
+      (offsets.numel() - 1) % T == 0,
+      "offsets.numel() - 1 must be divisible by T");
+  const int64_t B = (offsets.numel() - 1) / T;
 
   // Make sure the index_t are consistent among table_offsets, offsets and
   // indices
@@ -2384,6 +2388,9 @@ Tensor batched_unary_embeddings_forward_cpu(
   TORCH_CHECK(table_offsets.scalar_type() == indices.scalar_type());
 
   auto output = at::empty({N, B, T}, weight.options());
+  if (B == 0) {
+    return output;
+  }
 
   AT_DISPATCH_INDEX_TYPES(table_offsets.scalar_type(), "unary_indices", [&] {
     FBGEMM_DISPATCH_FLOATING_TYPES(

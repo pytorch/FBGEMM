@@ -61,26 +61,29 @@ Tensor batched_unary_embeddings_forward_cuda(
   // N: number of tasks, T: number of tables, B: batch size
   const int32_t N = weight.size(0);
   const int32_t T = table_offsets.numel() - 1;
-  const int32_t B = (offsets.numel() - 1) / T;
   TORCH_CHECK(N > 0);
-  TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
   TORCH_CHECK(T <= 65535);
   TORCH_CHECK(N <= 65535);
+  TORCH_CHECK(
+      offsets.numel() >= 1, "offsets must contain at least one element");
+  TORCH_CHECK(
+      (offsets.numel() - 1) % T == 0,
+      "offsets.numel() - 1 must be divisible by T");
+  const int32_t B = (offsets.numel() - 1) / T;
+  auto output = at::empty({N, B, T}, weight.options());
+  if (B == 0) {
+    return output;
+  }
   int32_t threads = std::min<int32_t>(B, 512);
-  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
-  // which silently wraps). The forward kernel grid-strides over b, so capping
-  // is correctness-preserving. T and N are y/z grid dims; they contribute
-  // multiplicatively to the total thread count, so the threshold check uses
-  // `threads * T * N` (the full per-block thread cost) to keep
-  // blocks_x * threads * T * N below 2^32 on ROCm.
-  // See: https://github.com/ROCm/hip/issues/2253
-  const auto blocks_x = utils::cuda::cap_grid_dim_x(
+  // The forward kernel grid-strides over B.
+  const int64_t yz_blocks = static_cast<int64_t>(T) * N;
+  const auto blocks_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
       cuda_calc_xblock_count(B, threads),
-      static_cast<int64_t>(threads) * T * N,
+      threads,
+      yz_blocks,
       at::cuda::getCurrentCUDAStream());
   dim3 blocks(blocks_x, T, N);
-  auto output = at::empty({N, B, T}, weight.options());
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_forward_kernel", [&] {
         FBGEMM_DISPATCH_FLOATING_TYPES(
@@ -201,8 +204,11 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
   const int32_t B = grad_output.size(1);
   const int32_t T = grad_output.size(2);
   TORCH_CHECK(N > 0);
-  TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
+  auto grad_weight = at::zeros_like(weight);
+  if (B == 0) {
+    return grad_weight;
+  }
 
   int32_t info_B_num_bits;
   uint32_t info_B_mask;
@@ -235,18 +241,18 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
           info_B_num_bits,
           info_B_mask);
 
+  if (sorted_linear_indices_run.numel() == 0) {
+    return grad_weight;
+  }
+
   int threads = std::min<int32_t>(sorted_linear_indices_run.numel(), 512);
-  // HIP enforces a hard limit of 2^32 total threads per launch (unlike CUDA,
-  // which silently wraps). The backward kernel grid-strides over run_id, so
-  // capping is correctness-preserving. y dim is bounded by N <= 65535 and
-  // needs no cap.
-  // See: https://github.com/ROCm/hip/issues/2253
-  const auto blocks_x = utils::cuda::cap_grid_dim_x_from_workload(
-      sorted_linear_indices_run.numel(),
+  // The backward kernel grid-strides over run_id.
+  const auto blocks_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
+      cuda_calc_xblock_count(sorted_linear_indices_run.numel(), threads),
       threads,
+      N,
       at::cuda::getCurrentCUDAStream());
   dim3 blocks(blocks_x, N);
-  auto grad_weight = at::zeros_like(weight);
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_backward_kernel", [&] {
         FBGEMM_DISPATCH_FLOATING_TYPES(

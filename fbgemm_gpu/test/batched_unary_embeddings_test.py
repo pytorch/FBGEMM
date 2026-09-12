@@ -192,8 +192,9 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         if torch_compile:
             return
 
+        # Citrine C3: create the gradient directly on the target device.
         d_output = (
-            torch.randn([num_tasks, batch_size, len(hash_sizes)]).to(device) * 0.1
+            torch.randn([num_tasks, batch_size, len(hash_sizes)], device=device) * 0.1
         )
         output_ref.backward(d_output)
         output.backward(d_output)
@@ -216,8 +217,11 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             hash_sizes=[71, 107],
             long_index=True,
         ).to(device)
-        offsets = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.long).to(device)
-        values = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long).to(device)
+        # Citrine C3: create test inputs directly on the target device.
+        offsets = torch.tensor(
+            [0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long, device=device
+        )
+        values = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long, device=device)
         for _ in range(10):
             output = unary_embedding_module(offsets, values).transpose(1, 0)
             output = output[1:]
@@ -242,6 +246,123 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
 
     def test_cpu(self) -> None:
         self._test_main(gpu_infer=False)
+
+    def test_batched_unary_embeddings_zero_batch_cpu(self) -> None:
+        num_tasks = 2
+        hash_sizes = [2, 3]
+        unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=num_tasks,
+            hash_sizes=hash_sizes,
+            long_index=True,
+        )
+        offsets = torch.zeros(1, dtype=torch.long)
+        indices = torch.empty(0, dtype=torch.long)
+
+        output = unary_emb(offsets, indices)
+
+        self.assertEqual(output.shape, (num_tasks, 0, len(hash_sizes)))
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_batched_unary_embeddings_zero_batch(self) -> None:
+        num_tasks = 2
+        hash_sizes = [2, 3]
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=num_tasks,
+            hash_sizes=hash_sizes,
+            long_index=True,
+        ).to(device)
+        offsets = torch.zeros(1, dtype=torch.long, device=device)
+        indices = torch.empty(0, dtype=torch.long, device=device)
+
+        output = unary_emb(offsets, indices)
+        output.sum().backward()
+
+        self.assertEqual(output.shape, (num_tasks, 0, len(hash_sizes)))
+        torch.testing.assert_close(
+            none_throws(unary_emb.weight.grad),
+            torch.zeros_like(unary_emb.weight),
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_batched_unary_embeddings_empty_indices_backward(self) -> None:
+        num_tasks = 2
+        hash_sizes = [2, 3]
+        batch_size = 3
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=num_tasks,
+            hash_sizes=hash_sizes,
+            long_index=True,
+        ).to(device)
+        offsets = torch.zeros(
+            len(hash_sizes) * batch_size + 1,
+            dtype=torch.long,
+            device=device,
+        )
+        indices = torch.empty(0, dtype=torch.long, device=device)
+
+        output = unary_emb(offsets, indices)
+        output.sum().backward()
+
+        self.assertEqual(output.shape, (num_tasks, batch_size, len(hash_sizes)))
+        torch.testing.assert_close(output, torch.zeros_like(output))
+        torch.testing.assert_close(
+            none_throws(unary_emb.weight.grad),
+            torch.zeros_like(unary_emb.weight),
+        )
+
+    def test_batched_unary_embeddings_rejects_malformed_offsets_cpu(self) -> None:
+        weight = torch.ones((2, 5))
+        table_offsets = torch.tensor([0, 2, 5], dtype=torch.long)
+        indices = torch.empty(0, dtype=torch.long)
+        invalid_offsets = (
+            (
+                torch.empty(0, dtype=torch.long),
+                "offsets must contain at least one element",
+            ),
+            (
+                torch.zeros(2, dtype=torch.long),
+                r"offsets.numel\(\) - 1 must be divisible by T",
+            ),
+        )
+
+        for offsets, error_pattern in invalid_offsets:
+            with self.subTest(offsets_numel=offsets.numel()):
+                with self.assertRaisesRegex(RuntimeError, error_pattern):
+                    torch.ops.fbgemm.batched_unary_embeddings(
+                        weight,
+                        table_offsets,
+                        offsets,
+                        indices,
+                    )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_batched_unary_embeddings_rejects_malformed_offsets(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        weight = torch.ones((2, 5), device=device)
+        table_offsets = torch.tensor([0, 2, 5], dtype=torch.long, device=device)
+        indices = torch.empty(0, dtype=torch.long, device=device)
+        invalid_offsets = (
+            (
+                torch.empty(0, dtype=torch.long, device=device),
+                "offsets must contain at least one element",
+            ),
+            (
+                torch.zeros(2, dtype=torch.long, device=device),
+                r"offsets.numel\(\) - 1 must be divisible by T",
+            ),
+        )
+
+        for offsets, error_pattern in invalid_offsets:
+            with self.subTest(offsets_numel=offsets.numel()):
+                with self.assertRaisesRegex(RuntimeError, error_pattern):
+                    torch.ops.fbgemm.batched_unary_embeddings(
+                        weight,
+                        table_offsets,
+                        offsets,
+                        indices,
+                    )
 
     @unittest.skipIf(*gpu_unavailable)
     # This test exercises the HIP launch-side limit and requires a large

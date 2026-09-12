@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 
 #include "fbgemm_gpu/utils/kernel_execution_timer.cuh"
@@ -247,12 +248,11 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
         "]");
   }
 
-  inline void kernelLaunchCheck() const {
+  inline void kernelLaunchCheck(
+      const cudaError_t cuda_error = cudaGetLastError()) const {
     // This is a replacement for C10_CUDA_KERNEL_LAUNCH_CHECK() that adds more
     // context information to the error message.  See:
     //  https://github.com/pytorch/pytorch/blob/main/c10/cuda/CUDAException.cpp
-
-    const auto cuda_error = cudaGetLastError();
 
     const auto cuda_kernel_failure =
         c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref().has_failed();
@@ -317,7 +317,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
     // launching the kernel.  This has roughly the same effect as setting
     // `CUDA_LAUNCH_BLOCKING=1` as an environment variable.
     if constexpr (EnableBarrierIsolation) {
-      cudaDeviceSynchronize();
+      C10_CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     // If execution timer is enabled, initialize and start the CUDAEvents-based
@@ -362,13 +362,13 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
     // If barrier isolation is enabled, synchronize the stream again to wait for
     // kernel execution to complete
     if constexpr (EnableBarrierIsolation) {
-      cudaDeviceSynchronize();
+      kernelLaunchCheck(cudaDeviceSynchronize());
+    } else {
+      // Check for CUDA errors. This is a replacement for
+      // C10_CUDA_KERNEL_LAUNCH_CHECK() that adds more context information to
+      // the error message.
+      kernelLaunchCheck();
     }
-
-    // Check for CUDA errors.  This is a replacement for
-    // C10_CUDA_KERNEL_LAUNCH_CHECK() that adds more context information to the
-    // error message.
-    kernelLaunchCheck();
 
     // If NaN checks are enabled, run post-kernel verifications on all kernel
     // arguments that are tensors

@@ -15,6 +15,7 @@
 #include <mutex>
 #include <tuple>
 #include "./CodeCache.h" // @manual
+#include "./JitPerfMap.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
@@ -768,6 +769,17 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }
+
+        registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+          return JitSymbolBuilder("sparse_adagrad")
+              .field("idx", indexWidthName<indxType>())
+              .field("isa", instSetName<instSet>())
+              .field("D", block_size)
+              .field("prefetch", prefetch)
+              .flag("rowwise", rowwise)
+              .flag("wd", has_weight_decay)
+              .str();
+        });
 
 #if defined(FBGEMM_LOG_CODE)
         fclose(codeLogFile);

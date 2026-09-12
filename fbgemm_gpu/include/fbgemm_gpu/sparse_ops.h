@@ -1150,6 +1150,24 @@ void group_index_select_or_add_cuda(
     const bool use_cache,
     const bool use_packed_rows);
 
+#ifdef USE_ROCM
+// Reduces sorted grouped index-add inputs in bounded chunks. Single-chunk rows
+// have one writer; longer rows use one atomic add per chunk and column.
+void group_index_add_2d_segment_cuda(
+    const int64_t* grad_output_ptrs,
+    const int64_t* grad_input_ptrs,
+    const int64_t* sorted_indices_ptrs,
+    const int64_t* reverse_indices_ptrs,
+    const int64_t* row_offsets_group,
+    const int32_t* num_cols_group,
+    const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& indices_scalar_type,
+    const c10::DeviceIndex& device,
+    const int64_t num_work_rows,
+    const int64_t total_num_rows,
+    const int64_t group_size);
+#endif
+
 int get_group_index_select_cols_per_warp();
 
 int get_group_index_select_unroll_factor();

@@ -17,7 +17,6 @@ def default_compiler_flags():
             "-Wno-gnu-zero-variadic-macro-arguments",
             "-Wno-c99-extensions",
             "-Wno-unused-parameter",
-            "-Wno-unused-variable",
             "-Wimplicit-fallthrough",
             "-Wignored-qualifiers",
             "-Wno-vla",
@@ -36,6 +35,7 @@ def default_compiler_flags():
 def get_fbgemm_base_srcs():
     return [
         "src/GenerateI8Depthwise.cc",
+        "src/JitPerfMap.cc",
         "src/RefImplementations.cc",
         "src/Utils.cc",
     ]

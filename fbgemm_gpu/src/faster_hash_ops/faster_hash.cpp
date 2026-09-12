@@ -324,7 +324,7 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cpu(
     int64_t opt_in_prob,
     int64_t num_reserved_slots,
     const std::optional<Tensor>& opt_in_rands,
-    const std::optional<Tensor>& runtime_meta) {
+    const std::optional<Tensor>& /* runtime_meta */) {
   TORCH_CHECK(exp_hours == -1);
   TORCH_CHECK(readonly);
   TORCH_CHECK(metadata.has_value() == false);

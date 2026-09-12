@@ -314,4 +314,22 @@ inline bfloat16 cpu_float2bfloat16(float src) {
   return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
 }
 
+template <FbgemmHalfType T>
+inline float to_float(T src) {
+  if constexpr (std::is_same_v<T, bfloat16>) {
+    return cpu_bf162float(src);
+  } else {
+    return cpu_half2float(src);
+  }
+}
+
+template <FbgemmHalfType T>
+inline T from_float(float f) {
+  if constexpr (std::is_same_v<T, bfloat16>) {
+    return cpu_float2bfloat16(f);
+  } else {
+    return cpu_float2half(f);
+  }
+}
+
 } // namespace fbgemm

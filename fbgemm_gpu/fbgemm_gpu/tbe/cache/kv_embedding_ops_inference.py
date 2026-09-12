@@ -30,6 +30,17 @@ from fbgemm_gpu.utils.loader import load_torch_module
 
 from .cache_config import CacheAlgorithm  # usort:skip
 
+KV_STORAGE_ROW_ALIGNMENT = 8
+KV_INT4_LOGICAL_ROW_ALIGNMENT = 1
+# Keep disabled until the native custom-class schema is in the minimum serving
+# package. Enabling it makes new TorchScript artifacts require that schema.
+KV_INT4_PACKED_ROWS_ROLLOUT_ENABLED = False
+
+
+def _supports_packed_int4_rows(kv_embedding_cache: object) -> bool:
+    return hasattr(kv_embedding_cache, "init_with_row_alignments")
+
+
 try:
     load_torch_module(
         "//deeplearning/fbgemm/fbgemm_gpu:dram_kv_embedding_inference",
@@ -43,6 +54,12 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
     KV Table-batched version of nn.EmbeddingBag(sparse=False)
     Inference version, with support for FP32/FP16/FP8/INT8/INT4/INT2 weights
     """
+
+    __constants__ = [
+        "use_packed_int4_rows",
+        "kv_int4_logical_row_alignment",
+        "kv_storage_row_alignment",
+    ]
 
     def __init__(  # noqa C901
         self,
@@ -137,6 +154,36 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             (rows, dims, sparse_type.as_int())
             for (_, rows, dims, sparse_type, _) in self.embedding_specs
         ]
+        first_logical_row_bytes = (
+            rounded_row_size_in_bytes(
+                self.embedding_specs[0][2],
+                self.embedding_specs[0][3],
+                KV_INT4_LOGICAL_ROW_ALIGNMENT,
+                scale_bias_size_in_bytes,
+            )
+            if self.embedding_specs
+            else 0
+        )
+        self.use_packed_int4_rows: bool = (
+            _supports_packed_int4_rows(self.kv_embedding_cache)
+            and KV_INT4_PACKED_ROWS_ROLLOUT_ENABLED
+            and bool(self.embedding_specs)
+            and all(
+                [
+                    sparse_type == SparseType.INT4
+                    and rounded_row_size_in_bytes(
+                        dims,
+                        sparse_type,
+                        KV_INT4_LOGICAL_ROW_ALIGNMENT,
+                        scale_bias_size_in_bytes,
+                    )
+                    == first_logical_row_bytes
+                    for (_, _, dims, sparse_type, _) in self.embedding_specs
+                ]
+            )
+        )
+        self.kv_int4_logical_row_alignment: int = KV_INT4_LOGICAL_ROW_ALIGNMENT
+        self.kv_storage_row_alignment: int = KV_STORAGE_ROW_ALIGNMENT
         # table shard offset if inference sharding is enabled, otherwise, should be all zeros
         self.table_sharding_offset: list[int] = [0] * len(self.embedding_specs)
         self.kv_embedding_cache_initialized = False
@@ -367,9 +414,12 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
     @torch.jit.export
     def initialize_kv_embedding_cache(self) -> None:
         if not self.kv_embedding_cache_initialized:
+            self.row_alignment = (
+                self.kv_int4_logical_row_alignment
+                if self.use_packed_int4_rows
+                else self.kv_storage_row_alignment
+            )
             self.initialize_logical_weights_placements_and_offsets()
-
-            self.row_alignment = 8  # in order to use mempool implementation for kv embedding it needs to be divisible by 8
 
             hash_size_cumsum = self.construct_hash_size_cumsum()
             self.hash_size_cumsum = torch.tensor(
@@ -385,10 +435,19 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
                 device=self.current_device,
             )
 
-            self.kv_embedding_cache.init(
-                self.specs,
-                self.row_alignment,
-                self.scale_bias_size_in_bytes,
-                self.hash_size_cumsum,
-            )
+            if self.use_packed_int4_rows:
+                self.kv_embedding_cache.init_with_row_alignments(
+                    self.specs,
+                    self.kv_int4_logical_row_alignment,
+                    self.kv_storage_row_alignment,
+                    self.scale_bias_size_in_bytes,
+                    self.hash_size_cumsum,
+                )
+            else:
+                self.kv_embedding_cache.init(
+                    self.specs,
+                    self.kv_storage_row_alignment,
+                    self.scale_bias_size_in_bytes,
+                    self.hash_size_cumsum,
+                )
             self.kv_embedding_cache_initialized = True

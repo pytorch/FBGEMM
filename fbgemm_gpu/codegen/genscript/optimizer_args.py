@@ -73,13 +73,28 @@ def decl_surfaces(
     return frozenset(resolved)
 
 
+# A meta function shadows a CUDA op so that shape propagation can run without a
+# device. It must accept the op's whole argument list, including the optimizer
+# state, but it only computes output shapes and never reads an optimizer
+# argument. That is a property of the declaration surface rather than of any one
+# argument, so it is stated once here instead of on every optimizer spec.
+SURFACES_NOT_READING_OPTIMIZER_ARGS: frozenset[DeclSurface] = frozenset(
+    {DeclSurface.META}
+)
+
+
 def annotate_unused_declaration(
     declaration: str,
     unused_on: frozenset[DeclSurface],
     surface: DeclSurface,
 ) -> str:
-    """Prefix a C++ parameter declaration when it is unused on `surface`."""
-    return f"[[maybe_unused]] {declaration}" if surface in unused_on else declaration
+    """Prefix a C++ optimizer-argument declaration that `surface` does not read.
+
+    Either the argument's own policy names the surface, or the surface reads no
+    optimizer argument at all.
+    """
+    unused = surface in unused_on or surface in SURFACES_NOT_READING_OPTIMIZER_ARGS
+    return f"[[maybe_unused]] {declaration}" if unused else declaration
 
 
 def maybe_unused_args(args_str: str, apply: bool = True) -> str:
@@ -1288,7 +1303,7 @@ class OptimizerArgsSet:
                 f"{name}_host",
                 default,
                 is_optional=is_optional,
-                unused_on=unused_on,
+                unused_on=unused_on | {DeclSurface.PT2_CUDA},
             ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
@@ -1297,7 +1312,7 @@ class OptimizerArgsSet:
                 default,
                 ph_tys,
                 is_optional=is_optional,
-                unused_on=unused_on,
+                unused_on=unused_on | {DeclSurface.PT2_CPU},
             ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
@@ -1306,7 +1321,7 @@ class OptimizerArgsSet:
                 default,
                 ph_tys,
                 is_optional=is_optional,
-                unused_on=unused_on,
+                unused_on=unused_on | {DeclSurface.PT2_CPU},
             ),
             # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(

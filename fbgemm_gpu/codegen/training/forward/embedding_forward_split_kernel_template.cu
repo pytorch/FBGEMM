@@ -34,6 +34,7 @@
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/prev_iter_ref.cuh"
 
 {%- if is_rocm %}
 #include "fbgemm_gpu/utils/rocm/weight_row.h"
@@ -299,9 +300,10 @@ using namespace fbgemm_gpu;
         {%- endif %}
 
         {%- if is_gwd_kernel %}
-        // if l > L or prev_iter == 0, global_weight_decay = 1
-        const auto prev_it = prev_iter[idx];
-        const auto global_weight_decay = (l > L || prev_it == 0) ? 1 : max(gwd_lower_bound, powf(weight_decay_base, max(iter - prev_it - 1, 0.0f)));
+        // if l > L, global_weight_decay = 1; `gwd` returns 1 for prev_iter == 0
+        const auto global_weight_decay = (l > L)
+            ? 1.0f
+            : prev_iter.gwd(idx, iter, weight_decay_base, gwd_lower_bound);
         {%- endif %}
 
         {%- if weighted %}
@@ -607,7 +609,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endif %}
     {%- if is_gwd_kernel %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     const float learning_rate,
     const float weight_decay,
     const int64_t iter,
@@ -700,7 +702,7 @@ batch_index_select_dim0_codegen_forward_kernel(
 
     {%- if is_gwd_kernel %}
     CUDA_KERNEL_ASSERT(
-        prev_iter_dev.size(0) == hash_size_cumsum[hash_size_cumsum.size(0)-1]
+        prev_iter_dev.size == hash_size_cumsum[hash_size_cumsum.size(0)-1]
         && "The size of prev_iter does not match number of rows"
     )
     {%- endif %}
@@ -722,7 +724,7 @@ batch_index_select_dim0_codegen_forward_kernel(
 
     {%- if is_gwd_kernel %}
     const float weight_decay_base = 1 - learning_rate * weight_decay;
-    const float* __restrict__ prev_iter = &prev_iter_dev[hash_size_cumsum[t]];
+    const auto prev_iter = prev_iter_dev.offset(hash_size_cumsum[t]);
     {%- endif %}
     // D is computed in the bag case or provided as function arg in the nobag case
     // (nobag only supports the case where the embedding dimensions are the same for all tables)
@@ -912,7 +914,7 @@ batch_index_select_dim0_codegen_forward_kernel
     {%- endif %}
     {%- if is_gwd_kernel %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const PrevIterRef prev_iter_dev,
     const float learning_rate,
     const float weight_decay,
     const int64_t iter,
@@ -996,6 +998,17 @@ batch_index_select_dim0_codegen_forward_kernel
     codegen/embedding_common_code_generator.py for more details
 */ #}
 
+{%- if is_rocm and vbe and not dense and not ssd and not weighted and not is_gwd %}
+{{ template_instantiation(
+    "at::Half",
+    "at::Half",
+    "float",
+    "int64_t",
+    "false",
+    1,
+    32)
+}}
+{%- endif %}
 {{ instantiate_templates(use_subwarp_shuffle=False) }}
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -9,6 +9,7 @@
 #include <iostream>
 #include "./CodeGenHelpers.h" // @manual
 #include "./GenerateKernel.h" // @manual
+#include "./JitPerfMap.h" // @manual
 
 namespace fbgemm {
 
@@ -323,6 +324,11 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
       std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
+
+    registerJitKernel(code, reinterpret_cast<const void*>(fn), [&] {
+      return getKernelSymbol<inst_set_t::avx2>(
+          accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
+    });
 
 #if defined(FBGEMM_LOG_CODE)
     fclose(codeLogfile);

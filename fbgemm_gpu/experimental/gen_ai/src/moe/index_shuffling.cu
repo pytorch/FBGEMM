@@ -544,7 +544,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         static int num_sms = -1;
         if (num_sms < 0) {
           cudaDeviceProp deviceProp;
-          cudaGetDeviceProperties(&deviceProp, 0);
+          C10_CUDA_CHECK(cudaGetDeviceProperties(&deviceProp, 0));
           num_sms = deviceProp.multiProcessorCount;
         }
 
