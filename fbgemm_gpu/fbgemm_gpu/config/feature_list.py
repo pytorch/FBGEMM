@@ -75,6 +75,9 @@ class FeatureGateName(Enum):
     # Gate the bounds_check_indices offsets-adjustment assertions
     DISABLE_OFFSETS_ADJUSTMENT = auto()
 
+    # Gate the in-place FP16 clamp fast path in fp32_to_fp16_with_clamp
+    FP16_COMM_INPLACE_CLAMP = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
