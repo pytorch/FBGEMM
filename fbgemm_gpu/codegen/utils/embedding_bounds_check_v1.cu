@@ -63,7 +63,7 @@ bool use_flat_bounds_check(bool heuristic) {
 // whole warp per row on this and then loops the row's indices with that same
 // warp; splitting the two lets the index pass use a mapping that does not
 // depend on how many indices a row happens to hold.
-template <typename index_t>
+template <typename index_t, bool assert_only>
 __global__ void bounds_check_offsets_kernel(
     int32_t total_B,
     index_t num_indices,
@@ -76,6 +76,16 @@ __global__ void bounds_check_offsets_kernel(
   }
   index_t start = offsets[b_t];
   index_t end = offsets[b_t + 1];
+  if constexpr (assert_only) {
+    // disable_offsets_adjustment turns the repair into a contract: v1 asserts
+    // the same three conditions and leaves offsets untouched.
+    CUDA_KERNEL_ASSERT(start >= 0 && "indices_start must be non-negative");
+    CUDA_KERNEL_ASSERT(
+        start <= end && "indices_start must not exceed indices_end");
+    CUDA_KERNEL_ASSERT(
+        end <= num_indices && "indices_end must not exceed num_indices");
+    return;
+  }
   if (start < 0 || start > end || end > num_indices) {
     if (warn && gpuAtomicIncrement(warning) == 0) {
       printf(
@@ -464,7 +474,10 @@ void _bounds_check_indices_cuda_v1(
   const int64_t avg_segment_length =
       (total_B_rows > 0) ? (num_indices_host / total_B_rows) : 0;
   constexpr int64_t kFlatMaxAvgSegment = 24;
-  const bool flat_eligible = !vbe && !disable_offsets_adjustment &&
+  // disable_offsets_adjustment is on in production, so excluding it kept the
+  // flat path from ever running. It only changes what the offsets pass does -
+  // assert instead of repair - which the flat split expresses directly.
+  const bool flat_eligible = !vbe &&
       bounds_check_mode != BoundsCheckMode::FATAL && total_B_rows > 0 &&
       num_indices_host > 0 && B > 0;
   constexpr int32_t kFlatElemsPerThread = 4;
@@ -480,17 +493,31 @@ void _bounds_check_indices_cuda_v1(
 
     AT_DISPATCH_INDEX_TYPES(
         indices.scalar_type(), "bounds_check_indices_flat", [&] {
-          FBGEMM_LAUNCH_KERNEL(
-              (bounds_check_offsets_kernel<index_t>),
-              div_round_up(total_B_rows, 256),
-              256,
-              0,
-              at::cuda::getCurrentCUDAStream(),
-              total_B_rows,
-              static_cast<index_t>(num_indices_host),
-              offsets.data_ptr<index_t>(),
-              warning.data_ptr<int64_t>(),
-              warn);
+          if (disable_offsets_adjustment) {
+            FBGEMM_LAUNCH_KERNEL(
+                (bounds_check_offsets_kernel<index_t, true>),
+                div_round_up(total_B_rows, 256),
+                256,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                total_B_rows,
+                static_cast<index_t>(num_indices_host),
+                offsets.data_ptr<index_t>(),
+                warning.data_ptr<int64_t>(),
+                warn);
+          } else {
+            FBGEMM_LAUNCH_KERNEL(
+                (bounds_check_offsets_kernel<index_t, false>),
+                div_round_up(total_B_rows, 256),
+                256,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                total_B_rows,
+                static_cast<index_t>(num_indices_host),
+                offsets.data_ptr<index_t>(),
+                warning.data_ptr<int64_t>(),
+                warn);
+          }
 
           FBGEMM_LAUNCH_KERNEL(
               (bounds_check_indices_kernel_flat<
