@@ -284,7 +284,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_flat(
   const bool use_smem = nrows <= SMEM_ROWS;
 
   if (use_smem) {
-    for (auto r = threadIdx.x; r <= nrows; r += blockDim.x) {
+    for (auto r = static_cast<int32_t>(threadIdx.x); r <= nrows;
+         r += static_cast<int32_t>(blockDim.x)) {
       const int32_t row = row_lo + r;
       s_out_off[r] =
           (row < BT) ? static_cast<int64_t>(output_offsets[row]) : len;
@@ -307,16 +308,13 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_flat(
   int64_t row_end;
   int64_t src_base;
   if (use_smem) {
-    while (r < nrows && s_out_off[r + 1] <= base) {
-      ++r;
-    }
+    r = find_row_for_element(s_out_off, nrows, base);
     row_end = s_out_off[r + 1];
     src_base = s_src_base[r];
   } else {
-    r = row_lo;
-    while (r + 1 < BT && static_cast<int64_t>(output_offsets[r + 1]) <= base) {
-      ++r;
-    }
+    // Binary search: one thread per contiguous run means a linear scan would
+    // make the block cost O(threads * rows_in_block).
+    r = find_row_for_element(output_offsets, BT, base);
     row_end = (r + 1 < BT) ? static_cast<int64_t>(output_offsets[r + 1]) : len;
     src_base =
         static_cast<int64_t>(input_offsets[permute[r / B] * B + (r % B)]) -
@@ -356,17 +354,15 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_flat(
       return;
     }
     if (i >= row_end) {
+      // Binary search rather than stepping row by row: a run of empty rows
+      // between two elements is unbounded, so a walk here costs O(rows) for a
+      // single thread whenever the length distribution is skewed.
       if (use_smem) {
-        do {
-          ++r;
-        } while (r < nrows && s_out_off[r + 1] <= i);
+        r = find_row_for_element(s_out_off, nrows, i);
         row_end = s_out_off[r + 1];
         src_base = s_src_base[r];
       } else {
-        do {
-          ++r;
-        } while (r + 1 < BT &&
-                 static_cast<int64_t>(output_offsets[r + 1]) <= i);
+        r = find_row_for_element(output_offsets, BT, i);
         row_end =
             (r + 1 < BT) ? static_cast<int64_t>(output_offsets[r + 1]) : len;
         src_base =
@@ -584,12 +580,13 @@ permute_2D_sparse_preallocated_out_cuda(
   // FBGEMM_FLAT_PERMUTE_2D forces the choice either way; unset keeps the
   // heuristic. The weights guard is not overridable because the flat kernel
   // moves a single stream.
-  const bool use_flat_kernel = !weights.has_value() &&
-      is_flat_permute_2d_enabled(
-          avg_segment_length <= kFlatMaxAvgSegment &&
-          permuted_indices_size > 0) &&
-      permuted_indices_size > 0;
-
+  // The flat path dispatches over index types only, so a float index tensor
+  // has to keep the original kernel even when the env var forces flat on.
+  const auto integral_indices =
+      indices.scalar_type() == at::kInt || indices.scalar_type() == at::kLong;
+  const bool use_flat_kernel = !weights.has_value() && integral_indices &&
+      permuted_indices_size > 0 &&
+      is_flat_permute_2d_enabled(avg_segment_length <= kFlatMaxAvgSegment);
   permuted_indices = permuted_indices_out.has_value()
       ? permuted_indices_out.value()
       : at::empty(permuted_indices_size, indices.options());
