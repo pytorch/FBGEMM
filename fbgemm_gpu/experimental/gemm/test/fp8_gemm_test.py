@@ -8,9 +8,14 @@
 
 import itertools
 import unittest
+from unittest import mock
 
 import torch
 import triton
+
+# Deliberately unguarded: TestPruneConfigsH100Static runs without CUDA
+# (capability is mocked), unlike the kernel imports below.
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import prune_configs_h100_static
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -757,3 +762,130 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((256, 256, 640), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 64), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 192), (256, 256, 128), True)
+
+
+class _FakeConfig:
+    """Minimal stand-in for triton.Config (only the fields the prune reads)."""
+
+    def __init__(self, bm: int, bn: int, bk: int, ns: int, nw: int) -> None:
+        self.kwargs = {
+            "BLOCK_M": bm,
+            "BLOCK_N": bn,
+            "BLOCK_K": bk,
+            "SPLIT_K": 1,
+        }
+        self.num_stages = ns
+        self.num_warps = nw
+
+
+class TestPruneConfigsH100Static(unittest.TestCase):
+    """CPU-runnable coverage for the H100 static autotune prune.
+
+    Uses lightweight fake configs so no GPU or Triton launch is needed;
+    H100 capability is faked via mock.
+    """
+
+    def _make_configs(self) -> list[_FakeConfig]:
+        configs = []
+        # Compute-style configs.
+        for bm, bn, bk, ns, nw in [
+            (128, 256, 32, 3, 8),
+            (256, 128, 32, 3, 8),
+            (64, 128, 256, 4, 4),  # D80881599 large-K config, must survive
+            (256, 256, 32, 4, 4),
+            (64, 32, 32, 5, 2),
+            (64, 256, 32, 4, 4),  # exercises R2 on BM=64 (dropped at M=1)
+        ]:
+            configs.append(_FakeConfig(bm, bn, bk, ns, nw))
+        # IO-sweep group: same tile, stages 2..6 (kept subset is regime-dependent).
+        for ns in [2, 3, 4, 5, 6]:
+            configs.append(_FakeConfig(16, 64, 32, ns, 2))
+        return configs
+
+    def _prune(
+        self,
+        m: int,
+        n: int,
+        k: int,
+        capability: tuple[int, int] = (9, 0),
+        configs: list[_FakeConfig] | None = None,
+    ) -> list[_FakeConfig]:
+        with mock.patch("torch.cuda.get_device_capability", return_value=capability):
+            return prune_configs_h100_static(
+                configs if configs is not None else self._make_configs(),
+                {"M": m, "N": n, "K": k},
+            )
+
+    @staticmethod
+    def _keys(kept: list[_FakeConfig]) -> set[tuple[int, int, int]]:
+        return {
+            (c.kwargs["BLOCK_M"], c.kwargs["BLOCK_N"], c.kwargs["BLOCK_K"])
+            for c in kept
+        }
+
+    def test_small_m_drops_large_block_m(self) -> None:
+        kept = self._prune(1, 1024, 1024)
+        bms = {c.kwargs["BLOCK_M"] for c in kept}
+        # Decode regime keeps BM in {16, 32, 64}: BM >= 128 was ranked
+        # #22-32 (+22-63%) on H100.
+        self.assertTrue(bms <= {16, 32, 64})
+
+    def test_small_m_keeps_deep_stages_and_bm64(self) -> None:
+        kept = self._prune(1, 1024, 1024)
+        io_stages = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 16)
+        # Deep pipelines win tiny-M shapes; shallow stages 2-3 were
+        # ranked #21-30 (+19-78%) on H100.
+        self.assertEqual(io_stages, [4, 5, 6])
+        # BM=64 compute configs win some tiny-M shapes (e.g. N=2592).
+        self.assertIn((64, 128, 256), self._keys(kept))
+
+    def test_compute_regime_preserves_large_k_winner(self) -> None:
+        # K is not a prune input (logged only); this shape mirrors the
+        # D80881599 large-K workload's M/N.
+        kept = self._prune(512, 1024, 19712)
+        self.assertIn((64, 128, 256), self._keys(kept))
+
+    def test_low_parallelism_drops_256x256(self) -> None:
+        kept = self._prune(512, 1024, 19712)
+        # 2 x 4 = 8 tiles < 32 -> pruned by R2.
+        self.assertNotIn((256, 256, 32), self._keys(kept))
+
+    def test_r2_drops_wide_tile_below_32_tiles(self) -> None:
+        # R2 also applies to BM=64: (64, 256, 32) gives 1 x 4 = 4 tiles
+        # at M=1, N=1024.
+        dropped = self._prune(1, 1024, 1024)
+        self.assertNotIn((64, 256, 32), self._keys(dropped))
+        # Boundary: 8 x 4 = 32 tiles at M=512 is kept (strict < 32).
+        kept = self._prune(512, 1024, 19712)
+        self.assertIn((64, 256, 32), self._keys(kept))
+
+    def test_mid_m_drops_block_m_256(self) -> None:
+        kept = self._prune(64, 1024, 1024)
+        bms = {c.kwargs["BLOCK_M"] for c in kept}
+        self.assertNotIn(256, bms)
+
+    def test_large_m_keeps_block_m_256(self) -> None:
+        # BM=256 is rank #2 at M>=2048, so R1 must not drop it there.
+        kept = self._prune(8192, 1024, 1024)
+        keys = self._keys(kept)
+        self.assertIn((256, 128, 32), keys)
+        self.assertIn((256, 256, 32), keys)
+
+    def test_stage_collapse_keeps_3_and_4(self) -> None:
+        kept = self._prune(8192, 1024, 1024)
+        stages = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 16)
+        self.assertEqual(stages, [3, 4])
+
+    def test_fallback_returns_full_space_when_all_pruned(self) -> None:
+        # If every config would be dropped (here: all BM >= 128 at M=1),
+        # fall back to the full list instead of handing the autotuner an
+        # empty space (regression test for min() on an empty timings dict).
+        configs = [c for c in self._make_configs() if c.kwargs["BLOCK_M"] >= 128]
+        self.assertTrue(len(configs) > 0)
+        kept = self._prune(1, 1024, 1024, configs=configs)
+        self.assertEqual(kept, configs)
+
+    def test_non_h100_is_noop(self) -> None:
+        configs = self._make_configs()
+        kept = self._prune(1, 1024, 1024, capability=(8, 0), configs=configs)
+        self.assertEqual(kept, configs)
