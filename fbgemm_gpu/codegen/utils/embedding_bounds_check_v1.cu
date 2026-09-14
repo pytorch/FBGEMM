@@ -94,6 +94,26 @@ __global__ void bounds_check_offsets_kernel(
   }
 }
 
+namespace {
+// Locate the row owning `target` in a monotone offsets array of `n` rows.
+template <typename offsets_t>
+__device__ __forceinline__ int32_t
+find_row_for_element(const offsets_t* offsets, int32_t n, int64_t target) {
+  int32_t lo = 0;
+  int32_t hi = n - 1;
+  while (lo < hi) {
+    const int32_t mid = (lo + hi + 1) >> 1;
+    if (static_cast<int64_t>(offsets[mid]) <= target) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo;
+}
+
+} // namespace
+
 // Flat index check: each thread owns a contiguous run of indices rather than a
 // row, and the block stages the row boundaries and each row's table bound in
 // shared memory. At the production pooling of about one index per row the v1
@@ -147,7 +167,8 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_flat(
   const bool use_smem = nrows <= SMEM_ROWS;
 
   if (use_smem) {
-    for (auto r = threadIdx.x; r <= nrows; r += blockDim.x) {
+    for (auto r = static_cast<int32_t>(threadIdx.x); r <= nrows;
+         r += static_cast<int32_t>(blockDim.x)) {
       const int32_t row = row_lo + r;
       s_off[r] = (row <= total_B) ? static_cast<int64_t>(offsets[row])
                                   : static_cast<int64_t>(num_indices);
@@ -168,17 +189,11 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_flat(
   int64_t row_end;
   int64_t bound;
   if (use_smem) {
-    r = 0;
-    while (r < nrows && s_off[r + 1] <= base) {
-      ++r;
-    }
+    r = find_row_for_element(s_off, nrows, base);
     row_end = s_off[r + 1];
     bound = s_bound[r];
   } else {
-    r = row_lo;
-    while (r + 1 <= total_B && static_cast<int64_t>(offsets[r + 1]) <= base) {
-      ++r;
-    }
+    r = find_row_for_element(offsets, total_B, base);
     row_end = (r + 1 <= total_B) ? static_cast<int64_t>(offsets[r + 1])
                                  : static_cast<int64_t>(num_indices);
     bound = rows_per_table[r / B];
@@ -191,16 +206,15 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_flat(
       return;
     }
     if (i >= row_end) {
+      // Binary search rather than stepping row by row: a run of empty rows
+      // between two elements is unbounded, so a walk here costs O(rows) for a
+      // single thread whenever the length distribution is skewed.
       if (use_smem) {
-        do {
-          ++r;
-        } while (r < nrows && s_off[r + 1] <= i);
+        r = find_row_for_element(s_off, nrows, i);
         row_end = s_off[r + 1];
         bound = s_bound[r];
       } else {
-        do {
-          ++r;
-        } while (r + 1 <= total_B && static_cast<int64_t>(offsets[r + 1]) <= i);
+        r = find_row_for_element(offsets, total_B, i);
         row_end = (r + 1 <= total_B) ? static_cast<int64_t>(offsets[r + 1])
                                      : static_cast<int64_t>(num_indices);
         bound = rows_per_table[r / B];
@@ -453,11 +467,11 @@ void _bounds_check_indices_cuda_v1(
   const bool flat_eligible = !vbe && !disable_offsets_adjustment &&
       bounds_check_mode != BoundsCheckMode::FATAL && total_B_rows > 0 &&
       num_indices_host > 0 && B > 0;
+  constexpr int32_t kFlatElemsPerThread = 4;
+  constexpr int32_t kFlatSmemRows = 1024;
+  constexpr int32_t kFlatThreads = 256;
   if (flat_eligible &&
       use_flat_bounds_check(avg_segment_length <= kFlatMaxAvgSegment)) {
-    constexpr int32_t kFlatElemsPerThread = 4;
-    constexpr int32_t kFlatSmemRows = 1024;
-    constexpr int32_t kFlatThreads = 256;
     const int64_t elems_per_block =
         static_cast<int64_t>(kFlatThreads) * kFlatElemsPerThread;
     const int32_t num_blocks = static_cast<int32_t>(
