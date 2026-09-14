@@ -38,6 +38,7 @@
 
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/device_sort.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
@@ -670,6 +671,9 @@ void invokeQuantizeMatrixColwise(
 template <typename T>
 __inline__ __device__ T blockReduceMax(T val) {
   static __shared__ T shared[32];
+  // Wait for every thread to finish reading shared state from the previous
+  // invocation before any thread overwrites it.
+  __syncthreads();
   const uint32_t lane = threadIdx.x & 0x1f; // in-warp idx
   const uint32_t wid = threadIdx.x >> 5; // warp idx
 
@@ -989,6 +993,9 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
 template <typename T>
 __inline__ __device__ T blockAllReduceMax(T val) {
   static __shared__ T shared[32];
+  // Wait for every thread to finish reading shared state from the previous
+  // invocation before any thread overwrites it.
+  __syncthreads();
   auto lane = threadIdx.x & 0x1f;
   auto wid = threadIdx.x >> 5;
   val = warpReduceMax(val);
@@ -1036,6 +1043,7 @@ __global__ void dynamicQuantizeMatrixRowwise(
     if (threadIdx.x == 0) {
       quant_ptr[row] = s;
     }
+    __syncthreads();
   }
 }
 
@@ -1048,15 +1056,17 @@ __global__ void dynamicQuantizeMatrixRowwiseStoc(
     int64_t lda,
     const float* scale_ub,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  auto stoc_rounding_state = StochasticRoundingRNGState(
-      stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
-  const auto random_bits = stoc_rounding_state.rand4();
-
   extern __shared__ __align__(sizeof(float)) char _shmem[];
   T_IN* shmem = reinterpret_cast<T_IN*>(_shmem);
   constexpr float min_scaling_factor = 1.0f / (SCALE::value * 512.f);
   auto const nrows = numel / lda;
   for (int64_t row = blockIdx.x; row < nrows; row += gridDim.x) {
+    // StochasticRoundingRNGState hashes this logical-row salt with the Philox
+    // seed; it does not consume an additional Philox offset per row.
+    auto stoc_rounding_state = StochasticRoundingRNGState(
+        stochastic_rounding_philox_args,
+        static_cast<uint64_t>(row) * blockDim.x + threadIdx.x);
+    const auto random_bits = stoc_rounding_state.rand4();
     float max = 0.f;
     for (int64_t i = threadIdx.x; i < lda; i += blockDim.x) {
       auto const in = input[row * lda + i];
@@ -1079,6 +1089,7 @@ __global__ void dynamicQuantizeMatrixRowwiseStoc(
     if (threadIdx.x == 0) {
       quant_ptr[row] = s;
     }
+    __syncthreads();
   }
 }
 
@@ -1120,7 +1131,6 @@ void invokeComputeScalesAndQuantizeMatrix(
     const float* scale_ub,
     bool stochastic_rounding,
     const c10::cuda::CUDAStream stream) {
-  dim3 grid(numel / lda);
 #ifdef USE_ROCM
   bool use_shmem = true;
 #else
@@ -1146,8 +1156,17 @@ void invokeComputeScalesAndQuantizeMatrix(
     use_shmem = false;
 #endif
   }
+  const auto grid_for_block = [&](const dim3 block) {
+    return dim3(
+        utils::cuda::cap_grid_dim_x(
+            numel / lda,
+            block.x,
+            stream,
+            utils::cuda::BlockCapPolicy::OverflowOnly));
+  };
   if (use_shmem) {
     dim3 block(std::min((lda + 31) / 32 * 32, static_cast<int64_t>(1024)));
+    const dim3 grid = grid_for_block(block);
 
     if (stochastic_rounding) {
       at::PhiloxCudaState rng_engine_inputs;
@@ -1185,6 +1204,7 @@ void invokeComputeScalesAndQuantizeMatrix(
     }
   } else {
     dim3 block(CTA_SIZE);
+    const dim3 grid = grid_for_block(block);
     FBGEMM_LAUNCH_KERNEL(
         (computeFP8QuantizeScaleRowwise<SCALE, T_S, T_IN>),
         grid,
