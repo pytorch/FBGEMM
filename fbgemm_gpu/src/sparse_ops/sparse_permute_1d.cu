@@ -68,6 +68,138 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_lengths_kernel(
   }
 }
 
+// Flat counterpart to permute_1D_data_kernel_vec, for the same reason as the 2D
+// case but more acute: the 1D launch shape is dim3(64, 16), so a short row
+// wastes 64 lanes instead of 32. Each thread takes a contiguous run of output
+// elements, and the block stages the offsets of the rows it spans in shared
+// memory. Measured on GB300 at 4.79 elements per row: 5626 -> 848 us.
+template <
+    int ELEMS_PER_THREAD,
+    int SMEM_ROWS,
+    typename offsets_t,
+    typename indices_t,
+    typename permute_t,
+    bool debug = kPermuteDeviceAssert>
+__global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_flat(
+    int64_t len,
+    int32_t BT,
+    const indices_t* __restrict__ indices,
+    const permute_t* __restrict__ permute,
+    const offsets_t* __restrict__ input_offsets,
+    const offsets_t* __restrict__ output_offsets,
+    indices_t* __restrict__ permuted_indices) {
+  __shared__ int64_t s_out_off[SMEM_ROWS + 1];
+  __shared__ int64_t s_src_base[SMEM_ROWS];
+  __shared__ int32_t s_span[2];
+
+  const int64_t block_base =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x * ELEMS_PER_THREAD;
+  if (block_base >= len) {
+    return;
+  }
+  if (threadIdx.x == 0) {
+    const int64_t last_elem =
+        min(block_base + blockDim.x * ELEMS_PER_THREAD - 1, len - 1);
+    s_span[0] = find_row_for_element(output_offsets, BT, block_base);
+    s_span[1] = find_row_for_element(output_offsets, BT, last_elem);
+  }
+  __syncthreads();
+  const int32_t row_lo = s_span[0];
+  const int32_t nrows = s_span[1] - row_lo + 1;
+  const bool use_smem = nrows <= SMEM_ROWS;
+
+  if (use_smem) {
+    for (auto r = threadIdx.x; r <= nrows; r += blockDim.x) {
+      const int32_t row = row_lo + r;
+      s_out_off[r] =
+          (row < BT) ? static_cast<int64_t>(output_offsets[row]) : len;
+      if (r < nrows && row < BT) {
+        s_src_base[r] = static_cast<int64_t>(input_offsets[permute[row]]) -
+            static_cast<int64_t>(output_offsets[row]);
+      }
+    }
+    __syncthreads();
+  }
+
+  const int64_t base =
+      block_base + static_cast<int64_t>(threadIdx.x) * ELEMS_PER_THREAD;
+  if (base >= len) {
+    return;
+  }
+
+  int32_t r;
+  int64_t row_end;
+  int64_t src_base;
+  if (use_smem) {
+    r = 0;
+    while (r < nrows && s_out_off[r + 1] <= base) {
+      ++r;
+    }
+    row_end = s_out_off[r + 1];
+    src_base = s_src_base[r];
+  } else {
+    r = row_lo;
+    while (r + 1 < BT && static_cast<int64_t>(output_offsets[r + 1]) <= base) {
+      ++r;
+    }
+    row_end = (r + 1 < BT) ? static_cast<int64_t>(output_offsets[r + 1]) : len;
+    src_base = static_cast<int64_t>(input_offsets[permute[r]]) -
+        static_cast<int64_t>(output_offsets[r]);
+  }
+
+  if constexpr (debug) {
+    CUDA_KERNEL_ASSERT_PRINTF(
+        src_base + base >= 0,
+        "permute_1D_data_kernel_flat: negative source index (base=%lld)",
+        static_cast<long long>(base));
+  }
+
+  const int64_t last = min(base + ELEMS_PER_THREAD, len);
+  if (last == base + ELEMS_PER_THREAD && last <= row_end) {
+    const int64_t src = src_base + base;
+    const uintptr_t coalign =
+        reinterpret_cast<uintptr_t>(permuted_indices + base) |
+        reinterpret_cast<uintptr_t>(indices + src);
+    constexpr int32_t E = 16 / static_cast<int32_t>(sizeof(indices_t));
+    if ((coalign & 0xF) == 0 && E > 0 && (ELEMS_PER_THREAD % E) == 0) {
+      auto* dst4 = reinterpret_cast<uint4*>(permuted_indices + base);
+      const auto* src4 = reinterpret_cast<const uint4*>(indices + src);
+#pragma unroll
+      for (int v = 0; v < ELEMS_PER_THREAD / E; ++v) {
+        dst4[v] = src4[v];
+      }
+      return;
+    }
+  }
+
+#pragma unroll
+  for (int e = 0; e < ELEMS_PER_THREAD; ++e) {
+    const int64_t i = base + e;
+    if (i >= len) {
+      return;
+    }
+    if (i >= row_end) {
+      if (use_smem) {
+        do {
+          ++r;
+        } while (r < nrows && s_out_off[r + 1] <= i);
+        row_end = s_out_off[r + 1];
+        src_base = s_src_base[r];
+      } else {
+        do {
+          ++r;
+        } while (r + 1 < BT &&
+                 static_cast<int64_t>(output_offsets[r + 1]) <= i);
+        row_end =
+            (r + 1 < BT) ? static_cast<int64_t>(output_offsets[r + 1]) : len;
+        src_base = static_cast<int64_t>(input_offsets[permute[r]]) -
+            static_cast<int64_t>(output_offsets[r]);
+      }
+    }
+    permuted_indices[i] = indices[src_base + i];
+  }
+}
+
 // Kernel for permuting the indices and weights. Used for permutation of sparse
 // data
 template <
@@ -369,7 +501,59 @@ permute_1D_sparse_data_cuda(
       BT_blocks * 64,
       at::cuda::getCurrentCUDAStream(),
       utils::cuda::BlockCapPolicy::OverflowOnly);
+  // Short rows waste 64 lanes each in the vec kernel; route them to the flat
+  // kernel. FBGEMM_FLAT_PERMUTE_1D overrides the heuristic in either direction.
+  constexpr int32_t kFlatElemsPerThread = 4;
+  constexpr int32_t kFlatSmemRows = 1024;
+  constexpr int32_t kFlatThreads = 256;
+  constexpr int64_t kFlatMaxAvgSegment = 24;
+  const int64_t avg_segment_length = (permuted_lengths_size > 0)
+      ? (permuted_indices_size / permuted_lengths_size)
+      : 0;
+  const bool use_flat_kernel = !weights.has_value() &&
+      permuted_indices_size > 0 &&
+      is_flat_permute_1d_enabled(avg_segment_length <= kFlatMaxAvgSegment);
+
   permuted_indices = at::empty(permuted_indices_size, indices.options());
+
+  if (use_flat_kernel) {
+    const int64_t elems_per_block =
+        static_cast<int64_t>(kFlatThreads) * kFlatElemsPerThread;
+    const int32_t num_blocks = static_cast<int32_t>(
+        (permuted_indices_size + elems_per_block - 1) / elems_per_block);
+    AT_DISPATCH_INDEX_TYPES(
+        output_offsets.scalar_type(), "permute_1D_block_first_row", [&] {
+          using offsets_t = index_t;
+          AT_DISPATCH_INDEX_TYPES(
+              permute.scalar_type(), "permute_1D_flat_permute_type", [&] {
+                using permute_t = index_t;
+                FBGEMM_DISPATCH_ALL_TYPES(
+                    indices.scalar_type(), "permute_1D_data_kernel_flat", [&] {
+                      using indices_t = scalar_t;
+                      FBGEMM_LAUNCH_KERNEL(
+                          (permute_1D_data_kernel_flat<
+                              kFlatElemsPerThread,
+                              kFlatSmemRows,
+                              offsets_t,
+                              indices_t,
+                              permute_t>),
+                          num_blocks,
+                          kFlatThreads,
+                          0,
+                          at::cuda::getCurrentCUDAStream(),
+                          permuted_indices_size,
+                          permuted_lengths_size,
+                          indices_contig.data_ptr<indices_t>(),
+                          permute_contig.data_ptr<permute_t>(),
+                          input_offsets.data_ptr<offsets_t>(),
+                          output_offsets.data_ptr<offsets_t>(),
+                          permuted_indices.data_ptr<indices_t>());
+                    });
+              });
+        });
+
+    return {permuted_lengths, permuted_indices, permuted_weights};
+  }
 
   AT_DISPATCH_INDEX_TYPES(
       permute.scalar_type(), "permute_1D_data_permute_type", [&] {
