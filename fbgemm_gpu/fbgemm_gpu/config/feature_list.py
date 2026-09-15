@@ -78,6 +78,9 @@ class FeatureGateName(Enum):
     # Store global weight decay's `prev_iter` as int64 instead of float32
     TBE_GWD_PREV_ITER_INT64 = auto()
 
+    # Gate the in-place FP16 clamp fast path in fp32_to_fp16_with_clamp
+    FP16_COMM_INPLACE_CLAMP = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 

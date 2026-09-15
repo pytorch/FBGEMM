@@ -8,12 +8,131 @@
 # pyre-strict
 
 import unittest
+from unittest.mock import patch
 
 import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.quantize_comm import none_throws, QuantizedCommCodec
+from fbgemm_gpu.quantize_utils import fp32_to_fp16_with_clamp
 from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, settings
+from parameterized import parameterized
+
+
+class FP16ClampTest(unittest.TestCase):
+    def test_compiled_no_grad(self) -> None:
+        values = torch.tensor(
+            [-1e30, -65504.01, -1, 0, 1, 65504.01, 1e30],
+            dtype=torch.float32,
+            device="cpu",
+        )
+        compiled = torch.compile(
+            fp32_to_fp16_with_clamp, backend="eager", fullgraph=True
+        )
+        with torch.no_grad():
+            output = compiled(values)
+            expected = values.clamp(-65504, 65504).half()
+        torch.testing.assert_close(output, expected, rtol=0, atol=0)
+
+    @parameterized.expand(
+        [("cpu", False), ("cpu", True), ("cuda", False), ("cuda", True)]
+    )
+    def test_values_and_input_preservation(self, device: str, enabled: bool) -> None:
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("CUDA is unavailable")
+        # Citrine C3: construct inputs directly on the device under test.
+        values = (
+            torch.tensor(
+                [
+                    -float("inf"),
+                    -1e30,
+                    -65520,
+                    -65504.01,
+                    -65504,
+                    -65503.99,
+                    -1,
+                    -(2**-24),
+                    -(2**-25),
+                    -0.0,
+                    0.0,
+                    2**-25,
+                    2**-24,
+                    1,
+                    65503.99,
+                    65504,
+                    65504.01,
+                    65520,
+                    1e30,
+                    float("inf"),
+                    float("nan"),
+                ],
+                dtype=torch.float32,
+                device=device,
+            )
+            .repeat(3, 1)
+            .t()
+        )
+        before = values.clone()
+        with (
+            patch("torch.ops.fbgemm.check_feature_gate_key", return_value=enabled),
+            torch.no_grad(),
+        ):
+            output = fp32_to_fp16_with_clamp(values)
+            expected = values.clamp(-65504, 65504).half()
+        torch.testing.assert_close(output, expected, rtol=0, atol=0, equal_nan=True)
+        torch.testing.assert_close(values, before, rtol=0, atol=0, equal_nan=True)
+        self.assertNotEqual(output.data_ptr(), values.data_ptr())
+        zero = expected == 0
+        self.assertTrue(
+            torch.equal(torch.signbit(output[zero]), torch.signbit(expected[zero]))
+        )
+
+    @parameterized.expand(
+        [("cpu", False), ("cpu", True), ("cuda", False), ("cuda", True)]
+    )
+    def test_preserves_clamp_gradients(self, device: str, enabled: bool) -> None:
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("CUDA is unavailable")
+        values = torch.tensor(
+            [-65504.01, -65504, -1, 0, 1, 65504, 65504.01],
+            dtype=torch.float32,
+            device=device,
+            requires_grad=True,
+        )
+        reference = values.detach().clone().requires_grad_()
+        with patch("torch.ops.fbgemm.check_feature_gate_key", return_value=enabled):
+            output = fp32_to_fp16_with_clamp(values)
+        expected = reference.clamp(-65504, 65504).half()
+        output.backward(torch.ones_like(output))
+        expected.backward(torch.ones_like(expected))
+        torch.testing.assert_close(output, expected, rtol=0, atol=0)
+        torch.testing.assert_close(values.grad, reference.grad, rtol=0, atol=0)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is unavailable")
+    def test_no_grad_avoids_fp32_temporary(self) -> None:
+        values = torch.ones(
+            128 * 1024 * 1024,
+            device=torch.accelerator.current_accelerator(),
+            dtype=torch.float32,
+        )
+        with torch.no_grad():
+            torch.cuda.synchronize()
+            baseline = torch.cuda.memory_allocated()
+            torch.cuda.reset_peak_memory_stats()
+            with patch("torch.ops.fbgemm.check_feature_gate_key", return_value=False):
+                reference = fp32_to_fp16_with_clamp(values)
+            torch.cuda.synchronize()
+            reference_peak = torch.cuda.max_memory_allocated() - baseline
+            del reference
+            torch.cuda.synchronize()
+            baseline = torch.cuda.memory_allocated()
+            torch.cuda.reset_peak_memory_stats()
+            with patch("torch.ops.fbgemm.check_feature_gate_key", return_value=True):
+                output = fp32_to_fp16_with_clamp(values)
+            torch.cuda.synchronize()
+            candidate_peak = torch.cuda.max_memory_allocated() - baseline
+        self.assertEqual(output.dtype, torch.float16)
+        self.assertGreaterEqual(reference_peak - candidate_peak, values.nbytes * 0.9)
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
