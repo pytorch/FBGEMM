@@ -1423,11 +1423,38 @@ Tensor {{ embedding_cuda_op }}(
 
                     auto blockSize = dim3({{ "warp_thread_group_size" if is_rocm else "kThreadGroupSize" }}, num_warp_per_row_groups);
 
+                    // One warp per unique row leaves each warp with a single
+                    // row of work when rows are barely duplicated, which is the
+                    // common case here (measured dup factor 1.165). The kernel
+                    // already grid-strides over run_id, so capping the grid at a
+                    // few waves lets each warp carry several rows and keeps more
+                    // bytes in flight; measured on GB300, four rows per warp is
+                    // worth 1.46x and sixteen 1.52x. FBGEMM_BWD_ROWS_PER_WARP
+                    // sets the target. It defaults to 0, i.e. no cap, because
+                    // those numbers are GB300-only; set it explicitly there.
                     auto warp_per_row_grid_size = utils::cuda::cap_grid_dim_x(
                         cuda_calc_xblock_count(total_unique_indices, num_warp_per_row_groups),
                         {{ "blockSize.x * blockSize.y" if is_rocm else "kThreadGroupSize * num_warp_per_row_groups" }}, // block size
                         at::cuda::getCurrentCUDAStream(),
                         utils::cuda::BlockCapPolicy::Always);
+
+                    {
+                      static const int32_t rows_per_warp = [] {
+                        const char* v = std::getenv("FBGEMM_BWD_ROWS_PER_WARP");
+                        if (v == nullptr || v[0] == '\0') {
+                          return 0;
+                        }
+                        const int32_t parsed = std::atoi(v);
+                        return parsed >= 0 ? parsed : 0;
+                      }();
+                      if (rows_per_warp > 1) {
+                        const auto capped = cuda_calc_xblock_count(
+                            div_round_up(total_unique_indices, rows_per_warp),
+                            num_warp_per_row_groups);
+                        warp_per_row_grid_size =
+                            std::min(warp_per_row_grid_size, capped);
+                      }
+                    }
 
 #ifdef USE_ROCM
                     {%- if has_hip_optimized_nonvbe_support %}
