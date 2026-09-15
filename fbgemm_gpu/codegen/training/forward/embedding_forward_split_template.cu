@@ -535,6 +535,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     // convert `learning rate` to float since `learning rate` is float in kernels
     const float learning_rate = learning_rate_tensor.item<float>();
     TORCH_CHECK(learning_rate >= 0, "Expect to apply weight decay but learning rate is < 0");
+    warn_if_prev_iter_inexact(prev_iter_dev, iter);
     {%- endif %}
 
     Tensor output;

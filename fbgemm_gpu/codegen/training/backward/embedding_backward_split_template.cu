@@ -739,6 +739,10 @@ Tensor {{ embedding_cuda_op }}(
     }
     {%- endif %}
 
+    {%- if is_gwd_kernel %}
+    warn_if_prev_iter_inexact(prev_iter_dev, iter);
+    {%- endif %}
+
     auto aligned_grad_output = aligned_grad_output_tensor_for_cuda_backwards(grad_output);
 
     CUDA_DEVICE_GUARD(dev_weights);
