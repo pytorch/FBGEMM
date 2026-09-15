@@ -1139,6 +1139,7 @@ void group_index_select_or_add_cuda(
     const int64_t* warp_offsets_group,
     const int32_t* num_cols_group,
     const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& output_scalar_type,
     const c10::ScalarType& indices_scalar_type,
     const c10::DeviceIndex& device,
     const int num_work_rows,
