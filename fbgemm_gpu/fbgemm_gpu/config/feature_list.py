@@ -81,6 +81,9 @@ class FeatureGateName(Enum):
     # Gate the in-place FP16 clamp fast path in fp32_to_fp16_with_clamp
     FP16_COMM_INPLACE_CLAMP = auto()
 
+    # Parallelise the CPU NOBAG inference TBE over row ranges, not whole tables
+    TBE_NOBAG_ROW_PARALLELISM = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
