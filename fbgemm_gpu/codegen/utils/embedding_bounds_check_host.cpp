@@ -89,6 +89,8 @@ void bounds_check_indices_cuda(
 
   TORCH_CHECK(
       bounds_check_mode_ == fbgemm_gpu::BoundsCheckMode::WARNING ||
+          bounds_check_mode_ ==
+              fbgemm_gpu::BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES ||
           bounds_check_mode_ == fbgemm_gpu::BoundsCheckMode::FATAL ||
           bounds_check_mode_ == fbgemm_gpu::BoundsCheckMode::IGNORE,
       "bounds_check_indices: bounds_check_mode=",
