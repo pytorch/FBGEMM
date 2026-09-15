@@ -14,6 +14,7 @@ COMMON_OPTIMIZERS = [
     "sgd",
     "rowwise_adagrad_with_counter",
     "rowwise_rmsprop_ar",
+    "ftrl",
 ]
 
 # To be populated in the subsequent diffs
@@ -65,6 +66,7 @@ VBE_OPTIMIZERS = [
     "dense",
     "adam",
     "rowwise_rmsprop_ar",
+    "ftrl",
 ]
 
 # Individual optimizers (not fused with SplitTBE backward)

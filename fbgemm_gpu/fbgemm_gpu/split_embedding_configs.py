@@ -71,6 +71,7 @@ class EmbOptimType(enum.Enum):
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
     ROWWISE_ADAGRAD = "row_wise_adagrad"
     ROWWISE_RMSPROP_AR = "row_wise_rmsprop_ar"
+    FTRL = "ftrl"
     SHAMPOO = "shampoo"  # not currently supported for sparse embedding tables
     SHAMPOO_V2 = "shampoo_v2"  # not currently supported for sparse embedding tables
     MADGRAD = "madgrad"
@@ -100,7 +101,11 @@ class EmbOptimType(enum.Enum):
             return ["momentum1"]
         elif self == EmbOptimType.ROWWISE_RMSPROP_AR:
             return ["momentum1", "prev_iter"]
-        elif self in [EmbOptimType.PARTIAL_ROWWISE_ADAM, EmbOptimType.ADAM]:
+        elif self in [
+            EmbOptimType.PARTIAL_ROWWISE_ADAM,
+            EmbOptimType.ADAM,
+            EmbOptimType.FTRL,
+        ]:
             return ["momentum1", "momentum2"]
         else:
             return []
@@ -116,7 +121,7 @@ class EmbOptimType(enum.Enum):
             return {"momentum1": 1, "prev_iter": 1}
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             return {"momentum1": D, "momentum2": 1}
-        elif self == EmbOptimType.ADAM:
+        elif self in (EmbOptimType.ADAM, EmbOptimType.FTRL):
             return {"momentum1": D, "momentum2": D}
         else:
             return {}
@@ -143,7 +148,7 @@ class EmbOptimType(enum.Enum):
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             return pad4(1 * momentum2_dtype.itemsize) + D * momentum1_dtype.itemsize
 
-        elif self == EmbOptimType.ADAM:
+        elif self in (EmbOptimType.ADAM, EmbOptimType.FTRL):
             return (D * momentum1_dtype.itemsize) + (D * momentum2_dtype.itemsize)
 
         else:
@@ -188,7 +193,7 @@ class EmbOptimType(enum.Enum):
                 ),
             }
 
-        elif self == EmbOptimType.ADAM:
+        elif self in (EmbOptimType.ADAM, EmbOptimType.FTRL):
             # momentum2 lies after momentum1
             p1 = p0 + (D * momentum1_dtype.itemsize)
 
@@ -273,6 +278,11 @@ class EmbOptimType(enum.Enum):
                 "momentum1": table_size_cumsum,
                 "momentum2": table_size_cumsum,
                 "row_counter": row_count_cumsum,
+            }
+        elif self == EmbOptimType.FTRL:
+            params = {
+                "momentum1": table_size_cumsum,
+                "momentum2": table_size_cumsum,
             }
         else:
             params = {}
