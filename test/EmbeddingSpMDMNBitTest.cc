@@ -71,9 +71,6 @@ class FusedNBitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
                                                 EmbeddingSpMDMDtypeChoice,
                                                 EmbeddingSpMDMKernelChoice>> {};
 
-using Int4NoBagKernel =
-    EmbeddingSpMDMKernelSignature<uint8_t, int64_t, int64_t, uint8_t>::Type;
-
 constexpr int64_t kInt4NoBagBlockSize = 100;
 constexpr int64_t kInt4NoBagPackedRowSize =
     (kInt4NoBagBlockSize + 1) / 2 + 2 * sizeof(float16);
@@ -83,24 +80,6 @@ constexpr int64_t kInt4NoBagInputStride =
      kInt4NoBagStorageAlignment) *
     kInt4NoBagStorageAlignment;
 
-Int4NoBagKernel makeInt4NoBagKernel(
-    const int64_t output_stride,
-    const int64_t input_stride) {
-  return GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
-      /*input_bit_rate=*/4,
-      /*block_size=*/kInt4NoBagBlockSize,
-      /*has_weight=*/false,
-      /*normalize_by_lengths=*/false,
-      /*prefetch=*/16,
-      /*is_weight_positional=*/false,
-      /*use_offsets=*/true,
-      output_stride,
-      input_stride,
-      /*scale_bias_last=*/true,
-      /*is_bf16_out=*/false,
-      /*no_bag=*/true,
-      /*output_bit_rate=*/4);
-}
 }; // namespace
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1323,43 +1302,58 @@ TEST(
 }
 
 TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4DropsInputRowPadding) {
+  constexpr int kBitRate = 4;
   constexpr int64_t kNumRows = 2;
+  constexpr int64_t kEmbeddingDim = 100;
   constexpr int64_t kOutputSize = 2;
+  constexpr int64_t kOutputStride = 54;
+  constexpr int64_t kInputStride = 56;
   constexpr int64_t kGuardSize = 16;
   constexpr uint8_t kCanary = 0xa5;
 
-  vector<uint8_t> table(kNumRows * kInt4NoBagInputStride);
+  vector<uint8_t> table(kNumRows * kInputStride);
   for (int64_t row = 0; row < kNumRows; ++row) {
-    for (int64_t col = 0; col < kInt4NoBagPackedRowSize; ++col) {
-      table[row * kInt4NoBagInputStride + col] =
-          static_cast<uint8_t>(row * kInt4NoBagInputStride + col);
+    for (int64_t col = 0; col < kOutputStride; ++col) {
+      table[row * kInputStride + col] =
+          static_cast<uint8_t>(row * kInputStride + col);
     }
     fill(
-        table.begin() + row * kInt4NoBagInputStride + kInt4NoBagPackedRowSize,
-        table.begin() + (row + 1) * kInt4NoBagInputStride,
+        table.begin() + row * kInputStride + kOutputStride,
+        table.begin() + (row + 1) * kInputStride,
         static_cast<uint8_t>(0xe0 + row));
   }
 
   const vector<int64_t> indices{1, 0};
   const vector<int64_t> offsets{0, 1, 2};
-  vector<uint8_t> output(
-      kOutputSize * kInt4NoBagInputStride + kGuardSize, kCanary);
+  vector<uint8_t> output(kOutputSize * kInputStride + kGuardSize, kCanary);
   vector<uint8_t> expected;
-  expected.reserve(kOutputSize * kInt4NoBagPackedRowSize);
+  expected.reserve(kOutputSize * kOutputStride);
   for (const auto idx : indices) {
     expected.insert(
         expected.end(),
-        table.begin() + idx * kInt4NoBagInputStride,
-        table.begin() + idx * kInt4NoBagInputStride + kInt4NoBagPackedRowSize);
+        table.begin() + idx * kInputStride,
+        table.begin() + idx * kInputStride + kOutputStride);
   }
 
-  for (const auto requested_output_stride :
-       {kInt4NoBagPackedRowSize, int64_t{-1}}) {
+  for (const auto requested_output_stride : {kOutputStride, int64_t{-1}}) {
     for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
       ScopedKernelOverride kernel_override(kernel_choice);
       fill(output.begin(), output.end(), kCanary);
       const auto kernel =
-          makeInt4NoBagKernel(requested_output_stride, kInt4NoBagInputStride);
+          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+              kBitRate,
+              kEmbeddingDim,
+              /*has_weight=*/false,
+              /*normalize_by_lengths=*/false,
+              /*prefetch=*/16,
+              /*is_weight_positional=*/false,
+              /*use_offsets=*/true,
+              /*output_stride=*/requested_output_stride,
+              /*input_stride=*/kInputStride,
+              /*scale_bias_last=*/true,
+              /*is_bf16_out=*/false,
+              /*no_bag=*/true,
+              /*output_bit_rate=*/kBitRate);
 
       ASSERT_TRUE(kernel(
           kOutputSize,
@@ -1372,13 +1366,12 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4DropsInputRowPadding) {
           output.data()));
 
       const vector<uint8_t> actual(
-          output.begin(),
-          output.begin() + kOutputSize * kInt4NoBagPackedRowSize);
+          output.begin(), output.begin() + kOutputSize * kOutputStride);
       EXPECT_EQ(actual, expected)
           << "kernel_choice=" << kernel_choice
           << ", requested_output_stride=" << requested_output_stride;
       EXPECT_TRUE(all_of(
-          output.begin() + kOutputSize * kInt4NoBagPackedRowSize,
+          output.begin() + kOutputSize * kOutputStride,
           output.end(),
           [canary = kCanary](uint8_t value) { return value == canary; }))
           << "kernel_choice=" << kernel_choice
@@ -1478,23 +1471,151 @@ TEST(
       "autovec");
 }
 
+TEST(
+    FusedNBitRowwiseEmbeddingLookupTest,
+    NoBagInt4NegativeDataSizeReturnsFalse) {
+  const vector<int64_t> indices{0};
+  const vector<int64_t> offsets{0, 1};
+  vector<uint8_t> table(kInt4NoBagInputStride);
+  vector<uint8_t> output(kInt4NoBagPackedRowSize);
+
+  EXPECT_FALSE((EmbeddingSpMDMNBit_ref<int64_t, int64_t, uint8_t>(
+      /*input_bit_rate=*/4,
+      /*block_size=*/kInt4NoBagBlockSize,
+      /*output_size=*/1,
+      indices.size(),
+      /*data_size=*/-1,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      /*weights=*/nullptr,
+      /*normalize_by_lengths=*/false,
+      output.data(),
+      /*is_weight_positional=*/false,
+      /*use_offsets=*/true,
+      /*output_stride=*/kInt4NoBagPackedRowSize,
+      /*input_stride=*/kInt4NoBagInputStride,
+      /*scale_bias_last=*/true,
+      /*is_bf16_out=*/false,
+      /*no_bag=*/true,
+      /*output_bit_rate=*/4)));
+
+  const auto autovec =
+      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, uint8_t>(
+          /*input_bit_rate=*/4,
+          /*block_size=*/kInt4NoBagBlockSize,
+          /*has_weight=*/false,
+          /*normalize_by_lengths=*/false,
+          /*prefetch=*/16,
+          /*is_weight_positional=*/false,
+          /*use_offsets=*/true,
+          /*output_stride=*/kInt4NoBagPackedRowSize,
+          /*input_stride=*/kInt4NoBagInputStride,
+          /*scale_bias_last=*/true,
+          /*is_bf16_out=*/false,
+          /*no_bag=*/true,
+          /*output_bit_rate=*/4);
+  EXPECT_FALSE(autovec(
+      /*output_size=*/1,
+      indices.size(),
+      /*data_size=*/-1,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      /*weights=*/nullptr,
+      output.data()));
+}
+
+TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagRejectsNonInt4FloatOutput) {
+  const vector<int64_t> indices{0};
+  const vector<int64_t> offsets{0, 1};
+  vector<uint8_t> table(kInt4NoBagInputStride);
+  vector<float> output(kInt4NoBagBlockSize);
+
+  const auto run_reference = [&]() {
+    return EmbeddingSpMDMNBit_ref<int64_t, int64_t, float>(
+        /*input_bit_rate=*/2,
+        /*block_size=*/kInt4NoBagBlockSize,
+        /*output_size=*/1,
+        indices.size(),
+        /*data_size=*/1,
+        table.data(),
+        indices.data(),
+        offsets.data(),
+        /*weights=*/nullptr,
+        /*normalize_by_lengths=*/false,
+        output.data(),
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/kInt4NoBagBlockSize,
+        /*input_stride=*/kInt4NoBagInputStride,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/false,
+        /*no_bag=*/true,
+        /*output_bit_rate=*/8 * sizeof(float));
+  };
+  EXPECT_THROW(run_reference(), std::exception);
+
+  const auto autovec =
+      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, float>(
+          /*input_bit_rate=*/2,
+          /*block_size=*/kInt4NoBagBlockSize,
+          /*has_weight=*/false,
+          /*normalize_by_lengths=*/false,
+          /*prefetch=*/16,
+          /*is_weight_positional=*/false,
+          /*use_offsets=*/true,
+          /*output_stride=*/kInt4NoBagBlockSize,
+          /*input_stride=*/kInt4NoBagInputStride,
+          /*scale_bias_last=*/true,
+          /*is_bf16_out=*/false,
+          /*no_bag=*/true,
+          /*output_bit_rate=*/8 * sizeof(float));
+  EXPECT_THROW(
+      autovec(
+          /*output_size=*/1,
+          indices.size(),
+          /*data_size=*/1,
+          table.data(),
+          indices.data(),
+          offsets.data(),
+          /*weights=*/nullptr,
+          output.data()),
+      std::exception);
+}
+
 TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4ZerosOutputPadding) {
-  constexpr int64_t kOutputPadding = 6;
-  constexpr int64_t kOutputStride = kInt4NoBagPackedRowSize + kOutputPadding;
+  constexpr int kBitRate = 4;
+  constexpr int64_t kEmbeddingDim = 100;
+  constexpr int64_t kPackedRowSize = 54;
+  constexpr int64_t kInputStride = 56;
+  constexpr int64_t kOutputStride = 60;
   constexpr uint8_t kCanary = 0xa5;
   const vector<int64_t> indices{0};
   const vector<int64_t> offsets{0, 1};
-  vector<uint8_t> table(kInt4NoBagInputStride, 0xe0);
-  iota(table.begin(), table.begin() + kInt4NoBagPackedRowSize, uint8_t{0});
+  vector<uint8_t> table(kInputStride, 0xe0);
+  iota(table.begin(), table.begin() + kPackedRowSize, uint8_t{0});
   vector<uint8_t> expected(kOutputStride, 0);
-  iota(
-      expected.begin(), expected.begin() + kInt4NoBagPackedRowSize, uint8_t{0});
+  iota(expected.begin(), expected.begin() + kPackedRowSize, uint8_t{0});
 
   for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
     ScopedKernelOverride kernel_override(kernel_choice);
     vector<uint8_t> output(kOutputStride, kCanary);
     const auto kernel =
-        makeInt4NoBagKernel(kOutputStride, kInt4NoBagInputStride);
+        GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+            kBitRate,
+            kEmbeddingDim,
+            /*has_weight=*/false,
+            /*normalize_by_lengths=*/false,
+            /*prefetch=*/16,
+            /*is_weight_positional=*/false,
+            /*use_offsets=*/true,
+            /*output_stride=*/kOutputStride,
+            /*input_stride=*/kInputStride,
+            /*scale_bias_last=*/true,
+            /*is_bf16_out=*/false,
+            /*no_bag=*/true,
+            /*output_bit_rate=*/kBitRate);
 
     ASSERT_TRUE(kernel(
         /*output_size=*/1,
@@ -1511,30 +1632,63 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4ZerosOutputPadding) {
 }
 
 TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4RejectsShortRowStrides) {
+  constexpr int kBitRate = 4;
+  constexpr int64_t kEmbeddingDim = 100;
+  constexpr int64_t kPackedRowSize = 54;
   const vector<int64_t> indices{0};
   const vector<int64_t> offsets{0, 1};
-  vector<uint8_t> table(kInt4NoBagPackedRowSize);
-  vector<uint8_t> output(kInt4NoBagPackedRowSize);
+  vector<uint8_t> table(kPackedRowSize);
+  vector<uint8_t> output(kPackedRowSize);
 
-  for (const auto [output_stride, input_stride] :
-       {pair{kInt4NoBagPackedRowSize, kInt4NoBagPackedRowSize - 1},
-        pair{kInt4NoBagPackedRowSize - 1, kInt4NoBagPackedRowSize}}) {
+  struct InvalidStrides {
+    int64_t output_stride;
+    int64_t input_stride;
+    const char* expected_message;
+  };
+  const vector<InvalidStrides> invalid_strides{
+      {kPackedRowSize, kPackedRowSize - 1, "input_stride=53"},
+      {kPackedRowSize - 1, kPackedRowSize, "output_stride=53"},
+  };
+
+  for (const auto& strides : invalid_strides) {
     for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
       ScopedKernelOverride kernel_override(kernel_choice);
-      const auto kernel = makeInt4NoBagKernel(output_stride, input_stride);
+      const auto kernel =
+          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+              kBitRate,
+              kEmbeddingDim,
+              /*has_weight=*/false,
+              /*normalize_by_lengths=*/false,
+              /*prefetch=*/16,
+              /*is_weight_positional=*/false,
+              /*use_offsets=*/true,
+              /*output_stride=*/strides.output_stride,
+              /*input_stride=*/strides.input_stride,
+              /*scale_bias_last=*/true,
+              /*is_bf16_out=*/false,
+              /*no_bag=*/true,
+              /*output_bit_rate=*/kBitRate);
 
-      EXPECT_FALSE(kernel(
-          /*output_size=*/1,
-          indices.size(),
-          /*data_size=*/1,
-          table.data(),
-          indices.data(),
-          offsets.data(),
-          nullptr,
-          output.data()))
-          << "kernel_choice=" << kernel_choice
-          << ", output_stride=" << output_stride
-          << ", input_stride=" << input_stride;
+      try {
+        kernel(
+            /*output_size=*/1,
+            indices.size(),
+            /*data_size=*/1,
+            table.data(),
+            indices.data(),
+            offsets.data(),
+            nullptr,
+            output.data());
+        FAIL() << "Expected invalid INT4 no-bag strides to fail";
+      } catch (const std::exception& error) {
+        const string message = error.what();
+        EXPECT_NE(message.find(strides.expected_message), string::npos)
+            << "kernel_choice=" << kernel_choice << ", error=" << message;
+        EXPECT_NE(message.find("packed_row_size=54"), string::npos)
+            << "kernel_choice=" << kernel_choice << ", error=" << message;
+        EXPECT_NE(message.find("block_size=100"), string::npos)
+            << "kernel_choice=" << kernel_choice << ", error=" << message;
+      }
     }
   }
 }

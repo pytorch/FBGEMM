@@ -1450,14 +1450,15 @@ bool EmbeddingSpMDMNBit_ref(
     output_bit_rate = 8 * sizeof(OutType);
   }
   nbit_embedding_sanity_check<OutType>(input_bit_rate, output_bit_rate, no_bag);
+  if (data_size < 0) {
+    return false;
+  }
   int num_elem_per_byte = 8 / input_bit_rate;
 
   if (output_stride == -1) {
-    if (no_bag && output_bit_rate == 4) {
-      output_stride = nbit_embedding_int4_row_size_in_bytes(block_size);
-    } else {
-      output_stride = block_size;
-    }
+    output_stride = no_bag && output_bit_rate == 4
+        ? nbit_embedding_int4_row_size_in_bytes(block_size)
+        : block_size;
   }
 
   // block_size is the number of elements and fused_block_size is the size of
@@ -1469,19 +1470,15 @@ bool EmbeddingSpMDMNBit_ref(
   }
 
   if (no_bag) {
-    // We currently only support int4 to int4 for sequential TBE in this nbit
-    // kernel. Note that assert() will be ignored in release mode, so we check
-    // here to double check and also avoid "unused variable" warning
-    if (input_bit_rate != 4 || output_bit_rate != 4) {
-      WARN_ONCE("no_bag is only supported for int4 to int4");
-      return false;
-    }
-    const int64_t packed_row_size =
-        nbit_embedding_int4_row_size_in_bytes(block_size);
-    if (!nbit_embedding_int4_validate_strides(
-            block_size, input_stride, output_stride)) {
-      return false;
-    }
+    const int64_t copy_size = nbit_embedding_no_bag_copy_size(
+        block_size,
+        output_size,
+        index_size,
+        output_stride,
+        input_stride,
+        input,
+        indices,
+        out);
     // This loop is not reference-only on x86: the asmjit nbit generator is
     // gated on !no_bag and the autovec one needs SVE2, so the sequence gather
     // lands here and this is its only chance to prefetch. Each iteration is one
@@ -1511,11 +1508,8 @@ bool EmbeddingSpMDMNBit_ref(
             prefetch_distance);
       }
       const uint8_t* input_row = input + input_stride * idx;
-      memcpy(out, input_row, sizeof(uint8_t) * packed_row_size);
-      memset(
-          out + packed_row_size,
-          0,
-          sizeof(uint8_t) * (output_stride - packed_row_size));
+      memcpy(out, input_row, sizeof(uint8_t) * copy_size);
+      memset(out + copy_size, 0, sizeof(uint8_t) * (output_stride - copy_size));
       out += output_stride;
     }
     return true;

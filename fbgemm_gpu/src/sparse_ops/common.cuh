@@ -117,6 +117,87 @@ inline bool is_debug_permute_enabled() {
   return enabled;
 }
 
+// Binary search for the row containing `target`, over a complete-cumsum offsets
+// array of `BT` rows. Used by the flat permute kernels to resolve their own row
+// span, which is cheaper than a separate pass plus the buffer its output needs.
+template <typename offsets_t>
+__device__ __forceinline__ int32_t find_row_for_element(
+    const offsets_t* __restrict__ output_offsets,
+    int32_t BT,
+    int64_t target) {
+  int32_t lo = 0;
+  int32_t hi = BT - 1;
+  while (lo < hi) {
+    const int32_t mid = (lo + hi + 1) >> 1;
+    if (static_cast<int64_t>(output_offsets[mid]) <= target) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo;
+}
+
+// Kernel-selection override read from `name`. Opt-in: unset keeps the existing
+// kernel, so hardware these were not tuned on is unaffected. `auto` hands the
+// choice to the caller's heuristic, a truthy value forces the new kernel on and
+// a falsy one forces it off. Forcing on lets an A/B isolate the kernel from the
+// threshold, and forcing off is the rollback that needs no rebuild. The
+// thresholds below were measured on GB300 only. Evaluated once and cached.
+enum class KernelOverride { kHeuristic, kForceOn, kForceOff };
+
+inline KernelOverride read_kernel_override(const char* name) {
+  const char* v = std::getenv(name);
+  if (v == nullptr || v[0] == '\0') {
+    return KernelOverride::kForceOff;
+  }
+  std::string val(v);
+  std::transform(val.begin(), val.end(), val.begin(), [](unsigned char c) {
+    return std::tolower(c);
+  });
+  if (val == "auto" || val == "heuristic") {
+    return KernelOverride::kHeuristic;
+  }
+  if (val == "1" || val == "true" || val == "yes" || val == "on") {
+    return KernelOverride::kForceOn;
+  }
+  if (val == "0" || val == "false" || val == "no" || val == "off") {
+    return KernelOverride::kForceOff;
+  }
+  TORCH_WARN(
+      "[fbgemm] ",
+      name,
+      "=\"",
+      v,
+      "\" is not a recognized value; keeping the existing kernel. Use one "
+      "of: auto/heuristic, 1/true/yes/on, 0/false/no/off.");
+  return KernelOverride::kForceOff;
+}
+
+// Applies the override to a heuristic decision.
+inline bool apply_kernel_override(KernelOverride override, bool heuristic) {
+  switch (override) {
+    case KernelOverride::kForceOn:
+      return true;
+    case KernelOverride::kForceOff:
+      return false;
+    default:
+      return heuristic;
+  }
+}
+
+inline bool is_flat_permute_2d_enabled(bool heuristic) {
+  static const KernelOverride override =
+      read_kernel_override("FBGEMM_FLAT_PERMUTE_2D");
+  return apply_kernel_override(override, heuristic);
+}
+
+inline bool is_flat_permute_1d_enabled(bool heuristic) {
+  static const KernelOverride override =
+      read_kernel_override("FBGEMM_FLAT_PERMUTE_1D");
+  return apply_kernel_override(override, heuristic);
+}
+
 // Stage 1: validate the raw inputs. permute indexes lengths / input_offsets, so
 // an out-of-range value would cause an out-of-bounds read; lengths must be
 // non-negative and indices must cover the full input sum.

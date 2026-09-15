@@ -8,6 +8,248 @@
 
 #include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <string>
+
+namespace {
+
+// FBGEMM_FLAT_BOUNDS_CHECK: opt-in, since the flat kernels were only tuned on
+// GB300. Unset keeps v1, `auto` leaves the heuristic in charge, truthy forces
+// the flat kernels on, falsy forces them off (rollback without a rebuild).
+enum class FlatOverride { kHeuristic, kOn, kOff };
+
+FlatOverride read_flat_override() {
+  const char* v = std::getenv("FBGEMM_FLAT_BOUNDS_CHECK");
+  if (v == nullptr || v[0] == '\0') {
+    return FlatOverride::kOff;
+  }
+  std::string val(v);
+  std::transform(val.begin(), val.end(), val.begin(), [](unsigned char c) {
+    return std::tolower(c);
+  });
+  if (val == "auto" || val == "heuristic") {
+    return FlatOverride::kHeuristic;
+  }
+  if (val == "1" || val == "true" || val == "yes" || val == "on") {
+    return FlatOverride::kOn;
+  }
+  if (val == "0" || val == "false" || val == "no" || val == "off") {
+    return FlatOverride::kOff;
+  }
+  TORCH_WARN(
+      "[fbgemm] FBGEMM_FLAT_BOUNDS_CHECK=\"",
+      v,
+      "\" is not recognized; keeping the existing kernel.");
+  return FlatOverride::kOff;
+}
+
+bool use_flat_bounds_check(bool heuristic) {
+  static const FlatOverride override = read_flat_override();
+  switch (override) {
+    case FlatOverride::kOn:
+      return true;
+    case FlatOverride::kOff:
+      return false;
+    default:
+      return heuristic;
+  }
+}
+
+} // namespace
+
+// Validates and clamps the per-row offsets, one thread per row. v1 spends a
+// whole warp per row on this and then loops the row's indices with that same
+// warp; splitting the two lets the index pass use a mapping that does not
+// depend on how many indices a row happens to hold.
+template <typename index_t, bool assert_only>
+__global__ void bounds_check_offsets_kernel(
+    int32_t total_B,
+    index_t num_indices,
+    index_t* __restrict__ offsets,
+    int64_t* __restrict__ warning,
+    bool warn) {
+  const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  if (b_t >= total_B) {
+    return;
+  }
+  index_t start = offsets[b_t];
+  index_t end = offsets[b_t + 1];
+  if constexpr (assert_only) {
+    // disable_offsets_adjustment turns the repair into a contract: v1 asserts
+    // the same three conditions and leaves offsets untouched.
+    CUDA_KERNEL_ASSERT(start >= 0 && "indices_start must be non-negative");
+    CUDA_KERNEL_ASSERT(
+        start <= end && "indices_start must not exceed indices_end");
+    CUDA_KERNEL_ASSERT(
+        end <= num_indices && "indices_end must not exceed num_indices");
+    return;
+  }
+  if (start < 0 || start > end || end > num_indices) {
+    if (warn && gpuAtomicIncrement(warning) == 0) {
+      printf(
+          "EmbeddingBoundsCheck: (at least one) Out of bounds access for "
+          "b_t: %d, indices_start: %lld, indices_end: %lld, num_indices: %lld. "
+          "Setting indices_start and indices_end within the range.\n",
+          static_cast<int32_t>(b_t),
+          static_cast<int64_t>(start),
+          static_cast<int64_t>(end),
+          static_cast<int64_t>(num_indices));
+    }
+    start = std::max(static_cast<index_t>(0), std::min(start, num_indices));
+    end = std::max(start, std::min(end, num_indices));
+    offsets[b_t] = start;
+    offsets[b_t + 1] = end;
+  }
+}
+
+namespace {
+// Locate the row owning `target` in a monotone offsets array of `n` rows.
+template <typename offsets_t>
+__device__ __forceinline__ int32_t
+find_row_for_element(const offsets_t* offsets, int32_t n, int64_t target) {
+  int32_t lo = 0;
+  int32_t hi = n - 1;
+  while (lo < hi) {
+    const int32_t mid = (lo + hi + 1) >> 1;
+    if (static_cast<int64_t>(offsets[mid]) <= target) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo;
+}
+
+} // namespace
+
+// Flat index check: each thread owns a contiguous run of indices rather than a
+// row, and the block stages the row boundaries and each row's table bound in
+// shared memory. At the production pooling of about one index per row the v1
+// mapping leaves 31 of 32 lanes idle and reaches 73 GB/s; a streaming read of
+// the same data runs at 6642 GB/s on GB300.
+template <int ELEMS_PER_THREAD, int SMEM_ROWS, typename index_t>
+__global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_flat(
+    const int64_t* __restrict__ rows_per_table,
+    index_t* __restrict__ indices,
+    const index_t* __restrict__ offsets,
+    int32_t total_B,
+    int32_t B,
+    index_t num_indices,
+    BoundsCheckMode bounds_check_mode,
+    int64_t* __restrict__ warning) {
+  __shared__ int64_t s_off[SMEM_ROWS + 1];
+  __shared__ int64_t s_bound[SMEM_ROWS];
+  __shared__ int32_t s_span[2];
+
+  const int64_t block_base =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x * ELEMS_PER_THREAD;
+  if (block_base >= static_cast<int64_t>(num_indices)) {
+    return;
+  }
+  // Resolve the block's row span here rather than in a separate pass: two
+  // binary searches per block is cheaper than an extra launch plus the
+  // allocation its output would need.
+  if (threadIdx.x == 0) {
+    const int64_t last_elem =
+        min(block_base + blockDim.x * ELEMS_PER_THREAD - 1,
+            static_cast<int64_t>(num_indices) - 1);
+#pragma unroll 1
+    for (int which = 0; which < 2; ++which) {
+      const int64_t target = which == 0 ? block_base : last_elem;
+      int32_t lo = 0;
+      int32_t hi = total_B - 1;
+      while (lo < hi) {
+        const int32_t mid = (lo + hi + 1) >> 1;
+        if (static_cast<int64_t>(offsets[mid]) <= target) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      s_span[which] = lo;
+    }
+  }
+  __syncthreads();
+  const int32_t row_lo = s_span[0];
+  const int32_t nrows = s_span[1] - row_lo + 1;
+  const bool use_smem = nrows <= SMEM_ROWS;
+
+  if (use_smem) {
+    for (auto r = static_cast<int32_t>(threadIdx.x); r <= nrows;
+         r += static_cast<int32_t>(blockDim.x)) {
+      const int32_t row = row_lo + r;
+      s_off[r] = (row <= total_B) ? static_cast<int64_t>(offsets[row])
+                                  : static_cast<int64_t>(num_indices);
+      if (r < nrows && row < total_B) {
+        s_bound[r] = rows_per_table[row / B];
+      }
+    }
+    __syncthreads();
+  }
+
+  const int64_t base =
+      block_base + static_cast<int64_t>(threadIdx.x) * ELEMS_PER_THREAD;
+  if (base >= static_cast<int64_t>(num_indices)) {
+    return;
+  }
+
+  int32_t r;
+  int64_t row_end;
+  int64_t bound;
+  if (use_smem) {
+    r = find_row_for_element(s_off, nrows, base);
+    row_end = s_off[r + 1];
+    bound = s_bound[r];
+  } else {
+    r = find_row_for_element(offsets, total_B, base);
+    row_end = (r + 1 <= total_B) ? static_cast<int64_t>(offsets[r + 1])
+                                 : static_cast<int64_t>(num_indices);
+    bound = rows_per_table[r / B];
+  }
+
+#pragma unroll
+  for (int e = 0; e < ELEMS_PER_THREAD; ++e) {
+    const int64_t i = base + e;
+    if (i >= static_cast<int64_t>(num_indices)) {
+      return;
+    }
+    if (i >= row_end) {
+      // Binary search rather than stepping row by row: a run of empty rows
+      // between two elements is unbounded, so a walk here costs O(rows) for a
+      // single thread whenever the length distribution is skewed.
+      if (use_smem) {
+        r = find_row_for_element(s_off, nrows, i);
+        row_end = s_off[r + 1];
+        bound = s_bound[r];
+      } else {
+        r = find_row_for_element(offsets, total_B, i);
+        row_end = (r + 1 <= total_B) ? static_cast<int64_t>(offsets[r + 1])
+                                     : static_cast<int64_t>(num_indices);
+        bound = rows_per_table[r / B];
+      }
+    }
+    const auto idx = indices[i];
+    // -1 marks a pruned row and is left alone, as in v1.
+    if (idx == -1) {
+      continue;
+    }
+    if (idx < 0 || static_cast<int64_t>(idx) >= bound) {
+      if (bounds_check_mode == BoundsCheckMode::WARNING &&
+          gpuAtomicIncrement(warning) == 0) {
+        printf(
+            "EmbeddingBoundsCheck: (at least one) Out of bounds access for "
+            "element %lld, idx: %lld, num_rows: %lld. Setting idx to zero.\n",
+            static_cast<int64_t>(i),
+            static_cast<int64_t>(idx),
+            static_cast<int64_t>(bound));
+      }
+      indices[i] = 0;
+    }
+  }
+}
+
 template <typename index_t, bool vbe>
 __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -222,6 +464,81 @@ void _bounds_check_indices_cuda_v1(
 
   constexpr size_t kNumThreads = 256;
   const auto max_B_ = vbe ? max_B : B;
+
+  // Flat path: one thread owns a contiguous run of indices instead of a warp
+  // owning a row, so the cost tracks indices rather than rows. Restricted to
+  // the plain configuration -- VBE needs the B_offsets row mapping, FATAL wants
+  // v1's asserts, and disable_offsets_adjustment changes the offsets contract.
+  const auto total_B_rows = static_cast<int32_t>(offsets.size(0) - 1);
+  const auto num_indices_host = indices.size(0);
+  const int64_t avg_segment_length =
+      (total_B_rows > 0) ? (num_indices_host / total_B_rows) : 0;
+  constexpr int64_t kFlatMaxAvgSegment = 24;
+  // disable_offsets_adjustment is on in production, so excluding it kept the
+  // flat path from ever running. It only changes what the offsets pass does -
+  // assert instead of repair - which the flat split expresses directly.
+  const bool flat_eligible = !vbe &&
+      bounds_check_mode != BoundsCheckMode::FATAL && total_B_rows > 0 &&
+      num_indices_host > 0 && B > 0;
+  constexpr int32_t kFlatElemsPerThread = 4;
+  constexpr int32_t kFlatSmemRows = 1024;
+  constexpr int32_t kFlatThreads = 256;
+  if (flat_eligible &&
+      use_flat_bounds_check(avg_segment_length <= kFlatMaxAvgSegment)) {
+    const int64_t elems_per_block =
+        static_cast<int64_t>(kFlatThreads) * kFlatElemsPerThread;
+    const int32_t num_blocks = static_cast<int32_t>(
+        (num_indices_host + elems_per_block - 1) / elems_per_block);
+    const bool warn = bounds_check_mode == BoundsCheckMode::WARNING;
+
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "bounds_check_indices_flat", [&] {
+          if (disable_offsets_adjustment) {
+            FBGEMM_LAUNCH_KERNEL(
+                (bounds_check_offsets_kernel<index_t, true>),
+                div_round_up(total_B_rows, 256),
+                256,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                total_B_rows,
+                static_cast<index_t>(num_indices_host),
+                offsets.data_ptr<index_t>(),
+                warning.data_ptr<int64_t>(),
+                warn);
+          } else {
+            FBGEMM_LAUNCH_KERNEL(
+                (bounds_check_offsets_kernel<index_t, false>),
+                div_round_up(total_B_rows, 256),
+                256,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                total_B_rows,
+                static_cast<index_t>(num_indices_host),
+                offsets.data_ptr<index_t>(),
+                warning.data_ptr<int64_t>(),
+                warn);
+          }
+
+          FBGEMM_LAUNCH_KERNEL(
+              (bounds_check_indices_kernel_flat<
+                  kFlatElemsPerThread,
+                  kFlatSmemRows,
+                  index_t>),
+              num_blocks,
+              kFlatThreads,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              rows_per_table.data_ptr<int64_t>(),
+              indices.data_ptr<index_t>(),
+              offsets.data_ptr<index_t>(),
+              total_B_rows,
+              static_cast<int32_t>(B),
+              static_cast<index_t>(num_indices_host),
+              bounds_check_mode,
+              warning.data_ptr<int64_t>());
+        });
+    return;
+  }
 
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "bounds_check_indices_cuda_v1", [&] {
