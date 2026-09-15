@@ -74,9 +74,9 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
         ({{ func_name }}<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly, PackedMode>), \
         utils::cuda::cap_grid_dim_x( \
             nbit::div_round_up(T * nbit::div_round_up(B, num_packed_bags * OutputRowsPerThread), kWarpsPerBlock), \
-            kWarpSize * kWarpsPerBlock, \
+            kWarpSizeHost() * kWarpsPerBlock, \
             at::cuda::getCurrentCUDAStream()), \
-        dim3(kWarpSize, kWarpsPerBlock), \
+        dim3(kWarpSizeHost(), kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream(), \
         PTA_B(dev_weights, uint8_t, 1, 64), \
