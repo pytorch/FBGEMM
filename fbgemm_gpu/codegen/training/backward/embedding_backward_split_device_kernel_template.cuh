@@ -12,7 +12,9 @@
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+namespace {
 using namespace fbgemm_gpu;
+}
 
 {#- /* These helper macros are only used by `compute_grad_sum` below, which is
     rendered multiple times  based on TBE config variants.
