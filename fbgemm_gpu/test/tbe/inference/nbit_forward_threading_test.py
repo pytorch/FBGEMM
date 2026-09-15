@@ -22,7 +22,12 @@ _WORKER: Optional[str] = os.environ.get("NBIT_THREADING_WORKER")
 
 
 def _run(
-    out_path: str, threads: Optional[int], tables_per_thread: Optional[int]
+    out_path: str,
+    threads: Optional[int],
+    tables_per_thread: Optional[int],
+    rows_per_thread: Optional[int] = None,
+    mode: str = "pooled",
+    row_parallelism: Optional[bool] = None,
 ) -> torch.Tensor:
     """Run the worker in a fresh process with the given threading env and load
     its forward output. The thread count is read once (cached) at the first
@@ -32,11 +37,27 @@ def _run(
     env = dict(os.environ)
     env.pop("FBGEMM_TBE_MAX_NUM_THREADS", None)
     env.pop("FBGEMM_TBE_MIN_TABLES_PER_THREAD", None)
+    env.pop("FBGEMM_TBE_MIN_ROWS_PER_THREAD", None)
+    env.pop("FBGEMM_NO_JK", None)
+    env.pop("FBGEMM_TBE_NOBAG_ROW_PARALLELISM", None)
+    # Stats collection forces the whole-table path, so it must not leak in from
+    # the ambient environment and silently skip the scheduler under test.
+    env.pop("FBGEMM_STATS_ENABLE", None)
     if threads is not None:
         env["FBGEMM_TBE_MAX_NUM_THREADS"] = str(threads)
     if tables_per_thread is not None:
         env["FBGEMM_TBE_MIN_TABLES_PER_THREAD"] = str(tables_per_thread)
-    subprocess.run([worker, out_path], env=env, check=True)
+    if rows_per_thread is not None:
+        env["FBGEMM_TBE_MIN_ROWS_PER_THREAD"] = str(rows_per_thread)
+    if row_parallelism is not None:
+        # TBE_NOBAG_ROW_PARALLELISM resolves through JK in fbcode and through
+        # an (absent, hence false) env var in OSS, so left alone it makes
+        # coverage depend on live JK state. FBGEMM_NO_JK=1 switches the gate to
+        # env-only lookup so the value below is what the worker actually gets;
+        # the worker asserts that it took effect.
+        env["FBGEMM_NO_JK"] = "1"
+        env["FBGEMM_TBE_NOBAG_ROW_PARALLELISM"] = "1" if row_parallelism else "0"
+    subprocess.run([worker, out_path, mode], env=env, check=True)
     return torch.load(out_path)
 
 
@@ -71,6 +92,72 @@ class NBitForwardThreadingTest(unittest.TestCase):
                     torch.equal(out, base),
                     f"{name} output differs from single_thread (threading changed the result)",
                 )
+
+    def _assert_row_chunking_is_bitwise_identical(self, mode: str) -> None:
+        # NOBAG splits a table's ROW RANGE across threads, not just whole
+        # tables. The workload is deliberately skewed (one table holds ~85% of
+        # the lookups) so table-level parallelism is nearly useless and the
+        # chunked scheduler is genuinely exercised.
+        #
+        # Outputs must still be BITWISE identical: in NOBAG each output row is
+        # an independent gather (memcpy of one weight row) writing a disjoint
+        # output slice, so there is no cross-thread reduction and no
+        # floating-point reordering, regardless of how the rows are partitioned.
+        #
+        # Config is (MAX_NUM_THREADS, MIN_TABLES_PER_THREAD, MIN_ROWS_PER_THREAD,
+        # TBE_NOBAG_ROW_PARALLELISM). The gate is pinned explicitly on every arm
+        # so the chunked scheduler is guaranteed to run rather than depending on
+        # live JK state; `gate_off_8T` is the old whole-table path, which the
+        # chunked arms must match bit for bit.
+        configs = {
+            "single_thread": (1, None, None, True),
+            "default_no_env": (None, None, None, True),  # serial: cap is 1
+            "gate_off_8T": (8, 1, None, False),
+            "2T_rows": (2, 1, 1, True),
+            "4T_rows": (4, 1, 1, True),
+            "8T_rows": (8, 1, 1, True),
+            # A grain so small that the dominant table is split many ways.
+            "8T_fine": (8, 1, 1024, True),
+            # Rows-per-thread above the total row count -> falls back to serial
+            # even though a thread cap is set.
+            "8T_below_onset": (8, 1, 10_000_000, True),
+        }
+        with tempfile.TemporaryDirectory() as d:
+            outputs = {
+                name: _run(
+                    os.path.join(d, f"{mode}_{name}.pt"),
+                    thr,
+                    tpt,
+                    rpt,
+                    mode=mode,
+                    row_parallelism=gate,
+                )
+                for name, (thr, tpt, rpt, gate) in configs.items()
+            }
+            base = outputs["single_thread"]
+            self.assertGreater(base.numel(), 0, f"{mode}: reference output is empty")
+            for name, out in outputs.items():
+                self.assertEqual(
+                    out.shape, base.shape, f"{mode}/{name}: shape mismatch"
+                )
+                self.assertTrue(
+                    torch.equal(out, base),
+                    f"{mode}/{name} output differs from single_thread "
+                    "(row chunking changed the result)",
+                )
+
+    def test_row_chunking_does_not_change_result(self) -> None:
+        # INT4 output: the NOBAG fast path ignores offsets entirely.
+        self._assert_row_chunking_is_bitwise_identical("nobag_skewed")
+
+    def test_row_chunking_fp16_output_does_not_change_result(self) -> None:
+        # FP16 output consumes the synthesised unit-stride chunk offsets, so
+        # this exercises the offset/index/output rebasing the INT4 path skips.
+        self._assert_row_chunking_is_bitwise_identical("nobag_fp16")
+
+    def test_row_chunking_int64_offsets_does_not_change_result(self) -> None:
+        # int64 indices/offsets hit the other generated kernel instantiation.
+        self._assert_row_chunking_is_bitwise_identical("nobag_fp16_int64")
 
 
 if __name__ == "__main__":
