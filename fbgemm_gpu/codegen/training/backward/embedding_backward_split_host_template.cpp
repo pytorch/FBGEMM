@@ -16,7 +16,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
-#include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/warp_size.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 
 using Tensor = at::Tensor;
