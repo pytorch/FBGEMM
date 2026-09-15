@@ -824,6 +824,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if bounds_check_mode not in (
             BoundsCheckMode.IGNORE,
             BoundsCheckMode.WARNING,
+            BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
             BoundsCheckMode.FATAL,
             BoundsCheckMode.NONE,
         ):

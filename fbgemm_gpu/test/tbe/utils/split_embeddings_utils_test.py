@@ -128,6 +128,95 @@ def transpose_embedding_input_ref(
 
 
 class SplitEmbeddingsUtilsTest(unittest.TestCase):
+    def test_bounds_check_allows_trailing_indices(self) -> None:
+        devices = ["cpu"]
+        if torch.cuda.is_available():
+            devices.append("cuda")
+
+        for device in devices:
+            for bounds_check_version in (1, 2):
+                with self.subTest(
+                    device=device, bounds_check_version=bounds_check_version
+                ):
+                    rows_per_table = torch.tensor(
+                        [10], device=device, dtype=torch.int64
+                    )
+                    indices = torch.tensor(
+                        [1, 2, -1, -1], device=device, dtype=torch.int32
+                    )
+                    offsets = torch.tensor([0, 2], device=device, dtype=torch.int32)
+                    warning = torch.zeros(1, device=device, dtype=torch.int64)
+
+                    torch.ops.fbgemm.bounds_check_indices(
+                        rows_per_table,
+                        indices,
+                        offsets,
+                        BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
+                        warning,
+                        bounds_check_version=bounds_check_version,
+                    )
+
+                    torch.testing.assert_close(
+                        offsets,
+                        torch.tensor([0, 2], device=device, dtype=torch.int32),
+                    )
+                    self.assertEqual(warning.item(), 0)
+
+                    invalid_indices = torch.tensor(
+                        [1, 20, -1, -1], device=device, dtype=torch.int32
+                    )
+                    valid_prefix_offsets = torch.tensor(
+                        [0, 2], device=device, dtype=torch.int32
+                    )
+                    torch.ops.fbgemm.bounds_check_indices(
+                        rows_per_table,
+                        invalid_indices,
+                        valid_prefix_offsets,
+                        BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
+                        warning,
+                        bounds_check_version=bounds_check_version,
+                    )
+                    torch.testing.assert_close(
+                        invalid_indices,
+                        torch.tensor([1, 0, -1, -1], device=device, dtype=torch.int32),
+                    )
+                    self.assertGreater(warning.item(), 0)
+
+                    if device == "cpu":
+                        regular_offsets = torch.tensor(
+                            [0, 2], device=device, dtype=torch.int32
+                        )
+                        torch.ops.fbgemm.bounds_check_indices(
+                            rows_per_table,
+                            indices,
+                            regular_offsets,
+                            BoundsCheckMode.WARNING,
+                            warning,
+                            bounds_check_version=bounds_check_version,
+                        )
+                        torch.testing.assert_close(
+                            regular_offsets,
+                            torch.tensor([0, 4], device=device, dtype=torch.int32),
+                        )
+                        self.assertGreater(warning.item(), 0)
+
+                        oversized_offsets = torch.tensor(
+                            [0, 5], device=device, dtype=torch.int32
+                        )
+                        torch.ops.fbgemm.bounds_check_indices(
+                            rows_per_table,
+                            indices,
+                            oversized_offsets,
+                            BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
+                            warning,
+                            bounds_check_version=bounds_check_version,
+                        )
+                        torch.testing.assert_close(
+                            oversized_offsets,
+                            torch.tensor([0, 4], device=device, dtype=torch.int32),
+                        )
+                        self.assertGreater(warning.item(), 0)
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=10, max_value=25),
