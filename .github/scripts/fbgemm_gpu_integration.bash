@@ -27,7 +27,7 @@ integration_setup_conda_environment_base () {
   #   COMPILER         - Compiler to use (gcc or clang)
   #   PYTHON_VERSION   - Python version to install (e.g., 3.12)
   #   VARIANT_TYPE     - Build variant type: cuda, rocm, or cpu
-  #   VARIANT_VERSION  - Version of the variant (e.g., 13.0.2 for CUDA, 7.0 for ROCm, "none" for CPU)
+  #   VARIANT_VERSION  - Version of the variant (e.g., 13.0.2 for CUDA, 10.0 for ROCm, "none" for CPU)
   #
   local env_name="$1"
   local compiler="$2"
@@ -38,7 +38,7 @@ integration_setup_conda_environment_base () {
     echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION VARIANT_TYPE VARIANT_VERSION"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env gcc 3.12 cuda 13.0.2   # Setup environment for GCC + Python 3.12 + CUDA 13.0.2"
-    echo "    ${FUNCNAME[0]} build_env gcc 3.12 rocm 7.0      # Setup environment for GCC + Python 3.12 + ROCm 7.0"
+    echo "    ${FUNCNAME[0]} build_env gcc 3.12 rocm 10.0     # Setup environment for GCC + Python 3.12 + ROCm 10.0"
     echo "    ${FUNCNAME[0]} build_env gcc 3.12 cpu none      # Setup environment for GCC + Python 3.12 (CPU only)"
     return 1
   else
@@ -91,7 +91,7 @@ integration_setup_conda_environment () {
   #   COMPILER                       - Compiler to use (gcc or clang)
   #   PYTHON_VERSION                 - Python version to install (e.g., 3.12)
   #   PYTORCH_CHANNEL_VERSION        - PyTorch channel/version (e.g., nightly, test/2.1.0)
-  #   PYTORCH_VARIANT_TYPE_VERSION   - Variant type/version (e.g., cuda/13.0.2, rocm/7.0)
+  #   PYTORCH_VARIANT_TYPE_VERSION   - Variant type/version (e.g., cuda/13.0.2, rocm/10.0)
   #   PYTORCH_INSTALLER              - Installer to use: pip or conda (default: pip)
   #
   local env_name="$1"
@@ -104,7 +104,7 @@ integration_setup_conda_environment () {
     echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION PYTORCH_CHANNEL[/VERSION] PYTORCH_VARIANT_TYPE/PYTORCH_VARIANT_VERSION [PYTORCH_INSTALLER]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env clang 3.14 test/1.0.0 cuda/12.8.1        # Setup environment with pytorch-test 1.0.0 for Clang + Python 3.14 + CUDA 12.8.1"
-    echo "    ${FUNCNAME[0]} build_env gcc 3.12 nightly rocm/7.0 pip            # Setup environment with pytorch-nightly for GCC + Python 3.12 + ROCm 7.0"
+    echo "    ${FUNCNAME[0]} build_env gcc 3.12 nightly rocm/10.0 pip           # Setup environment with pytorch-nightly for GCC + Python 3.12 + ROCm 10.0"
     return 1
   else
     echo "################################################################################"
@@ -293,8 +293,8 @@ integration_fbgemm_gpu_install_matrix_run () {
     )
   elif [ "$variant_type" == "rocm" ]; then
     local variant_versions=(
-      7.0
-      7.1
+      7.14
+      10.0
     )
   elif [ "$variant_type" == "cpu" ]; then
     local variant_versions=(
