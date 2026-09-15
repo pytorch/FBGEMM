@@ -13,6 +13,8 @@
 #include <cstdlib>
 #include <string>
 
+using namespace fbgemm_gpu;
+
 namespace {
 
 // FBGEMM_FLAT_BOUNDS_CHECK: opt-in, since the flat kernels were only tuned on
@@ -249,7 +251,6 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_flat(
     }
   }
 }
-
 template <typename index_t, bool vbe>
 __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>

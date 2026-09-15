@@ -9,6 +9,8 @@
 #include <algorithm>
 #include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
+using namespace fbgemm_gpu;
+
 template <typename index_t, bool vbe, BoundsCheckMode bounds_check_mode>
 __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>

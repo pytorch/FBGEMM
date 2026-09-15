@@ -15,7 +15,6 @@
 #include <c10/cuda/CUDAException.h>
 
 using Tensor = at::Tensor;
-using namespace fbgemm_gpu;
 
 template <typename index_t>
 __device__ void adjust_offset_kernel(
