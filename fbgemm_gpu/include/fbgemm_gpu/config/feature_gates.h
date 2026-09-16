@@ -67,7 +67,8 @@ namespace fbgemm_gpu::config {
   X(TBE_USE_TUNED_SEGMENT_LENGTHS_CTA_B200) \
   X(BUCKETIZED_PERMUTE_WARP_KERNEL)         \
   X(DISABLE_OFFSETS_ADJUSTMENT)             \
-  X(TBE_GWD_PREV_ITER_INT64)
+  X(TBE_GWD_PREV_ITER_INT64)                \
+  X(TBE_NOBAG_ROW_PARALLELISM)
 // X(EXAMPLE_FEATURE_FLAG)
 
 /// @ingroup fbgemm-gpu-config
