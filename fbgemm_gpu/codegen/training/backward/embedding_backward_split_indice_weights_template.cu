@@ -549,6 +549,8 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
             {%- else %}
             const auto& grad_output_reshaped = aligned_grad_output;
             {%- endif %}
+            const auto warp_size = kWarpSizeHost();
+            const auto warps_per_block = kForwardMaxThreads / warp_size;
 
             {%- for use_vec_blocking in [False, True] %}
             {%- set vbdesc = "vec_blocking_" if use_vec_blocking else "" %}
@@ -566,10 +568,10 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                         index_t,
                         kFixedMaxVecsPerThread>),
                     utils::cuda::cap_grid_dim_x(
-                        div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                        div_round_up(total_B, warps_per_block),
                         kForwardMaxThreads,
                         at::cuda::getCurrentCUDAStream()),
-                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    dim3(warp_size, warps_per_block),
                     0,
                     at::cuda::getCurrentCUDAStream(),
                     PTA_B(grad_output_reshaped, grad_t, 2, 64),
