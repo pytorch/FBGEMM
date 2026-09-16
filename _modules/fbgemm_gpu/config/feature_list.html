@@ -534,6 +534,9 @@
     <span class="c1"># Gate the in-place FP16 clamp fast path in fp32_to_fp16_with_clamp</span>
     <span class="n">FP16_COMM_INPLACE_CLAMP</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
+    <span class="c1"># Parallelise the CPU NOBAG inference TBE over row ranges, not whole tables</span>
+    <span class="n">TBE_NOBAG_ROW_PARALLELISM</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
 
