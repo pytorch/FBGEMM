@@ -26,6 +26,9 @@ namespace fbgemm_gpu {
 ///
 /// Exactly one of `data_f32` / `data_i64` is valid, named by `is_int64`.
 struct PrevIterRef {
+  /// The largest integer float32 represents exactly.
+  static constexpr float kMaxExactFloat = 16777216.0f; // 2^24
+
   const float* __restrict__ data_f32;
   int64_t* __restrict__ data_i64;
   int64_t size;
@@ -47,7 +50,8 @@ struct PrevIterRef {
   /// predates int64 support. It computes the gap in float, which rounds `iter`
   /// once it exceeds 2^24 -- that rounding is precisely the bug int64 fixes,
   /// so reproducing it here is what makes opting into int64 the only thing
-  /// that can change a model's results.
+  /// that can change a model's results. `warn_if_prev_iter_inexact` reports
+  /// when a lookup crosses that point; nothing here changes as a result.
   __device__ inline float gwd(
       const int64_t idx,
       const int64_t iter,
@@ -94,6 +98,38 @@ struct PrevIterRef {
 #endif
   }
 };
+
+/// Warn once when a float32 `prev_iter` can no longer record the iteration
+/// exactly. Past 2^24 both the stored value and the `iter` that `gwd`
+/// subtracts it from are rounded, so the elapsed-step count -- and the decay
+/// derived from it -- drifts.
+///
+/// Keyed on `iter` rather than on the buffer, for two reasons: reading the
+/// buffer would mean a device-to-host sync, and a rounded entry is not
+/// identifiable once stored anyway -- 2^24 + 1 rounds back down to 2^24 and
+/// reads back looking legitimate. `iter` is still exact here, so it flags the
+/// whole region from the first affected step.
+///
+/// Purely diagnostic: an undefined `prev_iter` is left for
+/// `make_prev_iter_ref` to report, so this never becomes the first failure.
+inline void warn_if_prev_iter_inexact(
+    const at::Tensor& prev_iter_dev,
+    const int64_t iter) {
+  constexpr auto kMaxExactIter =
+      static_cast<int64_t>(PrevIterRef::kMaxExactFloat);
+  if (prev_iter_dev.defined() && prev_iter_dev.scalar_type() == at::kFloat &&
+      iter > kMaxExactIter) {
+    TORCH_WARN_ONCE(
+        "Global weight decay is at iteration ",
+        iter,
+        ", past the ",
+        kMaxExactIter,
+        " that float32 represents exactly: a float32 prev_iter will store an "
+        "inaccurate number, which could lead to wrong decay. Set "
+        "GlobalWeightDecayDefinition.use_int64_prev_iter=True, or enable the "
+        "TBE_GWD_PREV_ITER_INT64 feature gate.");
+  }
+}
 
 /// Build a `PrevIterRef` over `prev_iter_dev`, which must be float32 or int64.
 inline PrevIterRef make_prev_iter_ref(const at::Tensor& prev_iter_dev) {
