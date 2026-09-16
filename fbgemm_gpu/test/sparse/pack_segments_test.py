@@ -283,6 +283,77 @@ class PackedSegmentsTest(unittest.TestCase):
         self.assertEqual(tuple(actual.shape), (3, 5, 4))
         self.assertTrue(torch.equal(actual, torch.zeros_like(actual)))
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_pack_segments_fused_prefix_dispatch(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        max_length = 4
+        cell_size = 4
+
+        for num_seq in (35, 128, 129, 256, 257, 8192, 8193):
+            for lengths_dtype in (torch.int32, torch.int64):
+                with self.subTest(num_seq=num_seq, lengths_dtype=lengths_dtype):
+                    length_values = [i % (max_length + 1) for i in range(num_seq)]
+                    total_length = sum(length_values)
+                    lengths_cpu = torch.tensor(length_values, dtype=lengths_dtype)
+                    input_cpu = torch.arange(
+                        total_length * cell_size,
+                        dtype=torch.float32,
+                    ).reshape(total_length, cell_size)
+                    expected = torch.ops.fbgemm.pack_segments(
+                        input_cpu,
+                        lengths_cpu,
+                        max_length,
+                    )
+
+                    lengths_device = torch.tensor(
+                        length_values, dtype=lengths_dtype, device=device
+                    )
+                    input_device = torch.arange(
+                        total_length * cell_size,
+                        dtype=torch.float32,
+                        device=device,
+                    ).reshape(total_length, cell_size)
+                    actual = torch.ops.fbgemm.pack_segments(
+                        input_device,
+                        lengths_device,
+                        max_length,
+                    )
+
+                    self.assertTrue(torch.equal(expected, actual.cpu()))
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_pack_segments_fused_prefix_vectorized_dispatch(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        num_seq = 35
+        max_length = 4
+        length_values = [i % (max_length + 1) for i in range(num_seq)]
+        total_length = sum(length_values)
+
+        for vector_bits, cell_size in ((128, 4096), (64, 4092), (32, 4094)):
+            with self.subTest(vector_bits=vector_bits):
+                lengths_cpu = torch.tensor(length_values, dtype=torch.int64)
+                input_cpu = (
+                    torch.arange(total_length * cell_size, dtype=torch.int32)
+                    .remainder(1024)
+                    .to(torch.float16)
+                    .reshape(total_length, cell_size)
+                )
+                expected = torch.ops.fbgemm.pack_segments(
+                    input_cpu,
+                    lengths_cpu,
+                    max_length,
+                )
+
+                lengths_device = lengths_cpu.to(device)
+                input_device = input_cpu.to(device)
+                actual = torch.ops.fbgemm.pack_segments(
+                    input_device,
+                    lengths_device,
+                    max_length,
+                )
+
+                self.assertTrue(torch.equal(expected, actual.cpu()))
+
     @given(
         n=st.integers(2, 10),
         k=st.integers(2, 10),
@@ -414,9 +485,10 @@ class PackedSegmentsTest(unittest.TestCase):
         """
 
         input_raw = np.random.rand(batch_size, n, k)
+        # Citrine C3: create directly on the target device.
         input_data = torch.tensor(
-            input_raw, dtype=torch.float32, requires_grad=True
-        ).to("meta")
+            input_raw, dtype=torch.float32, requires_grad=True, device="meta"
+        )
         lengths = torch.tensor(
             get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
         )
@@ -489,12 +561,18 @@ class PackedSegmentsTest(unittest.TestCase):
             None
         """
 
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
         input_raw = np.random.rand(batch_size, n, k)
         # create input
         input_data_ref = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
-        input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True).cuda()
+        # Citrine C3: create directly on the target device.
+        input_data = torch.tensor(
+            input_raw, dtype=dtype, requires_grad=True, device=device
+        )
         input_data_ref_v2 = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
-        input_data_v2 = torch.tensor(input_raw, dtype=dtype, requires_grad=True).cuda()
+        input_data_v2 = torch.tensor(
+            input_raw, dtype=dtype, requires_grad=True, device=device
+        )
         # retain grad to compare gradients of the inputs later
         input_data.retain_grad()
         input_data_ref.retain_grad()
@@ -682,8 +760,7 @@ class PackedSegmentsTest(unittest.TestCase):
     )
     def test_pack_segments_large_grid(self) -> None:
         """
-        Reproduces the HIP grid-overflow bug in pack_segments_cuda{,_v2}
-        and verifies output correctness via a downsampled CPU oracle.
+        Reproduces the HIP grid-overflow bug in pack_segments_cuda{,_v2}.
 
         With block size 128, the launch grid is
         cuda_calc_xblock_count(num_seq * max_length * cell_size, 128).
@@ -695,27 +772,16 @@ class PackedSegmentsTest(unittest.TestCase):
         CUDA_KERNEL_LOOP) and pack_segments_cuda_v2_kernel (uses
         CUDA_KERNEL_LOOP_TYPE) already grid-stride, so capping the grid
         is correctness-preserving for the launcher.
-
-        Verification strategy (per master plan's downsampled-oracle
-        guidance for ops where the full-scale CPU oracle is impractical):
-
-        1. Full-scale invocation of v1 and v2 to verify the launch
-           survives the production cap. Only shape is asserted because
-           v1 uses ``CUDA_KERNEL_LOOP`` with an int32 loop index, which
-           overflows for output linear indices >= 2**31; element-wise
-           comparison would surface this pre-existing kernel bug, which
-           is out of scope for this diff (the diff only caps the grid).
-        2. Small-scale invocation of v1 and v2 vs CPU dispatch to
-           validate kernel correctness end-to-end at a scale where the
-           int32 loop index does not overflow. This catches kernel
-           correctness regressions introduced by the cap fix.
         """
+
+        if torch.version.hip is None:
+            self.skipTest("2**32 grid-overflow repro is ROCm-specific")
 
         # Choose num_seq * max_length so that total threads strictly
         # exceeds 2**32. With cell_size=1: total threads ~= num_seq *
         # max_length; need product > 2**32.
-        num_seq = 2
-        max_length = (1 << 31) + 1
+        num_seq = 8193
+        max_length = (1 << 32) // num_seq + 1
 
         device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
@@ -731,17 +797,23 @@ class PackedSegmentsTest(unittest.TestCase):
             t_in_large, lengths_large, max_length
         )
         self.assertEqual(packed_v1.shape, (num_seq, max_length))
+        self.assertEqual(packed_v1[-1, 0].item(), 3.5)
+        self.assertEqual(packed_v1[-1, -1].item(), 0)
         del packed_v1
 
         packed_v2, _ = torch.ops.fbgemm.pack_segments_v2(
             t_in_large, lengths_large, max_length
         )
         self.assertEqual(packed_v2.shape, (num_seq, max_length))
+        self.assertEqual(packed_v2[-1, 0].item(), 3.5)
+        self.assertEqual(packed_v2[-1, -1].item(), 0)
         del packed_v2
 
-        # ---- Step 2: downsampled CPU-oracle correctness check. ----
-        # Same kernel code path, smaller scale to keep the int32 loop
-        # index of v1 in range and the CPU oracle cheap.
+    @unittest.skipIf(*gpu_unavailable)
+    def test_pack_segments_small_cpu_oracle(self) -> None:
+        """Validates v1 and v2 GPU results against a small CPU oracle."""
+
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
         small_max_length = 16
         small_lengths_cpu = torch.tensor([0, 3, 0, 2], dtype=torch.int32)
         # Total non-zero lengths = 5; t_in is a sequence of distinct
@@ -773,12 +845,10 @@ class PackedSegmentsTest(unittest.TestCase):
 
 
 # The opcheck harness (generate_opcheck_tests) re-executes the op for each
-# generated variant. test_pack_segments_large_grid deliberately drives
-# max_length = 2**31 + 1 (an ~8 GiB fp16 output) to exercise the HIP grid cap,
-# and intentionally asserts shape only at full scale because v1's
-# CUDA_KERNEL_LOOP uses an int32 index that overflows past 2**31. Re-running the
-# op in the generated variants hits that overflow -> illegal memory access ->
-# FATAL crash (not catchable by xfail), so skip opcheck for this stress test.
+# generated variant. test_pack_segments_large_grid deliberately creates more
+# than 2**32 output elements, which allocates an ~8 GiB fp16 output. Re-running
+# the operation for the generated variants multiplies the peak memory
+# requirement, so skip opcheck for this stress test.
 # T191384137
 _LARGE_GRID_SKIP: list[Callable[..., Any]] = [
     unittest.skip("large-grid stress test is incompatible with opcheck re-execution")

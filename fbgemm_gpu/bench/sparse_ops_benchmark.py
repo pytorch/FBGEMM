@@ -2151,5 +2151,124 @@ def block_bucketize_sparse_features_bench(
         )
 
 
+@cli.command("pack-segments")
+@click.option("--num-segments", default=35, type=click.IntRange(min=1))
+@click.option("--segment-length", default=62, type=click.IntRange(min=1))
+@click.option("--max-length", default=100, type=click.IntRange(min=1))
+@click.option("--num-segments-sweep", default="")
+@click.option("--segment-shapes-sweep", default="")
+@click.option("--cell-size", default=128, type=click.IntRange(min=1))
+@click.option(
+    "--data-type", type=click.Choice(["float", "half", "bfloat16"]), default="float"
+)
+@click.option("--length-type", type=click.Choice(["int", "long"]), default="long")
+@click.option("--warmups", default=1000, type=click.IntRange(min=0))
+@click.option("--iterations", default=20000, type=click.IntRange(min=1))
+@click.option("--flush-gpu-cache-size-mb", default=0, type=click.IntRange(min=0))
+def pack_segments_bench(
+    num_segments: int,
+    segment_length: int,
+    max_length: int,
+    num_segments_sweep: str,
+    segment_shapes_sweep: str,
+    cell_size: int,
+    data_type: str,
+    length_type: str,
+    warmups: int,
+    iterations: int,
+    flush_gpu_cache_size_mb: int,
+) -> None:
+    if not torch.cuda.is_available():
+        raise click.UsageError("pack-segments requires a CUDA or ROCm device")
+
+    device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+    device_properties = torch.cuda.get_device_properties(device)
+    gpu_arch = getattr(device_properties, "gcnArchName", "unknown")
+    num_segments_values = (
+        [int(value) for value in num_segments_sweep.split(",")]
+        if num_segments_sweep
+        else [num_segments]
+    )
+    segment_shapes = (
+        [
+            tuple(int(value) for value in shape.split(":"))
+            for shape in segment_shapes_sweep.split(",")
+        ]
+        if segment_shapes_sweep
+        else [(segment_length, max_length)]
+    )
+    if any(len(shape) != 2 for shape in segment_shapes):
+        raise click.BadParameter(
+            "expected comma-separated segment_length:max_length pairs",
+            param_hint="--segment-shapes-sweep",
+        )
+    data_dtype = {
+        "float": torch.float32,
+        "half": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }[data_type]
+    length_dtype = {"int": torch.int32, "long": torch.int64}[length_type]
+    for current_num_segments in num_segments_values:
+        for current_segment_length, current_max_length in segment_shapes:
+            lengths = torch.full(
+                (current_num_segments,),
+                current_segment_length,
+                dtype=length_dtype,
+                device=device,
+            )
+            t_input = torch.randn(
+                current_num_segments * current_segment_length,
+                cell_size,
+                dtype=data_dtype,
+                device=device,
+            )
+
+            def run(
+                t_input: torch.Tensor = t_input,
+                lengths: torch.Tensor = lengths,
+                current_max_length: int = current_max_length,
+            ) -> torch.Tensor:
+                return torch.ops.fbgemm.pack_segments(
+                    t_input, lengths, current_max_length
+                )
+
+            with torch.inference_mode():
+                elapsed, output = benchmark_torch_function(
+                    run,
+                    (),
+                    flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                    num_warmups=warmups,
+                    iters=iterations,
+                    device=str(device),
+                    name="pack_segments",
+                )
+
+            input_elements_read = (
+                current_num_segments
+                * min(current_segment_length, current_max_length)
+                * cell_size
+            )
+            logical_bytes = (
+                input_elements_read * t_input.element_size()
+                + output.numel() * output.element_size()
+            )
+            logger.info(
+                "pack_segments: %.3f us, %.3f GB/s, device=%s, arch=%s, "
+                "num_segments=%d, segment_length=%d, max_length=%d, cell_size=%d, "
+                "data_type=%s, length_type=%s, flush_gpu_cache_size_mb=%d",
+                elapsed * 1e6,
+                logical_bytes / elapsed / 1e9,
+                torch.cuda.get_device_name(device),
+                gpu_arch,
+                current_num_segments,
+                current_segment_length,
+                current_max_length,
+                cell_size,
+                data_type,
+                length_type,
+                flush_gpu_cache_size_mb,
+            )
+
+
 if __name__ == "__main__":
     cli()
