@@ -144,14 +144,106 @@ def get_configs_io_bound() -> list[Config]:
     return configs
 
 
-def dummy_prune_configs(configs, named_args, **kwargs):
+def _keep_config_h100_static(M, N, min_dropped_bm, io_stages, config):
+    """Per-config keep predicate for prune_configs_h100_static.
 
+    min_dropped_bm drops BLOCK_M >= it (None disables the R1 rule);
+    io_stages is the kept num_stages set for the IO-bound sweep (see caller).
+    """
+    kw = config.kwargs
+    bm = kw["BLOCK_M"]
+    bn = kw["BLOCK_N"]
+    bk = kw["BLOCK_K"]
+    # The D80881599 64x128x256 config (large-K winner) is explicitly preserved.
+    if (bm, bn, bk) == (64, 128, 256):
+        return True
+    # R1: masked-row waste (regime threshold hoisted by the caller).
+    if min_dropped_bm is not None and bm >= min_dropped_bm:
+        return False
+    # R2: persistent-occupancy guard.
+    tiles = triton.cdiv(M, bm) * triton.cdiv(N, bn)
+    if tiles < 32 and bn == 256 and bm >= 64:
+        return False
+    # R3: stage collapse applies only to the IO-bound sweep
+    # (BM in {16, 32}); compute configs keep their stages.
+    if bm in (16, 32):
+        return config.num_stages in io_stages
+    return True
+
+
+def prune_configs_h100_static(configs, named_args, **kwargs):
+    """Static H100 prune for the persistent non-TMA FP8 rowwise kernel.
+
+    Drops only clearly-unnecessary configs based on quantization waste and
+    persistent-grid occupancy, plus a stage collapse for the IO-bound sweep:
+
+    Regime split (validated by TRITON_PRINT_AUTOTUNING=1 rankings on H100):
+    - M <= 16 (decode): winners are small IO tiles with deep pipelines
+      (ns 5/6) and BM=64 compute configs with large BK. Keep BM < 128 with
+      IO ns in {4, 5, 6} (subject to the R2 guard below); drop BM >= 128
+      (best observed rank #22-32, +22-63%) and IO ns in {2, 3}
+      (best observed rank #21-30, +19-78%).
+    - 16 < M <= 128: drop BLOCK_M >= 256 (== 256 in the current
+      power-of-two config space; best observed rank #66, +150% at M=64;
+      but BM=256 is rank #2 at M>=2048 so it is kept there), and collapse
+      the IO sweep to ns in {3, 4} (ns 5/6 best rank #17-18, +178-246%
+      at large M).
+    - M > 128: no R1 drops; the IO sweep stays collapsed to ns in {3, 4}.
+    R2 (all regimes): persistent-occupancy. Tiles = cdiv(M, BM) *
+        cdiv(N, BN); configs with tiles < 32 and BLOCK_N == 256 and
+        BLOCK_M >= 64 are dominated by smaller tiles that feed the ~132 SMs.
+        This can drop BM=64/BN=256 configs at small M/N.
+    The D80881599 64x128x256 config (large-K winner) is explicitly preserved.
+    Safety net: if every config would be dropped by some combination of the
+    above rules, fall back to the full list instead of handing the autotuner
+    an empty space.
+
+    Non-H100 devices fall through to no pruning. K is logged only; no rule
+    inspects it.
+    """
     M = named_args["M"]
     N = named_args["N"]
     K = named_args["K"]
 
-    logger.info(f"{len(configs)=} {len(configs)=} for {M=} {N=} {K=}")
-    return configs
+    try:
+        capability = torch.cuda.get_device_capability()
+        is_h100 = capability[0] == 9 and capability[1] == 0
+    except Exception:  # CPU / no driver: do not prune
+        is_h100 = False
+    if not is_h100:
+        return configs
+
+    # R1/R3 regime thresholds: drop BM >= min_dropped_bm (None disables R1).
+    # min_dropped_bm == 256 is equivalent to dropping BM == 256 since
+    # BLOCK_M values are powers of two with 256 the largest in the space.
+    if M <= 16:
+        min_dropped_bm = 128
+        io_stages = (4, 5, 6)
+    elif M <= 128:
+        min_dropped_bm = 256
+        io_stages = (3, 4)
+    else:
+        min_dropped_bm = None
+        io_stages = (3, 4)
+
+    n_in = len(configs)
+    kept = [
+        c
+        for c in configs
+        if _keep_config_h100_static(M, N, min_dropped_bm, io_stages, c)
+    ]
+
+    if not kept:
+        logger.warning(
+            f"[h100-static-prune] all {n_in} configs pruned for "
+            f"M={M} N={N} K={K}; falling back to full space"
+        )
+        return configs
+    logger.info(
+        f"[h100-static-prune] {n_in=} {len(kept)=} pruned={n_in - len(kept)} "
+        f"for M={M} N={N} K={K}"
+    )
+    return kept
 
 
 MATMUL_CONFIGS: list[Config] = [
@@ -263,7 +355,7 @@ MATMUL_CONFIGS: list[Config] = [
 @triton.autotune(
     configs=MATMUL_CONFIGS,
     prune_configs_by={
-        "early_config_prune": dummy_prune_configs,
+        "early_config_prune": prune_configs_h100_static,
     },
     key=[
         "m_key",
