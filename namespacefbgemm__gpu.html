@@ -1267,7 +1267,7 @@ details</h1>
   <table class="params">
     <tr><td class="paramname">t_in</td><td>N dim Tensor. </td></tr>
     <tr><td class="paramname">lengths</td><td>1D int/long tensor contains the length in each of the output. </td></tr>
-    <tr><td class="paramname">max_length</td><td>The pre-defined max_length for the packed segments. </td></tr>
+    <tr><td class="paramname">max_length</td><td>The pre-defined max_length for the packed segments. TODO: Add an API that accepts precomputed offsets so callers can reuse them across operators instead of recomputing a prefix sum. </td></tr>
   </table>
   </dd>
 </dl>
