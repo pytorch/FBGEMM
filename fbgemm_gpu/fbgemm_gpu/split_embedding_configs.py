@@ -8,6 +8,7 @@
 # pyre-strict
 
 import enum
+import functools
 import itertools
 from typing import Any
 
@@ -18,6 +19,41 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     EmbeddingLocation,
     SplitState,
 )
+
+
+@functools.lru_cache(maxsize=None)
+def _nfp8_dtype_for_device_index(device_index: int) -> torch.dtype:
+    arch = torch.cuda.get_device_properties(device_index).gcnArchName
+    return (
+        torch.float8_e4m3fnuz
+        if "gfx94" in arch or "gfx90a" in arch
+        else torch.float8_e4m3fn
+    )
+
+
+@torch.jit.ignore
+def nfp8_dtype(device: torch.device | int | None = None) -> torch.dtype:
+    """
+    Return the native FP8 (e4m3) torch dtype for the target runtime device.
+
+    gfx94x (MI300) and gfx90a use "fnuz"; gfx950 and CUDA use OCP "fn". An
+    explicit CUDA device is resolved per architecture. Without one, or for
+    CPU/meta storage on a ROCm host, the current GPU determines the physical
+    encoding. Callers without a ROCm GPU use "fn". Mirrors getNFP8ScalarType()
+    in embedding_common.h; keep the mappings in sync. This function is ignored
+    by TorchScript because the device query is not scriptable.
+    """
+    if torch.version.hip is None:
+        return torch.float8_e4m3fn
+    if not torch.cuda.is_available():
+        return torch.float8_e4m3fn
+    if isinstance(device, int):
+        device_index = device
+    elif device is not None and device.type == "cuda" and device.index is not None:
+        device_index = device.index
+    else:
+        device_index = torch.cuda.current_device()
+    return _nfp8_dtype_for_device_index(device_index)
 
 
 def pad4(value: int) -> int:
@@ -363,11 +399,7 @@ def sparse_type_int_to_dtype(ty: int) -> torch.dtype:
     elif ty == 7:  # mx4
         return torch.uint8
     elif ty == 9:
-        return (
-            torch.float8_e4m3fnuz
-            if torch.version.hip is not None
-            else torch.float8_e4m3fn
-        )
+        return nfp8_dtype(None)
     else:  # Invalid is 7 or non enumerated.
         raise ValueError(f"Unsupported sparse type: {ty}")
 
@@ -439,6 +471,10 @@ class SparseType(enum.Enum):
             raise ValueError(f"Unsupported sparse dtype: {dtype}")
 
     def as_dtype(self) -> torch.dtype:
+        # Resolved before the table: the table is rebuilt per call, so an inline
+        # nfp8_dtype() would run a device query for every lookup.
+        if self == SparseType.NFP8:
+            return nfp8_dtype()
         return {
             SparseType.FP32.value: torch.float32,
             SparseType.FP16.value: torch.float16,
@@ -448,11 +484,6 @@ class SparseType(enum.Enum):
             SparseType.INT2.value: torch.quint2x4,
             SparseType.BF16.value: torch.bfloat16,
             SparseType.MX4.value: torch.uint8,
-            SparseType.NFP8.value: (
-                torch.float8_e4m3fnuz
-                if torch.version.hip is not None
-                else torch.float8_e4m3fn
-            ),
         }[self.value]
 
     def bit_rate(self) -> int:

@@ -73,7 +73,8 @@ enum class BoundsCheckMode : uint8_t {
 // callers observe the wrong dtype.
 // ---------------------------------------------------------------------------
 
-// Resolves the native FP8 (e4m3) scalar type for the current runtime device.
+// Resolves the native FP8 (e4m3) scalar type for the requested runtime device.
+// A negative device index selects the current device.
 //
 // The FP8 encoding is hardware-specific: the gfx94x family (gfx940/941/942,
 // MI300) and gfx90a use the "fnuz" encoding, while gfx950 and CUDA use the OCP
@@ -82,14 +83,16 @@ enum class BoundsCheckMode : uint8_t {
 // device actually in use at runtime so the host-allocated tensor dtype matches
 // what device kernels (whose format is selected per-arch at device-compile
 // time) read and write.
-inline at::ScalarType getNFP8ScalarType() {
+inline at::ScalarType getNFP8ScalarType(
+    const c10::DeviceIndex device_index = -1) {
 #ifdef USE_ROCM
   // fnuz archs: the gfx94x family (gfx940/941/942, MI300) and gfx90a. The
-  // substring match mirrors split_embedding_configs.py:_nfp8_is_fnuz; keep the
+  // substring match mirrors split_embedding_configs.py:nfp8_dtype; keep the
   // two in sync. Query goes through the ATen-cpu CUDA hooks so this header is
   // safe to compile into the CPU/meta libraries (no ATen/cuda/CUDAContext.h).
   const auto& cuda_hooks = at::detail::getCUDAHooks();
-  if (cuda_hooks.hasCUDA() && cuda_hooks.isGPUArch({"gfx94", "gfx90a"})) {
+  if (cuda_hooks.hasCUDA() &&
+      cuda_hooks.isGPUArch({"gfx94", "gfx90a"}, device_index)) {
     return at::kFloat8_e4m3fnuz;
   }
 #endif
@@ -126,7 +129,9 @@ inline at::Tensor relabel_nfp8_for_dispatch(const at::Tensor& tensor) {
   return tensor;
 }
 
-inline at::ScalarType getScalarType(SparseType dtype) {
+inline at::ScalarType getScalarType(
+    SparseType dtype,
+    const c10::DeviceIndex device_index = -1) {
   switch (dtype) {
     case SparseType::FP32:
       return at::kFloat;
@@ -141,7 +146,7 @@ inline at::ScalarType getScalarType(SparseType dtype) {
     case SparseType::INT2:
       return at::kQUInt2x4;
     case SparseType::NFP8:
-      return getNFP8ScalarType();
+      return getNFP8ScalarType(device_index);
     default:
       return at::ScalarType::Undefined;
   }

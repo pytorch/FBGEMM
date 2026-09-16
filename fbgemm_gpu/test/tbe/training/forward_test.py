@@ -17,7 +17,11 @@ from unittest.mock import MagicMock, patch
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    nfp8_dtype,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     RESParams,
@@ -68,10 +72,6 @@ else:
     )
 
 VERBOSITY: Verbosity = Verbosity.verbose
-
-fp8_dtype: torch.dtype = (
-    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
-)
 
 # pyre-ignore
 additional_decorators.update(
@@ -169,6 +169,13 @@ class ForwardTest(unittest.TestCase):
         # NOTE: Raw embedding streaming not supported on CPU
         assume(not enable_raw_embedding_streaming or not use_cpu)
 
+        target_device = (
+            torch.device("cpu") if use_cpu else torch.accelerator.current_accelerator()
+        )
+        fp8_dtype: torch.dtype | None = (
+            nfp8_dtype(target_device) if weights_precision == SparseType.NFP8 else None
+        )
+
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
         if pooling_mode == PoolingMode.SUM:
             mode = "sum"
@@ -252,6 +259,7 @@ class ForwardTest(unittest.TestCase):
                 )
 
         if weights_precision == SparseType.NFP8:
+            assert fp8_dtype is not None
             for t in range(T):
                 bs[t].weight.data.copy_(bs[t].weight.data.to(fp8_dtype).to(torch.float))
 
@@ -339,6 +347,7 @@ class ForwardTest(unittest.TestCase):
                     bs[t].weight
                 )
             elif weights_precision == SparseType.NFP8:
+                assert fp8_dtype is not None
                 b_weight = bs[t].weight.to(fp8_dtype)
             else:
                 b_weight = bs[t].weight
@@ -881,11 +890,6 @@ class ForwardTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skip(
-        "Known failure on the MI350 runner: the device decodes NFP8 with the "
-        "arch-native OCP encoding while Python labels the tensor fnuz, so the "
-        "two disagree by one exponent bias"
-    )
     @skipIfNotRocm("NFP8 format-selection corner case is ROCm-specific")
     def test_forward_gpu_nfp8_format_matches_host_decode(self) -> None:
         # Pins that the device NFP8 decode matches a host decode through the same
@@ -893,6 +897,7 @@ class ForwardTest(unittest.TestCase):
         # with the Python-selected fnuz storage dtype.
         E, D = 64, 8
         dev = torch.device("cuda:0")
+        fp8_dtype = nfp8_dtype(dev)
 
         cc = SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
@@ -1597,11 +1602,22 @@ class ForwardTest(unittest.TestCase):
             num_iterations = 5
             tolerance = 1.0e-5 if weights_precision == SparseType.FP32 else 8.0e-3
             previous_linearized_cache_indices = None
+            self.assertTrue(torch.cuda.is_available(), "GPU test requires CUDA")
+            device = torch.accelerator.current_accelerator()
 
             for iteration in range(num_iterations):
                 # Generate inputs for this iteration
-                xs_iter = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
-                xws_iter = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
+                # Citrine C3/C7: create inputs directly on the GPU.
+                xs_iter = [
+                    torch.randint(
+                        low=0,
+                        high=e,
+                        size=(B, L),
+                        device=device,
+                    )
+                    for e in Es
+                ]
+                xws_iter = [torch.randn(size=(B, L), device=device) for _ in range(T)]
                 if weights_precision == SparseType.FP16:
                     xws_iter = [xw.half() for xw in xws_iter]
 
