@@ -62,8 +62,6 @@ DEVICE_INLINE __device__ T subwarp_reduce_add(T value) {
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
 
-using namespace fbgemm_gpu;
-
 template <
     typename emb_t,
     typename cache_t,

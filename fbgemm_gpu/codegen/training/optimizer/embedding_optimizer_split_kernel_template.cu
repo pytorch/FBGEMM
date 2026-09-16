@@ -7,6 +7,10 @@
  */
 
 // clang-format off
+#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+
+// The generated header uses unqualified fbgemm_gpu symbols.
+using namespace fbgemm_gpu;
 #include "gen_embedding_optimizer_{{ optimizer }}_split_device_kernel.cuh"
 
 template <
