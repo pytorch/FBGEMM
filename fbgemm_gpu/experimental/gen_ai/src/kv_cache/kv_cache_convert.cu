@@ -12,7 +12,9 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
+
 #include <ATen/cuda/Atomic.cuh>
+#include <limits>
 #include "c10/core/ScalarType.h"
 #include "c10/util/BFloat16.h"
 #include "kv_cache.cuh"
@@ -22,6 +24,7 @@
 #include <mma.h>
 #endif
 
+#include "fbgemm_gpu/utils/check_product_with_limit.h"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
@@ -130,8 +133,36 @@ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
   auto B = cache_K.size(1);
 
   constexpr int32_t kMaxBlocks = 512;
+  constexpr uint64_t kMaxLaunchThreads =
+      std::numeric_limits<uint32_t>::max() - uint64_t{1};
+  constexpr uint64_t kMaxGridDimX = std::numeric_limits<int32_t>::max();
+  constexpr uint64_t kMaxGridDimY = std::numeric_limits<uint16_t>::max();
+  TORCH_CHECK(
+      B > 0 && N_H_L > 0,
+      "KV cache conversion launch: B and N_H_L must be positive");
+  utils::check_product_with_limit(
+      "KV cache conversion launch", "B", kMaxGridDimY, B);
+  utils::check_product_with_limit(
+      "KV cache conversion launch", "N_H_L", kMaxGridDimX, N_H_L);
+  const auto batch_head_pairs = utils::check_product_with_limit(
+      "KV cache conversion launch",
+      "B * N_H_L",
+      std::numeric_limits<int64_t>::max(),
+      B,
+      N_H_L);
+  const auto grid_z = std::max<int64_t>(1, kMaxBlocks / batch_head_pairs);
+#ifdef __HIP_PLATFORM_AMD__
+  utils::check_product_with_limit(
+      "KV cache conversion launch",
+      "B * N_H_L * grid.z * kThreadsPerWarp * kWarpsPerBlock",
+      kMaxLaunchThreads,
+      batch_head_pairs,
+      grid_z,
+      kThreadsPerWarp,
+      kWarpsPerBlock);
+#endif
   // Blocks: (N_H_L, B, residual from max blocks)
-  dim3 blocks(N_H_L, B, std::max<int32_t>(1, kMaxBlocks / (B * N_H_L)));
+  dim3 blocks(N_H_L, B, grid_z);
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
 
   FBGEMM_LAUNCH_KERNEL(

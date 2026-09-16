@@ -10,6 +10,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#include <limits>
+
 /// @defgroup experimental-gen-ai-attention
 /// This is a description of Grouped Query Attention operators.
 
@@ -24,6 +26,7 @@
 #endif
 
 #include <fbgemm_gpu/utils/vec_quant.cuh>
+#include "fbgemm_gpu/utils/check_product_with_limit.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
 template <typename func_t>
@@ -73,6 +76,41 @@ constexpr int SMEM_V_STRIDE = F_N + SMEM_V_PAD;
 constexpr int32_t kSplitKWarpsPerBlock = 4;
 
 namespace {
+
+void check_attention_launch(
+    const char* context,
+    int64_t batch_size,
+    int64_t num_heads,
+    int64_t split_k,
+    int64_t threads_per_block) {
+  constexpr uint64_t kMaxLaunchThreads =
+      std::numeric_limits<uint32_t>::max() - uint64_t{1};
+  constexpr uint64_t kMaxGridDimX = std::numeric_limits<int32_t>::max();
+  constexpr uint64_t kMaxGridDimYZ = std::numeric_limits<uint16_t>::max();
+
+  // Empty batches do not launch a kernel.
+  if (batch_size == 0) {
+    return;
+  }
+
+  TORCH_CHECK(
+      batch_size > 0 && num_heads > 0 && split_k > 0,
+      context,
+      ": B, H, and split_k must be positive");
+  utils::check_product_with_limit(context, "B", kMaxGridDimX, batch_size);
+  utils::check_product_with_limit(context, "H", kMaxGridDimYZ, num_heads);
+  utils::check_product_with_limit(context, "split_k", kMaxGridDimYZ, split_k);
+#ifdef __HIP_PLATFORM_AMD__
+  utils::check_product_with_limit(
+      context,
+      "B * H * split_k * threads_per_block",
+      kMaxLaunchThreads,
+      batch_size,
+      num_heads,
+      split_k,
+      threads_per_block);
+#endif
+}
 
 template <
     typename kv_t,
@@ -1422,12 +1460,20 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
   const auto B = XQ.size(0);
   const auto H = XQ.size(2);
 
+  // The tensor-core kernel uses H_blocks below, but its reduction kernel
+  // launches with H directly as grid.y.
+  check_attention_launch(
+      "gqa_attn_splitk tensor-core launch",
+      B,
+      H,
+      num_split_ks,
+      kThreadsPerWarp * kSplitKWarpsPerBlock);
+
   auto out_splitK =
       at::empty({B, num_split_ks, H, D_H}, XQ.options().dtype(at::kFloat));
   auto O = at::empty_like(XQ);
   auto metadata = at::empty({B, 2, num_split_ks, H}, out_splitK.options());
 
-  // TODO: Check if the grid size is valid
   const int32_t H_blocks = div_round_up(H, kMaxHeads);
   dim3 blocks(B, H_blocks, num_split_ks);
   dim3 threads(kThreadsPerWarp, kSplitKWarpsPerBlock);
@@ -1542,6 +1588,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_impl(
 
   auto B = XQ.size(0);
   auto H = XQ.size(2);
+  check_attention_launch(
+      "gqa_attn_splitk launch",
+      B,
+      H,
+      split_k,
+      kThreadsPerWarp * kWarpsPerBlock);
   auto QK_out =
       at::empty({B, H, cache_K.size(1)}, XQ.options().dtype(at::kFloat));
 
@@ -2525,9 +2577,12 @@ at::Tensor mqa_attn(
     }
   }
 
-  auto O = at::empty_like(XQ);
   auto B = XQ.size(0);
   auto H = XQ.size(2);
+
+  check_attention_launch(
+      "mqa_attn launch", B, H, int64_t{1}, kThreadsPerWarp * kWarpsPerBlock);
+  auto O = at::empty_like(XQ);
 
   if (B == 0) {
     return O;
