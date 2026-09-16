@@ -151,7 +151,7 @@ Public Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 <p>The global weight decay multiplier for row <span class="tt">idx</span> at iteration <span class="tt">iter</span>. <span class="tt">prev_iter == 0</span> is the first-touch sentinel and yields 1 (no decay).</p>
-<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. </p>
+<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. <span class="tt"><a class="el" href="namespacefbgemm__gpu.html#a0ed4e0116d45a79582094bca0c3fdc2e">warn_if_prev_iter_inexact</a></span> reports when a lookup crosses that point; nothing here changes as a result. </p>
 
 </div>
 </div>
@@ -192,7 +192,7 @@ Public Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 <p>The global weight decay multiplier for row <span class="tt">idx</span> at iteration <span class="tt">iter</span>. <span class="tt">prev_iter == 0</span> is the first-touch sentinel and yields 1 (no decay).</p>
-<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. </p>
+<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. <span class="tt"><a class="el" href="namespacefbgemm__gpu.html#a0ed4e0116d45a79582094bca0c3fdc2e">warn_if_prev_iter_inexact</a></span> reports when a lookup crosses that point; nothing here changes as a result. </p>
 
 </div>
 </div>
@@ -233,7 +233,7 @@ Public Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 <p>The global weight decay multiplier for row <span class="tt">idx</span> at iteration <span class="tt">iter</span>. <span class="tt">prev_iter == 0</span> is the first-touch sentinel and yields 1 (no decay).</p>
-<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. </p>
+<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. <span class="tt"><a class="el" href="namespacefbgemm__gpu.html#a0ed4e0116d45a79582094bca0c3fdc2e">warn_if_prev_iter_inexact</a></span> reports when a lookup crosses that point; nothing here changes as a result. </p>
 
 </div>
 </div>

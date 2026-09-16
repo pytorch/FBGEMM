@@ -142,6 +142,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a4f4260f8147fe33d5c0c5611ae0f7e0f template"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a4f4260f8147fe33d5c0c5611ae0f7e0f">report_embedding_error</a> (int t, int B, int b_begin, int b_end, const OffsetType *offsets_data, const IndexType *indices_data, int64_t hash_size, bool allow_minus_one=false)</td></tr>
 <tr class="memitem:ae86238f4ca864fb4ea41318ece747ab4" id="r_ae86238f4ca864fb4ea41318ece747ab4"><td class="memTemplParams" colspan="2">template&lt;typename scalar_t, int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK&gt; </td></tr>
 <tr class="memitem:ae86238f4ca864fb4ea41318ece747ab4 template"><td class="memItemLeft">__inline__ __device__ void&#160;</td><td class="memItemRight"><a class="el" href="#ae86238f4ca864fb4ea41318ece747ab4">inclusive_sum_scan_kernel</a> (scalar_t(&amp;arr)[ITEMS_PER_THREAD], typename cub::BlockScan&lt; scalar_t, NUM_THREADS_PER_BLOCK &gt;::TempStorage &amp;temp_storage, int *block_flags, volatile scalar_t *block_sums, scalar_t *block_prev, const int num_entries_per_block, const int block_id, const bool is_multi_block, const int signal)</td></tr>
+<tr class="memitem:a0ed4e0116d45a79582094bca0c3fdc2e" id="r_a0ed4e0116d45a79582094bca0c3fdc2e"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a0ed4e0116d45a79582094bca0c3fdc2e">warn_if_prev_iter_inexact</a> (const at::Tensor &amp;prev_iter_dev, const int64_t iter)</td></tr>
 <tr class="memitem:aa4972a7deb2400d482f055776b2627f0" id="r_aa4972a7deb2400d482f055776b2627f0"><td class="memItemLeft">Tensor&#160;</td><td class="memItemRight"><a class="el" href="#aa4972a7deb2400d482f055776b2627f0">reshape_vbe_output</a> (const Tensor &amp;grad_output, const int64_t max_B, const Tensor &amp;B_offsets_rank_per_feature, const Tensor &amp;D_offsets)</td></tr>
 <tr class="memitem:a738c254065d754b5398c4a9c33e61ae7" id="r_a738c254065d754b5398c4a9c33e61ae7"><td class="memTemplParams" colspan="2">template&lt;typename index_t&gt; </td></tr>
 <tr class="memitem:a738c254065d754b5398c4a9c33e61ae7 template"><td class="memItemLeft">Tensor&#160;</td><td class="memItemRight"><a class="el" href="#a738c254065d754b5398c4a9c33e61ae7">reshape_vbe_offsets</a> (const Tensor &amp;offsets, const Tensor &amp;B_offsets_rank_per_feature, const int64_t max_B, const int32_t T)</td></tr>
@@ -1707,6 +1708,38 @@ template&lt;typename index_t&gt; </div>
   </table>
   </dd>
 </dl>
+
+</div>
+</div>
+<a id="a0ed4e0116d45a79582094bca0c3fdc2e" name="a0ed4e0116d45a79582094bca0c3fdc2e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0ed4e0116d45a79582094bca0c3fdc2e">&#9670;&#160;</a></span>warn_if_prev_iter_inexact()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void warn_if_prev_iter_inexact </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>prev_iter_dev</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>iter</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Warn once when a float32 <span class="tt">prev_iter</span> can no longer record the iteration exactly. Past 2^24 both the stored value and the <span class="tt">iter</span> that <span class="tt">gwd</span> subtracts it from are rounded, so the elapsed-step count &ndash; and the decay derived from it &ndash; drifts.</p>
+<p>Keyed on <span class="tt">iter</span> rather than on the buffer, for two reasons: reading the buffer would mean a device-to-host sync, and a rounded entry is not identifiable once stored anyway &ndash; 2^24 + 1 rounds back down to 2^24 and reads back looking legitimate. <span class="tt">iter</span> is still exact here, so it flags the whole region from the first affected step.</p>
+<p>Purely diagnostic: an undefined <span class="tt">prev_iter</span> is left for <span class="tt"><a class="el" href="#a6ae73d8e55de5470c31a1ebf5a6daf01" title="Build a PrevIterRef over prev_iter_dev, which must be float32 or int64.">make_prev_iter_ref</a></span> to report, so this never becomes the first failure. </p>
 
 </div>
 </div>
