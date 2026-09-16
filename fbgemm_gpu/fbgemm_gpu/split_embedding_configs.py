@@ -20,6 +20,31 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 
 
+@torch.jit.ignore
+def _nfp8_is_fnuz() -> bool:
+    """
+    Whether the runtime device uses the FP8 "fnuz" e4m3 encoding.
+
+    gfx94x (MI300) and gfx90a use "fnuz"; gfx950 and CUDA use OCP "fn". A ROCm
+    build can be a fat binary spanning both, so resolve it per-device at runtime.
+    Mirrors getNFP8ScalarType() in embedding_common.h - keep the two arch
+    mappings in sync. @torch.jit.ignore because the query is not scriptable.
+    """
+    # Non-ROCm is always OCP "fn"; return before touching the device.
+    if torch.version.hip is None or not torch.cuda.is_available():
+        return False
+    arch = torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName
+    return "gfx94" in arch or "gfx90a" in arch
+
+
+def nfp8_dtype() -> torch.dtype:
+    """
+    Return the native FP8 (e4m3) torch dtype for the current runtime device.
+    See _nfp8_is_fnuz() for the arch to encoding mapping.
+    """
+    return torch.float8_e4m3fnuz if _nfp8_is_fnuz() else torch.float8_e4m3fn
+
+
 def pad4(value: int) -> int:
     """
     Compute the smallest multiple of 4 that is greater than or equal to the given value.
@@ -363,11 +388,7 @@ def sparse_type_int_to_dtype(ty: int) -> torch.dtype:
     elif ty == 7:  # mx4
         return torch.uint8
     elif ty == 9:
-        return (
-            torch.float8_e4m3fnuz
-            if torch.version.hip is not None
-            else torch.float8_e4m3fn
-        )
+        return nfp8_dtype()
     else:  # Invalid is 7 or non enumerated.
         raise ValueError(f"Unsupported sparse type: {ty}")
 
@@ -439,6 +460,10 @@ class SparseType(enum.Enum):
             raise ValueError(f"Unsupported sparse dtype: {dtype}")
 
     def as_dtype(self) -> torch.dtype:
+        # Resolved before the table: the table is rebuilt per call, so an inline
+        # nfp8_dtype() would run a device query for every lookup.
+        if self == SparseType.NFP8:
+            return nfp8_dtype()
         return {
             SparseType.FP32.value: torch.float32,
             SparseType.FP16.value: torch.float16,
@@ -448,11 +473,6 @@ class SparseType(enum.Enum):
             SparseType.INT2.value: torch.quint2x4,
             SparseType.BF16.value: torch.bfloat16,
             SparseType.MX4.value: torch.uint8,
-            SparseType.NFP8.value: (
-                torch.float8_e4m3fnuz
-                if torch.version.hip is not None
-                else torch.float8_e4m3fn
-            ),
         }[self.value]
 
     def bit_rate(self) -> int:

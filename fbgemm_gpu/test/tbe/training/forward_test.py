@@ -17,7 +17,11 @@ from unittest.mock import MagicMock, patch
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    nfp8_dtype,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     RESParams,
@@ -69,9 +73,7 @@ else:
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
-fp8_dtype: torch.dtype = (
-    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
-)
+fp8_dtype: torch.dtype = nfp8_dtype()
 
 # pyre-ignore
 additional_decorators.update(
@@ -881,11 +883,6 @@ class ForwardTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skip(
-        "Known failure on the MI350 runner: the device decodes NFP8 with the "
-        "arch-native OCP encoding while Python labels the tensor fnuz, so the "
-        "two disagree by one exponent bias"
-    )
     @skipIfNotRocm("NFP8 format-selection corner case is ROCm-specific")
     def test_forward_gpu_nfp8_format_matches_host_decode(self) -> None:
         # Pins that the device NFP8 decode matches a host decode through the same
