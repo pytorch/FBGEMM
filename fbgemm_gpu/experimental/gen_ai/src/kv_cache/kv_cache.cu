@@ -14,6 +14,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
+#include <limits>
 #include "c10/core/ScalarType.h"
 #include "c10/util/BFloat16.h"
 #include "kv_cache.cuh"
@@ -24,6 +25,7 @@
 #endif
 #include <cub/cub.cuh>
 
+#include "fbgemm_gpu/utils/check_product_with_limit.h"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
@@ -60,6 +62,55 @@ void set_gpu_max_dynamic_shared_memory(
 }
 
 namespace fbgemm_gpu {
+
+namespace {
+
+int64_t
+check_qkv_num_warps(int64_t tokens, int64_t query_heads, int64_t kv_heads) {
+  constexpr uint64_t kMaxLaunchThreads =
+      std::numeric_limits<uint32_t>::max() - uint64_t{1};
+  constexpr uint64_t kMaxGridDimX = std::numeric_limits<int32_t>::max();
+  constexpr uint64_t kMaxSignedValue = std::numeric_limits<int64_t>::max();
+
+  TORCH_CHECK(
+      tokens > 0 && query_heads >= 0 && kv_heads >= 0,
+      "KV cache QKV launch: B_T, N_H, and N_KVH must be nonnegative, and B_T must be positive");
+  TORCH_CHECK(
+      query_heads > 0 || kv_heads > 0,
+      "KV cache QKV launch: 2 * N_KVH + N_H must be positive");
+  TORCH_CHECK(
+      static_cast<uint64_t>(query_heads) <= kMaxSignedValue &&
+          static_cast<uint64_t>(kv_heads) <=
+              (kMaxSignedValue - static_cast<uint64_t>(query_heads)) / 2,
+      "KV cache QKV launch: 2 * N_KVH + N_H exceeds INT64_MAX");
+
+  const auto heads_per_token = uint64_t{2} * static_cast<uint64_t>(kv_heads) +
+      static_cast<uint64_t>(query_heads);
+  const auto num_warps = utils::check_product_with_limit(
+      "KV cache QKV launch",
+      "B_T * (2 * N_KVH + N_H)",
+      kMaxSignedValue,
+      tokens,
+      heads_per_token);
+  utils::check_product_with_limit(
+      "KV cache QKV launch",
+      "num_warps",
+      kMaxGridDimX * uint64_t{kWarpsPerBlock},
+      num_warps);
+  const auto blocks = cuda_calc_xblock_count(num_warps, kWarpsPerBlock);
+#ifdef __HIP_PLATFORM_AMD__
+  utils::check_product_with_limit(
+      "KV cache QKV launch",
+      "ceil(num_warps / kWarpsPerBlock) * kThreadsPerWarp * kWarpsPerBlock",
+      kMaxLaunchThreads,
+      blocks,
+      kThreadsPerWarp,
+      kWarpsPerBlock);
+#endif
+  return static_cast<int64_t>(num_warps);
+}
+
+} // namespace
 
 template <typename T>
 __device__ void get_dst_row(
@@ -161,7 +212,9 @@ __global__ void nope_qkv_varseq_prefill_kernel(
                            // of equal to actual_batch_size,
     bool update_kv) {
   // Launch b_t_(sum(h)) warps.
-  auto b_t_hh = blockIdx.x * blockDim.y + threadIdx.y;
+  // Convert before multiplication to prevent 32-bit wrap.
+  const int64_t b_t_hh =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
   auto B_T = XQ.size(0);
   int N_KVH = 0;
   if (update_kv) {
@@ -169,7 +222,7 @@ __global__ void nope_qkv_varseq_prefill_kernel(
   }
   auto N_H = XQ.size(1);
   auto D_H = XQ.size(2);
-  auto HH = 2 * N_KVH + N_H;
+  const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
   auto hh = b_t_hh % HH;
   auto b_t = b_t_hh / HH;
@@ -288,7 +341,9 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
     bool write_k_back = false,
     bool update_kv = true) {
   // Launch b_t_(sum(h)) warps.
-  auto b_t_hh = blockIdx.x * blockDim.y + threadIdx.y;
+  // Convert before multiplication to prevent 32-bit wrap.
+  const int64_t b_t_hh =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
   auto B_T = XQ.size(0);
   int N_KVH = 0;
   if (update_kv) {
@@ -298,7 +353,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
   }
   auto N_H = XQ.size(1);
   auto D_H = XQ.size(2);
-  auto HH = 2 * N_KVH + N_H;
+  const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
   auto hh = b_t_hh % HH;
   auto b_t = b_t_hh / HH;
@@ -737,7 +792,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
     bool write_k_back = false,
     bool k_norm = false) {
   // Launch b_t_(sum(h)) warps.
-  auto b_t_hh = blockIdx.x * blockDim.y +
+  // Convert before multiplication to prevent 32-bit wrap.
+  const int64_t b_t_hh = static_cast<int64_t>(blockIdx.x) * blockDim.y +
       threadIdx.y; // Block = [kThreadsPerWarp, kWarpsPerBlock]
   // Each warp handles a single head XQ or XK or XV of a single token..
   // That would be 1 x 128 distributed among 32 threads in the warp.
@@ -747,7 +803,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
   auto N_H = XQ.size(1);
   auto D_H = XQ.size(2);
 
-  auto HH = 2 * N_KVH + N_H;
+  const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
   auto hh = b_t_hh % HH;
   auto b_t = b_t_hh / HH;
@@ -930,7 +986,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_fp8(
     float* amax = nullptr,
     bool* is_precalculated_qparam = nullptr) {
   // Launch b_t_(sum(h)) warps.
-  auto b_t_hh = blockIdx.x * blockDim.y +
+  // Convert before multiplication to prevent 32-bit wrap.
+  const int64_t b_t_hh = static_cast<int64_t>(blockIdx.x) * blockDim.y +
       threadIdx.y; // Block = [kThreadsPerWarp, kWarpsPerBlock]
   // Each warp handles a single head XQ or XK or XV of a single token..
   // That would be 1 x 128 distributed among 32 threads in the warp.
@@ -940,7 +997,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_fp8(
   auto N_H = XQ.size(1);
   auto D_H = XQ.size(2);
 
-  auto HH = 2 * N_KVH + N_H;
+  const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
   auto hh = b_t_hh % HH;
   auto b_t = b_t_hh / HH;
@@ -1100,8 +1157,7 @@ at::Tensor nope_qkv_varseq_prefill(
   TORCH_CHECK(XQ.size(2) % 4 == 0);
   TORCH_CHECK(XQ.size(2) <= 512);
 
-  int32_t num_warps = B_T * (2 * N_KVH + N_H);
-  TORCH_CHECK(num_warps > 0);
+  const int64_t num_warps = check_qkv_num_warps(B_T, N_H, N_KVH);
 
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   dim3 blocks(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
@@ -1305,8 +1361,7 @@ at::Tensor nope_qkv_decoding(
   }
 
   TORCH_CHECK(XQ.size(2) % 4 == 0);
-  int32_t num_warps = B * (2 * N_KVH + N_H);
-  TORCH_CHECK(num_warps > 0);
+  const int64_t num_warps = check_qkv_num_warps(B, N_H, N_KVH);
 
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   dim3 blocks(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
@@ -1512,8 +1567,7 @@ at::Tensor rope_qkv_varseq_prefill(
   TORCH_CHECK(XQ.size(2) % 4 == 0);
   TORCH_CHECK(XQ.size(2) <= 512);
 
-  int32_t num_warps = B_T * (2 * N_KVH + N_H);
-  TORCH_CHECK(num_warps > 0);
+  const int64_t num_warps = check_qkv_num_warps(B_T, N_H, N_KVH);
 
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   dim3 blocks(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
@@ -1722,8 +1776,7 @@ at::Tensor xpos_qkv_varseq_prefill(
   TORCH_CHECK(XQ.size(2) % 4 == 0);
   TORCH_CHECK(XQ.size(2) <= 512);
 
-  int32_t num_warps = B_T * (2 * N_KVH + N_H);
-  TORCH_CHECK(num_warps > 0);
+  const int64_t num_warps = check_qkv_num_warps(B_T, N_H, N_KVH);
 
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   dim3 blocks(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
@@ -1895,8 +1948,7 @@ at::Tensor rope_qkv_decoding(
   }
 
   TORCH_CHECK(XQ.size(2) % 4 == 0);
-  int32_t num_warps = B * (2 * N_KVH + N_H);
-  TORCH_CHECK(num_warps > 0);
+  const int64_t num_warps = check_qkv_num_warps(B, N_H, N_KVH);
 
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   dim3 blocks(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
@@ -2096,8 +2148,7 @@ at::Tensor xpos_qkv_decoding(
   auto N_KVH = XK.size(1);
 
   TORCH_CHECK(XQ.size(2) % 4 == 0);
-  int32_t num_warps = B * (2 * N_KVH + N_H);
-  TORCH_CHECK(num_warps > 0);
+  const int64_t num_warps = check_qkv_num_warps(B, N_H, N_KVH);
 
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   dim3 blocks(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
