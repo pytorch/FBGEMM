@@ -417,7 +417,8 @@ class RocmUtils:
         if len(version_arr) < 2:
             raise ValueError("BUILD_ROCM_VERSION is not in X.Y format!")
 
-        return int(f"{version_arr[0]:<02}{version_arr[1]:<03}")
+        major, minor = (int(component) for component in version_arr[:2])
+        return major * 10000 + minor * 100
 
 
 class CudaUtils:
