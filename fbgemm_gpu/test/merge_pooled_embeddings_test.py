@@ -314,6 +314,61 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         self.assertEqual(output.numel(), 0)
         self.assertEqual(output.dtype, torch.int32)
 
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Requires at least two devices to transfer between",
+    )
+    def test_all_to_one_device_spanning_multiple_expandable_segments(self) -> None:
+        # An expandable segment is mapped in 20MiB chunks and ROCm registers each
+        # chunk as its own allocation, so a transfer larger than one chunk overruns
+        # the bounds check that the pitched copy path performs against it.
+        #
+        # The allocator setting is process-global, so restore whatever the rest of
+        # the suite was running with before handing control back.
+        previous_allocator_settings = torch._C._accelerator_getAllocatorSettings()
+        self.addCleanup(
+            torch._C._accelerator_setAllocatorSettings, previous_allocator_settings
+        )
+        torch._C._accelerator_setAllocatorSettings("expandable_segments:True")
+
+        src = torch.randn(32 * 1024, 512, dtype=torch.float16, device="cuda:1")
+        self.assertGreater(src.numel() * src.element_size(), 20 * 1024 * 1024)
+
+        output = torch.ops.fbgemm.all_to_one_device([src], torch.device("cuda:0"))
+        torch.cuda.synchronize()
+
+        self.assertEqual(output[0].device, torch.device("cuda:0"))
+        torch.testing.assert_close(output[0].cpu(), src.cpu())
+
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Requires at least two devices to transfer between",
+    )
+    def test_all_to_one_device_copies_every_dimension(self) -> None:
+        # The pitched copy path describes a transfer using only the first two
+        # dimensions, which silently truncates anything with a higher rank.
+        src = torch.randn(1024, 128, 4, dtype=torch.float16, device="cuda:1")
+
+        output = torch.ops.fbgemm.all_to_one_device([src], torch.device("cuda:0"))
+        torch.cuda.synchronize()
+
+        torch.testing.assert_close(output[0].cpu(), src.cpu())
+
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Requires at least two devices to transfer between",
+    )
+    def test_all_to_one_device_empty_trailing_dimension(self) -> None:
+        # An empty tensor has a null data pointer, but a zero-sized trailing
+        # dimension leaves the pitched copy's width and height both non-zero, so the
+        # transfer is issued against that null pointer instead of being skipped.
+        src = torch.randn(1024, 128, 0, dtype=torch.float16, device="cuda:1")
+
+        output = torch.ops.fbgemm.all_to_one_device([src], torch.device("cuda:0"))
+        torch.cuda.synchronize()
+
+        self.assertEqual(output[0].numel(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
