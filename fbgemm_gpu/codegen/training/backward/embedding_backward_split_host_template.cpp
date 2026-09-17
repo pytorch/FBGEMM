@@ -73,9 +73,9 @@ enum SSDTensor {
             .typed<decltype({{ forward_op }})>();
 
     auto output = embedding_codegen_forward_op.call(
-      flatten_dev_weights,
+      dispatch_dev_weights,
       {%- if not dense %}
-      relabeled_uvm_weights,
+      dispatch_uvm_weights,
       lxu_cache_weights,
       weights_placements,
       {%- endif %}
@@ -153,9 +153,9 @@ enum SSDTensor {
 
     grad_dev_weights = embedding_codegen_{{ wdesc }}_backward_op.call(
           grad_output,
-          dev_weights,
+          dispatch_dev_weights,
           {% if not dense %}
-          uvm_weights,
+          dispatch_uvm_weights,
           lxu_cache_weights,
           weights_placements,
           {%- endif %}
@@ -841,16 +841,14 @@ class {{ autograd_func }} :
 
     {%- if optimizer == "none" %}
     // Flatten
-    const auto flatten_dev_weights =
+    const auto dispatch_dev_weights =
         fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights.flatten());
     {%- else %}
-    const auto flatten_dev_weights =
+    const auto dispatch_dev_weights =
         fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
     {%- endif %}
     {%- if not dense %}
-    // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
-    // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
-    const auto relabeled_uvm_weights =
+    const auto dispatch_uvm_weights =
         fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
     {%- endif %}
 
@@ -896,12 +894,6 @@ class {{ autograd_func }} :
     auto uvm_weights = *savedItr++;
     auto lxu_cache_weights = *savedItr++;
     auto weights_placements = *savedItr++;
-    {%- endif %}
-    // Mirror the forward-side relabel: on ROCm a gfx950 NFP8 tensor is labeled
-    // fn, but only the fnuz kernel variant is instantiated. No-op elsewhere.
-    dev_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
-    {%- if not dense %}
-    uvm_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
     {%- endif %}
     auto weights_offsets = *savedItr++;
     {%- if not nobag %}
@@ -997,13 +989,19 @@ class {{ autograd_func }} :
     auto& grad_output = grad_outputs[0];
     {%- endif %}
 
-    {%- if not nobag %}
-    {%- if optimizer == "none" %}
-    // Flatten (dev_weights is used in
-    // {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda)
-    dev_weights = dev_weights.flatten();
+    {%- if optimizer == "none" and not nobag %}
+    const auto dispatch_dev_weights =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights).flatten();
+    {%- else %}
+    const auto dispatch_dev_weights =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
+    {%- endif %}
+    {%- if not dense %}
+    const auto dispatch_uvm_weights =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
     {%- endif %}
 
+    {%- if not nobag %}
     {%- set grad_indice_weights_op =
         "{}_embedding_codegen_grad_indice_weights{}_cuda".format(fwd_mdesc, vdesc)
     %}
@@ -1016,9 +1014,9 @@ class {{ autograd_func }} :
       Variable() :
       embedding_codegen_grad_indice_weights_op.call(
         grad_output,
-        dev_weights,
+        dispatch_dev_weights,
         {%- if not dense %}
-        uvm_weights,
+        dispatch_uvm_weights,
         lxu_cache_weights,
         weights_placements,
         {%- endif %}
