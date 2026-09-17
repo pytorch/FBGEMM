@@ -185,33 +185,42 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   } // for b_t
 
 #ifdef USE_ROCM
-  // Accumulate per-thread warning counts in shared memory and reduce once per
-  // block.
-  block_warning_buffer[linear_tid] = warning_inc;
-  __syncthreads();
+  // The unsynchronized read of warning[0] is a filter, not the decision: it
+  // only skips the atomic once some block has already claimed the slot. The
+  // gpuAtomicIncrement still decides, so a stale read costs an extra atomic,
+  // never a second print.
+  bool print_warning = false;
+  if (bounds_check_mode == BoundsCheckMode::WARNING && warning_inc > 0 &&
+      warning[0] == 0) {
+    print_warning = (gpuAtomicIncrement(&warning[0]) == 0);
+  }
 
-  // Parallel tree reduction
-  for (int stride = active_threads / 2; stride > 0; stride >>= 1) {
-    if (linear_tid < stride) {
-      block_warning_buffer[linear_tid] +=
-          block_warning_buffer[linear_tid + stride];
+  // WARNING never reads the summed counter, so the reduction (and its
+  // ~10 __syncthreads) is pure overhead there. bounds_check_mode is a template
+  // parameter, so this branch is resolved at compile time and the barriers
+  // below stay block-uniform.
+  if (bounds_check_mode != BoundsCheckMode::WARNING) {
+    block_warning_buffer[linear_tid] = warning_inc;
+    __syncthreads();
+
+    for (int stride = active_threads / 2; stride > 0; stride >>= 1) {
+      if (linear_tid < stride) {
+        block_warning_buffer[linear_tid] +=
+            block_warning_buffer[linear_tid + stride];
+      }
+      __syncthreads();
+    }
+
+    if (linear_tid == 0) {
+      int64_t block_warning_sum = block_warning_buffer[0];
+      if (block_warning_sum > 0) {
+        gpuAtomicAdd(&warning[0], block_warning_sum);
+      }
     }
     __syncthreads();
   }
 
-  // Thread 0 has the final sum
-  if (linear_tid == 0) {
-    int64_t block_warning_sum = block_warning_buffer[0];
-    if (block_warning_sum > 0) {
-      gpuAtomicAdd(&warning[0], block_warning_sum);
-    }
-  }
-  __syncthreads();
-
-  // NVIDIA has no post-loop warning work: it both counts and prints inline.
-  if (bounds_check_mode == BoundsCheckMode::WARNING && invalid_i != -1 &&
-      static_cast<int64_t>(atomicAdd(
-          reinterpret_cast<unsigned long long int*>(&warning[0]), 0)) == 0) {
+  if (print_warning) {
     int32_t b;
     int32_t t;
 
