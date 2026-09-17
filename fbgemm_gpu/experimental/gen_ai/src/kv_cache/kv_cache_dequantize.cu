@@ -23,6 +23,9 @@
 #endif
 #include <cub/cub.cuh>
 
+#include <limits>
+
+#include "fbgemm_gpu/utils/check_product_with_limit.h"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
@@ -30,6 +33,34 @@
 #include <torch/torch.h>
 
 namespace fbgemm_gpu {
+
+namespace {
+
+int32_t check_dequantize_grid_y(
+    const char* context,
+    int64_t batch_size,
+    int32_t max_blocks) {
+  constexpr uint64_t kMaxLaunchThreads =
+      std::numeric_limits<uint32_t>::max() - uint64_t{1};
+  constexpr uint64_t kMaxGridDimX = std::numeric_limits<int32_t>::max();
+
+  TORCH_CHECK(batch_size > 0, context, ": B must be positive");
+  utils::check_product_with_limit(context, "B", kMaxGridDimX, batch_size);
+  const auto grid_y = std::max<int64_t>(1, max_blocks / batch_size);
+#ifdef __HIP_PLATFORM_AMD__
+  utils::check_product_with_limit(
+      context,
+      "B * grid.y * kThreadsPerWarp * kWarpsPerBlock",
+      kMaxLaunchThreads,
+      batch_size,
+      grid_y,
+      kThreadsPerWarp,
+      kWarpsPerBlock);
+#endif
+  return static_cast<int32_t>(grid_y);
+}
+
+} // namespace
 
 template <int KVQuantNumGroups = 1>
 __global__ void dequantize_int4_cache_kernel(
@@ -151,6 +182,11 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
   auto int4_qparam_offset = 4 * num_groups_;
   auto D_H = (D_HQ - int4_qparam_offset) * 2;
 
+  constexpr int32_t kMaxBlocks = 256;
+  const int32_t launch_grid_y = B > 0
+      ? check_dequantize_grid_y("dequantize_int4_cache launch", B, kMaxBlocks)
+      : 0;
+
   auto cache_K_dq =
       at::zeros({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
   auto cache_V_dq =
@@ -160,8 +196,7 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
     return {cache_K_dq, cache_V_dq};
   }
 
-  constexpr int32_t kMaxBlocks = 256;
-  dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
+  dim3 blocks(B, launch_grid_y);
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   CALL_INT4_KERNEL_WITH_KV_GROUPWISE_QUANT_CHECK(
       CALL_DEQUANTIZE_INT4_CACHE_GROUPWISE_KERNEL, num_groups_)
@@ -507,6 +542,11 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   }
   auto D_H = (D_HQ - fp8_qparam_offset);
 
+  constexpr int32_t kMaxBlocks = 512;
+  const int32_t launch_grid_y = B > 0
+      ? check_dequantize_grid_y("dequantize_fp8_cache launch", B, kMaxBlocks)
+      : 0;
+
   // TODO:
   // The below allocates Tensors that have the same shape as cache_K and
   // cache_V to store their dequantize results. For paged KV cache, this can
@@ -539,8 +579,7 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     block_tables_b_stride = block_tables.value().stride(0);
   }
 
-  constexpr int32_t kMaxBlocks = 512;
-  dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
+  dim3 blocks(B, launch_grid_y);
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
 #define CALL_DEQUANTIZE_FP8_CACHE(EXTERNAL_Q_PARAM)    \
   FBGEMM_LAUNCH_KERNEL(                                \
@@ -802,11 +841,11 @@ at::Tensor quantize_qkv_per_head(
     at::Tensor xqkv, // [B_T, HH, D_H]
     at::Tensor varseq_seqpos, // [B_T]
     std::optional<at::Tensor> varseq_batch, // [B_T]
-    at::Tensor q_seqstarts, // [B+1]
+    std::optional<at::Tensor> is_precalculated_qparam, // [B_T]
     at::Tensor cache_K, // [B][MAX_T][N_KVH][D_H]
     at::Tensor cache_V, // [B][MAX_T][N_KVH][D_H]
     at::Tensor XQ_O, // [B_T][N_H][D]
-    int64_t max_seq_length, // Length of the sequence
+    int64_t B, // Batch size
     std::optional<at::Tensor> qparam_k,
     std::optional<at::Tensor> qparam_v) {
   throw std::runtime_error(

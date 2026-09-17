@@ -218,13 +218,13 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
       mx_group_size % 32 == 0,
       "Group size needs to be multiply of 32 but is found to be ",
       mx_group_size);
+  const at::Device device = input.device();
   const at::ScalarType out_dtype =
-      getScalarType(static_cast<SparseType>(output_dtype));
+      getScalarType(static_cast<SparseType>(output_dtype), device.index());
   if (input.numel() == 0) {
     return at::empty(0, input.options().dtype(out_dtype));
   }
 
-  at::Device device = input.device();
   const at::cuda::CUDAGuard device_guard{device};
   // input size = half of the total (float) elms + total number of groups
   // i.e., input.numel() = (total_num_elems/2)+(total_num_elems/group_size)

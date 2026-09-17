@@ -393,3 +393,65 @@ class IndexSelectAmdTest(unittest.TestCase):
                 expected[0] = contribution.float() * num_indices
                 assert input_tensor.grad is not None
                 torch.testing.assert_close(input_tensor.grad, expected, atol=0, rtol=0)
+
+    def test_group_index_select_backward_bf16_fallback_accumulates_in_fp32(
+        self,
+    ) -> None:
+        """BF16 fallback uses FP32 even when segment reduction is ineligible."""
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        num_embedding_rows = 128
+        num_indices = 31 * num_embedding_rows
+        input_tensor = torch.zeros(
+            num_embedding_rows,
+            31,
+            device=device,
+            dtype=torch.bfloat16,
+            requires_grad=True,
+        )
+        indices = torch.zeros(num_indices, device=device, dtype=torch.long)
+        contribution = torch.tensor(0.1, device=device, dtype=torch.bfloat16)
+
+        output = torch.ops.fbgemm.group_index_select_dim0([input_tensor], [indices])[0]
+        output.backward(contribution.expand_as(output).contiguous())
+
+        expected = torch.zeros_like(input_tensor)
+        expected[0] = contribution.float() * num_indices
+        assert input_tensor.grad is not None
+        torch.testing.assert_close(input_tensor.grad, expected, atol=0, rtol=0)
+
+    def test_group_index_select_backward_mixed_group_bf16_fallback_fp32(
+        self,
+    ) -> None:
+        """One low-duplication member sends the full BF16 group to fallback."""
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        num_indices = 4096
+        num_embedding_rows_group = [2, 129]
+        input_group = [
+            torch.zeros(
+                num_rows,
+                64,
+                device=device,
+                dtype=torch.bfloat16,
+                requires_grad=True,
+            )
+            for num_rows in num_embedding_rows_group
+        ]
+        indices_group = [
+            torch.zeros(num_indices, device=device, dtype=torch.long)
+            for _ in input_group
+        ]
+        contribution = torch.tensor(0.1, device=device, dtype=torch.bfloat16)
+        grad_group = [
+            contribution.expand(num_indices, 64).contiguous() for _ in input_group
+        ]
+
+        output_group = torch.ops.fbgemm.group_index_select_dim0(
+            input_group, indices_group
+        )
+        torch.autograd.backward(output_group, grad_group)
+
+        for input_tensor in input_group:
+            expected = torch.zeros_like(input_tensor)
+            expected[0] = contribution.float() * num_indices
+            assert input_tensor.grad is not None
+            torch.testing.assert_close(input_tensor.grad, expected, atol=0, rtol=0)

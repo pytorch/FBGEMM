@@ -74,9 +74,9 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
         ({{ func_name }}<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly, PackedMode>), \
         utils::cuda::cap_grid_dim_x( \
             nbit::div_round_up(T * nbit::div_round_up(B, num_packed_bags * OutputRowsPerThread), kWarpsPerBlock), \
-            kWarpSize * kWarpsPerBlock, \
+            warp_size * kWarpsPerBlock, \
             at::cuda::getCurrentCUDAStream()), \
-        dim3(kWarpSize, kWarpsPerBlock), \
+        dim3(warp_size, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream(), \
         PTA_B(dev_weights, uint8_t, 1, 64), \
@@ -227,6 +227,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     {{- construct_and_return_output_tensor() }}
 
     constexpr int32_t kWarpsPerBlock = 4;
+    const auto warp_size = kWarpSizeHost();
     const auto device_only = lxu_cache_weights.numel() == 0 && uvm_weights.numel() == 0;
     // PackedMode is only available for ROCm devices
     {%- if not nobag %}

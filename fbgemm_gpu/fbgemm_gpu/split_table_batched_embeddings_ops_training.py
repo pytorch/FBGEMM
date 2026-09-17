@@ -27,6 +27,7 @@ from torch.autograd.profiler import record_function  # usort:skip
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+import fbgemm_gpu.split_embedding_configs as split_embedding_configs
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
@@ -77,6 +78,34 @@ from fbgemm_gpu.utils.writeback_util import (
     compute_writeback_indices_dispatch,
     writeback_gradient,
 )
+
+
+@torch.jit.ignore
+def _legacy_package_nfp8_dtype(
+    device: torch.device | int | None = None,
+) -> torch.dtype:
+    if torch.version.hip is not None:
+        raise RuntimeError(
+            "NFP8 on ROCm requires an fbgemm_gpu package with "
+            "architecture-aware dtype support"
+        )
+    return torch.float8_e4m3fn
+
+
+def _table_embedding_dtype(
+    weights_precision: SparseType,
+    device: torch.device | int,
+) -> torch.dtype:
+    return (
+        getattr(
+            split_embedding_configs,
+            "nfp8_dtype",
+            _legacy_package_nfp8_dtype,
+        )(device)
+        if weights_precision == SparseType.NFP8
+        else weights_precision.as_dtype()
+    )
+
 
 try:
     load_torch_module(
@@ -1103,7 +1132,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cacheable=True,
             precision=weights_precision,
         )
-        table_embedding_dtype = weights_precision.as_dtype()
+        table_embedding_dtype = _table_embedding_dtype(
+            weights_precision, self.current_device
+        )
 
         self._apply_split(
             weight_split,
@@ -3730,13 +3761,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ], "NFP8 is currently only supportd with adagrad optimizers."
             for param in splits:
                 tmp_param = torch.zeros(param.shape, device=self.current_device)
-                # Create initialized weights and cast to fp8.
-                fp8_dtype = (
-                    torch.float8_e4m3fnuz
-                    if torch.version.hip is not None
-                    else torch.float8_e4m3fn
-                )
-                tmp_param.uniform_(min_val, max_val).to(fp8_dtype)
+                tmp_param.uniform_(min_val, max_val)
                 param.data.copy_(tmp_param)
         else:
             for param in splits:
@@ -5408,7 +5433,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
         self.weights_precision = weights_precision
         self.output_dtype: int = output_dtype.as_int()
-        table_embedding_dtype = weights_precision.as_dtype()
 
         self.use_cpu: bool = use_cpu
         self.use_mtia: bool = use_mtia
@@ -5431,6 +5455,9 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 if self.use_mtia
                 else torch.cuda.current_device()
             )
+        )
+        table_embedding_dtype = _table_embedding_dtype(
+            weights_precision, self.current_device
         )
 
         self.embedding_specs = embedding_specs

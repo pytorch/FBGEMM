@@ -12,7 +12,11 @@ from typing import Any
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    nfp8_dtype,
+    SparseType,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -93,10 +97,6 @@ common_settings: dict[str, Any] = {
     "max_examples": MAX_EXAMPLES_LONG_RUNNING,
     "deadline": None,
 }
-
-fp8_dtype: torch.dtype = (
-    torch.float8_e4m3fnuz if torch.version.hip is not None else torch.float8_e4m3fn
-)
 
 
 def execute_backward_adagrad(  # noqa C901
@@ -231,6 +231,14 @@ def execute_backward_adagrad(  # noqa C901
             )
             for _ in range(T)
         ]
+    target_device = (
+        tbe_op.current_device
+        if tbe_op is not None
+        else torch.device("cpu") if use_cpu else torch.accelerator.current_accelerator()
+    )
+    fp8_dtype: torch.dtype | None = (
+        nfp8_dtype(target_device) if weights_precision == SparseType.NFP8 else None
+    )
     bs: list[torch.nn.Embedding | torch.nn.EmbeddingBag] = []
     if do_pooling:
         bs = [
@@ -244,6 +252,7 @@ def execute_backward_adagrad(  # noqa C901
         ]
 
     if weights_precision == SparseType.NFP8:
+        assert fp8_dtype is not None
         for t in range(T):
             bs[t].weight.data.copy_(bs[t].weight.data.to(fp8_dtype).to(torch.float))
 
@@ -289,6 +298,7 @@ def execute_backward_adagrad(  # noqa C901
     # Copy weights from reference modules to TBE (ensures both have same weights)
     for t in range(T):
         if weights_precision == SparseType.NFP8:
+            assert fp8_dtype is not None
             b_weight = bs[t].weight.to(fp8_dtype)
         else:
             b_weight = bs[t].weight
@@ -490,6 +500,7 @@ def execute_backward_adagrad(  # noqa C901
             )
         # If weights are FP8, add quantization noise.
         if weights_precision == SparseType.NFP8:
+            assert fp8_dtype is not None
             weights_ref = weights_ref.to(fp8_dtype).to(torch.float)
         torch.testing.assert_close(
             # pyrefly: ignore [missing-attribute]

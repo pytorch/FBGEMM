@@ -45,6 +45,9 @@
 #include "fbgemm_gpu/utils/prev_iter_ref.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+
+using namespace fbgemm_gpu;
+
 {%- if optimizer != "none" and not dense %}
 #include "gen_embedding_optimizer_{{ optimizer }}_{{ mdesc }}_device_kernel.cuh"
 {%- endif %}
@@ -52,7 +55,6 @@
 #include "gen_embedding_backward_split_common_device_kernel.cuh"
 
 using Tensor = at::Tensor;
-using namespace fbgemm_gpu;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Kernel Template Definition

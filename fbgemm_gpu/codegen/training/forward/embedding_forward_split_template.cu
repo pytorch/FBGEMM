@@ -629,6 +629,11 @@ batch_index_select_dim0_codegen_forward_cuda(
         // Check if LXU cache is used
         bool use_lxu_cache = lxu_cache_weights.numel() > 0;
         {%- endif %}
+        {%- if nobag %}
+        const auto nobag_warp_size = kWarpSizeHost();
+        const auto nobag_warps_per_block =
+            kForwardMaxThreads / nobag_warp_size;
+        {%- endif %}
 
         {%- if has_experimental %}
         const bool is_experimental_ = (
@@ -657,14 +662,14 @@ batch_index_select_dim0_codegen_forward_cuda(
               index_t,
               kEmbeddingSize / 4>),
             {%- if is_index_select %}
-            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            div_round_up(total_B, nobag_warps_per_block),
             {%- else %}
             utils::cuda::cap_grid_dim_x(
-                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                div_round_up(total_B, nobag_warps_per_block),
                 kForwardMaxThreads,
                 at::cuda::getCurrentCUDAStream()),
             {%- endif %}
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            dim3(nobag_warp_size, nobag_warps_per_block),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(dev_weights, emb_t, 1, 64),
@@ -714,14 +719,14 @@ batch_index_select_dim0_codegen_forward_cuda(
               {%- endif %}
             ),
             {%- if is_index_select %}
-            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            div_round_up(total_B, nobag_warps_per_block),
             {%- else %}
             utils::cuda::cap_grid_dim_x(
-                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                div_round_up(total_B, nobag_warps_per_block),
                 kForwardMaxThreads,
                 at::cuda::getCurrentCUDAStream()),
             {%- endif %}
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            dim3(nobag_warp_size, nobag_warps_per_block),
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(dev_weights, emb_t, 1, 64),
