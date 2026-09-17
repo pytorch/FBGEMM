@@ -29,6 +29,7 @@ jobs:
       os: linux
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
+      runner-fleet: osdc
       with-cuda: enable
       with-rocm: enable
       with-cpu: enable
@@ -74,7 +75,7 @@ jobs:
       #   the container reports torch.cuda.is_available() == False even on the
       #   default runner.
       #
-      #   linux.g5.12xlarge.nvidia.gpu (g5.12xlarge) is the same instance
+      #   mt-l-x86aavx2-45-167-a10g-4 (g5.12xlarge) is the same instance
       #   family and AMI as the default, so `--gpus all` is satisfied, but with
       #   24 physical cores instead of 8 and 192 GB instead of 64.  Cores are
       #   what count - `-j` is derived from `lscpu` cores x sockets, not vCPUs,
@@ -91,7 +92,7 @@ jobs:
 
         runner_args=()
         if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
-          runner_args=(--runner 'gpu_arch_type:cuda=linux.g5.12xlarge.nvidia.gpu')
+          runner_args=(--runner 'gpu_arch_type:cuda=mt-l-x86aavx2-45-167-a10g-4')
         fi
 
         MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' "${runner_args[@]}" )"
