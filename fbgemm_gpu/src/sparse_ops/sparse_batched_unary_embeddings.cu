@@ -8,6 +8,8 @@
 
 #include "common.cuh"
 
+#include <limits>
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
@@ -35,15 +37,16 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
   // already bounded by T/N <= 65535.
   for (auto b = blockIdx.x * blockDim.x + threadIdx.x; b < B;
        b += gridDim.x * blockDim.x) {
-    index_t indices_start = offsets[t * B + b];
-    index_t indices_end = offsets[t * B + b + 1];
+    const auto offsets_index = static_cast<int64_t>(t) * B + b;
+    index_t indices_start = offsets[offsets_index];
+    index_t indices_end = offsets[offsets_index + 1];
     int32_t L = indices_end - indices_start;
     at::acc_type<scalar_t, true> sum = 0.0;
     for (int32_t l = 0; l < L; ++l) {
       auto idx = LDG(&indices[indices_start + l]);
-      sum += weight[n * sum_E + table_offset + idx + 0];
+      sum += weight[static_cast<int64_t>(n) * sum_E + table_offset + idx + 0];
     }
-    output[(n * B + b) * T + t] = sum;
+    output[(static_cast<int64_t>(n) * B + b) * T + t] = sum;
   }
 }
 
@@ -59,31 +62,40 @@ Tensor batched_unary_embeddings_forward_cuda(
   CUDA_DEVICE_GUARD(weight);
 
   // N: number of tasks, T: number of tables, B: batch size
-  const int32_t N = weight.size(0);
-  const int32_t T = table_offsets.numel() - 1;
-  TORCH_CHECK(N > 0);
-  TORCH_CHECK(T > 0);
-  TORCH_CHECK(T <= 65535);
-  TORCH_CHECK(N <= 65535);
-  TORCH_CHECK(
-      offsets.numel() >= 1, "offsets must contain at least one element");
+  const auto N = weight.size(0);
+  const auto T = table_offsets.numel() - 1;
+  TORCH_CHECK(N > 0, "number of tasks N must be positive");
+  TORCH_CHECK(T > 0, "number of tables T must be positive");
+  TORCH_CHECK(offsets.numel() > 0, "offsets must contain at least one element");
+  // offsets contains T * B segment boundaries plus a final endpoint.
+  // Reject a partial table row before deriving B with integer division.
   TORCH_CHECK(
       (offsets.numel() - 1) % T == 0,
-      "offsets.numel() - 1 must be divisible by T");
-  const int32_t B = (offsets.numel() - 1) / T;
+      "offsets.numel() - 1 (",
+      offsets.numel() - 1,
+      ") must be divisible by the number of tables T (",
+      T,
+      ")");
+  const auto B = (offsets.numel() - 1) / T;
+  TORCH_CHECK(T <= 65535);
+  TORCH_CHECK(N <= 65535);
   auto output = at::empty({N, B, T}, weight.options());
   if (B == 0) {
     return output;
   }
-  int32_t threads = std::min<int32_t>(B, 512);
+  TORCH_CHECK(B <= std::numeric_limits<int32_t>::max());
+  const auto kernel_N = static_cast<int32_t>(N);
+  const auto kernel_B = static_cast<int32_t>(B);
+  const auto kernel_T = static_cast<int32_t>(T);
+  const auto threads = std::min<int32_t>(kernel_B, 512);
   // The forward kernel grid-strides over B.
-  const int64_t yz_blocks = static_cast<int64_t>(T) * N;
+  const int64_t yz_blocks = static_cast<int64_t>(kernel_T) * kernel_N;
   const auto blocks_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
-      cuda_calc_xblock_count(B, threads),
+      cuda_calc_xblock_count(kernel_B, threads),
       threads,
       yz_blocks,
       at::cuda::getCurrentCUDAStream());
-  dim3 blocks(blocks_x, T, N);
+  dim3 blocks(blocks_x, kernel_T, kernel_N);
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_forward_kernel", [&] {
         FBGEMM_DISPATCH_FLOATING_TYPES(
@@ -96,9 +108,9 @@ Tensor batched_unary_embeddings_forward_cuda(
                   threads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
-                  N,
-                  B,
-                  T,
+                  kernel_N,
+                  kernel_B,
+                  kernel_T,
                   weight.data_ptr<scalar_t>(),
                   table_offsets.data_ptr<index_t>(),
                   offsets.data_ptr<index_t>(),
@@ -171,20 +183,21 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     // that table (`idx`). Thus, we can hoist out some of the book-keeping.
     const auto info =
         reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start];
-    int t = info >> info_B_num_bits;
+    const int t = info >> info_B_num_bits;
 
     at::acc_type<scalar_t, true> grad_sum = 0.0;
     for (int32_t sl = 0; sl < SL; ++sl) {
       const auto b =
           reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start + sl] &
           info_B_mask;
-      grad_sum += grad_output[(n * B + b) * T + t];
+      grad_sum += grad_output[(static_cast<int64_t>(n) * B + b) * T + t];
     }
 
     index_t table_offset = table_offsets[t];
     index_t sum_E = table_offsets[T];
     int64_t idx = linear_index - table_offset;
-    grad_weight[n * sum_E + table_offset + idx] = grad_sum;
+    grad_weight[static_cast<int64_t>(n) * sum_E + table_offset + idx] =
+        grad_sum;
   }
 }
 
@@ -200,11 +213,38 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
   CUDA_DEVICE_GUARD(grad_output);
 
   // N: number of tasks, T: number of tables, B: batch size
-  const int32_t N = grad_output.size(0);
-  const int32_t B = grad_output.size(1);
-  const int32_t T = grad_output.size(2);
-  TORCH_CHECK(N > 0);
-  TORCH_CHECK(T > 0);
+  const auto N = grad_output.size(0);
+  const auto B = grad_output.size(1);
+  const auto T = grad_output.size(2);
+  TORCH_CHECK(N > 0, "number of tasks N must be positive");
+  TORCH_CHECK(T > 0, "number of tables T must be positive");
+  TORCH_CHECK(
+      weight.size(0) == N,
+      "weight.size(0) (",
+      weight.size(0),
+      ") must equal the number of tasks N (",
+      N,
+      ")");
+  TORCH_CHECK(
+      table_offsets.numel() == T + 1,
+      "table_offsets.numel() (",
+      table_offsets.numel(),
+      ") must equal the number of tables T + 1 (",
+      T + 1,
+      ")");
+  TORCH_CHECK(
+      offsets.numel() == T * B + 1,
+      "offsets.numel() (",
+      offsets.numel(),
+      ") must equal T * B + 1 (",
+      T * B + 1,
+      ")");
+  TORCH_CHECK(N <= 65535);
+  TORCH_CHECK(B <= std::numeric_limits<int32_t>::max());
+  TORCH_CHECK(T <= std::numeric_limits<int32_t>::max());
+  const auto kernel_N = static_cast<int32_t>(N);
+  const auto kernel_B = static_cast<int32_t>(B);
+  const auto kernel_T = static_cast<int32_t>(T);
   auto grad_weight = at::zeros_like(weight);
   if (B == 0) {
     return grad_weight;
@@ -212,9 +252,10 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
 
   int32_t info_B_num_bits;
   uint32_t info_B_mask;
-  std::tie(info_B_num_bits, info_B_mask) = get_info_B_num_bits_from_T(B, T);
+  std::tie(info_B_num_bits, info_B_mask) =
+      get_info_B_num_bits_from_T(kernel_T, kernel_B);
 
-  // weight: [N, sum_E]
+  // Both [N, sum_E] and [N, sum_E, 1] weights are stored flat here.
   // total_hash_size_bits = log2(sum_E)
   int64_t total_hash_size_bits = log2(weight.numel() / N) + 1;
 
@@ -245,14 +286,15 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
     return grad_weight;
   }
 
-  int threads = std::min<int32_t>(sorted_linear_indices_run.numel(), 512);
+  const auto threads = static_cast<int32_t>(
+      std::min<int64_t>(sorted_linear_indices_run.numel(), 512));
   // The backward kernel grid-strides over run_id.
   const auto blocks_x = utils::cuda::cap_grid_dim_x_with_yz_blocks(
       cuda_calc_xblock_count(sorted_linear_indices_run.numel(), threads),
       threads,
-      N,
+      kernel_N,
       at::cuda::getCurrentCUDAStream());
-  dim3 blocks(blocks_x, N);
+  dim3 blocks(blocks_x, kernel_N);
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_backward_kernel", [&] {
         FBGEMM_DISPATCH_FLOATING_TYPES(
@@ -265,9 +307,9 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
                   threads,
                   0,
                   at::cuda::getCurrentCUDAStream(),
-                  N,
-                  B,
-                  T,
+                  kernel_N,
+                  kernel_B,
+                  kernel_T,
                   grad_output.mutable_data_ptr<scalar_t>(),
                   table_offsets.data_ptr<index_t>(),
                   grad_weight.data_ptr<scalar_t>(),

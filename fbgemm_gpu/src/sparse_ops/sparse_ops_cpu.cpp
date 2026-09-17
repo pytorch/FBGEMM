@@ -2373,13 +2373,18 @@ Tensor batched_unary_embeddings_forward_cpu(
   // N: number of tasks, T: number of tables, B: batch size
   const int64_t N = weight.sizes()[0];
   const int64_t T = table_offsets.numel() - 1;
-  TORCH_CHECK(N > 0);
-  TORCH_CHECK(T > 0);
-  TORCH_CHECK(
-      offsets.numel() >= 1, "offsets must contain at least one element");
+  TORCH_CHECK(N > 0, "number of tasks N must be positive");
+  TORCH_CHECK(T > 0, "number of tables T must be positive");
+  TORCH_CHECK(offsets.numel() > 0, "offsets must contain at least one element");
+  // offsets contains T * B segment boundaries plus a final endpoint.
+  // Reject a partial table row before deriving B with integer division.
   TORCH_CHECK(
       (offsets.numel() - 1) % T == 0,
-      "offsets.numel() - 1 must be divisible by T");
+      "offsets.numel() - 1 (",
+      offsets.numel() - 1,
+      ") must be divisible by the number of tables T (",
+      T,
+      ")");
   const int64_t B = (offsets.numel() - 1) / T;
 
   // Make sure the index_t are consistent among table_offsets, offsets and

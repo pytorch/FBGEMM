@@ -17,6 +17,7 @@ from math import sqrt
 import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
 import numpy as np
 import torch
+from hypothesis import given, settings, strategies as st
 from pyre_extensions import none_throws
 
 try:
@@ -24,10 +25,14 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_memory_lt_gb, gpu_unavailable, skipIfRocm
+    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable
 
 except Exception:
-    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable, skipIfRocm
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+    )
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
@@ -230,10 +235,6 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `test_utils.gpu_unavailable` to decorator factory `unittest.skipIf`.
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm(
-        "Known failure on ROCm: the permute sub-test faults with a GPU memory "
-        "access violation"
-    )
     def test_gpu(self) -> None:
         self._test_main(gpu_infer=True)
 
@@ -312,57 +313,106 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             torch.zeros_like(unary_emb.weight),
         )
 
-    def test_batched_unary_embeddings_rejects_malformed_offsets_cpu(self) -> None:
-        weight = torch.ones((2, 5))
-        table_offsets = torch.tensor([0, 2, 5], dtype=torch.long)
-        indices = torch.empty(0, dtype=torch.long)
-        invalid_offsets = (
-            (
-                torch.empty(0, dtype=torch.long),
-                "offsets must contain at least one element",
-            ),
-            (
-                torch.zeros(2, dtype=torch.long),
-                r"offsets.numel\(\) - 1 must be divisible by T",
-            ),
-        )
-
-        for offsets, error_pattern in invalid_offsets:
-            with self.subTest(offsets_numel=offsets.numel()):
-                with self.assertRaisesRegex(RuntimeError, error_pattern):
-                    torch.ops.fbgemm.batched_unary_embeddings(
-                        weight,
-                        table_offsets,
-                        offsets,
-                        indices,
-                    )
-
     @unittest.skipIf(*gpu_unavailable)
-    def test_batched_unary_embeddings_rejects_malformed_offsets(self) -> None:
+    def test_batched_unary_embeddings_2d_weight_backward(self) -> None:
         device = torch.device(torch.accelerator.current_accelerator() or "cuda")
-        weight = torch.ones((2, 5), device=device)
+        weight = torch.ones((2, 5), device=device, requires_grad=True)
         table_offsets = torch.tensor([0, 2, 5], dtype=torch.long, device=device)
-        indices = torch.empty(0, dtype=torch.long, device=device)
-        invalid_offsets = (
+        offsets = torch.arange(5, dtype=torch.long, device=device)
+        indices = torch.tensor([0, 1, 0, 2], dtype=torch.long, device=device)
+
+        output = torch.ops.fbgemm.batched_unary_embeddings(
+            weight, table_offsets, offsets, indices
+        )
+        output.sum().backward()
+
+        expected_grad = torch.tensor(
+            [[1, 1, 1, 0, 1], [1, 1, 1, 0, 1]],
+            dtype=weight.dtype,
+            device=device,
+        )
+        torch.testing.assert_close(none_throws(weight.grad), expected_grad)
+
+    @settings(deadline=None)
+    @given(device=cpu_and_maybe_gpu())
+    def test_invalid_inputs(self, device: torch.device) -> None:
+        num_tasks = 3
+        table_offsets = torch.tensor([0, 2, 4], dtype=torch.long, device=device)
+        weight = torch.randn(num_tasks, 4, 1, device=device)
+        indices = torch.zeros(8, dtype=torch.long, device=device)
+        invalid_input_cases = (
             (
+                weight,
+                table_offsets,
+                torch.arange(8, dtype=torch.long, device=device),
+                r"offsets\.numel\(\) - 1 .* must be divisible",
+            ),
+            (
+                weight,
+                table_offsets,
                 torch.empty(0, dtype=torch.long, device=device),
                 "offsets must contain at least one element",
             ),
             (
-                torch.zeros(2, dtype=torch.long, device=device),
-                r"offsets.numel\(\) - 1 must be divisible by T",
+                torch.empty(0, 4, 1, device=device),
+                table_offsets,
+                torch.arange(9, dtype=torch.long, device=device),
+                "number of tasks N must be positive",
+            ),
+            (
+                weight,
+                torch.empty(1, dtype=torch.long, device=device),
+                torch.arange(9, dtype=torch.long, device=device),
+                "number of tables T must be positive",
             ),
         )
 
-        for offsets, error_pattern in invalid_offsets:
-            with self.subTest(offsets_numel=offsets.numel()):
+        for (
+            invalid_weight,
+            invalid_table_offsets,
+            invalid_offsets,
+            error_pattern,
+        ) in invalid_input_cases:
+            with self.subTest(
+                num_tasks=invalid_weight.size(0),
+                table_offsets_numel=invalid_table_offsets.numel(),
+                offsets_numel=invalid_offsets.numel(),
+            ):
                 with self.assertRaisesRegex(RuntimeError, error_pattern):
                     torch.ops.fbgemm.batched_unary_embeddings(
-                        weight,
-                        table_offsets,
-                        offsets,
+                        invalid_weight,
+                        invalid_table_offsets,
+                        invalid_offsets,
                         indices,
                     )
+
+    def test_batched_unary_embeddings_dynamic_shapes_forward(self) -> None:
+        num_tasks = 2
+        num_tables = 2
+        unary_embedding = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=num_tasks,
+            hash_sizes=[2] * num_tables,
+            long_index=True,
+        )
+        # Compiled backward is not supported by this op yet. This focused test
+        # covers the meta kernel's symbolic forward shape calculation; eager
+        # GPU backward coverage remains in test_gpu.
+        compiled_embedding = torch.compile(
+            unary_embedding,
+            dynamic=True,
+            fullgraph=True,
+        )
+
+        for batch_size in (3, 5):
+            with self.subTest(batch_size=batch_size):
+                offsets = torch.arange(
+                    num_tables * batch_size + 1,
+                    dtype=torch.long,
+                )
+                indices = torch.zeros(num_tables * batch_size, dtype=torch.long)
+                expected = unary_embedding(offsets, indices)
+                actual = compiled_embedding(offsets, indices)
+                torch.testing.assert_close(actual, expected)
 
     @unittest.skipIf(*gpu_unavailable)
     # This test exercises the HIP launch-side limit and requires a large
@@ -547,6 +597,54 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
                 # Other rows in this table should be 0.
                 for r in range(1, small_hash_sizes[t]):
                     self.assertEqual(gpu_grad[n, row0_idx + r].item(), 0.0)
+
+    @settings(deadline=None)
+    @given(
+        num_tables=st.integers(min_value=1, max_value=5),
+        batch_size=st.integers(min_value=1, max_value=8),
+        num_tasks=st.integers(min_value=1, max_value=4),
+    )
+    def test_batched_unary_embeddings_meta(
+        self,
+        num_tables: int,
+        batch_size: int,
+        num_tasks: int,
+    ) -> None:
+        # Meta validates concrete dimensions without adding a symbolic modulus
+        # guard that would over-constrain dynamic offsets shapes.
+        weight = torch.empty(num_tasks, num_tables * 2, 1, device="meta")
+        table_offsets = torch.empty(num_tables + 1, dtype=torch.long, device="meta")
+
+        good_offsets = torch.empty(
+            num_tables * batch_size + 1, dtype=torch.long, device="meta"
+        )
+        indices = torch.empty(num_tables * batch_size, dtype=torch.long, device="meta")
+        out = torch.ops.fbgemm.batched_unary_embeddings(
+            weight, table_offsets, good_offsets, indices
+        )
+        self.assertEqual(list(out.shape), [num_tasks, batch_size, num_tables])
+        self.assertEqual(out.device.type, "meta")
+
+        zero_batch_offsets = torch.empty(1, dtype=torch.long, device="meta")
+        zero_batch_indices = torch.empty(0, dtype=torch.long, device="meta")
+        zero_batch_out = torch.ops.fbgemm.batched_unary_embeddings(
+            weight, table_offsets, zero_batch_offsets, zero_batch_indices
+        )
+        self.assertEqual(list(zero_batch_out.shape), [num_tasks, 0, num_tables])
+
+        empty_offsets = torch.empty(0, dtype=torch.long, device="meta")
+        with self.assertRaisesRegex(
+            RuntimeError, "offsets must contain at least one element"
+        ):
+            torch.ops.fbgemm.batched_unary_embeddings(
+                weight, table_offsets, empty_offsets, indices
+            )
+
+        empty_weight = torch.empty(0, num_tables * 2, 1, device="meta")
+        with self.assertRaisesRegex(RuntimeError, "number of tasks N must be positive"):
+            torch.ops.fbgemm.batched_unary_embeddings(
+                empty_weight, table_offsets, good_offsets, indices
+            )
 
 
 if __name__ == "__main__":
