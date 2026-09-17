@@ -124,6 +124,52 @@ AdjacencyMatrix<Node> get_intermediate_node(
   }
 }
 
+// Transfers `src` to `dst`, which are expected to hold the same shape but may
+// live on different devices.
+//
+// A pitched transfer is only required when a tensor has padded rows. Prefer the
+// flat copy otherwise: a pitched copy is bounds-checked against the single
+// allocation registered for the pointer, and an expandable segment is
+// registered as one allocation per 20MiB chunk, so a contiguous transfer larger
+// than a chunk is rejected when described as pitched. The flat copy also covers
+// dimensions past the first two, which the pitched description silently drops.
+void copy_to_device_async(
+    const Tensor& src,
+    Tensor& dst,
+    const at::cuda::CUDAStream& copy_stream) {
+  if (src.numel() == 0) {
+    return;
+  }
+
+  if (src.is_contiguous() && dst.is_contiguous() &&
+      src.sizes() == dst.sizes()) {
+    AT_CUDA_CHECK(cudaMemcpyAsync(
+        dst.mutable_data_ptr(),
+        src.const_data_ptr(),
+        src.numel() * src.element_size(),
+        cudaMemcpyDeviceToDevice,
+        copy_stream));
+    return;
+  }
+
+  TORCH_CHECK(
+      src.dim() == 2 && dst.dim() == 2,
+      "Non-contiguous tensors must be 2D to be transferred as a pitched copy, ",
+      "but got src.dim()=",
+      src.dim(),
+      " and dst.dim()=",
+      dst.dim());
+  AT_CUDA_CHECK(cudaMemcpy2DAsync(
+      dst.mutable_data_ptr(),
+      dst.stride(0) * dst.element_size(),
+      src.const_data_ptr(),
+      src.stride(0) * src.element_size(),
+      src.size(1) * src.element_size(),
+      src.size(0),
+      cudaMemcpyDeviceToDevice,
+      copy_stream));
+}
+
 void all_to_one_target_cpu(
     const std::vector<Tensor>& input_tensors,
     std::vector<Tensor>& output_tensors) {
@@ -220,15 +266,7 @@ void all_to_one(
            .output_idx = i,
            .transfer_cuda_event =
                std::make_unique<GPUEvent>(cudaEventDisableTiming)});
-      AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.mutable_data_ptr(),
-          dst.stride(0) * dst.element_size(),
-          src.const_data_ptr(),
-          src.stride(0) * src.element_size(),
-          src.size(1) * src.element_size(),
-          src.size(0),
-          cudaMemcpyDeviceToDevice,
-          copy_stream));
+      copy_to_device_async(src, dst, copy_stream);
       two_hop_transfers.back().transfer_cuda_event->record(copy_stream);
       is_two_hop_transfer.push_back(true);
     } else {
@@ -277,15 +315,7 @@ void all_to_one(
 
       auto& dst = output_tensors[i];
       // on source device, launch memcpy.
-      AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.mutable_data_ptr(),
-          dst.stride(0) * dst.element_size(),
-          src.const_data_ptr(),
-          src.stride(0) * src.element_size(),
-          src.size(1) * src.element_size(),
-          src.size(0),
-          cudaMemcpyDeviceToDevice,
-          copy_stream));
+      copy_to_device_async(src, dst, copy_stream);
     }
   }
 
@@ -311,15 +341,7 @@ void all_to_one(
     const auto output_index = two_hop_transfer.output_idx;
     auto& dst = output_tensors.at(output_index);
     // on source device, launch memcpy.
-    AT_CUDA_CHECK(cudaMemcpy2DAsync(
-        dst.mutable_data_ptr(),
-        dst.stride(0) * dst.element_size(),
-        src.const_data_ptr(),
-        src.stride(0) * src.element_size(),
-        src.size(1) * src.element_size(),
-        src.size(0),
-        cudaMemcpyDeviceToDevice,
-        copy_stream));
+    copy_to_device_async(src, dst, copy_stream);
   }
 
   // Do the same-GPU cases.
@@ -330,15 +352,7 @@ void all_to_one(
         auto& dst = output_tensors[i];
         // single device memcpy, not that src_device == dst_device.
         auto copy_stream = getCurrentGPUStream(target_device_index);
-        AT_CUDA_CHECK(cudaMemcpy2DAsync(
-            dst.mutable_data_ptr(),
-            dst.stride(0) * dst.element_size(),
-            src.const_data_ptr(),
-            src.stride(0) * src.element_size(),
-            src.size(1) * src.element_size(),
-            src.size(0),
-            cudaMemcpyDeviceToDevice,
-            copy_stream));
+        copy_to_device_async(src, dst, copy_stream);
       }
     }
   }
@@ -451,15 +465,7 @@ Tensor sum_reduce_to_one(
 
     // on source device, launch memcpy.
     auto& dst = copied_tensors[i];
-    AT_CUDA_CHECK(cudaMemcpy2DAsync(
-        dst.mutable_data_ptr(),
-        dst.stride(0) * dst.element_size(),
-        src.const_data_ptr(),
-        src.stride(0) * src.element_size(),
-        src.size(1) * src.element_size(),
-        src.size(0),
-        cudaMemcpyDeviceToDevice,
-        copy_stream));
+    copy_to_device_async(src, dst, copy_stream);
   }
 
   // Wait for cross-device copies to complete, then reduce
@@ -532,15 +538,7 @@ Tensor sum_reduce_to_one(
     dst_ready.block(copy_stream);
 
     auto& dst = copied_tensors[i];
-    AT_CUDA_CHECK(cudaMemcpy2DAsync(
-        dst.mutable_data_ptr(),
-        dst.stride(0) * dst.element_size(),
-        src.const_data_ptr(),
-        src.stride(0) * src.element_size(),
-        src.size(1) * src.element_size(),
-        src.size(0),
-        cudaMemcpyDeviceToDevice,
-        copy_stream));
+    copy_to_device_async(src, dst, copy_stream);
   }
 
   // Wait for cross-device copies to complete, then reduce
