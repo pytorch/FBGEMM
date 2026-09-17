@@ -72,9 +72,9 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.24xlarge" },
+          { arch: x86, instance: "mt-l-x86iavx512-94-192" },
         ]
-        container-image: [ "ubuntu:22.04" ]
+        container-image: [ "almalinux:9" ]
         build-target: [ "default", "genai" ]
         # NOTE: we test only a subset of Python versions to reduce CI expenses
         python-version: [ "3.14" ]
@@ -86,8 +86,8 @@ jobs:
     steps:
     - name: Setup Build Container
       run: |
-        apt update -y
-        apt install -y binutils git pciutils sudo wget
+        yum update -y
+        yum install -y binutils findutils git pciutils sudo wget which
         git config --global --add safe.directory '*'
 
     - name: Checkout the Repository

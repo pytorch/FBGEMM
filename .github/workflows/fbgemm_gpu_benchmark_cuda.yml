@@ -40,7 +40,7 @@ jobs:
         {
           "build-target": [ "default" ],
           "host-machine": [
-            { "arch": "x86", "instance": "linux.24xlarge" },
+            { "arch": "x86", "instance": "mt-l-x86iavx512-94-192" },
           ],
           "python-version": [ "3.14" ],
           "cuda-version": [ "13.0.2" ],
@@ -57,7 +57,7 @@ jobs:
         {
           "build-target": [ "default" ],
           "host-machine": [
-            { "arch": "x86", "instance": "linux.g5.4xlarge.nvidia.gpu" },
+            { "arch": "x86", "instance": "mt-l-x86aavx2-11-41-a10g" },
           ],
           "python-version": [ "3.14" ],
           "cuda-version": [ "13.0.2" ],
