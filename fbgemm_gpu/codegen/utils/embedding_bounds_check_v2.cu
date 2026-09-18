@@ -32,6 +32,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
 
   const index_t num_indices = indices.size(0);
   const auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  constexpr bool is_warning_mode =
+      bounds_check_mode == BoundsCheckMode::WARNING ||
+      bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES;
 #ifdef USE_ROCM
   // Deliberately ROCm-only: NVIDIA emits the WARNING printf inline in the loop,
   // so allocating this state there would cost registers the kernel never uses,
@@ -47,13 +50,16 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
 
   // Last-element check; one thread only.
   if (b_t_start == 0 && threadIdx.x == 0) {
+    const bool invalid_final_offset = offsets[total_B] > num_indices ||
+        (bounds_check_mode != BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES &&
+         offsets[total_B] != num_indices);
     if (disable_offsets_adjustment ||
         bounds_check_mode == BoundsCheckMode::FATAL) {
       CUDA_KERNEL_ASSERT(
-          num_indices == offsets[total_B] &&
+          !invalid_final_offset &&
           "num_indices must match the last element in offsets");
-    } else if (num_indices != offsets[total_B]) {
-      if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    } else if (invalid_final_offset) {
+      if (is_warning_mode) {
         if (gpuAtomicIncrement(&warning[0]) == 0) {
           printf(
               "EmbeddingBoundsCheck (VBE %s): the last element in offsets is incorrect for "
@@ -102,7 +108,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     } else if (
         indices_start < 0 || indices_start > indices_end ||
         indices_end > num_indices) {
-      if (bounds_check_mode == BoundsCheckMode::WARNING) {
+      if (is_warning_mode) {
         if (threadIdx.x == 0 && gpuAtomicIncrement(&warning[0]) == 0) {
           printf(
               "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
@@ -141,7 +147,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
             idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
         CUDA_KERNEL_ASSERT(
             idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
-      } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+      } else if (is_warning_mode) {
         if (idx < 0 || idx >= num_rows) {
 #ifdef USE_ROCM
           // Record only; the print slot is claimed once per block after the
@@ -190,16 +196,15 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   // gpuAtomicIncrement still decides, so a stale read costs an extra atomic,
   // never a second print.
   bool print_warning = false;
-  if (bounds_check_mode == BoundsCheckMode::WARNING && warning_inc > 0 &&
-      warning[0] == 0) {
+  if (is_warning_mode && warning_inc > 0 && warning[0] == 0) {
     print_warning = (gpuAtomicIncrement(&warning[0]) == 0);
   }
 
-  // WARNING never reads the summed counter, so the reduction (and its
+  // Warning modes never read the summed counter, so the reduction (and its
   // ~10 __syncthreads) is pure overhead there. bounds_check_mode is a template
   // parameter, so this branch is resolved at compile time and the barriers
   // below stay block-uniform.
-  if (bounds_check_mode != BoundsCheckMode::WARNING) {
+  if (!is_warning_mode) {
     block_warning_buffer[linear_tid] = warning_inc;
     __syncthreads();
 
@@ -219,7 +224,6 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     }
     __syncthreads();
   }
-
   if (print_warning) {
     int32_t b;
     int32_t t;
@@ -273,14 +277,16 @@ void _bounds_check_indices_cuda_v2(
 
   CUDA_DEVICE_GUARD(rows_per_table);
 
-  if (bounds_check_mode == BoundsCheckMode::WARNING) {
+  if (bounds_check_mode == BoundsCheckMode::WARNING ||
+      bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES) {
     warning.zero_();
   }
 
   // The WARNING template is the register-heaviest of the three; at 1024
   // threads/block that is enough to cap occupancy at one block per SM.
-  const size_t kNumThreads =
-      (bounds_check_mode == BoundsCheckMode::WARNING) ? 256 : 1024;
+  const bool is_warning_mode = bounds_check_mode == BoundsCheckMode::WARNING ||
+      bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES;
+  const size_t kNumThreads = is_warning_mode ? 256 : 1024;
   auto grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
       cuda_calc_xblock_count(
           total_B, kNumThreads / fbgemm_gpu::kWarpSizeHost()),
@@ -326,6 +332,7 @@ void _bounds_check_indices_cuda_v2(
 
   INVOKE_BOUNDS_CHECK_INDICES(BoundsCheckMode::FATAL)
   INVOKE_BOUNDS_CHECK_INDICES(BoundsCheckMode::WARNING)
+  INVOKE_BOUNDS_CHECK_INDICES(BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES)
   INVOKE_BOUNDS_CHECK_INDICES(BoundsCheckMode::IGNORE)
 
 #undef INVOKE_BOUNDS_CHECK_INDICES
