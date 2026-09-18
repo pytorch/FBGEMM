@@ -22,14 +22,13 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests, skipIfRocm
+    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import (
         gpu_memory_lt_gb,
         gpu_unavailable,
         optests,
-        skipIfRocm,
     )
 
 
@@ -133,7 +132,6 @@ class ReorderBatchedTest(unittest.TestCase):
             cat_ad_lengths_broadcasted, reordered_batched_ad_lengths
         )
 
-    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -511,7 +509,6 @@ class ReorderBatchedTest(unittest.TestCase):
             reordered_sequence_embedding_from_indices, reordered_cat_sequence_embeddings
         )
 
-    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -539,7 +536,12 @@ class ReorderBatchedTest(unittest.TestCase):
         MAX_H = 1000
         DIM = 32
         device = torch.device(torch.accelerator.current_accelerator() or "cuda")
-        ref_embeddings = torch.rand(MAX_H, DIM, dtype=emb_dtype, device=device)
+        ref_embeddings = (
+            # torch.rand is not implemented for integral dtypes
+            torch.randint(0, 256, (MAX_H, DIM), dtype=emb_dtype, device=device)
+            if emb_dtype == torch.uint8
+            else torch.rand(MAX_H, DIM, dtype=emb_dtype, device=device)
+        )
         feature_lengths = [
             torch.randint(
                 1, L, (T, random.randint(1, B + 1)), dtype=index_dtype, device=device
@@ -594,7 +596,7 @@ class ReorderBatchedTest(unittest.TestCase):
                 cat_sequence_embeddings_offsets,
                 cat_sequence_embeddings,
                 reordered_cat_sequence_embeddings_offsets,
-                batch_offsets,
+                batch_offsets.int(),
                 num_items_in_batch,
             )
         )
