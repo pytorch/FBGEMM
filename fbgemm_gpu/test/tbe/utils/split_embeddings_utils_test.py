@@ -38,6 +38,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
+IS_ROCM: bool = hasattr(torch.version, "hip") and torch.version.hip is not None
+
 
 def gen_inputs(
     hash_sizes: list[int],
@@ -363,7 +365,20 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             )
             torch.testing.assert_close(indices, torch.zeros_like(indices))
             if bounds_check_mode == BoundsCheckMode.WARNING:
-                self.assertEqual(warning.item(), indices.numel())
+                if IS_ROCM and not use_cpu and bounds_check_version == 2:
+                    # The ROCm V2 kernel deliberately does not tally every bad
+                    # index: summing them needed a block-wide reduction that
+                    # dominated the kernel's runtime. It only claims the single
+                    # warning slot, so warning[0] counts the threads that raced
+                    # for that claim and carries no more information than
+                    # "a warning was raised".
+                    if indices.numel() == 0:
+                        self.assertEqual(warning.item(), 0)
+                    else:
+                        self.assertGreater(warning.item(), 0)
+                        self.assertLessEqual(warning.item(), indices.numel())
+                else:
+                    self.assertEqual(warning.item(), indices.numel())
         else:
             if use_cpu and indices.numel():
                 with self.assertRaises(RuntimeError):

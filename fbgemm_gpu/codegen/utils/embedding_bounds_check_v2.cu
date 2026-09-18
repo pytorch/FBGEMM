@@ -32,10 +32,13 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
 
   const index_t num_indices = indices.size(0);
   const auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+#ifdef USE_ROCM
+  // Deliberately ROCm-only: NVIDIA emits the WARNING printf inline in the loop,
+  // so allocating this state there would cost registers the kernel never uses,
+  // which at 1024 threads/block is enough to drop occupancy to 1 block/SM.
   index_t invalid_i = -1, invalid_idx = -1;
   int32_t invalid_b_t = -1;
   int64_t warning_inc = 0;
-#ifdef USE_ROCM
   __shared__ int64_t block_warning_buffer[kMaxThreads];
   const uint32_t linear_tid = threadIdx.z * (blockDim.y * blockDim.x) +
       threadIdx.y * blockDim.x + threadIdx.x;
@@ -140,11 +143,38 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
             idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
       } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
         if (idx < 0 || idx >= num_rows) {
+#ifdef USE_ROCM
+          // Record only; the print slot is claimed once per block after the
+          // loop. Printing here would let every wavefront race for it.
           invalid_i = i;
           invalid_idx = idx;
           invalid_b_t = b_t;
-          indices[indices_start + i] = 0;
           warning_inc += 1;
+#else
+          // The fused increment-and-test is what limits this to one print per
+          // launch: only the thread that observes 0 may print.
+          if (gpuAtomicIncrement(&warning[0]) == 0) {
+            const int32_t B_print =
+                vbe ? (B_offsets[t + 1] - B_offsets[t]) : (total_B / T);
+            printf(
+                "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
+                "batch: %d, table: %d, bag element: %lld, idx: %lld, num_rows: %lld, "
+                "indices_start: %lld, indices_end: %lld, T: %d, B: %d, b_t: %d. "
+                "Setting idx to zero.\n",
+                vbe ? "true" : "false",
+                b,
+                t,
+                static_cast<int64_t>(i),
+                static_cast<int64_t>(idx),
+                rows_per_table[t],
+                static_cast<int64_t>(indices_start),
+                static_cast<int64_t>(indices_end),
+                T,
+                B_print,
+                b_t);
+          }
+#endif
+          indices[indices_start + i] = 0;
         }
       } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
         if (idx < 0 || idx >= num_rows) {
@@ -155,36 +185,42 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   } // for b_t
 
 #ifdef USE_ROCM
-  // Accumulate per-thread warning counts in shared memory and reduce once per
-  // block.
-  block_warning_buffer[linear_tid] = warning_inc;
-  __syncthreads();
+  // The unsynchronized read of warning[0] is a filter, not the decision: it
+  // only skips the atomic once some block has already claimed the slot. The
+  // gpuAtomicIncrement still decides, so a stale read costs an extra atomic,
+  // never a second print.
+  bool print_warning = false;
+  if (bounds_check_mode == BoundsCheckMode::WARNING && warning_inc > 0 &&
+      warning[0] == 0) {
+    print_warning = (gpuAtomicIncrement(&warning[0]) == 0);
+  }
 
-  // Parallel tree reduction
-  for (int stride = active_threads / 2; stride > 0; stride >>= 1) {
-    if (linear_tid < stride) {
-      block_warning_buffer[linear_tid] +=
-          block_warning_buffer[linear_tid + stride];
+  // WARNING never reads the summed counter, so the reduction (and its
+  // ~10 __syncthreads) is pure overhead there. bounds_check_mode is a template
+  // parameter, so this branch is resolved at compile time and the barriers
+  // below stay block-uniform.
+  if (bounds_check_mode != BoundsCheckMode::WARNING) {
+    block_warning_buffer[linear_tid] = warning_inc;
+    __syncthreads();
+
+    for (int stride = active_threads / 2; stride > 0; stride >>= 1) {
+      if (linear_tid < stride) {
+        block_warning_buffer[linear_tid] +=
+            block_warning_buffer[linear_tid + stride];
+      }
+      __syncthreads();
+    }
+
+    if (linear_tid == 0) {
+      int64_t block_warning_sum = block_warning_buffer[0];
+      if (block_warning_sum > 0) {
+        gpuAtomicAdd(&warning[0], block_warning_sum);
+      }
     }
     __syncthreads();
   }
 
-  // Thread 0 has the final sum
-  if (linear_tid == 0) {
-    int64_t block_warning_sum = block_warning_buffer[0];
-    if (block_warning_sum > 0) {
-      gpuAtomicAdd(&warning[0], block_warning_sum);
-    }
-  }
-  __syncthreads();
-#else
-  if (warning_inc > 0) {
-    gpuAtomicAdd(&warning[0], warning_inc);
-  }
-#endif
-  if (bounds_check_mode == BoundsCheckMode::WARNING && invalid_i != -1 &&
-      static_cast<int64_t>(atomicAdd(
-          reinterpret_cast<unsigned long long int*>(&warning[0]), 0)) == 0) {
+  if (print_warning) {
     int32_t b;
     int32_t t;
 
@@ -209,6 +245,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
         B,
         invalid_b_t);
   }
+#endif
 }
 
 void _bounds_check_indices_cuda_v2(
@@ -240,7 +277,10 @@ void _bounds_check_indices_cuda_v2(
     warning.zero_();
   }
 
-  constexpr size_t kNumThreads = 1024;
+  // The WARNING template is the register-heaviest of the three; at 1024
+  // threads/block that is enough to cap occupancy at one block per SM.
+  const size_t kNumThreads =
+      (bounds_check_mode == BoundsCheckMode::WARNING) ? 256 : 1024;
   auto grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
       cuda_calc_xblock_count(
           total_B, kNumThreads / fbgemm_gpu::kWarpSizeHost()),

@@ -22,8 +22,10 @@
 #include <cstdint>
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
+#include <limits>
 
 #include "fbgemm_gpu/intraining_embedding_pruning.h"
+#include "fbgemm_gpu/utils/check_product_with_limit.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
@@ -460,6 +462,35 @@ int get_sm_count_() {
   return deviceProp->multiProcessorCount;
 }
 
+namespace {
+
+int64_t check_table_launch_blocks(
+    const char* context,
+    int64_t num_tables,
+    int64_t blocks_per_table) {
+  constexpr uint64_t kMaxLaunchThreads =
+      std::numeric_limits<uint32_t>::max() - uint64_t{1};
+  constexpr uint64_t kMaxGridDimX = std::numeric_limits<int32_t>::max();
+
+  const auto launch_blocks = utils::check_product_with_limit(
+      context,
+      "num_tables * SM_count",
+      kMaxGridDimX,
+      num_tables,
+      blocks_per_table);
+#ifdef __HIP_PLATFORM_AMD__
+  utils::check_product_with_limit(
+      context,
+      "num_tables * SM_count * kMaxThreads",
+      kMaxLaunchThreads,
+      launch_blocks,
+      kMaxThreads);
+#endif
+  return static_cast<int64_t>(launch_blocks);
+}
+
+} // namespace
+
 void init_address_lookup_cuda(
     Tensor address_lookups,
     Tensor buffer_offsets,
@@ -469,19 +500,21 @@ void init_address_lookup_cuda(
 
   CUDA_DEVICE_GUARD(address_lookups);
 
-  const int32_t num_tables = buffer_offsets.size(0) - 1;
+  const int64_t num_tables = buffer_offsets.size(0) - 1;
   if (num_tables <= 0) {
     return;
   }
 
   // Get number of SMs in the GPU
   const int32_t blocks_per_table = get_sm_count_();
+  const int64_t launch_blocks = check_table_launch_blocks(
+      "init_address_lookup", num_tables, blocks_per_table);
 
   // Table entries can be as small as 0.1 million and as large as 4 millions.
   // Allocate all SMs to each table
   FBGEMM_LAUNCH_KERNEL(
       (init_address_lookup_kernel),
-      num_tables * blocks_per_table,
+      launch_blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream(),
@@ -503,7 +536,7 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
 
   CUDA_DEVICE_GUARD(address_lookups);
 
-  const int32_t num_tables = buffer_offsets.size(0) - 1;
+  const int64_t num_tables = buffer_offsets.size(0) - 1;
   if (num_tables <= 0) {
     return std::tuple(
         at::zeros({1}, buffer_offsets.options().dtype(at::kLong)),
@@ -514,6 +547,10 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   const int32_t rows_per_sample = 23;
   // Get number of SMs in the GPU
   const int32_t blocks_per_table = get_sm_count_();
+  utils::check_product_with_limit(
+      "prune_embedding_tables", "num_tables", kMaxThreads, num_tables);
+  const int64_t launch_blocks = check_table_launch_blocks(
+      "prune_embedding_tables", num_tables, blocks_per_table);
 
   // 1. Decay the row utility of all tables to account for stale values;
   int64_t total_buffer_size = row_utils.size(0);
@@ -552,7 +589,7 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
 
   FBGEMM_LAUNCH_KERNEL(
       (get_util_samples),
-      num_tables * blocks_per_table,
+      launch_blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream(),
@@ -602,8 +639,6 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   }
   // Second, get util thresholds
   auto util_thresholds = at::zeros({num_tables}, row_utils.options());
-  CUDA_KERNEL_ASSERT(num_tables <= kMaxThreads);
-
   FBGEMM_LAUNCH_KERNEL(
       (get_util_thresholds),
       1,
@@ -621,7 +656,7 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   // Allocate all SMs to each table
   FBGEMM_LAUNCH_KERNEL(
       (prune_indices_per_table),
-      blocks_per_table * num_tables,
+      launch_blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream(),
@@ -632,7 +667,13 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
       PTA_B(address_lookups, int64_t, 1, 32));
 
   // 6. Get pruning length for each table
-  int64_t num_table_segments = num_tables * kMaxThreads;
+  const int64_t num_table_segments =
+      static_cast<int64_t>(utils::check_product_with_limit(
+          "intraining embedding pruning allocation",
+          "num_tables * 1024",
+          std::numeric_limits<int64_t>::max(),
+          num_tables,
+          kMaxThreads));
   auto pruned_row_lengths = at::zeros(
       {num_table_segments}, buffer_offsets.options().dtype(at::kLong));
   auto inserted_row_lengths = at::zeros(
@@ -725,7 +766,7 @@ std::tuple<Tensor, Tensor, int64_t> prune_embedding_tables_cuda(
   // 9. Cleanup remaining marked rows in address lookups
   FBGEMM_LAUNCH_KERNEL(
       (cleanup_address_lookups),
-      num_tables * blocks_per_table,
+      launch_blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream(),
