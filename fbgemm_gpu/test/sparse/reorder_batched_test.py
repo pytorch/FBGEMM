@@ -25,11 +25,7 @@ if open_source:
     from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import (
-        gpu_memory_lt_gb,
-        gpu_unavailable,
-        optests,
-    )
+    from fbgemm_gpu.test.test_utils import gpu_memory_lt_gb, gpu_unavailable, optests
 
 
 class ReorderBatchedTest(unittest.TestCase):
