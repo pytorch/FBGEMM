@@ -103,9 +103,8 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
 
   CUDA_DEVICE_GUARD(lxu_cache_weights);
 
-  // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
-  // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
-  uvm_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
+  const auto dispatch_uvm_weights =
+      fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
 
   const int32_t T = D_offsets.numel() - 1;
   TORCH_CHECK(
@@ -136,7 +135,7 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
   const dim3 blocks(static_cast<uint32_t>(capped_blocks));
 
   fbgemm_gpu::dispatch_emb_cache_types(
-      uvm_weights.scalar_type(),
+      dispatch_uvm_weights.scalar_type(),
       lxu_cache_weights.scalar_type(),
       "lxu_cache_flush_kernel_2",
       ([&]<typename emb_t, typename cache_t>() {
@@ -159,7 +158,7 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
             threads,
             0,
             at::cuda::getCurrentCUDAStream(),
-            PTA_B(uvm_weights, emb_t, 1, 64),
+            PTA_B(dispatch_uvm_weights, emb_t, 1, 64),
             PTA_B(cache_hash_size_cumsum, int64_t, 1, 32),
             PTA_B(cache_index_table_map, int32_t, 1, 64),
             PTA_B(weights_offsets, int64_t, 1, 32),

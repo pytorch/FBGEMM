@@ -96,9 +96,11 @@ enum SSDTensor {
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ forward_op }}", "")
             .typed<Tensor(
+                {%- if dense %}
+                const Tensor& /*dev_weights*/,
+                {%- else %}
                 const Tensor& /*weights_host*/,
                 const Tensor& /*weights_dev*/,
-                {%- if not dense %}
                 const Tensor& /*weights_uvm*/,
                 const Tensor& /*weights_lxu_cache*/,
                 const Tensor& /*weights_placements*/,
@@ -150,11 +152,15 @@ enum SSDTensor {
             )>();
 
     auto output = embedding_codegen_forward_op.call(
+      {%- if dense %}
+      dispatch_weights_dev,
+      {%- else %}
       weights_host,
-      flatten_weights_dev,
-      relabeled_weights_uvm,
+      dispatch_weights_dev,
+      dispatch_weights_uvm,
       weights_lxu_cache,
       weights_placements,
+      {%- endif %}
       weights_offsets,
       {%- if nobag %}
       D,
@@ -303,10 +309,12 @@ enum SSDTensor {
     const std::vector<Tensor> weights = use_cpu_weights_layout
         ? std::vector<Tensor>{weights_host, weights_placements, weights_offsets}
         : std::vector<Tensor>{
-            weights_dev.defined() ? weights_dev : weights_host, // CUDA, or MTIA with UVM
+            weights_dev.defined()
+                ? dispatch_weights_dev
+                : weights_host, // CUDA, or MTIA with UVM
             weights_placements,
             weights_offsets,
-            weights_uvm,
+            dispatch_weights_uvm,
             weights_lxu_cache};
     // Owned std::vector -- a TensorList over the brace temporary would dangle.
     const std::vector<Tensor> aux_tensor_bwd = {
@@ -322,7 +330,7 @@ enum SSDTensor {
     grad_weights_dev = embedding_codegen{{ wdesc }}_backward_op.call(
           grad_output,
           {% if dense %}
-          dev_weights,
+          dispatch_weights_dev,
           {% else %}
           weights,
           {% endif %}
@@ -990,18 +998,20 @@ class {{ autograd_func }} :
     {%- endfor %}
     {%- endif %}
 
-    {%- if optimizer == "none" %}
+    {%- set dispatch_weights_source = "dev_weights" if dense else "weights_dev" %}
+    {%- if optimizer == "none" and not dense %}
     // Flatten
-    const auto flatten_weights_dev =
-        fbgemm_gpu::relabel_nfp8_for_dispatch(weights_dev.flatten());
+    const auto dispatch_weights_dev =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(
+            {{ dispatch_weights_source }}.flatten());
     {%- else %}
-    const auto flatten_weights_dev =
-        fbgemm_gpu::relabel_nfp8_for_dispatch(weights_dev);
+    const auto dispatch_weights_dev =
+        fbgemm_gpu::relabel_nfp8_for_dispatch({{ dispatch_weights_source }});
     {%- endif %}
-    // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
-    // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
-    const auto relabeled_weights_uvm =
+    {%- if not dense %}
+    const auto dispatch_weights_uvm =
         fbgemm_gpu::relabel_nfp8_for_dispatch(weights_uvm);
+    {%- endif %}
     {%- if nobag %}
     // nobag
       {{
@@ -1048,10 +1058,6 @@ static torch::autograd::variable_list backward(
     auto weights_host = *savedItr++;
     auto weights_dev = *savedItr++;
     auto weights_uvm = *savedItr++;
-    // Mirror the forward-side relabel: on ROCm a gfx950 NFP8 tensor is labeled
-    // fn, but only the fnuz kernel variant is instantiated. No-op elsewhere.
-    weights_dev = fbgemm_gpu::relabel_nfp8_for_dispatch(weights_dev);
-    weights_uvm = fbgemm_gpu::relabel_nfp8_for_dispatch(weights_uvm);
     auto weights_lxu_cache = *savedItr++;
     auto weights_placements = *savedItr++;
     auto weights_offsets = *savedItr++;
@@ -1234,13 +1240,21 @@ static torch::autograd::variable_list backward(
     auto& grad_output = grad_outputs[0];
     {%- endif %}
 
-    {%- if not nobag %}
-    {%- if optimizer == "none" %}
-    // Flatten (weights_dev is used in
-    // {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda)
-    weights_dev = weights_dev.flatten();
+    {%- set dispatch_weights_source = "dev_weights" if dense else "weights_dev" %}
+    {%- if optimizer == "none" and not nobag %}
+    const auto dispatch_weights_dev =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(
+            {{ dispatch_weights_source }}).flatten();
+    {%- else %}
+    const auto dispatch_weights_dev =
+        fbgemm_gpu::relabel_nfp8_for_dispatch({{ dispatch_weights_source }});
+    {%- endif %}
+    {%- if not dense %}
+    const auto dispatch_weights_uvm =
+        fbgemm_gpu::relabel_nfp8_for_dispatch(weights_uvm);
     {%- endif %}
 
+    {%- if not nobag %}
     {%- set grad_indice_weights_op =
         "{}_embedding_codegen_grad_indice_weights{}_pt2_wrapper".format(fwd_mdesc, vdesc)
     %}
@@ -1286,19 +1300,24 @@ static torch::autograd::variable_list backward(
       Variable() :
       embedding_codegen_grad_indice_weights_op.call(
         grad_output,
+        {%- if dense %}
+        dispatch_weights_dev,
+        weights_offsets,
+        {%- else %}
         weights_host,
-        weights_dev,
-        weights_uvm,
+        dispatch_weights_dev,
+        dispatch_weights_uvm,
         weights_lxu_cache,
         weights_placements,
         weights_offsets,
+        {%- endif %}
         D_offsets,
         max_D,
         indices,
         offsets,
         {%- if ssd %}
         ssd_row_addrs,
-        {%- else %}
+        {%- elif not dense %}
         lxu_cache_locations,
         {%- endif %}
         {%- if vbe %}

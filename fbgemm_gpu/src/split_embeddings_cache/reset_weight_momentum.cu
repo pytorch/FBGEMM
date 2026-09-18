@@ -236,10 +236,10 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
       lxu_cache_state);
   CUDA_DEVICE_GUARD(dev_weights);
 
-  // On ROCm a gfx950 NFP8 tensor is labeled fn but only the fnuz kernel
-  // variant is instantiated; relabel at the kernel boundary. No-op elsewhere.
-  dev_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
-  uvm_weights = fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
+  const auto dispatch_dev_weights =
+      fbgemm_gpu::relabel_nfp8_for_dispatch(dev_weights);
+  const auto dispatch_uvm_weights =
+      fbgemm_gpu::relabel_nfp8_for_dispatch(uvm_weights);
 
   const int64_t num_pruned_indices = pruned_indices.size(0);
   const int32_t num_pruned_tables = buffer_ids.size(0);
@@ -284,7 +284,7 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
 
   // Reset weight and momentum of pruned rows
   fbgemm_gpu::dispatch_emb_cache_types(
-      dev_weights.scalar_type(),
+      dispatch_dev_weights.scalar_type(),
       lxu_cache_weights.scalar_type(),
       "reset_weight_momentum_kernel",
       ([&]<typename emb_t, typename cache_t>() {
@@ -295,8 +295,8 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
             0,
             at::cuda::getCurrentCUDAStream(),
             blocks_per_table,
-            PTA_B(dev_weights, emb_t, 1, 64),
-            PTA_B(uvm_weights, emb_t, 1, 64),
+            PTA_B(dispatch_dev_weights, emb_t, 1, 64),
+            PTA_B(dispatch_uvm_weights, emb_t, 1, 64),
             PTA_B(lxu_cache_weights, cache_t, 2, 64),
             PTA_B(weights_placements, int32_t, 1, 32),
             PTA_B(weights_offsets, int64_t, 1, 32),
