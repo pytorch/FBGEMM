@@ -29,6 +29,7 @@ jobs:
       os: linux
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
+      runner-fleet: osdc
       with-cuda: enable
       with-rocm: enable
       with-cpu: disable
@@ -76,7 +77,7 @@ jobs:
 
         runner_args=()
         if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
-          runner_args=(--runner 'gpu_arch_type:cuda=linux.g5.12xlarge.nvidia.gpu')
+          runner_args=(--runner 'gpu_arch_type:cuda=mt-l-x86aavx2-45-167-a10g-4')
         fi
 
         MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' --filter 'gpu_arch_type:rocm;gpu_arch_version:7.14' "${runner_args[@]}" )"
