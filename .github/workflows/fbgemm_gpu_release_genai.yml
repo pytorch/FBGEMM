@@ -53,7 +53,7 @@ jobs:
     if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: amazonlinux:2023
+      image: almalinux:9
       options: --user root
     defaults:
       run:
@@ -69,7 +69,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.12xlarge.memory" },
+          { arch: x86, instance: "mt-l-x86iavx512-48-384" },
         ]
         python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
         cuda-version: [ "12.6.3", "13.0.2" ]
@@ -143,7 +143,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
+          { arch: x86, instance: "mt-l-x86aavx2-11-41-a10g" },
         ]
         python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
         cuda-version: [ "12.6.3", "13.0.2" ]

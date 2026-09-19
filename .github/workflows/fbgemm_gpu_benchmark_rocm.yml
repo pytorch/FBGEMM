@@ -51,9 +51,9 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.24xlarge" },
+          { arch: x86, instance: "mt-l-x86iavx512-94-192" },
         ]
-        container-image: [ "ubuntu:22.04" ]
+        container-image: [ "almalinux:9" ]
         python-version: [ "3.14" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
@@ -64,8 +64,8 @@ jobs:
     steps:
     - name: Setup Build Container
       run: |
-        apt update -y
-        apt install -y binutils git pciutils sudo wget
+        yum update -y
+        yum install -y binutils findutils git pciutils sudo wget which
         git config --global --add safe.directory '*'
 
     - name: Checkout the Repository

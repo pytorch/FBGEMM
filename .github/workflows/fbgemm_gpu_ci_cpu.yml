@@ -58,7 +58,7 @@ jobs:
     if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: amazonlinux:2023
+      image: almalinux:9
       options: --user root
     defaults:
       run:
@@ -74,8 +74,8 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.4xlarge" },
-          { arch: arm, instance: "linux.arm64.m7g.4xlarge" },
+          { arch: x86, instance: "mt-l-x86iavx512-16-128" },
+          { arch: arm, instance: "mt-l-arm64g3-16-62" },
         ]
         build-target: [ "default" ]
         python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
@@ -134,7 +134,7 @@ jobs:
     if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: amazonlinux:2023
+      image: almalinux:9
       options: --user root
     defaults:
       run:
@@ -148,8 +148,8 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.4xlarge.memory", timeout: 40 },
-          { arch: arm, instance: "linux.arm64.m7g.4xlarge", timeout: 30 },
+          { arch: x86, instance: "mt-l-x86iavx512-16-128", timeout: 40 },
+          { arch: arm, instance: "mt-l-arm64g3-16-62", timeout: 30 },
         ]
         build-target: [ "default" ]
         python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
