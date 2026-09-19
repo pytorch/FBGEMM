@@ -54,7 +54,7 @@ if open_source:
     from test_utils import (
         additional_decorators,
         gpu_unavailable,
-        is_nvidia_device,
+        nfp8_supported_on_current_device,
         optests,
         running_in_oss,
         skipIfNotRocm,
@@ -64,7 +64,7 @@ else:
     from fbgemm_gpu.test.test_utils import (
         additional_decorators,
         gpu_unavailable,
-        is_nvidia_device,
+        nfp8_supported_on_current_device,
         optests,
         running_in_oss,
         skipIfNotRocm,
@@ -72,6 +72,7 @@ else:
     )
 
 VERBOSITY: Verbosity = Verbosity.verbose
+
 
 # pyre-ignore
 additional_decorators.update(
@@ -835,10 +836,8 @@ class ForwardTest(unittest.TestCase):
         self,
         use_experimental_tbe: bool = False,  # TODO This does not yet work when True.
     ) -> None:
-        # Skip on rocm as fp8 is not supported for all versions.
-        if not is_nvidia_device:
-            return
-
+        if not nfp8_supported_on_current_device():
+            self.skipTest("NFP8 is unsupported on this ROCm architecture")
         weights_precision = SparseType.NFP8
         use_cpu = False
         T = random.randint(1, 10)
@@ -1080,10 +1079,8 @@ class ForwardTest(unittest.TestCase):
         self,
         cache_algorithm: CacheAlgorithm,
     ) -> None:
-        # Skip tests on rocm since it does not work for all versions.
-        if not is_nvidia_device:
-            return
-
+        if not nfp8_supported_on_current_device():
+            self.skipTest("NFP8 is unsupported on this ROCm architecture")
         weights_precision = SparseType.NFP8
         use_cpu = False
         T = random.randint(1, 10)
