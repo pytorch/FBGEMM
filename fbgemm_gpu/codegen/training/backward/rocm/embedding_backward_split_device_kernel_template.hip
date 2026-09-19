@@ -132,10 +132,10 @@ stochastic_rounding_scalar(float x, uint32_t random_value) {
 // with stochastic rounding. SR is only representable for at::Half on this scalar
 // path (stochastic_rounding_scalar yields __half); any other emb_t falls back to
 // a plain round-to-nearest cast.
-template <typename emb_t, typename cache_t, int32_t thread_length>
+template <typename emb_t, typename acc_t, int32_t thread_length>
 __device__ __forceinline__ void stochastic_rounding_store_vector(
     emb_t* output,
-    const cache_t* value,
+    const acc_t* value,
     StochasticRoundingRNGState& state) {
   if constexpr (std::is_same_v<emb_t, at::Half>) {
 #pragma unroll
@@ -161,10 +161,10 @@ __device__ __forceinline__ void stochastic_rounding_store_vector(
 
 // Scalar-array weight write with plain round-to-nearest (no SR). Used for the
 // SR-disabled case and for fp32 weights (where SR is a no-op).
-template <typename emb_t, typename cache_t, int32_t thread_length>
+template <typename emb_t, typename acc_t, int32_t thread_length>
 __device__ __forceinline__ void nearest_rounding_store_vector(
     emb_t* output,
-    const cache_t* value) {
+    const acc_t* value) {
 #pragma unroll
   for (int32_t i = 0; i < thread_length; i++) {
     output[i] = static_cast<emb_t>(value[i]);
@@ -174,6 +174,8 @@ __device__ __forceinline__ void nearest_rounding_store_vector(
 template <typename cache_t, typename emb_t, typename index_t, int32_t embedding_dim, int32_t weight_decay_mode>
 struct rowwise_adagrad_optimizer_t
 {
+    using acc_t = at::acc_type<cache_t, true>;
+
     __device__ rowwise_adagrad_optimizer_t(const rowwise_adagrad_kernel_arg_t& karg_)
         : karg(karg_)
     {
@@ -181,25 +183,25 @@ struct rowwise_adagrad_optimizer_t
 
     template <int32_t thread_length, int32_t segment_split>
     __device__ void update(
-        cache_t* acc,
+        acc_t* acc,
         emb_t* weight,
         index_t row_index,
         StochasticRoundingRNGState* sr_state = nullptr)
     {
         if constexpr(segment_split == 0)
         {
-            using momentum_t = at::acc_type<cache_t, true>;
+            using momentum_t = acc_t;
             momentum_t* p_momentum = reinterpret_cast<momentum_t*>(karg.p_momentum);
             momentum_t momentum = p_momentum[row_index]; // should be s_load
             // compute per row square sum
-            cache_t local_sum_squre = .0f;
+            acc_t local_sum_squre = .0f;
             if constexpr(weight_decay_mode == 1)
             {
 #pragma unroll
                 for(auto i = 0; i < thread_length; i++)
                 {
-                    cache_t w = static_cast<cache_t>(weight[i]);
-                    cache_t a = acc[i] + w * karg.weight_decay;
+                    acc_t w = static_cast<acc_t>(weight[i]);
+                    acc_t a = acc[i] + w * karg.weight_decay;
                     local_sum_squre += a * a;
                 }
             }
@@ -208,19 +210,19 @@ struct rowwise_adagrad_optimizer_t
 #pragma unroll
                 for(auto i = 0; i < thread_length; i++)
                 {
-                    cache_t a = acc[i];
+                    acc_t a = acc[i];
                     local_sum_squre += a * a;
                 }
             }
 
             momentum_t avg_square =
-                static_cast<momentum_t>(wave_reduce<reduce_op_sum_t<cache_t>, cache_t, AMDGCN_WAVE_SIZE>(local_sum_squre)) /
+                static_cast<momentum_t>(wave_reduce<reduce_op_sum_t<acc_t>, acc_t, AMDGCN_WAVE_SIZE>(local_sum_squre)) /
                 embedding_dim;
 
             momentum_t momentum_new = momentum + avg_square;
 
-            cache_t multiplier = karg.learning_rate / (sqrtf(momentum_new) + karg.eps);
-            cache_t correction;
+            acc_t multiplier = karg.learning_rate / (sqrtf(momentum_new) + karg.eps);
+            acc_t correction;
 
             if constexpr(weight_decay_mode == 1)
             {
@@ -236,12 +238,12 @@ struct rowwise_adagrad_optimizer_t
             }
 
 // update new weight value
-            cache_t updated_weight[thread_length];
+            acc_t updated_weight[thread_length];
 #pragma unroll
             for(auto i = 0; i < thread_length; i++)
             {
-                cache_t w = static_cast<cache_t>(weight[i]);
-                cache_t a = acc[i];
+                acc_t w = static_cast<acc_t>(weight[i]);
+                acc_t a = acc[i];
                 updated_weight[i] = correction * w - multiplier * a;
             }
             // Write the fp32 accumulator back to the emb_t weights. When SR is
@@ -252,12 +254,12 @@ struct rowwise_adagrad_optimizer_t
             if (sr_state != nullptr)
             {
                 StochasticRoundingRNGState local_state = *sr_state;
-                stochastic_rounding_store_vector<emb_t, cache_t, thread_length>(
+                stochastic_rounding_store_vector<emb_t, acc_t, thread_length>(
                     weight, updated_weight, local_state);
             }
             else
             {
-                nearest_rounding_store_vector<emb_t, cache_t, thread_length>(
+                nearest_rounding_store_vector<emb_t, acc_t, thread_length>(
                     weight, updated_weight);
             }
 
@@ -323,8 +325,8 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     const int64_t emb_idx = linear_index - hash_size;
 
     p_emb_table += hash_size * emb_dim;
-    using momentum_t = at::acc_type<cache_t, true>;
-    opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<momentum_t*>(opt_karg.p_momentum) + hash_size);
+    using acc_t = at::acc_type<cache_t, true>;
+    opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<acc_t*>(opt_karg.p_momentum) + hash_size);
 
     const int32_t segment_length = segment_end - segment_start;
 
@@ -333,7 +335,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
 
     const int32_t segment_length_mod = segment_length & length_mask;
 
-    cache_t grad_acc[dword_per_row];
+    acc_t grad_acc[dword_per_row];
     uint32_t infos[segment_unroll];
     grad_t grad_data[dword_per_row * segment_prefetch];
     emb_t emb_data[dword_per_row];
@@ -391,7 +393,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
             #pragma unroll
             for(int j = 2; j < segment_unroll; j += 2)
             {
-                accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+                accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id);
 
                 table_index = infos[j] >> info_B_num_bits;
@@ -400,7 +402,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
                 load_row_per_warp<grad_t, embedding_dim, index_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
-                accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+                accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                     &grad_acc[0], &grad_data[dword_per_row], lane_id);
 
                 table_index = infos[j + 1] >> info_B_num_bits;
@@ -410,9 +412,9 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
                     &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
             }
 
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[0], lane_id);
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id);
 
             #pragma unroll
@@ -427,7 +429,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
             #pragma unroll
             for(int j = 2; j < segment_unroll; j += 2)
             {
-                accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+                accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id, indice_weights[j-2]);
 
                 table_index = infos[j] >> info_B_num_bits;
@@ -436,7 +438,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
                 load_row_per_warp<grad_t, embedding_dim, index_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
-                accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+                accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                     &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[j-1]);
 
                 table_index = infos[j + 1] >> info_B_num_bits;
@@ -446,9 +448,9 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
                     &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
             }
 
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[0], lane_id, indice_weights[segment_unroll-2]);
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[segment_unroll-1]);
 
             #pragma unroll
@@ -479,7 +481,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
         #pragma unroll
         for(int j = 2; j < segment_unroll; j += 2)
         {
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[0], lane_id);
 
             table_index = infos[j] >> info_B_num_bits;
@@ -488,7 +490,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
             load_row_per_warp<grad_t, embedding_dim, index_t>::run(
                 &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id);
 
             table_index = infos[j + 1] >> info_B_num_bits;
@@ -498,15 +500,15 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
                 &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
         }
 
-        accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+        accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
             &grad_acc[0], &grad_data[0], lane_id);
-        accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+        accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
             &grad_acc[0], &grad_data[dword_per_row], lane_id);
     } else {
         #pragma unroll
         for(int j = 2; j < segment_unroll; j += 2)
         {
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[0], lane_id, indice_weights[j-2]);
 
             table_index = infos[j] >> info_B_num_bits;
@@ -515,7 +517,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
             load_row_per_warp<grad_t, embedding_dim, index_t>::run(
                 &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
-            accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+            accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[j-1]);
 
             table_index = infos[j + 1] >> info_B_num_bits;
@@ -525,9 +527,9 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
                 &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
         }
 
-        accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+        accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
             &grad_acc[0], &grad_data[0], lane_id, indice_weights[segment_unroll-2]);
-        accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+        accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
             &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[segment_unroll-1]);
     }
 
@@ -546,7 +548,7 @@ L_tail_grad_acc:
 
                 load_row_per_warp<grad_t, embedding_dim, index_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
-                accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+                accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id);
 
                 itr++;
@@ -564,7 +566,7 @@ L_tail_grad_acc:
 
                 load_row_per_warp<grad_t, embedding_dim, index_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
-                accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
+                accumulate_row_per_warp<grad_t, embedding_dim, acc_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id, indice_weights[0]);
 
                 itr++;
