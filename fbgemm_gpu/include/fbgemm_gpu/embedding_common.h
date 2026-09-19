@@ -122,7 +122,27 @@ inline at::ScalarType getNFP8ScalarType(
 // codegen/training/backward/embedding_backward_split_template.cu.
 inline at::Tensor relabel_nfp8_for_dispatch(const at::Tensor& tensor) {
 #ifdef USE_ROCM
-  if (tensor.defined() && tensor.scalar_type() == at::kFloat8_e4m3fn) {
+  if (!tensor.defined()) {
+    return tensor;
+  }
+  const auto scalar_type = tensor.scalar_type();
+  if (scalar_type != at::kFloat8_e4m3fn &&
+      scalar_type != at::kFloat8_e4m3fnuz) {
+    return tensor;
+  }
+  if (tensor.is_cuda()) {
+    const auto expected_type = getNFP8ScalarType(tensor.get_device());
+    TORCH_CHECK(
+        scalar_type == expected_type,
+        "NFP8 tensor on ",
+        tensor.device(),
+        " has dtype ",
+        toString(scalar_type),
+        ", but this device requires ",
+        toString(expected_type),
+        ". Use getNFP8ScalarType() in C++ or nfp8_dtype() in Python.");
+  }
+  if (scalar_type == at::kFloat8_e4m3fn) {
     return tensor.view(at::kFloat8_e4m3fnuz);
   }
 #endif

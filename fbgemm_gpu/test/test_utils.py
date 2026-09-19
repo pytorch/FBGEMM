@@ -68,6 +68,16 @@ gpu_available: bool = not gpu_unavailable[0]
 
 is_nvidia_device: bool = gpu_available and torch.version.cuda is not None
 
+
+def nfp8_supported_on_current_device() -> bool:
+    if torch.version.hip is None:
+        return True
+    arch = torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName
+    return any(
+        supported_arch in arch for supported_arch in ("gfx90a", "gfx94", "gfx950")
+    )
+
+
 # Used for `@unittest.skipIf` for tests that pass in internal CI, but fail on the GitHub runners
 running_on_github: tuple[bool, str] = (
     os.getenv("GITHUB_ENV") is not None,

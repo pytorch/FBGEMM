@@ -7,6 +7,7 @@
  */
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -29,6 +30,20 @@ namespace fbgemm_gpu {
 // This is only meaningful on ROCm: on CUDA fp8_e4m3_t *is* Float8_e4m3fn, so
 // the label is the dispatchable one and there is nothing to reject.
 #ifdef USE_ROCM
+
+namespace {
+
+// Keep this independent from getNFP8ScalarType() so the validation tests catch
+// regressions in that helper's architecture mapping.
+at::ScalarType expectedNFP8TypeForDevice(const c10::DeviceIndex device_index) {
+  const std::string arch =
+      at::cuda::getDeviceProperties(device_index)->gcnArchName;
+  return arch.starts_with("gfx94") || arch.starts_with("gfx90a")
+      ? at::kFloat8_e4m3fnuz
+      : at::kFloat8_e4m3fn;
+}
+
+} // namespace
 
 TEST(DispatchMacrosTest, UnrelabeledNFP8IsRejectedByName) {
   bool invoked = false;
@@ -62,6 +77,59 @@ TEST(DispatchMacrosTest, FnuzNFP8Dispatches) {
       "test_kernel",
       [&]<typename emb_t, typename cache_t>() { invoked = true; });
   EXPECT_TRUE(invoked);
+}
+
+TEST(DispatchMacrosTest, CorrectNFP8DeviceLabelIsAccepted) {
+  if (!at::detail::getCUDAHooks().hasCUDA()) {
+    GTEST_SKIP() << "No GPU available";
+  }
+  const auto expected_type = expectedNFP8TypeForDevice(0);
+  EXPECT_EQ(getNFP8ScalarType(0), expected_type);
+  const auto tensor = at::empty(
+      {1},
+      at::TensorOptions()
+          .device(at::Device(at::kCUDA, 0))
+          .dtype(expected_type));
+
+  const auto dispatch_tensor = relabel_nfp8_for_dispatch(tensor);
+
+  EXPECT_EQ(dispatch_tensor.scalar_type(), at::kFloat8_e4m3fnuz);
+  EXPECT_EQ(dispatch_tensor.data_ptr(), tensor.data_ptr());
+  EXPECT_EQ(
+      dispatch_tensor.is_same(tensor), expected_type == at::kFloat8_e4m3fnuz);
+}
+
+TEST(DispatchMacrosTest, WrongNFP8DeviceLabelIsRejected) {
+  if (!at::detail::getCUDAHooks().hasCUDA()) {
+    GTEST_SKIP() << "No GPU available";
+  }
+  const auto expected_type = expectedNFP8TypeForDevice(0);
+  EXPECT_EQ(getNFP8ScalarType(0), expected_type);
+  const auto wrong_type = expected_type == at::kFloat8_e4m3fn
+      ? at::kFloat8_e4m3fnuz
+      : at::kFloat8_e4m3fn;
+  const auto tensor = at::empty(
+      {1},
+      at::TensorOptions().device(at::Device(at::kCUDA, 0)).dtype(wrong_type));
+
+  try {
+    relabel_nfp8_for_dispatch(tensor);
+    FAIL() << "expected a mismatched NFP8 device label to throw";
+  } catch (const c10::Error& e) {
+    const std::string msg = e.what();
+    EXPECT_NE(msg.find("but this device requires"), std::string::npos)
+        << "the error must come from the device-label check; got: " << msg;
+  }
+}
+
+TEST(DispatchMacrosTest, CpuNFP8TensorIsRelabeledForDispatch) {
+  const auto tensor = at::empty(
+      {1}, at::TensorOptions().device(at::kCPU).dtype(at::kFloat8_e4m3fn));
+
+  const auto dispatch_tensor = relabel_nfp8_for_dispatch(tensor);
+
+  EXPECT_EQ(dispatch_tensor.scalar_type(), at::kFloat8_e4m3fnuz);
+  EXPECT_EQ(dispatch_tensor.data_ptr(), tensor.data_ptr());
 }
 
 #endif // USE_ROCM

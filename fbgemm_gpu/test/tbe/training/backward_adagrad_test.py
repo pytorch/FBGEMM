@@ -38,6 +38,7 @@ from .backward_adagrad_common import (
     execute_backward_adagrad,
     gpu_memory_lt_gb,
     gpu_unavailable,
+    nfp8_supported_on_current_device,
     optests,
     PoolingMode,
     skipIfNotRocm,
@@ -80,10 +81,11 @@ class BackwardAdagradTest(unittest.TestCase):
         self,
         **kwargs: Any,
     ) -> None:
+        if not nfp8_supported_on_current_device():
+            self.skipTest("NFP8 is unsupported on this ROCm architecture")
         kwargs = adjust_mixed_B_st(kwargs)
         # Skip for use_cpu=True, as FP8 is not supported on CPU.
-        # Also disable on AMD for now.
-        if kwargs["use_cpu"] or torch.version.hip:
+        if kwargs["use_cpu"]:
             return
         execute_backward_adagrad(
             weights_precision=SparseType.NFP8,
