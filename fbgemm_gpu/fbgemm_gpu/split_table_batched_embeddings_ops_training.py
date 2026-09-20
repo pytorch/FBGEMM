@@ -738,8 +738,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # FTRL knobs (ignored by other optimizers).  Prefixed with `ftrl_`
         # because OptimizerArgs is a flat namespace shared by every optimizer.
         ftrl_learning_rate_power: float = -0.5,  # exponent on accum; -0.5 == 1/sqrt
+        ftrl_beta: float = 0.0,  # beta; bounds the rate while accum is small
         ftrl_l1_reg: float = 0.0,  # L1 strength; pins small weights to exactly 0
-        ftrl_l2_reg: float = 0.0,  # proximal L2; enters as 2*l2 in the denominator
+        ftrl_l2_reg: float = 0.0,  # proximal L2 (lambda2); enters the denominator
         eta: float = 0.001,
         beta1: float = 0.9,
         beta2: float = 0.999,
@@ -1167,6 +1168,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert (
                 learning_rate > 0
             ), "OptimType.FTRL requires learning_rate > 0 (the update divides by it)"
+            # The accumulator is raised to -ftrl_learning_rate_power, so a
+            # positive value puts it in the denominator and the learning rate
+            # would grow as gradients accumulate. Zero means a fixed rate.
+            assert ftrl_learning_rate_power <= 0, (
+                "OptimType.FTRL requires ftrl_learning_rate_power <= 0; got "
+                f"{ftrl_learning_rate_power}, which would make the learning "
+                "rate grow without bound"
+            )
 
         self.stochastic_rounding = stochastic_rounding
         self.optimizer = optimizer
@@ -1311,6 +1320,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             min_shrinkage=min_shrinkage,
             # FTRL knobs (defaults are no-ops for other optimizers).
             ftrl_learning_rate_power=ftrl_learning_rate_power,
+            ftrl_beta=ftrl_beta,
             ftrl_l1_reg=ftrl_l1_reg,
             ftrl_l2_reg=ftrl_l2_reg,
         )
@@ -3895,9 +3905,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 for states in split_optimizer_states
             ]
         elif self.optimizer == OptimType.FTRL:
-            # Slot names match TensorFlow's FtrlOptimizer.
+            # momentum1 holds `linear`, momentum2 holds `accum` -- the same
+            # order NVIDIA DynamicEmb lays them out in.
             list_of_state_dict = [
-                {"accum": states[0], "linear": states[1]}
+                {"linear": states[0], "accum": states[1]}
                 for states in split_optimizer_states
             ]
         else:
@@ -3943,8 +3954,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (9) `ENSEMBLE_ROWWISE_ADAGRAD`: `momentum1` (rowwise), `momentum2`
 
-            (10) `FTRL`: `momentum1` (the FTRL `accum` state), `momentum2`
-                (the FTRL `linear` state)
+            (10) `FTRL`: `momentum1` (the FTRL `linear` state), `momentum2`
+                (the FTRL `accum` state)
 
             (11) `NONE`: no states (throwing an error)
 

@@ -384,9 +384,15 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["ema_beta"] = ema_beta
             optimizer_kwargs["min_shrinkage"] = min_shrinkage
 
-        ftrl_learning_rate_power, ftrl_l1_reg, ftrl_l2_reg = (-0.5, 1.0e-3, 1.0e-3)
+        ftrl_learning_rate_power, ftrl_beta, ftrl_l1_reg, ftrl_l2_reg = (
+            -0.5,
+            0.5,
+            1.0e-3,
+            1.0e-3,
+        )
         if optimizer == OptimType.FTRL:
             optimizer_kwargs["ftrl_learning_rate_power"] = ftrl_learning_rate_power
+            optimizer_kwargs["ftrl_beta"] = ftrl_beta
             optimizer_kwargs["ftrl_l1_reg"] = ftrl_l1_reg
             optimizer_kwargs["ftrl_l2_reg"] = ftrl_l2_reg
 
@@ -768,7 +774,9 @@ class BackwardOptimizersTest(unittest.TestCase):
 
         if optimizer == OptimType.FTRL:
             for t in range(T):
-                accum, linear = split_optimizer_states[t]
+                # momentum1 is `linear`, momentum2 is `accum` -- the same order
+                # NVIDIA DynamicEmb uses.
+                linear, accum = split_optimizer_states[t]
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 # Both states start at 0, so after a single step:
                 #   accum  = g^2
@@ -795,7 +803,8 @@ class BackwardOptimizersTest(unittest.TestCase):
                 )
                 # FTRL recomputes the weight outright rather than incrementing
                 # it; sub-threshold coordinates are pinned to exactly 0.
-                quadratic = sigma_new / lr + 2.0 * ftrl_l2_reg
+                # McMahan's denominator: (beta + sigma)/lr + lambda2.
+                quadratic = (ftrl_beta + sigma_new) / lr + ftrl_l2_reg
                 weights_ref = torch.where(
                     linear_ref.abs() > ftrl_l1_reg,
                     (ftrl_l1_reg * torch.sign(linear_ref) - linear_ref) / quadratic,
@@ -809,7 +818,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     rtol=1.0e-3,
                 )
                 if get_optimizer_states is not None:
-                    assert set(get_optimizer_states[t].keys()) == {"accum", "linear"}
+                    assert set(get_optimizer_states[t].keys()) == {"linear", "accum"}
 
         if optimizer == OptimType.ROWWISE_RMSPROP_AR:
             for t in range(T):
@@ -2368,10 +2377,15 @@ def _ftrl_reference_step(
     grad: torch.Tensor,
     lr: float,
     learning_rate_power: float,
+    beta: float,
     l1_reg: float,
     l2_reg: float,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Pure-PyTorch port of x-deeplearning's FtrlUpdater (== TF ApplyFtrlV2).
+    """FTRL-Proximal, Algorithm 1 of McMahan et al. 2013.
+
+    Mirrors NVIDIA DynamicEmb's reference (`ftrl_step` in
+    recsys-examples `test/unit_tests/optimizer/test_ftrl_optimizer.py`), so the
+    two implementations are held to the same definition.
 
     Returns the (weight, accum, linear) triple after one step.
     """
@@ -2380,7 +2394,7 @@ def _ftrl_reference_step(
     sigma_new = accum_new.pow(exponent)
     sigma_old = accum.pow(exponent)
     linear_new = linear + grad - (sigma_new - sigma_old) / lr * weight
-    quadratic = sigma_new / lr + 2.0 * l2_reg
+    quadratic = (beta + sigma_new) / lr + l2_reg
     weight_new = torch.where(
         linear_new.abs() > l1_reg,
         (l1_reg * torch.sign(linear_new) - linear_new) / quadratic,
@@ -2395,7 +2409,7 @@ class FtrlTest(unittest.TestCase):
 
     These pin down the properties that the randomized harness cannot check
     cheaply: exact-zero L1 thresholding, the sqrt fast path agreeing with the
-    general pow path, the 2*l2 denominator term, multi-step state
+    general pow path, the beta and lambda2 denominator terms, multi-step state
     accumulation, and CPU/CUDA agreement.
     """
 
@@ -2405,6 +2419,7 @@ class FtrlTest(unittest.TestCase):
         self,
         E: int,
         D: int,
+        beta: float = 0.0,
         l1_reg: float = 0.0,
         l2_reg: float = 0.0,
         learning_rate_power: float = -0.5,
@@ -2418,6 +2433,7 @@ class FtrlTest(unittest.TestCase):
             optimizer=OptimType.FTRL,
             learning_rate=self.LR,
             ftrl_learning_rate_power=learning_rate_power,
+            ftrl_beta=beta,
             ftrl_l1_reg=l1_reg,
             ftrl_l2_reg=l2_reg,
             pooling_mode=PoolingMode.SUM,
@@ -2448,11 +2464,17 @@ class FtrlTest(unittest.TestCase):
         (out * grad_value).sum().backward()
         tbe.flush()
 
+    @staticmethod
+    def _states(tbe: SplitTableBatchedEmbeddingBagsCodegen, t: int = 0):
+        """(accum, linear) from the (momentum1=linear, momentum2=accum) split."""
+        linear, accum = tbe.split_optimizer_states()[t]
+        return accum, linear
+
     def test_l1_pins_weights_to_exact_zero(self) -> None:
         """A large l1_reg must drive touched rows to exactly 0.0, not merely
         near it -- that exact zero is what makes FTRL produce sparse rows."""
         E, D = 8, 4
-        tbe = self._build_tbe(E=E, D=D, l1_reg=100.0)
+        tbe = self._build_tbe(E=E, D=D, l1_reg=100.0, use_cpu=True)
         self._touch(tbe, rows=[0, 1], grad_value=0.25)
 
         weights = tbe.split_embedding_weights()[0]
@@ -2468,8 +2490,8 @@ class FtrlTest(unittest.TestCase):
     def test_matches_reference_over_multiple_steps(self) -> None:
         """Multi-step accum/linear accumulation against the XDL formula."""
         E, D = 4, 8
-        l1, l2 = 1.0e-3, 1.0e-2
-        tbe = self._build_tbe(E=E, D=D, l1_reg=l1, l2_reg=l2)
+        beta, l1, l2 = 0.5, 1.0e-3, 1.0e-2
+        tbe = self._build_tbe(E=E, D=D, beta=beta, l1_reg=l1, l2_reg=l2, use_cpu=True)
 
         weight = torch.ones(D)
         accum = torch.zeros(D)
@@ -2484,10 +2506,11 @@ class FtrlTest(unittest.TestCase):
                 torch.full((D,), grad_value),
                 self.LR,
                 -0.5,
+                beta,
                 l1,
                 l2,
             )
-            accum_state, linear_state = tbe.split_optimizer_states()[0]
+            accum_state, linear_state = self._states(tbe)
             torch.testing.assert_close(
                 accum_state[0], accum, atol=1e-5, rtol=1e-5, msg=f"accum @ step {step}"
             )
@@ -2511,7 +2534,7 @@ class FtrlTest(unittest.TestCase):
         still agree with the reference (and differ from the -0.5 result)."""
         E, D = 4, 8
         power = -0.4
-        tbe = self._build_tbe(E=E, D=D, learning_rate_power=power)
+        tbe = self._build_tbe(E=E, D=D, learning_rate_power=power, use_cpu=True)
 
         weight = torch.ones(D)
         accum = torch.zeros(D)
@@ -2527,6 +2550,7 @@ class FtrlTest(unittest.TestCase):
                 power,
                 0.0,
                 0.0,
+                0.0,
             )
         torch.testing.assert_close(
             tbe.split_embedding_weights()[0][0], weight, atol=1e-4, rtol=1e-4
@@ -2534,7 +2558,7 @@ class FtrlTest(unittest.TestCase):
 
         # Sanity: the two exponents really do produce different trajectories,
         # so the test above is not silently exercising the sqrt fast path.
-        tbe_sqrt = self._build_tbe(E=E, D=D, learning_rate_power=-0.5)
+        tbe_sqrt = self._build_tbe(E=E, D=D, learning_rate_power=-0.5, use_cpu=True)
         for grad_value in [0.7, -0.3, 0.5]:
             self._touch(tbe_sqrt, rows=[0], grad_value=grad_value)
         self.assertFalse(
@@ -2546,14 +2570,14 @@ class FtrlTest(unittest.TestCase):
         )
 
     def test_l2_shrinks_via_denominator(self) -> None:
-        """l2_reg enters as 2*l2 in the denominator, so it scales the weight by
-        quad(l2=0) / quad(l2) rather than decaying the gradient."""
+        """l2_reg is the paper's lambda2: it enters the denominator with
+        coefficient 1, so it scales the weight by quad(0) / quad(l2)."""
         E, D = 4, 8
         grad_value = 0.8
         l2 = 0.25
 
-        tbe_no_l2 = self._build_tbe(E=E, D=D, l2_reg=0.0)
-        tbe_l2 = self._build_tbe(E=E, D=D, l2_reg=l2)
+        tbe_no_l2 = self._build_tbe(E=E, D=D, l2_reg=0.0, use_cpu=True)
+        tbe_l2 = self._build_tbe(E=E, D=D, l2_reg=l2, use_cpu=True)
         self._touch(tbe_no_l2, rows=[0], grad_value=grad_value)
         self._touch(tbe_l2, rows=[0], grad_value=grad_value)
 
@@ -2561,24 +2585,45 @@ class FtrlTest(unittest.TestCase):
         w_l2 = tbe_l2.split_embedding_weights()[0][0]
 
         sigma_new = abs(grad_value)  # sqrt(g^2) for the first step
-        expected_ratio = (sigma_new / self.LR) / (sigma_new / self.LR + 2.0 * l2)
+        expected_ratio = (sigma_new / self.LR) / (sigma_new / self.LR + l2)
         torch.testing.assert_close(w_l2, w_no_l2 * expected_ratio, atol=1e-5, rtol=1e-5)
+
+    def test_beta_shrinks_via_denominator(self) -> None:
+        """ftrl_beta is the paper's beta: it bounds the per-coordinate learning
+        rate by adding to sigma inside the denominator."""
+        E, D = 4, 8
+        grad_value = 0.8
+        beta = 1.5
+
+        tbe_no_beta = self._build_tbe(E=E, D=D, beta=0.0, use_cpu=True)
+        tbe_beta = self._build_tbe(E=E, D=D, beta=beta, use_cpu=True)
+        self._touch(tbe_no_beta, rows=[0], grad_value=grad_value)
+        self._touch(tbe_beta, rows=[0], grad_value=grad_value)
+
+        w_no_beta = tbe_no_beta.split_embedding_weights()[0][0]
+        w_beta = tbe_beta.split_embedding_weights()[0][0]
+
+        sigma_new = abs(grad_value)
+        expected_ratio = (sigma_new / self.LR) / ((beta + sigma_new) / self.LR)
+        torch.testing.assert_close(
+            w_beta, w_no_beta * expected_ratio, atol=1e-5, rtol=1e-5
+        )
 
     def test_zero_grad_is_idempotent(self) -> None:
         """With g == 0 the state is unchanged, and since FTRL recomputes the
         weight from (accum, linear) the weight must be unchanged too."""
         E, D = 4, 8
-        tbe = self._build_tbe(E=E, D=D, l1_reg=1.0e-3, l2_reg=1.0e-3)
+        tbe = self._build_tbe(
+            E=E, D=D, beta=0.5, l1_reg=1.0e-3, l2_reg=1.0e-3, use_cpu=True
+        )
         self._touch(tbe, rows=[0], grad_value=0.6)
 
         w_before = tbe.split_embedding_weights()[0][0].clone()
-        accum_before, linear_before = (
-            s[0].clone() for s in tbe.split_optimizer_states()[0]
-        )
+        accum_before, linear_before = (s[0].clone() for s in self._states(tbe))
 
         self._touch(tbe, rows=[0], grad_value=0.0)
 
-        accum_after, linear_after = (s[0] for s in tbe.split_optimizer_states()[0])
+        accum_after, linear_after = (s[0] for s in self._states(tbe))
         torch.testing.assert_close(accum_after, accum_before, atol=0, rtol=0)
         torch.testing.assert_close(linear_after, linear_before, atol=1e-6, rtol=1e-6)
         torch.testing.assert_close(
@@ -2586,31 +2631,44 @@ class FtrlTest(unittest.TestCase):
         )
 
     def test_optimizer_state_names(self) -> None:
-        """get_optimizer_state() exposes TF's slot names with full [E, D]
-        elementwise states (TorchRec renames index 0 to `momentum1`)."""
+        """get_optimizer_state() reports `linear` then `accum`, matching the
+        momentum1/momentum2 layout DynamicEmb uses."""
         E, D = 6, 8
-        tbe = self._build_tbe(E=E, D=D)
+        tbe = self._build_tbe(E=E, D=D, use_cpu=True)
         self._touch(tbe, rows=[0], grad_value=0.5)
 
         states = tbe.get_optimizer_state()
         self.assertEqual(len(states), 1)
-        self.assertEqual(set(states[0].keys()), {"accum", "linear"})
+        self.assertEqual(list(states[0].keys()), ["linear", "accum"])
         for tensor in states[0].values():
             self.assertEqual(tuple(tensor.shape), (E, D))
 
-        accum, linear = tbe.split_optimizer_states()[0]
+        linear, accum = tbe.split_optimizer_states()[0]
         self.assertEqual(tuple(accum.shape), (E, D))
         self.assertEqual(tuple(linear.shape), (E, D))
+        # accum is a running sum of squares, so it is non-negative; linear is
+        # signed. This is the cheap way to catch the two being transposed.
+        self.assertTrue(bool((accum[0] >= 0).all()))
+
+    def test_rejects_positive_learning_rate_power(self) -> None:
+        """A positive exponent would put accum in the denominator and let the
+        learning rate grow without bound."""
+        with self.assertRaises(AssertionError):
+            self._build_tbe(E=4, D=8, learning_rate_power=0.5, use_cpu=True)
 
     @unittest.skipIf(*gpu_unavailable)
     def test_cpu_cuda_parity(self) -> None:
         """The CUDA and CPU kernels must agree on weights and both states."""
         E, D = 8, 16
-        l1, l2 = 1.0e-3, 1.0e-2
+        beta, l1, l2 = 0.5, 1.0e-3, 1.0e-2
         grads = [0.7, -0.3, 0.5, -1.25]
 
-        tbe_cpu = self._build_tbe(E=E, D=D, l1_reg=l1, l2_reg=l2, use_cpu=True)
-        tbe_gpu = self._build_tbe(E=E, D=D, l1_reg=l1, l2_reg=l2, use_cpu=False)
+        tbe_cpu = self._build_tbe(
+            E=E, D=D, beta=beta, l1_reg=l1, l2_reg=l2, use_cpu=True
+        )
+        tbe_gpu = self._build_tbe(
+            E=E, D=D, beta=beta, l1_reg=l1, l2_reg=l2, use_cpu=False
+        )
         for grad_value in grads:
             self._touch(tbe_cpu, rows=[0, 3], grad_value=grad_value)
             self._touch(tbe_gpu, rows=[0, 3], grad_value=grad_value, device="cuda")

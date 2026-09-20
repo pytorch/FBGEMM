@@ -301,6 +301,9 @@ def invoke(
     {%- if "ftrl_learning_rate_power" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     dict_optim_float["ftrl_learning_rate_power"] = optimizer_args.ftrl_learning_rate_power
     {%- endif %}
+    {%- if "ftrl_beta" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_float["ftrl_beta"] = optimizer_args.ftrl_beta
+    {%- endif %}
     {%- if "ftrl_l1_reg" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     dict_optim_float["ftrl_l1_reg"] = optimizer_args.ftrl_l1_reg
     {%- endif %}
