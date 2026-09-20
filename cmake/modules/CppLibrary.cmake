@@ -180,7 +180,6 @@ function(fbgemm_get_warning_flags)
     -Wno-sign-compare
     -Wno-vla
     -Wno-error=unused-parameter
-    -Wno-error=unknown-pragmas
     -Wno-error=attributes
     # Both compilers accept this line. Remove it when the warning count is
     # zero.
