@@ -952,7 +952,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_1D_sparse_data_cpu(
   // repetitions
   Tensor permuted_lengths;
   Tensor permuted_indices;
-  Tensor permuted_weights;
+  std::optional<Tensor> permuted_weights;
 
   const auto permuted_lengths_size = permute.numel();
   permuted_lengths = at::empty({permuted_lengths_size}, lengths.options());
@@ -1013,7 +1013,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_1D_sparse_data_cpu(
                           permuted_lengths.mutable_data_ptr<offsets_t>(),
                           output_offsets.mutable_data_ptr<offsets_t>(),
                           permuted_indices.mutable_data_ptr<indices_t>(),
-                          permuted_weights.mutable_data_ptr<weights_t>());
+                          permuted_weights->mutable_data_ptr<weights_t>());
                     } else {
                       _permute_1D_indices_weights_kernel_cpu<
                           false,
@@ -3022,7 +3022,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_sparse_features_cpu(
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
-  Tensor permuted_weights;
+  std::optional<Tensor> permuted_weights;
 
   permuted_lengths = at::empty({num_output_features, B}, lengths.options());
 
@@ -3073,7 +3073,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_sparse_features_cpu(
                     input_offsets.const_data_ptr<index_t>(),
                     output_offsets_per_thread_cumsum.data(),
                     permuted_indices.mutable_data_ptr<index_t>(),
-                    permuted_weights.mutable_data_ptr<scalar_t>(),
+                    permuted_weights->mutable_data_ptr<scalar_t>(),
                     permuted_lengths.const_data_ptr<index_t>());
               } else {
                 _permute_data_kernel_cpu<false, index_t, scalar_t>(
