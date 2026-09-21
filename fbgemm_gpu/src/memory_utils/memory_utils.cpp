@@ -53,14 +53,14 @@ Tensor new_unified_tensor_cpu(
   return at::empty({0}, self.options());
 }
 
-Tensor uvm_to_cpu_cpu(const Tensor& t) {
+Tensor uvm_to_cpu_cpu([[maybe_unused]] const Tensor& t) {
   TORCH_CHECK(
       false,
       "Cannot convert CPU tensor to UVM: CPU tensors are never UVM tensors");
   return t;
 }
 
-Tensor uvm_to_cpu_clone_cpu(const Tensor& t) {
+Tensor uvm_to_cpu_clone_cpu([[maybe_unused]] const Tensor& t) {
   TORCH_CHECK(
       false,
       "Cannot clone CPU tensor as UVM: CPU tensors are never UVM tensors");

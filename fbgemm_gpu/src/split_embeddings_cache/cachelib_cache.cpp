@@ -225,7 +225,7 @@ CacheLibCache::get_n_items(int n, Cache::AccessIterator& itr) {
 }
 
 void CacheLibCache::init_tensor_for_l2_eviction(
-    const at::Tensor& indices,
+    const at::Tensor& /*indices*/,
     const at::Tensor& weights,
     const at::Tensor& count) {
   CHECK_EQ(count.numel(), 1);
