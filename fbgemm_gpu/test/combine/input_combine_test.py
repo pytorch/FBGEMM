@@ -368,6 +368,213 @@ class InputCombineTest(unittest.TestCase):
     def test_input_combined_mix(self) -> None:
         self._run_test((torch.int64, torch.int32))
 
+    def _get_offset_boundary_inputs(
+        self,
+        offset: int,
+        cumulative: bool = False,
+    ) -> tuple[
+        list[torch.Tensor],
+        list[torch.Tensor],
+        list[torch.Tensor],
+        torch.Tensor,
+    ]:
+        if cumulative:
+            indices_list = [
+                torch.tensor([1], dtype=torch.int32),
+                torch.tensor([2], dtype=torch.int32),
+            ]
+            offsets_list = [
+                torch.tensor([0], dtype=torch.int64),
+                torch.tensor([0, offset], dtype=torch.int64),
+            ]
+        else:
+            indices_list = [torch.tensor([1], dtype=torch.int32)]
+            offsets_list = [torch.tensor([0, offset], dtype=torch.int64)]
+        weights = [torch.tensor([], dtype=torch.float) for _ in indices_list]
+        include_last_offsets = torch.BoolTensor([False] * len(indices_list))
+        return indices_list, offsets_list, weights, include_last_offsets
+
+    def _assert_offset_range_error(
+        self,
+        offset: int,
+        batch_size: int | None = None,
+        cumulative: bool = False,
+    ) -> None:
+        indices, offsets, weights, include_last = self._get_offset_boundary_inputs(
+            offset,
+            cumulative,
+        )
+        with self.assertRaisesRegex(RuntimeError, "outside the int32 range"):
+            if batch_size is None:
+                torch.ops.fbgemm.tbe_input_combine(
+                    indices,
+                    offsets,
+                    weights,
+                    include_last,
+                )
+            else:
+                torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                    indices,
+                    offsets,
+                    weights,
+                    include_last,
+                    batch_size,
+                )
+
+    def _assert_int32_max_boundary(self, batch_size: int | None = None) -> None:
+        int32_max = int(torch.iinfo(torch.int32).max)
+        indices, offsets, weights, include_last = self._get_offset_boundary_inputs(
+            int32_max
+        )
+        if batch_size is None:
+            outputs = torch.ops.fbgemm.tbe_input_combine(
+                indices,
+                offsets,
+                weights,
+                include_last,
+            )
+        else:
+            outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                indices,
+                offsets,
+                weights,
+                include_last,
+                batch_size,
+            )
+        self.assertEqual(outputs[1].dtype, torch.int32)
+        self.assertEqual(outputs[1].tolist(), [0, int32_max, 1])
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_tbe_input_combine_rejects_offset_above_int32_max(self) -> None:
+        self._assert_offset_range_error(int(torch.iinfo(torch.int32).max) + 1)
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_padding_fused_tbe_input_combine_rejects_offset_above_int32_max(
+        self,
+    ) -> None:
+        self._assert_offset_range_error(
+            int(torch.iinfo(torch.int32).max) + 1,
+            batch_size=2,
+        )
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_tbe_input_combine_accepts_offset_at_int32_max(self) -> None:
+        self._assert_int32_max_boundary()
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_padding_fused_tbe_input_combine_accepts_offset_at_int32_max(
+        self,
+    ) -> None:
+        self._assert_int32_max_boundary(batch_size=2)
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_tbe_input_combine_rejects_cumulative_offset_overflow(self) -> None:
+        self._assert_offset_range_error(
+            int(torch.iinfo(torch.int32).max),
+            cumulative=True,
+        )
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_padding_fused_tbe_input_combine_rejects_cumulative_offset_overflow(
+        self,
+    ) -> None:
+        self._assert_offset_range_error(
+            int(torch.iinfo(torch.int32).max),
+            batch_size=2,
+            cumulative=True,
+        )
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_tbe_input_combine_rejects_offset_below_int32_min(self) -> None:
+        self._assert_offset_range_error(int(torch.iinfo(torch.int32).min) - 1)
+
+    @unittest.skip("Requires int32 range validation from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
+    def test_padding_fused_tbe_input_combine_rejects_offset_below_int32_min(
+        self,
+    ) -> None:
+        self._assert_offset_range_error(
+            int(torch.iinfo(torch.int32).min) - 1,
+            batch_size=2,
+        )
+
+    @unittest.skip("Requires padding bounds checks from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
+    def test_padding_fused_tbe_input_combine_preserves_empty_feature(self) -> None:
+        for dtype in (torch.int32, torch.int64):
+            with self.subTest(dtype=dtype):
+                outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                    [torch.tensor([], dtype=dtype)],
+                    [torch.tensor([0], dtype=dtype)],
+                    [torch.tensor([], dtype=torch.float)],
+                    torch.BoolTensor([True]),
+                    2,
+                )
+                self.assertEqual(outputs[1].tolist(), [0, 0, 0])
+
+    @unittest.skip("Requires padding bounds checks from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
+    def test_padding_fused_tbe_input_combine_zero_batch_size(self) -> None:
+        for dtype in (torch.int32, torch.int64):
+            with self.subTest(dtype=dtype):
+                outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                    [torch.tensor([], dtype=dtype)],
+                    [torch.tensor([0], dtype=dtype)],
+                    [torch.tensor([], dtype=torch.float)],
+                    torch.BoolTensor([True]),
+                    0,
+                )
+                self.assertEqual(outputs[1].tolist(), [0])
+
+    @unittest.skip("Requires padding bounds checks from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
+    def test_padding_fused_tbe_input_combine_rejects_negative_batch_size(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, "batch_size must be nonnegative"):
+            torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                [torch.tensor([1], dtype=torch.int32)],
+                [torch.tensor([0], dtype=torch.int32)],
+                [torch.tensor([], dtype=torch.float)],
+                torch.BoolTensor([False]),
+                -1,
+            )
+
+    @unittest.skip("Requires padding bounds checks from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
+    def test_padding_fused_tbe_input_combine_rejects_output_size_overflow(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, "output size overflows int64"):
+            torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                [torch.tensor([1], dtype=torch.int32)],
+                [torch.tensor([0], dtype=torch.int32)],
+                [torch.tensor([], dtype=torch.float)],
+                torch.BoolTensor([False]),
+                int(torch.iinfo(torch.int64).max),
+            )
+
+    @unittest.skip("Requires padding bounds checks from the follow-up change")
+    @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
+    def test_padding_fused_tbe_input_combine_rejects_excess_effective_offsets(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, "effective offsets count"):
+            torch.ops.fbgemm.padding_fused_tbe_input_combine(
+                [torch.tensor([1], dtype=torch.int32)],
+                [torch.arange(4, dtype=torch.int32)],
+                [torch.tensor([], dtype=torch.float)],
+                torch.BoolTensor([False]),
+                2,
+            )
+
     def test_tbe_input_combine_cpu_with_padded_indices(self) -> None:
         self._run_test_with_prepadded_indices_weights()
 
