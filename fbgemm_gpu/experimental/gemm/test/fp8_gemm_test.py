@@ -8,9 +8,17 @@
 
 import itertools
 import unittest
+from unittest import mock
 
 import torch
 import triton
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+    MATMUL_CONFIGS,
+    MINIMUM_BLOCK_K,
+    MINIMUM_BLOCK_M,
+    MINIMUM_BLOCK_N,
+    prune_configs_h100_static,
+)
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -27,6 +35,9 @@ if torch.cuda.is_available():
         quantize_fp8_row,
         quantize_fp8_row_meta,
         scale_fp8_row,
+    )
+    from fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model import (
+        estimate_matmul_time,
     )
 
 
@@ -757,3 +768,166 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((256, 256, 640), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 64), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 192), (256, 256, 128), True)
+
+
+class _FakeConfig:
+    """Minimal stand-in for triton.Config (only the fields the prune reads)."""
+
+    def __init__(self, bm: int, bn: int, bk: int, ns: int, nw: int) -> None:
+        self.kwargs = {
+            "BLOCK_M": bm,
+            "BLOCK_N": bn,
+            "BLOCK_K": bk,
+            "SPLIT_K": 1,
+        }
+        self.num_stages = ns
+        self.num_warps = nw
+
+
+class TestPruneConfigsH100Static(unittest.TestCase):
+    """CPU-runnable coverage for the H100 static autotune prune.
+
+    Uses lightweight fake configs so no GPU or Triton launch is needed;
+    the Hopper gate is faked via mock.
+    """
+
+    def _make_configs(self) -> list[_FakeConfig]:
+        configs = []
+        for bm, bn, bk, ns, nw in [
+            (128, 256, 32, 3, 8),
+            (256, 128, 32, 3, 8),
+            (64, 128, 256, 4, 4),
+            (256, 256, 32, 4, 4),
+            (64, 32, 32, 5, 2),
+            (64, 256, 32, 4, 4),
+        ]:
+            configs.append(_FakeConfig(bm, bn, bk, ns, nw))
+        for ns in [2, 3, 4, 5, 6]:
+            configs.append(_FakeConfig(16, 64, 32, ns, 2))
+        return configs
+
+    def _prune(
+        self,
+        m: int,
+        n: int,
+        k: int,
+        hopper: bool = True,
+        configs: list[_FakeConfig] | None = None,
+    ) -> list[_FakeConfig]:
+        with mock.patch(
+            "fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm.is_hopper",
+            return_value=hopper,
+        ):
+            return prune_configs_h100_static(
+                configs if configs is not None else self._make_configs(),
+                {"M": m, "N": n, "K": k},
+            )
+
+    @staticmethod
+    def _keys(kept: list[_FakeConfig]) -> set[tuple[int, int, int]]:
+        return {
+            (c.kwargs["BLOCK_M"], c.kwargs["BLOCK_N"], c.kwargs["BLOCK_K"])
+            for c in kept
+        }
+
+    def test_pool_minima_match_config_space(self) -> None:
+        self.assertEqual(
+            MINIMUM_BLOCK_M, min(c.kwargs["BLOCK_M"] for c in MATMUL_CONFIGS)
+        )
+        self.assertEqual(
+            MINIMUM_BLOCK_N, min(c.kwargs["BLOCK_N"] for c in MATMUL_CONFIGS)
+        )
+        self.assertEqual(
+            MINIMUM_BLOCK_K, min(c.kwargs["BLOCK_K"] for c in MATMUL_CONFIGS)
+        )
+
+    def test_small_m_drops_large_block_m(self) -> None:
+        kept = self._prune(1, 1024, 1024)
+        bms = {c.kwargs["BLOCK_M"] for c in kept}
+        self.assertTrue(bms <= {16, 32, 64})
+
+    def test_small_n_drops_large_block_n(self) -> None:
+        kept = self._prune(512, 32, 1024)
+        keys = self._keys(kept)
+        self.assertIn((64, 32, 32), keys)
+        self.assertNotIn((128, 256, 32), keys)
+        self.assertNotIn((64, 256, 32), keys)
+
+    def test_small_k_drops_large_block_k(self) -> None:
+        kept = self._prune(512, 1024, 32)
+        keys = self._keys(kept)
+        self.assertNotIn((64, 128, 256), keys)
+        self.assertIn((64, 256, 32), keys)
+
+    def test_large_k_keeps_large_block_k(self) -> None:
+        kept = self._prune(512, 1024, 19712)
+        self.assertIn((64, 128, 256), self._keys(kept))
+
+    def test_wgmma_floors_keep_minimum_tiles(self) -> None:
+        configs = [
+            _FakeConfig(64, 32, 32, 4, 4),
+            _FakeConfig(128, 32, 32, 4, 4),
+            _FakeConfig(64, 64, 32, 4, 4),
+            _FakeConfig(64, 32, 64, 4, 4),
+        ]
+        kept = self._prune(1, 1, 1, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 32, 32)})
+
+    def test_tiny_n_keeps_bn32_winner(self) -> None:
+        configs = [
+            _FakeConfig(16, 32, 32, 3, 2),
+            _FakeConfig(64, 64, 32, 4, 4),
+            _FakeConfig(16, 128, 32, 3, 2),
+        ]
+        kept = self._prune(3, 4, 5, configs=configs)
+        keys = self._keys(kept)
+        self.assertIn((16, 32, 32), keys)
+        self.assertNotIn((16, 128, 32), keys)
+        self.assertLess(len(kept), len(configs))
+
+    def test_mid_m_drops_block_m_256(self) -> None:
+        kept = self._prune(64, 1024, 1024)
+        bms = {c.kwargs["BLOCK_M"] for c in kept}
+        self.assertNotIn(256, bms)
+
+    def test_large_m_keeps_block_m_256(self) -> None:
+        kept = self._prune(8192, 1024, 1024)
+        keys = self._keys(kept)
+        self.assertIn((256, 128, 32), keys)
+        self.assertIn((256, 256, 32), keys)
+
+    def test_stages_unpruned(self) -> None:
+        for m in (1, 8192):
+            kept = self._prune(m, 1024, 1024)
+            stages = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 16)
+            self.assertEqual(stages, [2, 3, 4, 5, 6])
+
+    def test_fallback_returns_full_space_when_all_pruned(self) -> None:
+        configs = [c for c in self._make_configs() if c.kwargs["BLOCK_M"] >= 128]
+        self.assertTrue(len(configs) > 0)
+        kept = self._prune(1, 1024, 1024, configs=configs)
+        self.assertEqual(kept, configs)
+
+    def test_non_hopper_is_noop(self) -> None:
+        configs = self._make_configs()
+        kept = self._prune(1, 1024, 1024, hopper=False, configs=configs)
+        self.assertEqual(kept, configs)
+
+
+@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+class TestPerfModelFp8(unittest.TestCase):
+    """estimate_matmul_time must accept torch fp8 dtypes.
+
+    Regression test: Triton's peak-flops table has no torch fp8 entries, so
+    unmapped dtypes crash with "dtype not supported" (this also fixes a latent
+    crash for block kernels whenever early pruning keeps more than top_k).
+    """
+
+    def test_fp8_dtypes_accepted(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        for dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+            a = torch.empty(64, 256, dtype=dtype, device=device)
+            b = torch.empty(256, 256, dtype=dtype, device=device)
+            c = torch.empty(64, 256, dtype=torch.bfloat16, device=device)
+            est = estimate_matmul_time(4, 4, a, b, c, 64, 256, 256, 64, 128, 32, 1)
+            self.assertTrue(est > 0)

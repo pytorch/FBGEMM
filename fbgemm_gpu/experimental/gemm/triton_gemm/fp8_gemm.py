@@ -144,14 +144,77 @@ def get_configs_io_bound() -> list[Config]:
     return configs
 
 
-def dummy_prune_configs(configs, named_args, **kwargs):
+@functools.lru_cache
+def is_hopper() -> bool:
+    """True when running on an NVIDIA Hopper GPU (sm_90: H100/H200).
 
+    Excludes ROCm explicitly: gfx90a (MI200-class) devices also report
+    capability (9, 0). Returns False when CUDA is unavailable or the
+    capability probe fails.
+    """
+    if torch.version.hip is not None:
+        return False
+    if not torch.cuda.is_available():
+        return False
+    try:
+        return torch.cuda.get_device_capability()[0] == 9
+    except RuntimeError:
+        return False
+
+
+# Hopper WGMMA shape minimums.
+WGMMA_M_MINIMUM = 64
+WGMMA_N_MINIMUM = 8
+WGMMA_K_MINIMUM = 32
+
+
+def prune_configs_wgmma_compute_bound(configs, M, N, K):
+    """Keep configs within the WGMMA compute-bound tile caps.
+
+    MAX_BLOCK_M/N/K = max(next_pow2(dim), WGMMA_*_MINIMUM,
+    MINIMUM_BLOCK_*): drops tiles doing more than ~2x masked work on
+    any axis while still meeting WGMMA shape minimums.
+    """
+    max_bm = max(triton.next_power_of_2(M), WGMMA_M_MINIMUM, MINIMUM_BLOCK_M)
+    max_bn = max(triton.next_power_of_2(N), WGMMA_N_MINIMUM, MINIMUM_BLOCK_N)
+    max_bk = max(triton.next_power_of_2(K), WGMMA_K_MINIMUM, MINIMUM_BLOCK_K)
+    return [
+        c
+        for c in configs
+        if c.kwargs["BLOCK_M"] <= max_bm
+        and c.kwargs["BLOCK_N"] <= max_bn
+        and c.kwargs["BLOCK_K"] <= max_bk
+    ]
+
+
+def prune_configs_h100_static(configs, named_args, **kwargs):
+    """Static H100 prune for the persistent non-TMA FP8 rowwise kernel.
+
+    Delegates to prune_configs_wgmma_compute_bound. Hopper-only (see
+    is_hopper); any other device falls through unpruned, as does the
+    all-dropped safety net (full-space fallback).
+    """
     M = named_args["M"]
     N = named_args["N"]
     K = named_args["K"]
 
-    logger.info(f"{len(configs)=} {len(configs)=} for {M=} {N=} {K=}")
-    return configs
+    if not is_hopper():
+        return configs
+
+    n_in = len(configs)
+    kept = prune_configs_wgmma_compute_bound(configs, M, N, K)
+
+    if not kept:
+        logger.warning(
+            f"[h100-static-prune] all {n_in} configs pruned for "
+            f"M={M} N={N} K={K}; falling back to full space"
+        )
+        return configs
+    logger.info(
+        f"[h100-static-prune] {n_in=} {len(kept)=} pruned={n_in - len(kept)} "
+        f"for M={M} N={N} K={K}"
+    )
+    return kept
 
 
 MATMUL_CONFIGS: list[Config] = [
@@ -259,11 +322,15 @@ MATMUL_CONFIGS: list[Config] = [
     ),
 ] + get_configs_io_bound()
 
+MINIMUM_BLOCK_M = min(c.kwargs["BLOCK_M"] for c in MATMUL_CONFIGS)
+MINIMUM_BLOCK_N = min(c.kwargs["BLOCK_N"] for c in MATMUL_CONFIGS)
+MINIMUM_BLOCK_K = min(c.kwargs["BLOCK_K"] for c in MATMUL_CONFIGS)
+
 
 @triton.autotune(
     configs=MATMUL_CONFIGS,
     prune_configs_by={
-        "early_config_prune": dummy_prune_configs,
+        "early_config_prune": prune_configs_h100_static,
     },
     key=[
         "m_key",
