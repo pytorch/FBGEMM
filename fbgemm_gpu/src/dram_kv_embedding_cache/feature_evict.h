@@ -919,7 +919,7 @@ class FeatureEvict {
       int /*shard_id*/) {}
 
   // Check and reset the eviction state .
-  void update_evict_finish_flags(int shard_id) {
+  void update_evict_finish_flags(int /*shard_id*/) {
     std::unique_lock<std::mutex> lock(mutex_);
     finished_evictions_++;
     if (!has_running_evict()) {
@@ -1126,7 +1126,7 @@ class CounterBasedEvict : public FeatureEvict<weight_type> {
   }
 
  protected:
-  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
+  bool evict_block(weight_type* block, int sub_table_id, int /*shard_id*/)
       override {
     double decay_rate = decay_rates_[sub_table_id];
     int64_t threshold = thresholds_[sub_table_id];
@@ -1242,7 +1242,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
   }
 
  protected:
-  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
+  bool evict_block(weight_type* block, int sub_table_id, int /*shard_id*/)
       override {
     int8_t enable_eviction =
         enable_eviction_for_feature_score_eviction_policy_[sub_table_id];
@@ -1488,7 +1488,7 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
   }
 
  protected:
-  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
+  bool evict_block(weight_type* block, int sub_table_id, int /*shard_id*/)
       override {
     int64_t ttl = ttls_in_mins_[sub_table_id];
     if (ttl == 0) {
@@ -1532,7 +1532,7 @@ class TimeThresholdBasedEvict : public FeatureEvict<weight_type> {
   }
 
  protected:
-  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
+  bool evict_block(weight_type* block, int /*sub_table_id*/, int /*shard_id*/)
       override {
     return FixedBlockPool::get_timestamp(block) < eviction_timestamp_threshold_;
   }
@@ -1572,7 +1572,7 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
   }
 
  protected:
-  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
+  bool evict_block(weight_type* block, int sub_table_id, int /*shard_id*/)
       override {
     int64_t ttl = ttls_in_mins_[sub_table_id];
     if (ttl == 0) {
@@ -1629,7 +1629,7 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
   }
 
  protected:
-  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
+  bool evict_block(weight_type* block, int sub_table_id, int /*shard_id*/)
       override {
     size_t dimension = sub_table_dims_[sub_table_id];
     double threshold = thresholds_[sub_table_id];
