@@ -264,7 +264,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
     {%- if vbe %}
-    const c10::SymInt max_B,
+    [[maybe_unused]] const c10::SymInt max_B,
     {%- endif %}
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
