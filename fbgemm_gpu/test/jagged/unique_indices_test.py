@@ -636,6 +636,77 @@ class UniqueIndicesTest(unittest.TestCase):
         self._check_sum_and_roundtrip(outputs, indices_list)
 
     @unittest.skipIf(*gpu_unavailable)
+    def test_jagged_unique_indices_rejects_intermediate_oob(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "out-of-range index"):
+            self._run_op(
+                hash_size_cumsum_list=[0, 4, 8],
+                hash_size_offsets_list=[0, 1, 2],
+                lengths_list=[1, 1],
+                indices_list=[4, 0],
+                dtype=torch.int64,
+            )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests("the operator has no abstract implementation")
+    def test_jagged_unique_indices_empty_middle_and_tail_groups(self) -> None:
+        outputs = self._run_op(
+            hash_size_cumsum_list=[0, 8, 16, 24, 32],
+            hash_size_offsets_list=[0, 1, 2, 3, 4],
+            lengths_list=[1, 1, 0, 0, 1, 1, 0, 0],
+            indices_list=[2, 3, 4, 5],
+            dtype=torch.int64,
+        )
+        output_lengths, _, _, _ = outputs
+        self._check_sum_and_roundtrip(outputs, [2, 3, 4, 5])
+        self.assertEqual(output_lengths.tolist()[2:4], [0, 0])
+        self.assertEqual(output_lengths.tolist()[6:8], [0, 0])
+
+    @unittest.skipIf(torch.version.hip is None, "ROCm grid cap only")
+    @optests.dontGenerateOpCheckTests("the operator has no abstract implementation")
+    def test_jagged_unique_indices_rocm_cap_processes_tail(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        num_features = (
+            64 * torch.cuda.get_device_properties(device).multi_processor_count + 1
+        )
+        hash_size_cumsum = torch.arange(
+            num_features + 1, dtype=torch.int32, device=device
+        )
+        hash_size_offsets = hash_size_cumsum.clone()
+        offsets = torch.zeros(num_features + 1, dtype=torch.int32, device=device)
+        offsets[-1] = 1
+        indices = torch.zeros(1, dtype=torch.int32, device=device)
+
+        output_lengths, _, unique_indices, _ = torch.ops.fbgemm.jagged_unique_indices(
+            hash_size_cumsum, hash_size_offsets, offsets, indices
+        )
+
+        self.assertEqual(int(output_lengths.sum()), 1)
+        self.assertEqual(int(output_lengths[-1]), 1)
+        self.assertEqual(unique_indices.tolist(), [0])
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_jagged_hash_size_cumsum_rejects_zero_batch(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        offsets = torch.zeros(2, dtype=torch.int64, device=device)
+        indices = torch.empty(0, dtype=torch.int64, device=device)
+        with self.assertRaisesRegex(RuntimeError, "batch_size must be positive"):
+            torch.ops.fbgemm.jagged_hash_size_cumsum(offsets, indices, 0)
+
+    @unittest.skipIf(torch.version.hip is None, "ROCm launch limit only")
+    def test_jagged_hash_size_cumsum_rejects_overflow_launch(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        first_invalid_tables = (2**32 - 2) // 1024 + 1
+        offsets = torch.zeros(
+            first_invalid_tables + 1, dtype=torch.int32, device=device
+        )
+        indices = torch.empty(0, dtype=torch.int32, device=device)
+        with self.assertRaisesRegex(RuntimeError, "exceeds the ROCm launch limit"):
+            torch.ops.fbgemm.jagged_hash_size_cumsum(offsets, indices, 1)
+
+    @unittest.skipIf(*gpu_unavailable)
     def test_jagged_unique_indices_zch_huge_hash_size(self) -> None:
         """Exercise the op with a hash_size_cumsum entry at INT64_MAX -
         the shape produced by ZCH callers that leave per-feature hash size

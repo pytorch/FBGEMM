@@ -29,6 +29,13 @@ namespace fbgemm_gpu {
 // flat-grid launches with grid = total_B (or num_unique).
 static constexpr int32_t kFlatBlockSize = 256;
 
+#ifdef USE_ROCM
+static constexpr auto kGridCapPolicy = utils::cuda::BlockCapPolicy::Always;
+#else
+static constexpr auto kGridCapPolicy =
+    utils::cuda::BlockCapPolicy::OverflowOnly;
+#endif
+
 // Linearize the index with the cumsum of hash size so that linearized indices
 // can be sorted together. Flat-grid: one block per (t, b) sample.
 //
@@ -45,9 +52,9 @@ static constexpr int32_t kFlatBlockSize = 256;
 // silently mis-attributes the value's count in unique_indices_length_kernel
 // (counts leak from t to t+1; total is preserved). The last feature is
 // explicitly exempt: its OOB tail is supported via the clamp in the length
-// kernel and the scatter-form delinearize. The assert below catches the
-// intermediate-feature case in debug builds; CUDA_KERNEL_ASSERT also fires
-// in release builds (by design — see torch/headeronly/macros/Macros.h).
+// kernel and the scatter-form delinearize. Invalid intermediate values set an
+// error flag and write a safe placeholder; the host rejects them after the
+// existing max-reduction synchronization.
 template <typename index_t>
 __global__ __launch_bounds__(kFlatBlockSize) void linearize_index_flat_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
@@ -58,34 +65,40 @@ __global__ __launch_bounds__(kFlatBlockSize) void linearize_index_flat_kernel(
         offsets,
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices,
+    int32_t* const invalid_index,
     FixedDivisor fd) {
-  const auto b_t = blockIdx.x;
-  int32_t b;
-  int32_t t;
-  fd.DivMod(static_cast<int32_t>(b_t), &t, &b);
+  const int64_t total_B = offsets.size(0) - 1;
+  for (int64_t b_t = blockIdx.x; b_t < total_B; b_t += gridDim.x) {
+    int32_t b;
+    int32_t t;
+    fd.DivMod(static_cast<int32_t>(b_t), &t, &b);
 
-  const auto indices_start = offsets[b_t];
-  const auto L = offsets[b_t + 1] - indices_start;
-  if (L == 0) {
-    return;
-  }
-  const auto hash_offset = hash_size_cumsum[t];
-  // OOB check exemptions:
-  //   - is_last_feature: the last feature's OOB tail is explicitly supported.
-  //   - is_merged_feature (per_feature_hash == 0): the caller is grouping
-  //     this feature with another via the hash_size_offsets indirection;
-  //     consecutive-zero entries in hash_size_cumsum mean the two features
-  //     share the same hash space, so any local index value is valid.
-  const bool is_last_feature = (t == hash_size_cumsum.size(0) - 2);
-  const auto per_feature_hash =
-      is_last_feature ? index_t{0} : (hash_size_cumsum[t + 1] - hash_offset);
-  const bool is_merged_feature = !is_last_feature && (per_feature_hash == 0);
+    const auto indices_start = offsets[b_t];
+    const auto L = offsets[b_t + 1] - indices_start;
+    if (L == 0) {
+      continue;
+    }
+    const auto hash_offset = hash_size_cumsum[t];
+    // OOB check exemptions:
+    //   - is_last_feature: the last feature's OOB tail is explicitly supported.
+    //   - is_merged_feature (per_feature_hash == 0): the caller is grouping
+    //     this feature with another via the hash_size_offsets indirection;
+    //     consecutive-zero entries in hash_size_cumsum mean the two features
+    //     share the same hash space, so any local index value is valid.
+    const bool is_last_feature = (t == hash_size_cumsum.size(0) - 2);
+    const auto per_feature_hash =
+        is_last_feature ? index_t{0} : (hash_size_cumsum[t + 1] - hash_offset);
+    const bool is_merged_feature = !is_last_feature && (per_feature_hash == 0);
 
-  for (auto i = threadIdx.x; i < L; i += blockDim.x) {
-    const auto idx = __ldg(&indices[indices_start + i]);
-    CUDA_KERNEL_ASSERT(
-        is_last_feature || is_merged_feature || idx < per_feature_hash);
-    linear_indices[indices_start + i] = hash_offset + idx;
+    for (auto i = threadIdx.x; i < L; i += blockDim.x) {
+      const auto idx = __ldg(&indices[indices_start + i]);
+      if (!is_last_feature && !is_merged_feature && idx >= per_feature_hash) {
+        atomicExch(invalid_index, 1);
+        linear_indices[indices_start + i] = hash_offset;
+      } else {
+        linear_indices[indices_start + i] = hash_offset + idx;
+      }
+    }
   }
 }
 
@@ -341,50 +354,47 @@ __global__ __launch_bounds__(kFlatBlockSize) void unique_indices_length_kernel(
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> lengths,
     const int32_t batch_size) {
   const auto tid = threadIdx.x;
-  const auto bid = blockIdx.x;
-
-  const auto hash_begin = hash_size_offsets[bid];
-  const auto hash_end = hash_size_offsets[bid + 1];
-  const auto offset_begin = hash_begin * batch_size;
-  const auto offset_end = hash_end * batch_size;
-  const auto num_lengths = offset_end - offset_begin;
-  if (num_lengths == 0) {
-    return;
-  }
-
   __shared__ index_t s_div_length;
   __shared__ index_t s_r_length;
-  if (tid == 0) {
-    const auto low = hash_size_cumsum[hash_begin];
-    const auto high = hash_size_cumsum[hash_end];
-    const bool is_last_group = (hash_end == hash_size_cumsum.size(0) - 1);
-    if (low == high && !is_last_group) {
-      // Empty intermediate feature group. Output is pre-zeroed by
-      // at::zeros at the launch site; nothing to write.
-      s_div_length = 0;
-      s_r_length = 0;
-    } else {
-      const int32_t lo_pos =
-          device_lower_bound<index_t>(linear_unique_indices, low);
-      const int32_t hi_pos = is_last_group
-          ? linear_unique_indices.size(0)
-          : device_lower_bound<index_t>(linear_unique_indices, high);
-      const index_t total_length = static_cast<index_t>(hi_pos - lo_pos);
-      s_div_length = total_length / static_cast<index_t>(num_lengths);
-      s_r_length = total_length % static_cast<index_t>(num_lengths);
-    }
-  }
-  __syncthreads();
+  const int64_t num_groups = hash_size_offsets.size(0) - 1;
+  for (int64_t bid = blockIdx.x; bid < num_groups; bid += gridDim.x) {
+    const auto hash_begin = hash_size_offsets[bid];
+    const auto hash_end = hash_size_offsets[bid + 1];
+    const auto offset_begin = hash_begin * batch_size;
+    const auto offset_end = hash_end * batch_size;
+    const auto num_lengths = offset_end - offset_begin;
 
-  const index_t div_length = s_div_length;
-  const index_t r_length = s_r_length;
-  if (div_length == 0 && r_length == 0) {
-    return;
-  }
-  for (int32_t i = tid; i < num_lengths; i += blockDim.x) {
-    const index_t seg_length =
-        (static_cast<index_t>(i) < r_length) ? (div_length + 1) : div_length;
-    lengths[offset_begin + i] = seg_length;
+    if (tid == 0) {
+      const auto low = hash_size_cumsum[hash_begin];
+      const auto high = hash_size_cumsum[hash_end];
+      const bool is_last_group = (hash_end == hash_size_cumsum.size(0) - 1);
+      if (num_lengths == 0 || (low == high && !is_last_group)) {
+        s_div_length = 0;
+        s_r_length = 0;
+      } else {
+        const int32_t lo_pos =
+            device_lower_bound<index_t>(linear_unique_indices, low);
+        const int32_t hi_pos = is_last_group
+            ? linear_unique_indices.size(0)
+            : device_lower_bound<index_t>(linear_unique_indices, high);
+        const index_t total_length = static_cast<index_t>(hi_pos - lo_pos);
+        s_div_length = total_length / static_cast<index_t>(num_lengths);
+        s_r_length = total_length % static_cast<index_t>(num_lengths);
+      }
+    }
+    __syncthreads();
+
+    const index_t div_length = s_div_length;
+    const index_t r_length = s_r_length;
+    if (div_length != 0 || r_length != 0) {
+      for (int32_t i = tid; i < num_lengths; i += blockDim.x) {
+        const index_t seg_length = (static_cast<index_t>(i) < r_length)
+            ? (div_length + 1)
+            : div_length;
+        lengths[offset_begin + i] = seg_length;
+      }
+    }
+    __syncthreads();
   }
 }
 
@@ -393,10 +403,8 @@ __global__ __launch_bounds__(kFlatBlockSize) void unique_indices_length_kernel(
 // Caller contract on indices:
 //   - For intermediate features (t < T - 1) with per_feature_hash > 0:
 //     indices[i] < per_feature_hash[t]. Violations are detected by a
-//     CUDA_KERNEL_ASSERT in linearize_index_flat_kernel. The op cannot
-//     produce correct per-feature output_lengths under intermediate-feature
-//     OOB (counts leak into the next feature group), but the total count and
-//     unique_indices values are still correct.
+//     device-side error flag in linearize_index_flat_kernel and rejected by
+//     the host after the max-reduction synchronization.
 //   - For merged/masked features (per_feature_hash == 0, i.e. consecutive
 //     equal entries in hash_size_cumsum): any indices[i] is valid. The
 //     feature shares hash space with another via the hash_size_offsets
@@ -457,15 +465,26 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
       "jagged_unique_indices: indices.numel() (",
       N,
       ") exceeds INT32_MAX");
+  TORCH_CHECK(
+      total_B < static_cast<int64_t>(INT32_MAX),
+      "jagged_unique_indices: offsets define ",
+      total_B,
+      " samples, exceeding INT32_MAX");
 
   Tensor linear_indices = at::empty_like(indices);
+  Tensor invalid_index = at::zeros({1}, indices.options().dtype(at::kInt));
 
   using at::RestrictPtrTraits;
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "linearize_index", ([&] {
+                            const auto num_blocks = utils::cuda::cap_grid_dim_x(
+                                total_B,
+                                kFlatBlockSize,
+                                at::cuda::getCurrentCUDAStream(),
+                                kGridCapPolicy);
                             FBGEMM_LAUNCH_KERNEL(
                                 (linearize_index_flat_kernel<index_t>),
-                                total_B,
+                                num_blocks,
                                 kFlatBlockSize,
                                 0,
                                 at::cuda::getCurrentCUDAStream(),
@@ -473,6 +492,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
                                 PTA_B(indices, index_t, 1, 32),
                                 PTA_B(offsets, index_t, 1, 32),
                                 PTA_B(linear_indices, index_t, 1, 32),
+                                invalid_index.data_ptr<int32_t>(),
                                 FixedDivisor(total_B / T));
                           }));
 
@@ -494,9 +514,14 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
     // separated by low-bit-colliding distinct keys). Reducing over the real
     // max keeps the radix-pass win in the common in-bound case (max ~
     // total_hash_size) while staying correct under OOB. The max-reduction
-    // replaces at::_unique's historical implicit D->H sync, so the single
-    // sync below is net-neutral (plus one cheap reduce kernel over N).
+    // replaces at::_unique's historical implicit D->H sync. The invalid-index
+    // readback below adds one scalar copy after that sync has caught up the
+    // stream, plus one cheap reduce kernel over N.
     const int64_t max_linear_index = linear_indices.max().item().toLong();
+    TORCH_CHECK(
+        invalid_index.item<int32_t>() == 0,
+        "jagged_unique_indices: an intermediate feature contains an "
+        "out-of-range index");
     TORCH_CHECK(
         max_linear_index >= 0,
         "jagged_unique_indices: linearized indices must be non-negative, got "
@@ -555,9 +580,14 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 
   Tensor output_lengths = at::zeros({total_B}, offsets.options());
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "unique_indices_length", ([&] {
+                            const auto num_blocks = utils::cuda::cap_grid_dim_x(
+                                T,
+                                kFlatBlockSize,
+                                at::cuda::getCurrentCUDAStream(),
+                                kGridCapPolicy);
                             FBGEMM_LAUNCH_KERNEL(
                                 (unique_indices_length_kernel<index_t>),
-                                T,
+                                num_blocks,
                                 kFlatBlockSize,
                                 0,
                                 at::cuda::getCurrentCUDAStream(),
@@ -614,7 +644,24 @@ std::tuple<Tensor, Tensor> jagged_hash_size_cumsum_cuda(
     const Tensor& offsets,
     const Tensor& indices,
     const int64_t batch_size) {
+  TORCH_CHECK(
+      batch_size > 0,
+      "jagged_hash_size_cumsum: batch_size must be positive, got ",
+      batch_size);
   const auto T = (offsets.size(0) - 1) / batch_size;
+  TORCH_CHECK(
+      T > 0,
+      "jagged_hash_size_cumsum: batch_size must not exceed the number of "
+      "offset intervals");
+#ifdef USE_ROCM
+  TORCH_CHECK(
+      T <= utils::cuda::kMaxThreadsPerLaunch / kMaxThreads,
+      "jagged_hash_size_cumsum: table count ",
+      T,
+      " with ",
+      kMaxThreads,
+      " threads per table exceeds the ROCm launch limit");
+#endif
   Tensor hash_size = at::zeros({T}, offsets.options());
 
   using at::RestrictPtrTraits;
