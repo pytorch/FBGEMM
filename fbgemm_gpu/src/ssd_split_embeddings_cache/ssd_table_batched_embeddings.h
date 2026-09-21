@@ -569,16 +569,16 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return;
   }
 
-  void resume_ongoing_eviction(bool force_pause = false) override {
+  void resume_ongoing_eviction(bool /*force_pause*/ = false) override {
     // no op for now
     return;
   }
 
   folly::SemiFuture<std::vector<folly::Unit>>
   set_kv_zch_eviction_metadata_async(
-      at::Tensor indices,
-      at::Tensor count,
-      at::Tensor engage_rates) override {
+      at::Tensor /*indices*/,
+      at::Tensor /*count*/,
+      at::Tensor /*engage_rates*/) override {
     // no op for now
     return folly::makeSemiFuture<std::vector<folly::Unit>>(
         std::vector<folly::Unit>{});
@@ -654,9 +654,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   void set_embedding_cache_enrich_query_id_async(
-      at::Tensor hashed_indices,
-      at::Tensor unhashed_indices,
-      at::Tensor count) override {
+      at::Tensor /*hashed_indices*/,
+      at::Tensor /*unhashed_indices*/,
+      at::Tensor /*count*/) override {
     return;
   }
 
@@ -2159,7 +2159,7 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
       std::vector<rocksdb::ColumnFamilyHandle*>& cfs,
       int shard_id,
       rocksdb::ReadOptions local_ro,
-      int weight_offset) {
+      int /*weight_offset*/) {
     auto iterator_ro = local_ro;
     iterator_ro.total_order_seek = true; // disable prefix filter
     auto it = dbs_[shard_id]->NewIterator(iterator_ro, cfs[0]);
