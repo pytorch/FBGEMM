@@ -896,11 +896,40 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertIn((256, 128, 32), keys)
         self.assertIn((256, 256, 32), keys)
 
-    def test_stages_unpruned(self) -> None:
+    def test_stages_kept_when_pipeline_saturates(self) -> None:
         for m in (1, 8192):
             kept = self._prune(m, 1024, 1024)
             stages = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 16)
             self.assertEqual(stages, [2, 3, 4, 5, 6])
+
+    def test_smem_fit_keeps_tightest_config(self) -> None:
+        kept = self._prune(512, 1024, 19712)
+        self.assertIn((64, 128, 256), self._keys(kept))
+
+    def test_smem_drops_infeasible_config(self) -> None:
+        configs = [
+            _FakeConfig(128, 256, 256, 4, 8),
+            _FakeConfig(64, 32, 32, 5, 2),
+        ]
+        kept = self._prune(512, 1024, 19712, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 32, 32)})
+
+    def test_pipeline_drops_unsaturable_stages(self) -> None:
+        configs = [_FakeConfig(16, 32, 64, ns, 2) for ns in (2, 3, 4, 5, 6)]
+        kept = self._prune(64, 256, 256, configs=configs)
+        stages = sorted(c.num_stages for c in kept)
+        self.assertEqual(stages, [2, 3, 4, 5])
+
+    def test_pipeline_keeps_all_at_single_k_tile(self) -> None:
+        configs = [_FakeConfig(16, 32, 32, ns, 2) for ns in (2, 3, 4, 5, 6)]
+        kept = self._prune(512, 1024, 16, configs=configs)
+        stages = sorted(c.num_stages for c in kept)
+        self.assertEqual(stages, [2, 3, 4, 5, 6])
+
+    def test_pipeline_ignores_compute_configs(self) -> None:
+        configs = [_FakeConfig(64, 32, 32, 5, 2)]
+        kept = self._prune(512, 1024, 64, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 32, 32)})
 
     def test_fallback_returns_full_space_when_all_pruned(self) -> None:
         configs = [c for c in self._make_configs() if c.kwargs["BLOCK_M"] >= 128]
