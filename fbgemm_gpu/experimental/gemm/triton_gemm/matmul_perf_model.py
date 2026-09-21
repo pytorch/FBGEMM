@@ -42,6 +42,13 @@ def get_clock_rate_in_khz():
 
 def get_tensorcore_tflops(device, num_ctas, num_warps, dtype):
     """return compute throughput in TOPS"""
+    if dtype in (
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+        torch.float8_e4m3fnuz,
+        torch.float8_e5m2fnuz,
+    ):
+        dtype = torch.int8
     total_warps = num_ctas * min(num_warps, 4)
     num_subcores = (
         driver.active.utils.get_device_properties(device)["multiprocessor_count"] * 4
