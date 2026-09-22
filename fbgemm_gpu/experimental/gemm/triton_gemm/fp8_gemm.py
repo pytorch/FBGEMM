@@ -291,12 +291,30 @@ def prune_configs_register_cap(configs, M, N, K):
     ]
 
 
+_NS_FLOOR_DROPPED = 2
+_NS_FLOOR_SISTER = 3
+
+
+def prune_configs_ns_floor(configs, M, N, K):
+    kept = []
+    for c in configs:
+        kw = c.kwargs
+        if c.num_stages == _NS_FLOOR_DROPPED and (
+            _NS_FLOOR_SISTER * kw["BLOCK_K"] * (kw["BLOCK_M"] + kw["BLOCK_N"])
+            <= _H100_SMEM_BYTES
+        ):
+            continue
+        kept.append(c)
+    return kept
+
+
 def prune_configs_h100_static(configs, named_args, **kwargs):
     """Static H100 prune for the persistent non-TMA FP8 rowwise kernel.
 
     Delegates to prune_configs_wgmma_compute_bound,
     prune_configs_smem_stages, prune_configs_bk_floor,
-    prune_configs_bmn_floor, and prune_configs_register_cap.
+    prune_configs_bmn_floor, prune_configs_register_cap, and
+    prune_configs_ns_floor.
     Hopper-only (see is_hopper); any other device falls through
     unpruned, as does the all-dropped safety net (full-space fallback).
     """
@@ -313,6 +331,7 @@ def prune_configs_h100_static(configs, named_args, **kwargs):
     kept = prune_configs_bk_floor(kept, M, N, K)
     kept = prune_configs_bmn_floor(kept, M, N, K)
     kept = prune_configs_register_cap(kept, M, N, K)
+    kept = prune_configs_ns_floor(kept, M, N, K)
 
     if not kept:
         logger.warning(

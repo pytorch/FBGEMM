@@ -967,6 +967,26 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertNotIn((16, 128, 32), keys)
         self.assertLess(len(kept), len(configs))
 
+    def test_ns_floor_drops_ns2_when_ns3_fits(self) -> None:
+        configs = [_FakeConfig(32, 256, 64, ns, 4) for ns in (2, 3, 4, 5, 6)]
+        configs += [_FakeConfig(64, 128, 32, ns, 4) for ns in (2, 4)]
+        kept = self._prune(512, 1024, 512, configs=configs)
+        io = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 32)
+        compute = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 64)
+        self.assertEqual(io, [3, 4, 5, 6])
+        self.assertEqual(compute, [4])
+
+    def test_ns_floor_keeps_ns2_when_ns3_exceeds_smem(self) -> None:
+        configs = [
+            _FakeConfig(128, 256, 256, 2, 8),
+            _FakeConfig(128, 256, 256, 3, 8),
+            _FakeConfig(64, 128, 128, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 512, configs=configs)
+        huge = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_K"] == 256)
+        self.assertEqual(huge, [2])
+        self.assertIn((64, 128, 128), self._keys(kept))
+
     def test_mid_m_drops_block_m_256(self) -> None:
         kept = self._prune(64, 1024, 1024)
         bms = {c.kwargs["BLOCK_M"] for c in kept}
@@ -982,7 +1002,7 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         for m in (1, 8192):
             kept = self._prune(m, 1024, 256)
             stages = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 16)
-            self.assertEqual(stages, [2, 3, 4, 5, 6])
+            self.assertEqual(stages, [3, 4, 5, 6])
 
     def test_smem_fit_keeps_tightest_config(self) -> None:
         kept = self._prune(512, 1024, 19712)
@@ -1000,13 +1020,13 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         configs = [_FakeConfig(16, 32, 64, ns, 2) for ns in (2, 3, 4, 5, 6)]
         kept = self._prune(64, 256, 256, configs=configs)
         stages = sorted(c.num_stages for c in kept)
-        self.assertEqual(stages, [2, 3, 4, 5])
+        self.assertEqual(stages, [3, 4, 5])
 
     def test_pipeline_keeps_all_at_single_k_tile(self) -> None:
         configs = [_FakeConfig(16, 32, 32, ns, 2) for ns in (2, 3, 4, 5, 6)]
         kept = self._prune(512, 1024, 16, configs=configs)
         stages = sorted(c.num_stages for c in kept)
-        self.assertEqual(stages, [2, 3, 4, 5, 6])
+        self.assertEqual(stages, [3, 4, 5, 6])
 
     def test_pipeline_ignores_compute_configs(self) -> None:
         configs = [_FakeConfig(64, 32, 32, 5, 2)]
