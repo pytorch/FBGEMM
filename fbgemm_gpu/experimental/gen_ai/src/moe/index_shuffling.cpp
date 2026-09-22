@@ -46,9 +46,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch_meta(
     const at::Tensor& routing_scores,
-    const std::optional<int64_t>& expert_index_start,
-    const std::optional<int64_t>& expert_index_end,
-    const std::optional<at::Tensor>& valid_token_count,
+    const std::optional<int64_t>& /* expert_index_start */,
+    const std::optional<int64_t>& /* expert_index_end */,
+    const std::optional<at::Tensor>& /* valid_token_count */,
     const int64_t top_k = 1) {
   auto T = routing_scores.sym_size(0);
   auto E = routing_scores.sym_size(1);
