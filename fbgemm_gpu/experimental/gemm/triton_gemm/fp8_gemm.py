@@ -221,13 +221,45 @@ def prune_configs_smem_stages(configs, M, N, K):
     return kept
 
 
+# K edges determined experimentally, not derived: ground-truth
+# microbenchmarks (CUDA graphs, L2-flushed, median of 50 replays) show
+# BK=64's last refuge config falls out of the top 3 between K=6144 and
+# K=6400 (fitted per-tile-overhead crossover ~6278). 6656 is the first
+# suite K above that measured transition; 1024 is the analogous edge
+# where BK=32 stops contending.
+_BK_FLOOR_K_MEDIUM = 1024
+_BK_FLOOR_K_LARGE = 6656
+_BK_FLOOR_MEDIUM = 64
+_BK_FLOOR_LARGE = 128
+
+
+def prune_configs_bk_floor(configs, M, N, K):
+    """Keep configs whose BLOCK_K meets the K-driven floor.
+
+    MIN_BLOCK_K = 32 for K < 1024, 64 for K < 6656, else 128: below the
+    floor the K loop runs so many underfilled TMA tiles that the config
+    never contends (41-shape ground truth: BK=32 never better than #6
+    at K >= 1024, BK=64 never better than #4 at K >= 6656; all 41
+    winners kept). NCU shows doubling BK costs SMEM but not registers
+    (60/60 and 108/126 regs/thread pairs), so the larger floor tile is
+    close to free.
+    """
+    if K >= _BK_FLOOR_K_LARGE:
+        min_bk = _BK_FLOOR_LARGE
+    elif K >= _BK_FLOOR_K_MEDIUM:
+        min_bk = _BK_FLOOR_MEDIUM
+    else:
+        min_bk = MINIMUM_BLOCK_K
+    return [c for c in configs if c.kwargs["BLOCK_K"] >= min_bk]
+
+
 def prune_configs_h100_static(configs, named_args, **kwargs):
     """Static H100 prune for the persistent non-TMA FP8 rowwise kernel.
 
-    Delegates to prune_configs_wgmma_compute_bound and
-    prune_configs_smem_stages. Hopper-only (see is_hopper); any other
-    device falls through unpruned, as does the all-dropped safety net
-    (full-space fallback).
+    Delegates to prune_configs_wgmma_compute_bound,
+    prune_configs_smem_stages, and prune_configs_bk_floor. Hopper-only
+    (see is_hopper); any other device falls through unpruned, as does
+    the all-dropped safety net (full-space fallback).
     """
     M = named_args["M"]
     N = named_args["N"]
@@ -239,6 +271,7 @@ def prune_configs_h100_static(configs, named_args, **kwargs):
     n_in = len(configs)
     kept = prune_configs_wgmma_compute_bound(configs, M, N, K)
     kept = prune_configs_smem_stages(kept, M, N, K)
+    kept = prune_configs_bk_floor(kept, M, N, K)
 
     if not kept:
         logger.warning(
