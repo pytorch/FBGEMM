@@ -18,7 +18,7 @@ constexpr size_t kRowInitBufferSize = 32 * 1024;
 class Initializer {
  public:
   Initializer(
-      uint64_t random_seed,
+      uint64_t /*random_seed*/,
       int64_t max_D,
       float uniform_init_lower,
       float uniform_init_upper,

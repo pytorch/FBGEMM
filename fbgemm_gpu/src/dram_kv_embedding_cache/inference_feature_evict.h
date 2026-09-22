@@ -51,7 +51,7 @@ class InferenceTimeThresholdBasedEvict
 
  protected:
   // Override to use 12-byte header's timestamp field
-  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
+  bool evict_block(weight_type* block, int /*sub_table_id*/, int /*shard_id*/)
       override {
     return InferenceFixedBlockPool::get_timestamp(block) <
         this->eviction_timestamp_threshold_;
@@ -119,7 +119,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_inference_feature_evict(
         weight_type*,
         folly::SharedMutexWritePriority>& kv_store,
     const std::vector<int64_t>& sub_table_hash_cumsum,
-    TestMode test_mode = TestMode::DISABLED) {
+    TestMode /*test_mode*/ = TestMode::DISABLED) {
   if (config->trigger_strategy_ !=
       EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD) {
     throw std::runtime_error(
