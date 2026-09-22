@@ -142,8 +142,8 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     acc = static_cast<float4>(fp8_ptr[0]);
   }
 
-  DEVICE_INLINE void load(const uint8_t* p) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void load([[maybe_unused]] const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -198,8 +198,8 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     fp8_ptr[0] = static_cast<__nv_fp8x4_e4m3>(acc);
   }
 
-  DEVICE_INLINE void store(uint8_t* p) const {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store([[maybe_unused]] uint8_t* p) const {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE static void copy(const float* src, float* dst) {
@@ -322,8 +322,8 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     acc = *((const float4*)p);
   }
 
-  DEVICE_INLINE void load(const uint8_t* p) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void load([[maybe_unused]] const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void store(at::Half* p) const {
@@ -364,8 +364,8 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     *((float4*)p) = acc;
   }
 
-  DEVICE_INLINE void store(uint8_t* p) const {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store([[maybe_unused]] uint8_t* p) const {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE static void copy(const at::Half* src, at::Half* dst) {
@@ -521,8 +521,8 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     acc = *((const float4*)p);
   }
 
-  DEVICE_INLINE void load(const uint8_t* p) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void load([[maybe_unused]] const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void store(at::Half* p) const {
@@ -563,8 +563,8 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     *((float4*)p) = acc;
   }
 
-  DEVICE_INLINE void store(uint8_t* p) const {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store([[maybe_unused]] uint8_t* p) const {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE static void copy(const at::BFloat16* src, at::BFloat16* dst) {

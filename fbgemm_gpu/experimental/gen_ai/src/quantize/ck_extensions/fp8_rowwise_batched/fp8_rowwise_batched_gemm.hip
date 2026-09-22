@@ -202,7 +202,7 @@ at::Tensor f8f8bf16_rowwise_batched(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias,
+    [[maybe_unused]] std::optional<at::Tensor> bias,
     bool use_fast_accum,
     std::optional<at::Tensor> output = std::nullopt) {
   // Check that input datatypes are valid.
