@@ -46,17 +46,17 @@ KVTensorWrapper::KVTensorWrapper(
 }
 
 void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
-    c10::intrusive_ptr<EmbeddingRocksDBWrapper> db) {
+    c10::intrusive_ptr<EmbeddingRocksDBWrapper> /*db*/) {
   FBEXCEPTION("Not implemented");
 }
 
 void KVTensorWrapper::set_dram_db_wrapper(
-    c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
+    c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> /*db*/) {
   FBEXCEPTION("Not implemented");
 }
 
 void KVTensorWrapper::set_dram_ssd_db_wrapper(
-    c10::intrusive_ptr<kv_mem::DramSsdKVEmbeddingCacheWrapper> db) {
+    c10::intrusive_ptr<kv_mem::DramSsdKVEmbeddingCacheWrapper> /*db*/) {
   FBEXCEPTION("Not implemented");
 }
 

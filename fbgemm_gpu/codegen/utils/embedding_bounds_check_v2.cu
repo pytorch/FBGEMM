@@ -72,6 +72,14 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     }
   }
 
+  // blockDim.x is the group width the launch actually chose -- kWarpSizeHost()
+  // on the warp-wide path, the adaptive width otherwise -- so stride by it
+  // rather than re-deriving the host's decision from a predicate that has to
+  // be kept in sync with the launch. A predicate that drifted out of sync
+  // (blockDim.x < stride) would silently skip indices and drop their bounds
+  // check, with nothing to catch it at compile or run time.
+  const auto index_stride = static_cast<index_t>(blockDim.x);
+
   for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B;
        b_t += blockDim.y * gridDim.x) {
     // Compute b and t
@@ -130,7 +138,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
 
     const auto L = indices_end - indices_start;
     for (index_t i = static_cast<index_t>(threadIdx.x); i < L;
-         i += static_cast<index_t>(fbgemm_gpu::kWarpSize)) {
+         i += index_stride) {
       const auto idx = indices[indices_start + i];
       if (idx == -1) {
         // -1 indicates pruned rows.
@@ -281,10 +289,57 @@ void _bounds_check_indices_cuda_v2(
   // threads/block that is enough to cap occupancy at one block per SM.
   const size_t kNumThreads =
       (bounds_check_mode == BoundsCheckMode::WARNING) ? 256 : 1024;
+  auto num_threads = kNumThreads;
+  auto thread_group_size = fbgemm_gpu::kWarpSizeHost();
+#ifdef USE_ROCM
+  if (vbe && bounds_check_mode == BoundsCheckMode::IGNORE) {
+    // Average pooling factor. Integer division, so sparse batches
+    // (numel < total_B) and empty ones yield 0 and take the narrowest group.
+    const auto average_L = total_B > 0 ? indices.numel() / total_B : 0;
+    // Past this point each bag already fills a wavefront and the original
+    // warp-wide 1024-thread launch wins on occupancy, so leave it alone.
+    constexpr int64_t kMaxAdaptiveL = 512;
+    if (average_L <= kMaxAdaptiveL) {
+      // The prefetch path caps the grid at eight blocks, so keep full blocks.
+      // Everywhere else drop to 256: the widths below put many groups in one
+      // block, and a smaller block spreads those groups over more CUs than a
+      // 1024-thread block does. Chosen in the same MI350 sweep as the widths.
+      num_threads = prefetch_pipeline ? kNumThreads : 256;
+      // No wave-level collectives are used, so one AMD wave can process
+      // multiple bags. Narrow groups waste fewer lanes on the ragged tail of
+      // each bag; wide groups supply more resident threads. These widths were
+      // picked by sweeping group size against pooling factor on MI350.
+      if (average_L <= 4) {
+        thread_group_size = 1;
+      } else if (average_L <= 8) {
+        thread_group_size = 2;
+      } else if (average_L <= 16) {
+        thread_group_size = 4;
+      } else if (average_L <= 128) {
+        thread_group_size = 8;
+      } else if (average_L <= 256) {
+        thread_group_size = 16;
+      } else {
+        thread_group_size = 32;
+      }
+      // average_L is a mean, so a batch of mostly-empty bags with a few long
+      // ones picks a group too narrow for the long ones and walks them nearly
+      // serially. Widening wastes lanes on short bags, but only once the
+      // narrow launch already fills the device: at 256Ki bags a one-lane
+      // launch is ~1024 blocks, so on a 256-CU MI350 the extra lanes were idle
+      // regardless. Measured free below this point (1.0-1.1x on uniform bags,
+      // 1.3-2.7x faster on skewed ones) and costly above it (3.1x slower on
+      // the 22.7M-bag trace shape), so larger batches keep the ladder as is.
+      constexpr int64_t kMaxUnsaturatedB = 256 * 1024;
+      if (total_B <= kMaxUnsaturatedB) {
+        thread_group_size = std::max(thread_group_size, 4);
+      }
+    }
+  }
+#endif
   auto grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
-      cuda_calc_xblock_count(
-          total_B, kNumThreads / fbgemm_gpu::kWarpSizeHost()),
-      kNumThreads,
+      cuda_calc_xblock_count(total_B, num_threads / thread_group_size),
+      num_threads,
       at::cuda::getCurrentCUDAStream(),
       fbgemm_gpu::utils::cuda::BlockCapPolicy::Always);
   if (prefetch_pipeline) {
@@ -306,9 +361,7 @@ void _bounds_check_indices_cuda_v2(
           FBGEMM_LAUNCH_DSA_KERNEL(                                         \
               bounds_check_kernel,                                          \
               grid_dim,                                                     \
-              dim3(                                                         \
-                  fbgemm_gpu::kWarpSizeHost(),                              \
-                  kNumThreads / fbgemm_gpu::kWarpSizeHost()),               \
+              dim3(thread_group_size, num_threads / thread_group_size),     \
               0,                                                            \
               at::cuda::getCurrentCUDAStream(),                             \
               PTA_B(rows_per_table, int64_t, 1, 32),                        \
