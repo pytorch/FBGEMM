@@ -289,7 +289,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return torch::from_blob(
                all_ids_ptr->data(),
                {int64_t(all_ids_ptr->size())},
-               [all_ids_ptr](void* p) mutable { all_ids_ptr.reset(); },
+               [all_ids_ptr](void* /*p*/) mutable { all_ids_ptr.reset(); },
                torch::kInt64 // data type
                )
         .view({-1, 1});
@@ -2166,7 +2166,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return shardid_to_indexes;
   }
 
-  void flush_or_compact(const int64_t timestep) override {}
+  void flush_or_compact(const int64_t /*timestep*/) override {}
 
   bool get_backend_return_whole_row() override {
     return backend_return_whole_row_;

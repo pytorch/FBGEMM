@@ -267,8 +267,8 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
   /// PMT_offset + row_offset_ and can be very negative for later shards.
   void set_range_to_storage(
       const at::Tensor& weights_with_metaheader,
-      const int64_t start,
-      const int64_t length) override {
+      const int64_t /*start*/,
+      const int64_t /*length*/) override {
     // Extract keys from the embedded IDs in the first 8 bytes of each row
     // (set by replace_weights_id in KVTensorWrapper::set_range).
     // Follows the same pattern as write_blocks_to_ssd().

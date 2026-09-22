@@ -148,10 +148,10 @@ __device__ void llvm_amdgcn_raw_buffer_store_fp32x2(
 template <typename emb_t, int32_t embedding_dim, typename index_t>
 struct load_row_per_warp {
   static __device__ void run(
-      emb_t* emb_data,
-      index_t row_index,
-      const emb_t* p_emb_table,
-      int lane_id) {
+      [[maybe_unused]] emb_t* emb_data,
+      [[maybe_unused]] index_t row_index,
+      [[maybe_unused]] const emb_t* p_emb_table,
+      [[maybe_unused]] int lane_id) {
     // Types are not supported, but we need an instance of run method to avoid
     // run-time .so symbol failure. Currently, the kernel dispatch for
     // unsupported type is guarded on host side
@@ -255,8 +255,11 @@ template <
 struct accumulate_row_per_warp {
   static constexpr int dword_per_row =
       (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
-  static __device__ void
-  run(output_t* acc, emb_t* emb_data, int lane_id, float row_weight = 1.0) {
+  static __device__ void run(
+      output_t* acc,
+      emb_t* emb_data,
+      [[maybe_unused]] int lane_id,
+      float row_weight = 1.0) {
     if constexpr (!weighted) {
 #pragma unroll
       for (int i = 0; i < dword_per_row; i++) {
@@ -279,7 +282,10 @@ struct accumulate_row_per_warp {
 
 template <typename emb_t, int32_t embedding_dim>
 struct store_row_per_warp {
-  static __device__ void run(const emb_t* acc, emb_t* p_output, int lane_id) {
+  static __device__ void run(
+      [[maybe_unused]] const emb_t* acc,
+      [[maybe_unused]] emb_t* p_output,
+      [[maybe_unused]] int lane_id) {
     // Types are not supported, but we need an instance of run method to avoid
     // run-time .so symbol failure. Currently, the kernel dispatch for
     // unsupported type is guarded on host function
@@ -500,7 +506,7 @@ __device__ __forceinline__ void generic_dpp_reduction(data_t& result) {
 // Use corresponding assebly instruction for dpp reduction in case
 // of trivial operation with an option to use custom operation
 template <typename data_t, typename reduce_op_t, int wave_size = 64>
-__device__ __forceinline__ void dpp_reduction(data_t& result) {
+__device__ __forceinline__ void dpp_reduction([[maybe_unused]] data_t& result) {
 #if defined(__gfx942__) || defined(__gfx90a__) || defined(__gfx950__)
   if constexpr (std::is_same_v<reduce_op_t, reduce_op::sum>) {
     DPP_REDUCE_F16_F32(add);

@@ -296,20 +296,30 @@ __global__ void dequantize_fp8_cache_kernel(
 
 __global__ void dequantize_fp8_cache_kernel_paged(
     // This code currently represents FP8 version not int4
-    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
-        cache_K, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H]
-    pta::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+    [[maybe_unused]] pta::PackedTensorAccessor64<
+        uint8_t,
+        4,
+        at::RestrictPtrTraits> cache_K, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H]
+    [[maybe_unused]] pta::PackedTensorAccessor64<
+        uint8_t,
+        4,
+        at::RestrictPtrTraits>
         cache_V, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H // G]
-    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
-    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
-        cache_K_dq, // [1][MAX_T][N_KVH][D_H]
-    pta::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
-        cache_V_dq, // [1][MAX_T][N_KVH][D_H]
-    int32_t* qparam_k_ptr,
-    int32_t* qparam_v_ptr,
-    int32_t* block_tables,
-    int32_t block_tables_b_stride,
-    int32_t page_size) {
+    [[maybe_unused]] pta::
+        PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    [[maybe_unused]] pta::PackedTensorAccessor64<
+        at::BFloat16,
+        4,
+        at::RestrictPtrTraits> cache_K_dq, // [1][MAX_T][N_KVH][D_H]
+    [[maybe_unused]] pta::PackedTensorAccessor64<
+        at::BFloat16,
+        4,
+        at::RestrictPtrTraits> cache_V_dq, // [1][MAX_T][N_KVH][D_H]
+    [[maybe_unused]] int32_t* qparam_k_ptr,
+    [[maybe_unused]] int32_t* qparam_v_ptr,
+    [[maybe_unused]] int32_t* block_tables,
+    [[maybe_unused]] int32_t block_tables_b_stride,
+    [[maybe_unused]] int32_t page_size) {
   CUDA_KERNEL_ASSERT(0 && "unimplemented");
 }
 

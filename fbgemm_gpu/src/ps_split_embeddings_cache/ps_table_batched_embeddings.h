@@ -45,33 +45,33 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
                 maxKeysPerRequest)) {}
 
   folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async(
-      const at::Tensor& indices,
-      const at::Tensor& weights,
-      const at::Tensor& count,
-      const kv_db::RocksdbWriteMode w_mode =
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*weights*/,
+      const at::Tensor& /*count*/,
+      const kv_db::RocksdbWriteMode /*w_mode*/ =
           kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override {
     // RECORD_USER_SCOPE("EmbeddingParameterServer::set");
     // co_await tps_client_->set(indices, weights, count.item().toLong());
     return std::vector<folly::Unit>(1);
   }
   virtual folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
-      const at::Tensor& indices,
-      const at::Tensor& weights,
-      const at::Tensor& count) override {
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*weights*/,
+      const at::Tensor& /*count*/) override {
     return std::vector<folly::Unit>(1);
   }
   folly::SemiFuture<std::vector<folly::Unit>>
   set_kv_zch_eviction_metadata_async(
-      at::Tensor indices,
-      at::Tensor count,
-      at::Tensor engage_show_count) override {
+      at::Tensor /*indices*/,
+      at::Tensor /*count*/,
+      at::Tensor /*engage_show_count*/) override {
     return std::vector<folly::Unit>(1);
   }
 
   void set_embedding_cache_enrich_query_id_async(
-      at::Tensor hashed_indices,
-      at::Tensor unhashed_indices,
-      at::Tensor count) override {}
+      at::Tensor /*hashed_indices*/,
+      at::Tensor /*unhashed_indices*/,
+      at::Tensor /*count*/) override {}
 
   void flush() {}
   void compact() override {}
