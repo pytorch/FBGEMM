@@ -261,13 +261,24 @@ _BMN_FLOOR_K_LARGE = 2048
 _BM_FLOOR = 64
 _BN_FLOOR = 64
 _BN_FLOOR_LARGE = 128
+_PRODUCT_BAND_MIN_M = 64
+_BM_PRODUCT_MN = 8388608
+_BN_PRODUCT_MN = 393216
 
 
 def prune_configs_bmn_floor(configs, M, N, K):
-    min_bm = _BM_FLOOR if (M >= _BMN_FLOOR_M and K >= _BMN_FLOOR_K) else MINIMUM_BLOCK_M
+    bm_product = M >= _PRODUCT_BAND_MIN_M and M * N >= _BM_PRODUCT_MN
+    bn_product = (
+        M >= _PRODUCT_BAND_MIN_M and M * N >= _BN_PRODUCT_MN and K >= _BMN_FLOOR_K
+    )
+    min_bm = (
+        _BM_FLOOR
+        if ((M >= _BMN_FLOOR_M and K >= _BMN_FLOOR_K) or bm_product)
+        else MINIMUM_BLOCK_M
+    )
     if N >= _BMN_FLOOR_N_LARGE and K >= _BMN_FLOOR_K_LARGE:
         min_bn = _BN_FLOOR_LARGE
-    elif N >= _BMN_FLOOR_N and M >= _BMN_FLOOR_M and K >= _BMN_FLOOR_K:
+    elif (N >= _BMN_FLOOR_N and M >= _BMN_FLOOR_M and K >= _BMN_FLOOR_K) or bn_product:
         min_bn = _BN_FLOOR
     else:
         min_bn = WGMMA_N_MINIMUM

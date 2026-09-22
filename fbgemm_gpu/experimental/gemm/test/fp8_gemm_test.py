@@ -987,6 +987,38 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertEqual(huge, [2])
         self.assertIn((64, 128, 128), self._keys(kept))
 
+    def test_bm_product_drops_small_bm_at_rich_grid(self) -> None:
+        configs = [
+            _FakeConfig(32, 256, 64, 4, 4),
+            _FakeConfig(64, 256, 64, 4, 4),
+        ]
+        kept = self._prune(2048, 4096, 512, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 256, 64)})
+
+    def test_bm_product_keeps_small_bm_at_starved_grid(self) -> None:
+        configs = [
+            _FakeConfig(32, 64, 64, 4, 2),
+            _FakeConfig(64, 64, 64, 4, 2),
+        ]
+        kept = self._prune(1024, 64, 512, configs=configs)
+        self.assertEqual(self._keys(kept), {(32, 64, 64), (64, 64, 64)})
+
+    def test_bn_product_drops_bn32_at_rich_grid(self) -> None:
+        configs = [
+            _FakeConfig(32, 32, 64, 4, 2),
+            _FakeConfig(32, 64, 64, 4, 2),
+        ]
+        kept = self._prune(64, 6144, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(32, 64, 64)})
+
+    def test_bn_product_keeps_bn32_below_threshold(self) -> None:
+        configs = [
+            _FakeConfig(16, 32, 64, 4, 2),
+            _FakeConfig(16, 64, 64, 4, 2),
+        ]
+        kept = self._prune(64, 4096, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(16, 32, 64), (16, 64, 64)})
+
     def test_mid_m_drops_block_m_256(self) -> None:
         kept = self._prune(64, 1024, 1024)
         bms = {c.kwargs["BLOCK_M"] for c in kept}
@@ -999,7 +1031,7 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertNotIn((256, 256, 32), keys)
 
     def test_stages_kept_when_pipeline_saturates(self) -> None:
-        for m in (1, 8192):
+        for m in (1, 256):
             kept = self._prune(m, 1024, 256)
             stages = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 16)
             self.assertEqual(stages, [3, 4, 5, 6])
