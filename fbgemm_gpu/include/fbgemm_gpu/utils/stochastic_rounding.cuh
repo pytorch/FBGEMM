@@ -122,7 +122,7 @@ template <typename dst_t, typename src_t>
 DEVICE_INLINE void stochastic_rounding_vector(
     dst_t* output,
     const Vec4T<src_t>& value,
-    StochasticRoundingRNGState& state,
+    StochasticRoundingRNGState& /* state */,
     const float2 /* not used */) {
   value.store(output);
 }
