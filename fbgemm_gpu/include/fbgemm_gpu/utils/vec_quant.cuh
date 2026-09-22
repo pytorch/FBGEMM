@@ -201,7 +201,7 @@ DEVICE_INLINE bfx4 fx4_to_bfx4(fx4 a) {
 
 template <typename T>
 DEVICE_INLINE T shfl_xor(
-    unsigned shfl_sync_mask,
+    [[maybe_unused]] unsigned shfl_sync_mask,
     const T val,
     int laneMask,
     int width = kThreadsPerWarp) {
