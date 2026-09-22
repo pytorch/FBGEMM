@@ -77,8 +77,8 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
         linear_indices,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
-    const uint32_t max_T,
-    const uint32_t max_B,
+    [[maybe_unused]] const uint32_t max_T,
+    [[maybe_unused]] const uint32_t max_B,
     // Use a raw pointer to avoid creating dummy PackedTensorAccessor
     const uint32_t* const __restrict__ vbe_b_t_map,
     FixedDivisor fd) {

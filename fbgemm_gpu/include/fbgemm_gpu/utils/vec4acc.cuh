@@ -92,8 +92,8 @@ struct Vec4AccT {
   }
 #endif
 
-  DEVICE_INLINE void store(uint8_t* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(uint8_t* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void add(const float4* ptr) {
@@ -120,28 +120,32 @@ struct Vec4AccT {
     this->fma_(vals, weight);
   }
 
-  DEVICE_INLINE void add(const uint8_t* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void add(const uint8_t* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void fma(const uint8_t* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void fma(const uint8_t* /* ptr */, const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void add(const c10::Float8_e4m3fn* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void add(const c10::Float8_e4m3fn* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void fma(const c10::Float8_e4m3fn* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void fma(
+      const c10::Float8_e4m3fn* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void add(const c10::Float8_e4m3fnuz* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void add(const c10::Float8_e4m3fnuz* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void fma(const c10::Float8_e4m3fnuz* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void fma(
+      const c10::Float8_e4m3fnuz* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void div(uint32_t denom) {
@@ -208,8 +212,8 @@ struct Vec4StepT<STEP, float> : Vec4AccT {
   }
 #endif
 
-  DEVICE_INLINE void index_store(uint32_t idx, uint8_t* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, uint8_t* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void
@@ -246,9 +250,11 @@ struct Vec4StepT<STEP, float> : Vec4AccT {
   }
 #endif
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      uint8_t* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 };
 
@@ -340,8 +346,8 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
   }
 #endif
 
-  DEVICE_INLINE void index_store(uint32_t idx, uint8_t* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, uint8_t* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void
@@ -378,76 +384,86 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
   }
 #endif
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      uint8_t* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 };
 
 template <uint32_t STEP>
 struct Vec4StepT<STEP, uint8_t> : Vec4AccT {
   DEVICE_INLINE Vec4StepT() {
-    CUDA_KERNEL_ASSERT(false);
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void load(const uint8_t* ptr, const uint32_t idx) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void load(const uint8_t* /* ptr */, const uint32_t /* idx */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void sum() {
-    CUDA_KERNEL_ASSERT(false);
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void weighted_sum(
-      const float* const weights,
-      const uint32_t idx_shift,
-      const uint32_t idx_scale) {
-    CUDA_KERNEL_ASSERT(false);
+      const float* const /* weights */,
+      const uint32_t /* idx_shift */,
+      const uint32_t /* idx_scale */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_add(uint32_t idx) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_add(uint32_t /* idx */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_fma(uint32_t idx, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_fma(uint32_t /* idx */, const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, float4* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, float4* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, float2* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, float2* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, uint8_t* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, uint8_t* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, float4* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      float4* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, float2* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      float2* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      uint8_t* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
 #if USE_ROCM_OR_CUDA_SM80_PLUS
-  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, bfloat16_4* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      bfloat16_4* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 #endif
 };
@@ -455,74 +471,86 @@ struct Vec4StepT<STEP, uint8_t> : Vec4AccT {
 template <uint32_t STEP>
 struct Vec4StepT<STEP, c10::Float8_e4m3fn> : Vec4AccT {
   DEVICE_INLINE Vec4StepT() {
-    CUDA_KERNEL_ASSERT(false);
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void load(const c10::Float8_e4m3fn* ptr, const uint32_t idx) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void load(
+      const c10::Float8_e4m3fn* /* ptr */,
+      const uint32_t /* idx */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void sum() {
-    CUDA_KERNEL_ASSERT(false);
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void weighted_sum(
-      const float* const weights,
-      const uint32_t idx_shift,
-      const uint32_t idx_scale) {
-    CUDA_KERNEL_ASSERT(false);
+      const float* const /* weights */,
+      const uint32_t /* idx_shift */,
+      const uint32_t /* idx_scale */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_add(uint32_t idx) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_add(uint32_t /* idx */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_fma(uint32_t idx, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_fma(uint32_t /* idx */, const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, float4* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, float4* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, float2* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, float2* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, c10::Float8_e4m3fn* ptr) {
-    CUDA_KERNEL_ASSERT(false);
-  }
-
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, float4* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
-  }
-
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, float2* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
-  }
-
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(
+      uint32_t /* idx */,
+      c10::Float8_e4m3fn* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void index_weighted_store(
-      uint32_t idx,
-      c10::Float8_e4m3fn* ptr,
-      const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+      uint32_t /* idx */,
+      float4* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      float2* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      uint8_t* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      c10::Float8_e4m3fn* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
 #if USE_ROCM_OR_CUDA_SM80_PLUS
-  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, bfloat16_4* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      bfloat16_4* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 #endif
 };
@@ -530,74 +558,86 @@ struct Vec4StepT<STEP, c10::Float8_e4m3fn> : Vec4AccT {
 template <uint32_t STEP>
 struct Vec4StepT<STEP, c10::Float8_e4m3fnuz> : Vec4AccT {
   DEVICE_INLINE Vec4StepT() {
-    CUDA_KERNEL_ASSERT(false);
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void load(const c10::Float8_e4m3fnuz* ptr, const uint32_t idx) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void load(
+      const c10::Float8_e4m3fnuz* /* ptr */,
+      const uint32_t /* idx */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void sum() {
-    CUDA_KERNEL_ASSERT(false);
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void weighted_sum(
-      const float* const weights,
-      const uint32_t idx_shift,
-      const uint32_t idx_scale) {
-    CUDA_KERNEL_ASSERT(false);
+      const float* const /* weights */,
+      const uint32_t /* idx_shift */,
+      const uint32_t /* idx_scale */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_add(uint32_t idx) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_add(uint32_t /* idx */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_fma(uint32_t idx, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_fma(uint32_t /* idx */, const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, float4* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, float4* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, float2* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, float2* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void index_store(uint32_t idx, c10::Float8_e4m3fnuz* ptr) {
-    CUDA_KERNEL_ASSERT(false);
-  }
-
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, float4* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
-  }
-
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, float2* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
-  }
-
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, uint8_t* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(
+      uint32_t /* idx */,
+      c10::Float8_e4m3fnuz* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
   DEVICE_INLINE void index_weighted_store(
-      uint32_t idx,
-      c10::Float8_e4m3fnuz* ptr,
-      const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+      uint32_t /* idx */,
+      float4* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      float2* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      uint8_t* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
+  }
+
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      c10::Float8_e4m3fnuz* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
 #if USE_ROCM_OR_CUDA_SM80_PLUS
-  DEVICE_INLINE void index_store(uint32_t idx, bfloat16_4* ptr) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_store(uint32_t /* idx */, bfloat16_4* /* ptr */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
-  DEVICE_INLINE void
-  index_weighted_store(uint32_t idx, bfloat16_4* ptr, const float weight) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void index_weighted_store(
+      uint32_t /* idx */,
+      bfloat16_4* /* ptr */,
+      const float /* weight */) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 #endif
 };

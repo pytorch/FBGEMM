@@ -253,7 +253,7 @@ at::Tensor quantize_qkv_per_head_meta(
     at::Tensor /* varseq_seqpos */,
     std::optional<at::Tensor> /* varseq_batch */,
     std::optional<at::Tensor> /* is_precalculated_qparam */,
-    at::Tensor cache_K /* cache_K */,
+    at::Tensor /* cache_K */,
     at::Tensor /* cache_V */,
     at::Tensor /* XQ_O */,
     int64_t /* B */,
@@ -263,10 +263,10 @@ at::Tensor quantize_qkv_per_head_meta(
 }
 
 void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_meta(
-    at::Tensor cache_K,
-    at::Tensor cache_V,
-    at::Tensor qparam_K,
-    at::Tensor qparam_v) {};
+    at::Tensor /* cache_K */,
+    at::Tensor /* cache_V */,
+    at::Tensor /* qparam_K */,
+    at::Tensor /* qparam_v */){};
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("rope_qkv_varseq_prefill", rope_qkv_varseq_prefill_meta);
