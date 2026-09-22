@@ -201,7 +201,6 @@ function(fbgemm_get_warning_flags)
     ${_cc_suppressions_clang_gt17})
 
   set(_cc_suppressions_gcc
-    -Wno-error=array-bounds
     -Wno-error=maybe-uninitialized)
 
   # Host-compiler-conditional suppression set for the CXX path. The version gates
