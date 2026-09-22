@@ -187,12 +187,47 @@ def prune_configs_wgmma_compute_bound(configs, M, N, K):
     ]
 
 
+_H100_SMEM_BYTES = 228 * 1024
+
+_IO_SWEEP_BLOCK_M = (16, 32)
+
+
+def prune_configs_smem_stages(configs, M, N, K):
+    """Keep configs whose pipeline fits SMEM and can saturate.
+
+    SMEM fit (all configs): `num_stages * BLOCK_K * (BLOCK_M + BLOCK_N)`
+    FP8 bytes must fit one CTA in 228KB. Feasibility guard — every current
+    config passes; it bites only on future larger tiles/stages.
+    Saturation (IO sweep only): `num_stages <= k_tiles + 1` with
+    `k_tiles = cdiv(K, BLOCK_K)` (the +1 is the epilogue-overlapped drain
+    iteration); single-iteration pipelines keep all stages. Restricted to
+    `BLOCK_M in (16, 32)` so compute tiles (fixed stages, no sisters) are
+    never removed. K is exact (`k_key = K`; only `m_key` buckets), so no
+    bucket adjustment is needed.
+    """
+    kept = []
+    for c in configs:
+        kw = c.kwargs
+        bm = kw["BLOCK_M"]
+        bn = kw["BLOCK_N"]
+        bk = kw["BLOCK_K"]
+        if c.num_stages * bk * (bm + bn) > _H100_SMEM_BYTES:
+            continue
+        if bm in _IO_SWEEP_BLOCK_M:
+            k_tiles = triton.cdiv(K, bk)
+            if k_tiles > 1 and c.num_stages > k_tiles + 1:
+                continue
+        kept.append(c)
+    return kept
+
+
 def prune_configs_h100_static(configs, named_args, **kwargs):
     """Static H100 prune for the persistent non-TMA FP8 rowwise kernel.
 
-    Delegates to prune_configs_wgmma_compute_bound. Hopper-only (see
-    is_hopper); any other device falls through unpruned, as does the
-    all-dropped safety net (full-space fallback).
+    Delegates to prune_configs_wgmma_compute_bound and
+    prune_configs_smem_stages. Hopper-only (see is_hopper); any other
+    device falls through unpruned, as does the all-dropped safety net
+    (full-space fallback).
     """
     M = named_args["M"]
     N = named_args["N"]
@@ -203,6 +238,7 @@ def prune_configs_h100_static(configs, named_args, **kwargs):
 
     n_in = len(configs)
     kept = prune_configs_wgmma_compute_bound(configs, M, N, K)
+    kept = prune_configs_smem_stages(kept, M, N, K)
 
     if not kept:
         logger.warning(
