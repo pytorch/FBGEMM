@@ -192,8 +192,7 @@ function(fbgemm_get_warning_flags)
     -Wno-error=shorten-64-to-32)
 
   set(_cc_suppressions_clang_gt17
-    -Wno-vla-cxx-extension
-    -Wno-error=global-constructors)
+    -Wno-vla-cxx-extension)
 
   # Full clang-shaped suppression set, assembled unconditionally so it is
   # available even when the HOST compiler is GCC. Used only for the hipcc list.
