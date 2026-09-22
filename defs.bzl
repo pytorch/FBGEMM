@@ -16,7 +16,6 @@ def default_compiler_flags():
             "-Wextra",
             "-Wno-gnu-zero-variadic-macro-arguments",
             "-Wno-c99-extensions",
-            "-Wno-unused-parameter",
             "-Wimplicit-fallthrough",
             "-Wignored-qualifiers",
             "-Wno-vla",
@@ -24,8 +23,6 @@ def default_compiler_flags():
         "ovr_config//compiler:gcc": [
             "-Werror",
             "-Wextra",
-            # Match the `unused-parameter` demotion in the CMake common list.
-            "-Wno-error=unused-parameter",
             # Buck exposes Folly as non-system headers, where its intentional
             # `__int128` use triggers the `-pedantic` diagnostic.
             "-Wno-error=pedantic",
