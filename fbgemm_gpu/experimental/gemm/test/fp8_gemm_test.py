@@ -887,6 +887,48 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         kept = self._prune(1024, 1024, 6656, configs=configs)
         self.assertEqual(self._keys(kept), {(64, 64, 128)})
 
+    def test_bm_floor_drops_small_bm_at_big_m(self) -> None:
+        configs = [
+            _FakeConfig(16, 64, 64, 4, 4),
+            _FakeConfig(32, 64, 64, 4, 4),
+            _FakeConfig(64, 64, 64, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 1024, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 64)})
+
+    def test_bm_floor_keeps_small_bm_at_small_k(self) -> None:
+        configs = [
+            _FakeConfig(16, 64, 32, 4, 4),
+            _FakeConfig(32, 64, 32, 4, 4),
+            _FakeConfig(64, 64, 32, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 16, configs=configs)
+        self.assertEqual(self._keys(kept), {(16, 64, 32), (32, 64, 32), (64, 64, 32)})
+
+    def test_bn_floor_drops_32_at_big_n(self) -> None:
+        configs = [
+            _FakeConfig(64, 32, 64, 4, 4),
+            _FakeConfig(64, 64, 64, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 1024, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 64)})
+
+    def test_bn_floor_drops_64_at_huge_n(self) -> None:
+        configs = [
+            _FakeConfig(64, 64, 128, 4, 4),
+            _FakeConfig(64, 128, 128, 4, 4),
+        ]
+        kept = self._prune(512, 8192, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 128, 128)})
+
+    def test_bmn_floor_keeps_small_tiles_at_small_problem(self) -> None:
+        configs = [
+            _FakeConfig(16, 32, 32, 4, 2),
+            _FakeConfig(32, 32, 32, 4, 2),
+        ]
+        kept = self._prune(64, 256, 256, configs=configs)
+        self.assertEqual(self._keys(kept), {(16, 32, 32), (32, 32, 32)})
+
     def test_wgmma_floors_keep_minimum_tiles(self) -> None:
         configs = [
             _FakeConfig(64, 32, 32, 4, 4),
@@ -933,10 +975,10 @@ class TestPruneConfigsH100Static(unittest.TestCase):
     def test_smem_drops_infeasible_config(self) -> None:
         configs = [
             _FakeConfig(128, 256, 256, 4, 8),
-            _FakeConfig(64, 32, 128, 5, 2),
+            _FakeConfig(64, 64, 128, 5, 2),
         ]
         kept = self._prune(512, 1024, 19712, configs=configs)
-        self.assertEqual(self._keys(kept), {(64, 32, 128)})
+        self.assertEqual(self._keys(kept), {(64, 64, 128)})
 
     def test_pipeline_drops_unsaturable_stages(self) -> None:
         configs = [_FakeConfig(16, 32, 64, ns, 2) for ns in (2, 3, 4, 5, 6)]
