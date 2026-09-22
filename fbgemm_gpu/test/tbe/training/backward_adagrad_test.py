@@ -10,7 +10,9 @@
 # pyre-ignore-all-errors[56]
 
 import logging
+import multiprocessing
 import os
+import tempfile
 import time
 import unittest
 from typing import Any, Optional
@@ -54,6 +56,48 @@ test_st_cpu: dict[str, Any] = test_st.copy()
 test_st_cpu["use_cpu"] = st.just(True)
 test_st_cpu["row_wise"] = st.just(True)
 test_st_cpu["output_dtype"] = st.sampled_from([SparseType.FP32, SparseType.FP16])
+
+
+def _run_backward_adagrad_rocm_hip_fp16_parity(output_path: str) -> None:
+    E, D, B, L = 128, 128, 16, 4
+    device = torch.accelerator.current_accelerator()
+    initial_weights = torch.linspace(
+        -1.0,
+        1.0,
+        E * D,
+        dtype=torch.float16,
+        device=device,
+    ).reshape(E, D)
+    indices = torch.zeros(B * L, dtype=torch.long, device=device)
+    offsets = torch.arange(0, B * L + 1, L, dtype=torch.long, device=device)
+    grad_output = torch.linspace(
+        -0.1,
+        0.1,
+        B * D,
+        dtype=torch.float16,
+        device=device,
+    ).reshape(B, D)
+    tbe = SplitTableBatchedEmbeddingBagsCodegen(
+        embedding_specs=[(E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)],
+        weights_precision=SparseType.FP16,
+        output_dtype=SparseType.FP16,
+        optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+        learning_rate=0.5,
+        eps=0.1,
+        stochastic_rounding=False,
+    ).to(device)
+    with torch.no_grad():
+        tbe.split_embedding_weights()[0].copy_(initial_weights)
+
+    output = tbe(indices, offsets)
+    output.backward(grad_output)
+    torch.save(
+        (
+            tbe.split_embedding_weights()[0].detach().cpu(),
+            tbe.split_optimizer_states()[0][0].detach().cpu(),
+        ),
+        output_path,
+    )
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
@@ -556,6 +600,60 @@ class BackwardAdagradTest(unittest.TestCase):
                     f"different from table 0 ({m1_means[0]:.6f}) — "
                     f"likely pointer arithmetic bug (ratio={ratio:.1f})",
                 )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("Compares optimized and generic HIP backward kernels")
+    @unittest.skip("Enabled by the ROCm fix in D120393322")
+    def test_backward_adagrad_rocm_hip_fp16_matches_generic(self) -> None:
+        arch = getattr(
+            torch.cuda.get_device_properties(torch.cuda.current_device()),
+            "gcnArchName",
+            "",
+        ).split(":")[0]
+        if arch not in {"gfx90a", "gfx942", "gfx950"}:
+            self.skipTest(f"Optimized HIP backward is not dispatched on {arch}")
+
+        results: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
+        context = multiprocessing.get_context("spawn")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for name, use_optimized_kernel in (("generic", False), ("optimized", True)):
+                output_path = os.path.join(temp_dir, f"{name}.pt")
+                with updated_env(
+                    {
+                        "FBGEMM_NO_JK": "1",
+                        "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL": str(
+                            int(use_optimized_kernel)
+                        ),
+                    }
+                ):
+                    process = context.Process(
+                        target=_run_backward_adagrad_rocm_hip_fp16_parity,
+                        args=(output_path,),
+                    )
+                    process.start()
+                    process.join(timeout=240)
+                if process.is_alive():
+                    process.kill()
+                    process.join()
+                    self.fail(f"{name} subprocess timed out")
+                self.assertEqual(process.exitcode, 0)
+                results[name] = torch.load(output_path, weights_only=True)
+
+        generic_weights, generic_momentum = results["generic"]
+        optimized_weights, optimized_momentum = results["optimized"]
+
+        torch.testing.assert_close(
+            optimized_weights,
+            generic_weights,
+            rtol=1e-3,
+            atol=1e-5,
+        )
+        torch.testing.assert_close(
+            optimized_momentum,
+            generic_momentum,
+            rtol=1e-6,
+            atol=1e-7,
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     @skipIfNotRocm("Validates stochastic rounding in the optimized HIP backward kernel")
