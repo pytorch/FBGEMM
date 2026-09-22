@@ -603,7 +603,6 @@ class BackwardAdagradTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @skipIfNotRocm("Compares optimized and generic HIP backward kernels")
-    @unittest.skip("Enabled by the ROCm fix in D120393322")
     def test_backward_adagrad_rocm_hip_fp16_matches_generic(self) -> None:
         arch = getattr(
             torch.cuda.get_device_properties(torch.cuda.current_device()),
