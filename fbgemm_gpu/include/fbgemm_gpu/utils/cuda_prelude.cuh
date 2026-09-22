@@ -94,7 +94,8 @@ DEVICE_INLINE T shfl_xor(
     const T val,
     int laneMask,
     int width = kWarpSize,
-    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
+    [[maybe_unused]] unsigned shfl_sync_mask =
+        static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM)
   return __shfl_xor(val, laneMask, width);
 #else
@@ -107,7 +108,8 @@ DEVICE_INLINE T shfl_sync(
     const T val,
     int srcLane = 0,
     int width = kWarpSize,
-    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
+    [[maybe_unused]] unsigned shfl_sync_mask =
+        static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM)
   return __shfl(val, srcLane, width);
 #else
@@ -120,7 +122,8 @@ DEVICE_INLINE T shfl_down_sync(
     const T val,
     unsigned delta,
     int width = kWarpSize,
-    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
+    [[maybe_unused]] unsigned shfl_sync_mask =
+        static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM)
   return __shfl_down(val, delta, width);
 #else
@@ -134,7 +137,8 @@ DEVICE_INLINE uint64_t ballot_sync(
 DEVICE_INLINE uint32_t ballot_sync(
 #endif
     int predicate,
-    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
+    [[maybe_unused]] unsigned shfl_sync_mask =
+        static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM)
   return __ballot(predicate);
 #else
@@ -156,7 +160,8 @@ DEVICE_INLINE uint32_t ballot_sync(
 template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T warpReduceAllSum(
     T val,
-    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
+    [[maybe_unused]] unsigned shfl_sync_mask =
+        static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM) && \
     (defined(__gfx942__) || defined(__gfx90a__) || defined(__gfx950__))
   return rocm::wave_reduce<
