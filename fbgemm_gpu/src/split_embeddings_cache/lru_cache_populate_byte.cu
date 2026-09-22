@@ -271,7 +271,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
     pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
-        lxu_cache_miss_timestamp,
+        lxu_cache_miss_timestamp [[maybe_unused]],
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     const bool gather_cache_stats,
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>

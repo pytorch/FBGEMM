@@ -392,8 +392,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
 at::Tensor i8i8bf16_meta(
     at::Tensor XQ, // INT8
     at::Tensor WQ, // INT8
-    double scale,
-    int64_t split_k) {
+    [[maybe_unused]] double scale,
+    [[maybe_unused]] int64_t split_k) {
   const at::SymInt M = XQ.sym_size(0);
   const at::SymInt N = WQ.sym_size(0);
   auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
@@ -539,8 +539,8 @@ at::Tensor f8f8bf16_cublas_meta(
 at::Tensor f8f8bf16_meta(
     at::Tensor X,
     at::Tensor W,
-    at::Tensor scale,
-    bool use_fast_accum = true) {
+    [[maybe_unused]] at::Tensor scale,
+    [[maybe_unused]] bool use_fast_accum = true) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
@@ -608,7 +608,10 @@ at::Tensor f8f8bf16_tensorwise_meta(
   return Y;
 }
 
-at::Tensor f8f8bf16_lite_meta(at::Tensor X, at::Tensor W, at::Tensor scale) {
+at::Tensor f8f8bf16_lite_meta(
+    at::Tensor X,
+    at::Tensor W,
+    [[maybe_unused]] at::Tensor scale) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
@@ -773,10 +776,10 @@ std::vector<at::Tensor> quantize_fp8_per_row_meta(
 }
 
 void scaled_fp4_quant_meta(
-    at::Tensor const& output,
-    at::Tensor const& input,
-    at::Tensor const& output_sf,
-    at::Tensor const& input_sf) {
+    [[maybe_unused]] at::Tensor const& output,
+    [[maybe_unused]] at::Tensor const& input,
+    [[maybe_unused]] at::Tensor const& output_sf,
+    [[maybe_unused]] at::Tensor const& input_sf) {
   return;
 }
 
