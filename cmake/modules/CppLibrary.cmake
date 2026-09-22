@@ -179,11 +179,7 @@ function(fbgemm_get_warning_flags)
     -Wno-strict-aliasing
     -Wno-sign-compare
     -Wno-vla
-    -Wno-error=attributes
-    # Both compilers accept this line. The warning also occurs in
-    # third-party headers, and those headers need `-isystem`. Remove this line
-    # when the count is zero and the headers are system includes.
-    -Wno-error=zero-as-null-pointer-constant)
+    -Wno-error=attributes)
 
   # Clang suppressions. The clang version controls which lines apply. The
   # CXX path uses the version of the host clang. The hipcc path uses all of
