@@ -96,7 +96,7 @@ __launch_bounds__(512)
 #endif
     __global__ void one_shot_all_reduce(
         int32_t rank,
-        int32_t world_size,
+        [[maybe_unused]] int32_t world_size,
         int32_t flag,
         std::array<int32_t*, 8> barriers,
         std::array<at::BFloat16*, 8> inputs,
@@ -212,7 +212,7 @@ __launch_bounds__(512)
 #endif
     __global__ void one_shot_all_reduce_pipelined(
         int32_t rank,
-        int32_t world_size,
+        [[maybe_unused]] int32_t world_size,
         int32_t flag,
         std::array<int32_t*, 8> barriers,
         std::array<at::BFloat16*, 8> inputs,
@@ -451,7 +451,7 @@ __launch_bounds__(512) __global__ void reduce_scatter(
 __launch_bounds__(1024) __global__ void reduce_scatter(
 #endif
     int32_t rank,
-    int32_t world_size,
+    [[maybe_unused]] int32_t world_size,
     int32_t flag,
     std::array<int32_t*, 8> barriers,
     std::array<at::BFloat16*, 8> inputs,
@@ -555,7 +555,7 @@ __launch_bounds__(512) __global__ void two_shot_all_reduce(
 __launch_bounds__(1024) __global__ void two_shot_all_reduce(
 #endif
     int32_t rank,
-    int32_t world_size,
+    [[maybe_unused]] int32_t world_size,
     int32_t flag,
     std::array<int32_t*, 8> barriers,
     std::array<at::BFloat16*, 8> inputs,
@@ -669,7 +669,7 @@ __launch_bounds__(512) __global__ void two_shot_all_reduce_pipelined(
 __launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
 #endif
     int32_t rank,
-    int32_t world_size,
+    [[maybe_unused]] int32_t world_size,
     int32_t flag,
     std::array<int32_t*, 8> barriers,
     std::array<at::BFloat16*, 8> inputs,
@@ -785,7 +785,7 @@ void one_shot_car_allreduce(
     at::Tensor y_allreduce,
     at::Tensor y,
     std::optional<at::Tensor> z,
-    int64_t comm_idx,
+    [[maybe_unused]] int64_t comm_idx,
     bool enable_pipelining) { // match the API with nccl_allreduce in
                               // https://fburl.com/code/v538vig9
   c10::cuda::CUDAGuard gg(y_allreduce.device());
@@ -897,7 +897,7 @@ void two_shot_car_allreduce(
     at::Tensor y_allreduce,
     at::Tensor y,
     std::optional<at::Tensor> z,
-    int64_t comm_idx,
+    [[maybe_unused]] int64_t comm_idx,
     bool enable_pipelining) { // match the API with nccl_allreduce in
                               // https://fburl.com/code/v538vig9
   c10::cuda::CUDAGuard gg(y_allreduce.device());
@@ -1000,8 +1000,8 @@ void car_reducescatter(
     at::Tensor dst,
     at::Tensor src,
     bool split_last_dim,
-    int64_t comm_idx) { // match the API with nccl_allreduce in
-                        // https://fburl.com/code/v538vig9
+    [[maybe_unused]] int64_t comm_idx) { // match the API with nccl_allreduce in
+  // https://fburl.com/code/v538vig9
   auto state = get_car_state();
   c10::cuda::CUDAGuard gg(dst.device());
   TORCH_CHECK(dst.is_contiguous());
