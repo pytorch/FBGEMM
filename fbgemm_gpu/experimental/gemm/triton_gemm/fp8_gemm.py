@@ -253,13 +253,39 @@ def prune_configs_bk_floor(configs, M, N, K):
     return [c for c in configs if c.kwargs["BLOCK_K"] >= min_bk]
 
 
+_BMN_FLOOR_M = 512
+_BMN_FLOOR_K = 1024
+_BMN_FLOOR_N = 1024
+_BMN_FLOOR_N_LARGE = 8192
+_BMN_FLOOR_K_LARGE = 2048
+_BM_FLOOR = 64
+_BN_FLOOR = 64
+_BN_FLOOR_LARGE = 128
+
+
+def prune_configs_bmn_floor(configs, M, N, K):
+    min_bm = _BM_FLOOR if (M >= _BMN_FLOOR_M and K >= _BMN_FLOOR_K) else MINIMUM_BLOCK_M
+    if N >= _BMN_FLOOR_N_LARGE and K >= _BMN_FLOOR_K_LARGE:
+        min_bn = _BN_FLOOR_LARGE
+    elif N >= _BMN_FLOOR_N and M >= _BMN_FLOOR_M and K >= _BMN_FLOOR_K:
+        min_bn = _BN_FLOOR
+    else:
+        min_bn = WGMMA_N_MINIMUM
+    return [
+        c
+        for c in configs
+        if c.kwargs["BLOCK_M"] >= min_bm and c.kwargs["BLOCK_N"] >= min_bn
+    ]
+
+
 def prune_configs_h100_static(configs, named_args, **kwargs):
     """Static H100 prune for the persistent non-TMA FP8 rowwise kernel.
 
     Delegates to prune_configs_wgmma_compute_bound,
-    prune_configs_smem_stages, and prune_configs_bk_floor. Hopper-only
-    (see is_hopper); any other device falls through unpruned, as does
-    the all-dropped safety net (full-space fallback).
+    prune_configs_smem_stages, prune_configs_bk_floor, and
+    prune_configs_bmn_floor. Hopper-only (see is_hopper); any other
+    device falls through unpruned, as does the all-dropped safety net
+    (full-space fallback).
     """
     M = named_args["M"]
     N = named_args["N"]
@@ -272,6 +298,7 @@ def prune_configs_h100_static(configs, named_args, **kwargs):
     kept = prune_configs_wgmma_compute_bound(configs, M, N, K)
     kept = prune_configs_smem_stages(kept, M, N, K)
     kept = prune_configs_bk_floor(kept, M, N, K)
+    kept = prune_configs_bmn_floor(kept, M, N, K)
 
     if not kept:
         logger.warning(
