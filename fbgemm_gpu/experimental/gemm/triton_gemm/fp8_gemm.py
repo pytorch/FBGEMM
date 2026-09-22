@@ -278,14 +278,27 @@ def prune_configs_bmn_floor(configs, M, N, K):
     ]
 
 
+_H100_REGS_PER_THREAD = 255
+_THREADS_PER_WARP = 32
+
+
+def prune_configs_register_cap(configs, M, N, K):
+    return [
+        c
+        for c in configs
+        if c.kwargs["BLOCK_M"] * c.kwargs["BLOCK_N"]
+        <= _H100_REGS_PER_THREAD * c.num_warps * _THREADS_PER_WARP
+    ]
+
+
 def prune_configs_h100_static(configs, named_args, **kwargs):
     """Static H100 prune for the persistent non-TMA FP8 rowwise kernel.
 
     Delegates to prune_configs_wgmma_compute_bound,
-    prune_configs_smem_stages, prune_configs_bk_floor, and
-    prune_configs_bmn_floor. Hopper-only (see is_hopper); any other
-    device falls through unpruned, as does the all-dropped safety net
-    (full-space fallback).
+    prune_configs_smem_stages, prune_configs_bk_floor,
+    prune_configs_bmn_floor, and prune_configs_register_cap.
+    Hopper-only (see is_hopper); any other device falls through
+    unpruned, as does the all-dropped safety net (full-space fallback).
     """
     M = named_args["M"]
     N = named_args["N"]
@@ -299,6 +312,7 @@ def prune_configs_h100_static(configs, named_args, **kwargs):
     kept = prune_configs_smem_stages(kept, M, N, K)
     kept = prune_configs_bk_floor(kept, M, N, K)
     kept = prune_configs_bmn_floor(kept, M, N, K)
+    kept = prune_configs_register_cap(kept, M, N, K)
 
     if not kept:
         logger.warning(
