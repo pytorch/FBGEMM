@@ -929,6 +929,22 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         kept = self._prune(64, 256, 256, configs=configs)
         self.assertEqual(self._keys(kept), {(16, 32, 32), (32, 32, 32)})
 
+    def test_register_cap_drops_spiller(self) -> None:
+        configs = [
+            _FakeConfig(256, 256, 64, 4, 4),
+            _FakeConfig(128, 256, 128, 3, 8),
+        ]
+        kept = self._prune(8192, 8192, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(128, 256, 128)})
+
+    def test_register_cap_boundary(self) -> None:
+        configs = [
+            _FakeConfig(255, 128, 64, 4, 4),
+            _FakeConfig(256, 128, 64, 4, 4),
+        ]
+        kept = self._prune(8192, 8192, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(255, 128, 64)})
+
     def test_wgmma_floors_keep_minimum_tiles(self) -> None:
         configs = [
             _FakeConfig(64, 32, 32, 4, 4),
@@ -960,7 +976,7 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         kept = self._prune(8192, 1024, 256)
         keys = self._keys(kept)
         self.assertIn((256, 128, 32), keys)
-        self.assertIn((256, 256, 32), keys)
+        self.assertNotIn((256, 256, 32), keys)
 
     def test_stages_kept_when_pipeline_saturates(self) -> None:
         for m in (1, 8192):
