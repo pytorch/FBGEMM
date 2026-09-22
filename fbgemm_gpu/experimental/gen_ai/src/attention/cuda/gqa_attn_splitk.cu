@@ -119,17 +119,20 @@ template <
     CacheLogicalDtype KVDataType>
 __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
     gqa_attn_splitk_wmma_kernel(
-        const pta::
+        [[maybe_unused]] const pta::
             PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> XQ,
-        const pta::PackedTensorAccessor64<kv_t, 4, at::RestrictPtrTraits>
-            cache_K,
-        const pta::PackedTensorAccessor64<kv_t, 4, at::RestrictPtrTraits>
-            cache_V,
-        pta::PackedTensorAccessor32<float, 4, at::RestrictPtrTraits> out_splitK,
-        const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-            seq_positions,
-        pta::PackedTensorAccessor32<float, 4, at::RestrictPtrTraits> metadata,
-        float qk_scale) {
+        [[maybe_unused]] const pta::
+            PackedTensorAccessor64<kv_t, 4, at::RestrictPtrTraits> cache_K,
+        [[maybe_unused]] const pta::
+            PackedTensorAccessor64<kv_t, 4, at::RestrictPtrTraits> cache_V,
+        [[maybe_unused]] pta::
+            PackedTensorAccessor32<float, 4, at::RestrictPtrTraits> out_splitK,
+        [[maybe_unused]] const pta::
+            PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+                seq_positions,
+        [[maybe_unused]] pta::
+            PackedTensorAccessor32<float, 4, at::RestrictPtrTraits> metadata,
+        [[maybe_unused]] float qk_scale) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
   // Need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
