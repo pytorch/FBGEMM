@@ -285,7 +285,7 @@ __global__ void set_kernel_args_m_sizes_kernel(
     BDataType* B,
     CDataType* output,
     int64_t* M_sizes,
-    int64_t M,
+    [[maybe_unused]] int64_t M,
     int64_t N,
     int64_t K,
     int64_t group_count) {
@@ -520,8 +520,8 @@ at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor X,
     at::Tensor W,
     at::Tensor M_sizes,
-    std::optional<at::Tensor> out,
-    std::optional<int64_t> num_sms) {
+    [[maybe_unused]] std::optional<at::Tensor> out,
+    [[maybe_unused]] std::optional<int64_t> num_sms) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int64_t group_count = M_sizes.size(0);
