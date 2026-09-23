@@ -232,7 +232,17 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     int32_t b;
     int32_t t;
 
-    fd.DivMod(invalid_b_t, &t, &b);
+    // Must decode the same way the loop above did. fd is built from the
+    // non-VBE B, so using it under vbe yields a t/b pair that indexes
+    // rows_per_table[t] and B_offsets[t] out of range.
+    if constexpr (vbe) {
+      const auto info =
+          *reinterpret_cast<const uint32_t*>(&b_t_map[invalid_b_t]);
+      *reinterpret_cast<uint32_t*>(&t) = info >> info_B_num_bits;
+      *reinterpret_cast<uint32_t*>(&b) = info & info_B_mask;
+    } else {
+      fd.DivMod(invalid_b_t, &t, &b);
+    }
 
     int32_t B = vbe ? (B_offsets[t + 1] - B_offsets[t]) : (total_B / T);
 
@@ -292,7 +302,9 @@ void _bounds_check_indices_cuda_v2(
   auto num_threads = kNumThreads;
   auto thread_group_size = fbgemm_gpu::kWarpSizeHost();
 #ifdef USE_ROCM
-  if (vbe && bounds_check_mode == BoundsCheckMode::IGNORE) {
+  if (vbe &&
+      (bounds_check_mode == BoundsCheckMode::WARNING ||
+       bounds_check_mode == BoundsCheckMode::IGNORE)) {
     // Average pooling factor. Integer division, so sparse batches
     // (numel < total_B) and empty ones yield 0 and take the narrowest group.
     const auto average_L = total_B > 0 ? indices.numel() / total_B : 0;
@@ -306,9 +318,13 @@ void _bounds_check_indices_cuda_v2(
       // 1024-thread block does. Chosen in the same MI350 sweep as the widths.
       num_threads = prefetch_pipeline ? kNumThreads : 256;
       // No wave-level collectives are used, so one AMD wave can process
-      // multiple bags. Narrow groups waste fewer lanes on the ragged tail of
-      // each bag; wide groups supply more resident threads. These widths were
-      // picked by sweeping group size against pooling factor on MI350.
+      // multiple bags. That holds for WARNING too: its post-loop work is a
+      // lone gpuAtomicIncrement, and the kernel's block-wide reduction is
+      // compile-time dead in that specialization, so nothing there is tied to
+      // the logical group width. Narrow groups waste fewer lanes on the ragged
+      // tail of each bag; wide groups supply more resident threads. These
+      // widths were picked by sweeping group size against pooling factor on
+      // MI350.
       if (average_L <= 4) {
         thread_group_size = 1;
       } else if (average_L <= 8) {
