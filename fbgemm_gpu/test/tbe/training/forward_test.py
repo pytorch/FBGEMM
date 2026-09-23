@@ -36,7 +36,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, settings, Verbosity
+from hypothesis import assume, example, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -72,6 +72,11 @@ else:
     )
 
 VERBOSITY: Verbosity = Verbosity.verbose
+
+# NOTE: execute_forward_ multiplies D by 4 on GPU
+FP16_NO_CACHE_SMALL_DS: list[int] = list(range(2, 257, 16))
+# Embedding dims 1024-2048 (the max supported), for the TBE v2 path
+FP16_NO_CACHE_LARGE_DS: list[int] = [256, 320, 384, 512]
 
 
 # pyre-ignore
@@ -591,14 +596,13 @@ class ForwardTest(unittest.TestCase):
         T: int,
         B: int,
         L: int,
+        D: int,
         use_experimental_tbe: bool,
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
-        # Include large D values to exercise the TBE v2 kernel path (D > 1024)
-        D = random.choice(list(range(2, 257, 16)) + [1024, 1280, 1536, 2048])
         # Scale down T, B, L for large D to avoid OOM
-        if D > 256:
+        if D >= 256:
             T = min(T, 2)
             B = min(B, 16)
             L = min(L, 4)
@@ -647,8 +651,18 @@ class ForwardTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_experimental_tbe=st.booleans(),
+        D=st.sampled_from(FP16_NO_CACHE_SMALL_DS + FP16_NO_CACHE_LARGE_DS),
     )
+    # Always run the large D values
+    @example(use_experimental_tbe=True, D=256)
+    @example(use_experimental_tbe=False, D=256)
+    @example(use_experimental_tbe=True, D=320)
+    @example(use_experimental_tbe=False, D=320)
+    @example(use_experimental_tbe=True, D=384)
+    @example(use_experimental_tbe=False, D=384)
+    @example(use_experimental_tbe=True, D=512)
+    @example(use_experimental_tbe=False, D=512)
     @settings(
         verbosity=VERBOSITY,
         max_examples=MAX_EXAMPLES_LONG_RUNNING,
@@ -657,17 +671,21 @@ class ForwardTest(unittest.TestCase):
     def test_forward_gpu_no_cache_fp16(
         self,
         use_experimental_tbe: bool,
+        D: int,
     ) -> None:
         return self._test_forward_gpu_no_cache_fp16_impl(
             random.randint(1, 10),
             random.randint(1, 128),
             random.randint(0, 20),
+            D,
             use_experimental_tbe,
         )
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_experimental_tbe=st.booleans(),
+        # Large D would cap B and defeat the large grid
+        D=st.sampled_from(FP16_NO_CACHE_SMALL_DS),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -677,6 +695,7 @@ class ForwardTest(unittest.TestCase):
     def test_forward_gpu_no_cache_fp16_large(
         self,
         use_experimental_tbe: bool,
+        D: int,
     ) -> None:
         torch.cuda.empty_cache()
 
@@ -701,6 +720,7 @@ class ForwardTest(unittest.TestCase):
             T,
             B,
             L,
+            D,
             use_experimental_tbe,
         )
 
@@ -829,6 +849,91 @@ class ForwardTest(unittest.TestCase):
                 f"This suggests D94944619 fix is not applied correctly. "
                 f"Error: {e}"
             )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_forward_gpu_v2_kernel_mixed_cache_precision_tail_warp(
+        self,
+    ) -> None:
+        """
+        Test the V2 forward kernel on the large-L tail-warp path with a UVM
+        cache whose precision differs from the weights. STEP_MASK must match
+        kWarpSize, otherwise rows are read with the wrong type.
+        """
+        E = 1000
+        B = 64
+        # L > 8 selects the large-L path
+        L = 32
+        device = torch.cuda.current_device()
+        warp_size = torch.cuda.get_device_properties(device).warp_size
+
+        # Tail warps with load groups of 8 or 16 lanes, plus full-warp controls
+        Ds = [
+            4,
+            32,
+            48,
+            64,
+            4 * (warp_size + 16),
+            4 * warp_size,
+            4 * 4 * warp_size,
+        ]
+        cases = [
+            (D, weights_precision, cache_precision, True)
+            for D in Ds
+            for (weights_precision, cache_precision) in [
+                (SparseType.FP16, SparseType.FP32),
+                (SparseType.FP32, SparseType.FP16),
+            ]
+        ]
+        # max_D > 1024 uses the V2 kernel even if use_experimental_tbe=False
+        cases.append((1088, SparseType.FP16, SparseType.FP32, False))
+
+        for D, weights_precision, cache_precision, use_experimental_tbe in cases:
+            with self.subTest(
+                D=D,
+                weights_precision=weights_precision,
+                cache_precision=cache_precision,
+                use_experimental_tbe=use_experimental_tbe,
+            ):
+                torch.manual_seed(0)
+                cc = SplitTableBatchedEmbeddingBagsCodegen(
+                    [
+                        (
+                            E,
+                            D,
+                            EmbeddingLocation.MANAGED_CACHING,
+                            ComputeDevice.CUDA,
+                        )
+                    ],
+                    weights_precision=weights_precision,
+                    cache_precision=cache_precision,
+                    cache_algorithm=CacheAlgorithm.LRU,
+                    # Small cache for partial hits
+                    cache_load_factor=0.2,
+                    pooling_mode=PoolingMode.SUM,
+                    output_dtype=SparseType.FP32,
+                    use_experimental_tbe=use_experimental_tbe,
+                )
+                cc.init_embedding_weights_uniform(-1.0, 1.0)
+                weights = cc.split_embedding_weights()[0].float().to(device)
+
+                indices = torch.randint(
+                    low=0, high=E, size=(B * L,), device=device, dtype=torch.int64
+                )
+                offsets = torch.arange(
+                    0, B * L + 1, L, device=device, dtype=torch.int64
+                )
+                output = cc(indices, offsets)
+
+                # Mixed-precision lookup needs both cache hits and misses
+                hit_rate = (cc.lxu_cache_locations != -1).float().mean().item()
+                self.assertGreater(hit_rate, 0.0)
+                self.assertLess(hit_rate, 1.0)
+
+                output_ref = torch.nn.functional.embedding_bag(
+                    indices, weights, offsets[:-1], mode="sum"
+                )
+                # Covers FP16 rounding of cached FP32 rows
+                torch.testing.assert_close(output, output_ref, atol=1.0e-2, rtol=1.0e-2)
 
     @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
     @unittest.skipIf(*gpu_unavailable)
