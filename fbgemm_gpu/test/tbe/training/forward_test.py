@@ -74,9 +74,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 # NOTE: execute_forward_ multiplies D by 4 on GPU
-FP16_NO_CACHE_SMALL_DS: list[int] = list(range(2, 257, 16))
-# Embedding dims 1024-2048 (the max supported), for the TBE v2 path
-FP16_NO_CACHE_LARGE_DS: list[int] = [256, 320, 384, 512]
+FP16_NO_CACHE_DS: list[int] = list(range(2, 257, 16))
 
 
 # pyre-ignore
@@ -652,9 +650,9 @@ class ForwardTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         use_experimental_tbe=st.booleans(),
-        D=st.sampled_from(FP16_NO_CACHE_SMALL_DS + FP16_NO_CACHE_LARGE_DS),
+        D=st.sampled_from(FP16_NO_CACHE_DS),
     )
-    # Always run the large D values
+    # Embedding dims 1024-2048 (the max supported), for the TBE v2 path
     @example(use_experimental_tbe=True, D=256)
     @example(use_experimental_tbe=False, D=256)
     @example(use_experimental_tbe=True, D=320)
@@ -685,7 +683,7 @@ class ForwardTest(unittest.TestCase):
     @given(
         use_experimental_tbe=st.booleans(),
         # Large D would cap B and defeat the large grid
-        D=st.sampled_from(FP16_NO_CACHE_SMALL_DS),
+        D=st.sampled_from(FP16_NO_CACHE_DS),
     )
     @settings(
         verbosity=VERBOSITY,
