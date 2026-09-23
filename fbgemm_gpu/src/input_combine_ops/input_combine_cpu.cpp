@@ -18,6 +18,9 @@
 #include <c10/util/irange.h>
 #include <torch/script.h>
 
+#include <limits>
+#include <utility>
+
 #include "fbgemm_gpu/input_combine.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
@@ -61,19 +64,19 @@ void _cat_int_tensors_out(
                                                                : numel;
       }
       size_t j = 0;
-      for (; j < numel; j++) {
+      for (; std::cmp_less(j, numel); j++) {
         combined_tensors_data_ptr[idx++] =
             static_cast<int32_t>(indices_data_ptr[j]);
       }
-      for (; j < tensor.numel(); j++) {
+      for (; std::cmp_less(j, tensor.numel()); j++) {
         paddings.push_back(indices_data_ptr[j]);
       }
     });
   }
 
   // Pad the original paddings in the end
-  int i = 0;
-  while (idx < total_num) {
+  size_t i = 0;
+  while (std::cmp_less(idx, total_num)) {
     if (i < paddings.size()) [[likely]] {
       combined_tensors_data_ptr[idx++] = paddings[i++];
     } else {
@@ -202,6 +205,16 @@ Tensor _cat_per_sample_weights_list(
   return combined_weights;
 }
 
+static int32_t _checked_cast_to_int32(int64_t value) {
+  TORCH_CHECK(
+      value >= static_cast<int64_t>(std::numeric_limits<int32_t>::min()) &&
+          value <= static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
+      "tbe_input_combine: combined offset (",
+      value,
+      ") is outside the int32 range");
+  return static_cast<int32_t>(value);
+}
+
 std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& offsets_list,
@@ -269,6 +282,13 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
     }
   }
 
+  TORCH_CHECK(
+      total_indices <=
+          static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
+      "tbe_input_combine: total indices (",
+      total_indices,
+      ") exceed the int32 offset range");
+
   auto combined_indices = _cat_int_tensors(
       indices_list,
       total_indices,
@@ -284,7 +304,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
           .pinned_memory(pin_memory));
 
   auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
-  int32_t offset = 0;
+  int64_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -299,15 +319,16 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
                j < size;
                j++) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_data_ptr[j]);
+                _checked_cast_to_int32(offset + offsets_data_ptr[j]);
           }
 
           if (to_trim_padding) {
-            offset += static_cast<int32_t>(offsets_list[i][-1].item().toInt());
+            offset += offsets_list[i][-1].item().toLong();
           } else {
-            offset += static_cast<int32_t>(indices_list[i].numel());
+            offset += indices_list[i].numel();
           }
-          combined_offsets_data_ptr[offsets_acc_idx++] = offset;
+          combined_offsets_data_ptr[offsets_acc_idx++] =
+              _checked_cast_to_int32(offset);
         });
   }
 
@@ -440,9 +461,20 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
   TORCH_CHECK(
       static_cast<uint64_t>(include_last_offsets.numel()) ==
       indices_list.size());
+  TORCH_CHECK(
+      batch_size >= 0,
+      "padding_fused_tbe_input_combine: batch_size must be nonnegative");
+  TORCH_CHECK(
+      indices_list.size() <=
+          static_cast<size_t>(std::numeric_limits<int64_t>::max()),
+      "padding_fused_tbe_input_combine: table count exceeds int64 range");
+  const auto num_tables = static_cast<int64_t>(indices_list.size());
+  TORCH_CHECK(
+      batch_size <= (std::numeric_limits<int64_t>::max() - 1) / num_tables,
+      "padding_fused_tbe_input_combine: output size overflows int64");
   auto include_last_offsets_acc = include_last_offsets.accessor<bool, 1>();
   int64_t total_indices = 0;
-  int64_t total_offsets = 1 + batch_size * indices_list.size();
+  const int64_t total_offsets = 1 + batch_size * num_tables;
   bool need_weights = false;
   bool pin_memory = false;
 
@@ -457,6 +489,16 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
     TORCH_CHECK_EQ(offsets_list[i].ndimension(), 1);
     TORCH_CHECK(indices_list[i].is_contiguous());
     TORCH_CHECK(offsets_list[i].is_contiguous());
+    const int64_t offsets_size =
+        offsets_list[i].numel() - (include_last_offsets_acc[i] ? 1 : 0);
+    TORCH_CHECK(
+        offsets_size >= 0 && offsets_size <= batch_size + 1,
+        "padding_fused_tbe_input_combine expects each table's effective "
+        "offsets count to be in [0, batch_size + 1], but got ",
+        offsets_size,
+        " (batch_size = ",
+        batch_size,
+        ")");
     total_indices += indices_list[i].numel();
 
     if (per_sample_weights[i].numel() > 0) {
@@ -466,6 +508,13 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
       need_weights = true;
     }
   }
+
+  TORCH_CHECK(
+      total_indices <=
+          static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
+      "padding_fused_tbe_input_combine: total indices (",
+      total_indices,
+      ") exceed the int32 offset range");
 
   auto combined_indices =
       _cat_int_tensors(indices_list, total_indices, pin_memory);
@@ -478,7 +527,7 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
           .pinned_memory(pin_memory));
 
   auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
-  int32_t offset = 0;
+  int64_t offset = 0;
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
@@ -491,11 +540,14 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
               offsets_list[i].numel() - (include_last_offsets_acc[i] ? 1 : 0);
           for (const auto j : c10::irange(1, offsets_size)) {
             combined_offsets_data_ptr[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_data_ptr[j]);
+                _checked_cast_to_int32(offset + offsets_data_ptr[j]);
           }
-          offset += static_cast<int32_t>(indices_list[i].numel());
-          for (int64_t j = offsets_size; j <= batch_size; j++) {
-            combined_offsets_data_ptr[offsets_acc_idx++] = offset;
+          offset += indices_list[i].numel();
+          for (int64_t j = offsets_size == 0 ? 1 : offsets_size;
+               j <= batch_size;
+               j++) {
+            combined_offsets_data_ptr[offsets_acc_idx++] =
+                _checked_cast_to_int32(offset);
           }
         });
   }
