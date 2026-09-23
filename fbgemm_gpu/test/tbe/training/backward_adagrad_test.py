@@ -45,7 +45,6 @@ from .backward_adagrad_common import (
     optests,
     PoolingMode,
     skipIfNotRocm,
-    skipIfRocm,
     SparseType,
     st,
 )
@@ -174,11 +173,6 @@ class BackwardAdagradTest(unittest.TestCase):
             **kwargs,
         )
 
-    @skipIfRocm(
-        "Known intermittent failure on the MI350 runner: the forward check "
-        "derives its tolerance from weights_precision alone, so fp32 weights "
-        "impose an fp32 tolerance on a bf16 output"
-    )
     @given(
         mixed_B=st.booleans(),
         compile=st.booleans(),
@@ -234,11 +228,6 @@ class BackwardAdagradTest(unittest.TestCase):
             **kwargs,
         )
 
-    @skipIfRocm(
-        "Known intermittent failure on the MI350 runner: the forward check "
-        "derives its tolerance from weights_precision alone, so fp32 weights "
-        "impose an fp32 tolerance on a bf16 output"
-    )
     @given(
         mixed_B=st.booleans(),
         compile=st.booleans(),
@@ -256,11 +245,6 @@ class BackwardAdagradTest(unittest.TestCase):
             **kwargs,
         )
 
-    @skipIfRocm(
-        "Known intermittent failure on the MI350 runner: the forward check "
-        "derives its tolerance from weights_precision alone, so fp32 weights "
-        "impose an fp32 tolerance on a bf16 output"
-    )
     @unittest.skipIf(*gpu_unavailable)
     @given(
         compile=st.booleans(),
@@ -432,11 +416,6 @@ class BackwardAdagradTest(unittest.TestCase):
     )
     @settings(**common_settings)
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skip(
-        "Known failure on the MI350 runner: forward output of the fallback "
-        "kernel does not match the reference for fp32 weights with a bf16 "
-        "output, and reproduces in roughly half of runs"
-    )
     @skipIfNotRocm("Test evaluates fallback kernel on ROCm")
     def test_backward_adagrad_rocm_fallback_kernel(
         self,
