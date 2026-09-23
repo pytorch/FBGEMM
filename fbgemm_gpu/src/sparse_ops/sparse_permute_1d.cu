@@ -412,7 +412,7 @@ permute_1D_sparse_data_cuda(
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
-  Tensor permuted_weights;
+  std::optional<Tensor> permuted_weights;
   TORCH_CHECK(
       permuted_lengths_size >= 0 &&
           permuted_lengths_size <= std::numeric_limits<int32_t>::max(),
@@ -607,7 +607,7 @@ permute_1D_sparse_data_cuda(
                                 input_offsets.data_ptr<offsets_t>(),
                                 output_offsets.data_ptr<offsets_t>(),
                                 permuted_indices.data_ptr<indices_t>(),
-                                permuted_weights.data_ptr<weights_t>(),
+                                permuted_weights->data_ptr<weights_t>(),
                                 weights_columns);
                           }); // for each weights_t
                     } else {
