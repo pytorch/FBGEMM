@@ -275,10 +275,10 @@ def execute_backward_adagrad(  # noqa C901
         else tbe_op.optimizer
     )
 
-    cc = (
-        tbe_op
-        if tbe_op  # pyrefly: ignore [not-callable]
-        else emb_op(
+    def create_embedding_op(
+        requested_output_dtype: SparseType,
+    ) -> SplitTableBatchedEmbeddingBagsCodegen:
+        return emb_op(
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
             ],
@@ -290,8 +290,24 @@ def execute_backward_adagrad(  # noqa C901
             weights_precision=weights_precision,
             stochastic_rounding=stochastic_rounding,
             pooling_mode=pooling_mode,
-            output_dtype=output_dtype,
+            output_dtype=requested_output_dtype,
         )
+
+    cc = (
+        tbe_op
+        if tbe_op  # pyrefly: ignore [not-callable]
+        else create_embedding_op(output_dtype)
+    )
+    validate_rocm_bf16_output = (
+        TEST_WITH_ROCM
+        and tbe_op is None
+        and not use_cpu
+        and weighted
+        and weights_precision == SparseType.FP32
+        and output_dtype == SparseType.BF16
+    )
+    fp32_output_cc = (
+        create_embedding_op(SparseType.FP32) if validate_rocm_bf16_output else None
     )
     # TODO: make it compile for CPU and unweighted
     if compile and not use_cpu and weighted:
@@ -306,6 +322,8 @@ def execute_backward_adagrad(  # noqa C901
             b_weight = bs[t].weight
         # pyre-ignore[16]: Anonymous callable has no attribute `split_embedding_weights`.
         cc.split_embedding_weights()[t].data.copy_(b_weight)
+        if fp32_output_cc is not None:
+            fp32_output_cc.split_embedding_weights()[t].data.copy_(b_weight)
 
     num_features = len(feature_table_map)
     # Match nn.Embedding to features: build bs_features directly from feature_table_map
@@ -359,6 +377,8 @@ def execute_backward_adagrad(  # noqa C901
         ]
     )
 
+    fp32_reference_outputs = fs
+
     # Cast output type to output_dtype
     if weights_precision != output_dtype:
         fs = [f.to(output_dtype.as_dtype()) for f in fs]
@@ -375,20 +395,24 @@ def execute_backward_adagrad(  # noqa C901
 
     batch_size_per_feature_per_rank = Bs_rank_feature if mixed_B else None
 
-    fc2 = (
-        cc(
-            indices,
-            offsets,
-            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+    def run_tbe(module: Any) -> torch.Tensor:
+        return (
+            module(
+                indices,
+                offsets,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
+            if not weighted
+            else module(
+                indices,
+                offsets,
+                to_device(xw.contiguous().view(-1), use_cpu),
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
         )
-        if not weighted
-        else cc(
-            indices,
-            offsets,
-            to_device(xw.contiguous().view(-1), use_cpu),
-            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
-        )
-    )
+
+    fc2 = run_tbe(cc)
+    fp32_tbe_output = run_tbe(fp32_output_cc) if fp32_output_cc is not None else None
 
     fp32_io = weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
     # FBGEMM uses fused FP32 multiply-add on ROCm, while the EmbeddingBag
@@ -407,23 +431,47 @@ def execute_backward_adagrad(  # noqa C901
 
     if mixed_B:
         ref_output = format_ref_tensors_in_mixed_B_layout(fs, Bs_rank_feature)
+        fp32_ref_output = format_ref_tensors_in_mixed_B_layout(
+            fp32_reference_outputs, Bs_rank_feature
+        )
     else:
         ref_output = torch.cat(fs, dim=1) if do_pooling else torch.cat(fs, dim=0)
+        fp32_ref_output = (
+            torch.cat(fp32_reference_outputs, dim=1)
+            if do_pooling
+            else torch.cat(fp32_reference_outputs, dim=0)
+        )
     assert (
         ref_output.shape == fc2.shape
     ), f"VBE={mixed_B} ref_output shape {ref_output.shape} != TBE output shape {fc2.shape}"
 
-    torch.testing.assert_close(
-        fc2,
-        ref_output,
-        atol=tolerance,
-        rtol=(
-            1.0e-2
-            if weights_precision != SparseType.FP32 or rocm_fp32_bf16_output
-            else 1.0e-4
-        ),
-        msg=f"Forward output mismatch: VBE={mixed_B} pooling_mode={pooling_mode}, weight_precision={weights_precision} output_dtype={output_dtype} output_shape={fc2.shape}",
-    )
+    if fp32_tbe_output is not None:
+        torch.testing.assert_close(
+            fp32_tbe_output,
+            fp32_ref_output,
+            atol=1.0e-4,
+            rtol=1.0e-4,
+            msg=f"FP32 forward output mismatch: VBE={mixed_B} pooling_mode={pooling_mode}, weight_precision={weights_precision} output_shape={fp32_tbe_output.shape}",
+        )
+        torch.testing.assert_close(
+            fc2,
+            fp32_tbe_output.to(output_dtype.as_dtype()),
+            atol=0,
+            rtol=0,
+            msg=f"BF16 conversion mismatch: VBE={mixed_B} pooling_mode={pooling_mode}, weight_precision={weights_precision} output_shape={fc2.shape}",
+        )
+    else:
+        torch.testing.assert_close(
+            fc2,
+            ref_output,
+            atol=tolerance,
+            rtol=(
+                1.0e-2
+                if weights_precision != SparseType.FP32 or rocm_fp32_bf16_output
+                else 1.0e-4
+            ),
+            msg=f"Forward output mismatch: VBE={mixed_B} pooling_mode={pooling_mode}, weight_precision={weights_precision} output_dtype={output_dtype} output_shape={fc2.shape}",
+        )
     if do_pooling:
         if mixed_B:
             goc = format_ref_tensors_in_mixed_B_layout(gos, Bs_rank_feature)

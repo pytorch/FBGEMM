@@ -847,7 +847,7 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertTrue(bms <= {16, 32, 64})
 
     def test_small_n_drops_large_block_n(self) -> None:
-        kept = self._prune(512, 32, 1024)
+        kept = self._prune(512, 32, 256)
         keys = self._keys(kept)
         self.assertIn((64, 32, 32), keys)
         self.assertNotIn((128, 256, 32), keys)
@@ -862,6 +862,88 @@ class TestPruneConfigsH100Static(unittest.TestCase):
     def test_large_k_keeps_large_block_k(self) -> None:
         kept = self._prune(512, 1024, 19712)
         self.assertIn((64, 128, 256), self._keys(kept))
+
+    def test_bk_floor_keeps_32_below_threshold(self) -> None:
+        configs = [
+            _FakeConfig(64, 64, 32, 4, 4),
+            _FakeConfig(64, 64, 64, 4, 4),
+        ]
+        kept = self._prune(1024, 1024, 256, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 32), (64, 64, 64)})
+
+    def test_bk_floor_drops_32_at_large_k(self) -> None:
+        configs = [
+            _FakeConfig(64, 64, 32, 4, 4),
+            _FakeConfig(64, 64, 64, 4, 4),
+        ]
+        kept = self._prune(1024, 1024, 1024, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 64)})
+
+    def test_bk_floor_drops_64_at_huge_k(self) -> None:
+        configs = [
+            _FakeConfig(64, 64, 64, 4, 4),
+            _FakeConfig(64, 64, 128, 4, 4),
+        ]
+        kept = self._prune(1024, 1024, 6656, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 128)})
+
+    def test_bm_floor_drops_small_bm_at_big_m(self) -> None:
+        configs = [
+            _FakeConfig(16, 64, 64, 4, 4),
+            _FakeConfig(32, 64, 64, 4, 4),
+            _FakeConfig(64, 64, 64, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 1024, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 64)})
+
+    def test_bm_floor_keeps_small_bm_at_small_k(self) -> None:
+        configs = [
+            _FakeConfig(16, 64, 32, 4, 4),
+            _FakeConfig(32, 64, 32, 4, 4),
+            _FakeConfig(64, 64, 32, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 16, configs=configs)
+        self.assertEqual(self._keys(kept), {(16, 64, 32), (32, 64, 32), (64, 64, 32)})
+
+    def test_bn_floor_drops_32_at_big_n(self) -> None:
+        configs = [
+            _FakeConfig(64, 32, 64, 4, 4),
+            _FakeConfig(64, 64, 64, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 1024, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 64)})
+
+    def test_bn_floor_drops_64_at_huge_n(self) -> None:
+        configs = [
+            _FakeConfig(64, 64, 128, 4, 4),
+            _FakeConfig(64, 128, 128, 4, 4),
+        ]
+        kept = self._prune(512, 8192, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 128, 128)})
+
+    def test_bmn_floor_keeps_small_tiles_at_small_problem(self) -> None:
+        configs = [
+            _FakeConfig(16, 32, 32, 4, 2),
+            _FakeConfig(32, 32, 32, 4, 2),
+        ]
+        kept = self._prune(64, 256, 256, configs=configs)
+        self.assertEqual(self._keys(kept), {(16, 32, 32), (32, 32, 32)})
+
+    def test_register_cap_drops_spiller(self) -> None:
+        configs = [
+            _FakeConfig(256, 256, 64, 4, 4),
+            _FakeConfig(128, 256, 128, 3, 8),
+        ]
+        kept = self._prune(8192, 8192, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(128, 256, 128)})
+
+    def test_register_cap_boundary(self) -> None:
+        configs = [
+            _FakeConfig(255, 128, 64, 4, 4),
+            _FakeConfig(256, 128, 64, 4, 4),
+        ]
+        kept = self._prune(8192, 8192, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(255, 128, 64)})
 
     def test_wgmma_floors_keep_minimum_tiles(self) -> None:
         configs = [
@@ -885,22 +967,103 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertNotIn((16, 128, 32), keys)
         self.assertLess(len(kept), len(configs))
 
+    def test_ns_floor_drops_ns2_when_ns3_fits(self) -> None:
+        configs = [_FakeConfig(32, 256, 64, ns, 4) for ns in (2, 3, 4, 5, 6)]
+        configs += [_FakeConfig(64, 128, 32, ns, 4) for ns in (2, 4)]
+        kept = self._prune(512, 1024, 512, configs=configs)
+        io = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 32)
+        compute = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 64)
+        self.assertEqual(io, [3, 4, 5, 6])
+        self.assertEqual(compute, [4])
+
+    def test_ns_floor_keeps_ns2_when_ns3_exceeds_smem(self) -> None:
+        configs = [
+            _FakeConfig(128, 256, 256, 2, 8),
+            _FakeConfig(128, 256, 256, 3, 8),
+            _FakeConfig(64, 128, 128, 4, 4),
+        ]
+        kept = self._prune(512, 1024, 512, configs=configs)
+        huge = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_K"] == 256)
+        self.assertEqual(huge, [2])
+        self.assertIn((64, 128, 128), self._keys(kept))
+
+    def test_bm_product_drops_small_bm_at_rich_grid(self) -> None:
+        configs = [
+            _FakeConfig(32, 256, 64, 4, 4),
+            _FakeConfig(64, 256, 64, 4, 4),
+        ]
+        kept = self._prune(2048, 4096, 512, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 256, 64)})
+
+    def test_bm_product_keeps_small_bm_at_starved_grid(self) -> None:
+        configs = [
+            _FakeConfig(32, 64, 64, 4, 2),
+            _FakeConfig(64, 64, 64, 4, 2),
+        ]
+        kept = self._prune(1024, 64, 512, configs=configs)
+        self.assertEqual(self._keys(kept), {(32, 64, 64), (64, 64, 64)})
+
+    def test_bn_product_drops_bn32_at_rich_grid(self) -> None:
+        configs = [
+            _FakeConfig(32, 32, 64, 4, 2),
+            _FakeConfig(32, 64, 64, 4, 2),
+        ]
+        kept = self._prune(64, 6144, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(32, 64, 64)})
+
+    def test_bn_product_keeps_bn32_below_threshold(self) -> None:
+        configs = [
+            _FakeConfig(16, 32, 64, 4, 2),
+            _FakeConfig(16, 64, 64, 4, 2),
+        ]
+        kept = self._prune(64, 4096, 2048, configs=configs)
+        self.assertEqual(self._keys(kept), {(16, 32, 64), (16, 64, 64)})
+
     def test_mid_m_drops_block_m_256(self) -> None:
         kept = self._prune(64, 1024, 1024)
         bms = {c.kwargs["BLOCK_M"] for c in kept}
         self.assertNotIn(256, bms)
 
     def test_large_m_keeps_block_m_256(self) -> None:
-        kept = self._prune(8192, 1024, 1024)
+        kept = self._prune(8192, 1024, 256)
         keys = self._keys(kept)
         self.assertIn((256, 128, 32), keys)
-        self.assertIn((256, 256, 32), keys)
+        self.assertNotIn((256, 256, 32), keys)
 
-    def test_stages_unpruned(self) -> None:
-        for m in (1, 8192):
-            kept = self._prune(m, 1024, 1024)
+    def test_stages_kept_when_pipeline_saturates(self) -> None:
+        for m in (1, 256):
+            kept = self._prune(m, 1024, 256)
             stages = sorted(c.num_stages for c in kept if c.kwargs["BLOCK_M"] == 16)
-            self.assertEqual(stages, [2, 3, 4, 5, 6])
+            self.assertEqual(stages, [3, 4, 5, 6])
+
+    def test_smem_fit_keeps_tightest_config(self) -> None:
+        kept = self._prune(512, 1024, 19712)
+        self.assertIn((64, 128, 256), self._keys(kept))
+
+    def test_smem_drops_infeasible_config(self) -> None:
+        configs = [
+            _FakeConfig(128, 256, 256, 4, 8),
+            _FakeConfig(64, 64, 128, 5, 2),
+        ]
+        kept = self._prune(512, 1024, 19712, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 64, 128)})
+
+    def test_pipeline_drops_unsaturable_stages(self) -> None:
+        configs = [_FakeConfig(16, 32, 64, ns, 2) for ns in (2, 3, 4, 5, 6)]
+        kept = self._prune(64, 256, 256, configs=configs)
+        stages = sorted(c.num_stages for c in kept)
+        self.assertEqual(stages, [3, 4, 5])
+
+    def test_pipeline_keeps_all_at_single_k_tile(self) -> None:
+        configs = [_FakeConfig(16, 32, 32, ns, 2) for ns in (2, 3, 4, 5, 6)]
+        kept = self._prune(512, 1024, 16, configs=configs)
+        stages = sorted(c.num_stages for c in kept)
+        self.assertEqual(stages, [3, 4, 5, 6])
+
+    def test_pipeline_ignores_compute_configs(self) -> None:
+        configs = [_FakeConfig(64, 32, 32, 5, 2)]
+        kept = self._prune(512, 1024, 64, configs=configs)
+        self.assertEqual(self._keys(kept), {(64, 32, 32)})
 
     def test_fallback_returns_full_space_when_all_pruned(self) -> None:
         configs = [c for c in self._make_configs() if c.kwargs["BLOCK_M"] >= 128]

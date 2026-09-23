@@ -109,7 +109,7 @@ class DramKVInferenceEmbedding
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
-      bool enable_async_update = false,
+      bool /*enable_async_update*/ = false,
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
       bool disable_random_init = false)
@@ -770,7 +770,7 @@ class DramKVInferenceEmbedding
   }
 
   void fill_from_row_storage(
-      int shard_id,
+      int /*shard_id*/,
       unsigned char* weights_data_ptr,
       int64_t weights_row_index,
       unsigned char* row_storage_data_ptr,
@@ -850,7 +850,7 @@ class DramKVInferenceEmbedding
     return shardid_to_indexes;
   }
 
-  void flush_or_compact(const int64_t timestep) override {}
+  void flush_or_compact(const int64_t /*timestep*/) override {}
 
   std::vector<double> get_dram_kv_perf(
       const int64_t step,

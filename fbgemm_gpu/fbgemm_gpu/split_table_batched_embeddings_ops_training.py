@@ -286,7 +286,23 @@ def apply_split_helper(
     uvm_host_mapped: bool = False,
     make_persistent: bool = False,
     preallocated_host_buffer: Tensor | None = None,
+    dev_init_on_cpu: bool = False,
 ) -> None:
+    # `dev_init_on_cpu` redirects only the `weights_dev` buffer; the offsets and
+    # placements metadata below is dereferenced by the kernels and must stay on
+    # `current_device`. See the `weight_init_on_cpu` docs on
+    # SplitTableBatchedEmbeddingBagsCodegen for the caller's obligations.
+    #
+    # The `prefix` guard is belt-and-braces: this helper is shared with the
+    # optimizer-state splits (momentum1, momentum2, prev_iter, row_counter), and
+    # only the weights call site passes the flag today. Redirecting an optimizer
+    # state would be silently wrong -- nothing moves it back.
+    dev_device = (
+        torch.device("cpu")
+        if dev_init_on_cpu and prefix == "weights"
+        else current_device
+    )
+
     set_attr_fn(f"{prefix}_physical_placements", split.placements)
     set_attr_fn(f"{prefix}_physical_offsets", split.offsets)
 
@@ -303,7 +319,7 @@ def apply_split_helper(
     if split.dev_size > 0:
         dev_buffer = torch.zeros(
             split.dev_size,
-            device=current_device,
+            device=dev_device,
             # pyre-fixme[6]
             dtype=dtype,
         )
@@ -311,6 +327,9 @@ def apply_split_helper(
             dev_buffer.view(*dev_reshape) if dev_reshape is not None else dev_buffer
         )
     else:
+        # Deliberately not `dev_device`: an empty buffer saves nothing, and leaving
+        # it on the compute device keeps a UVM-only TBE usable without the caller
+        # having to move anything.
         # pyre-fixme[6]
         dev_buffer = torch.empty(0, device=current_device, dtype=dtype)
     if make_dev_param:
@@ -708,6 +727,44 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             True, defaults to RESParams().
 
         is_qr_tbe (bool = False): Whether this is a QRSplitTableBatchedEmbeddingBagsCodegen.
+
+        weight_init_on_cpu (bool = False): If True, allocate the `weights_dev`
+            buffer on CPU instead of the compute device. Everything else --
+            optimizer state, the `weights_uvm` / `weights_host` buffers, and all
+            offsets/placements metadata -- is unaffected and stays on the compute
+            device.
+
+            This is an opt-in escape hatch for workflows that must avoid a
+            transient HBM peak, e.g. checkpoint eval that loads FP32 weights and
+            then quantizes them.
+
+            The TBE never relocates the buffer on its own: whoever passes this
+            flag owns moving `weights_dev` to the compute device, and must do so
+            before the first forward or backward. Until then the module is not
+            usable. A forward that skips the move fails fast rather than
+            silently producing garbage::
+
+                RuntimeError: weights[0] must be a GPU or MTIA tensor;
+                it is currently on device CPU
+
+            That comes from `TENSOR_ON_GPU_OR_MTIA(weights[0])` in
+            `codegen/training/pt2/embedding_split_host_pt2_autograd_template.cpp`,
+            which runs in the host wrapper before any kernel launch.
+            `weights[0]` is `weights_dev` -- the one buffer this flag
+            redirects.
+
+            For the motivating checkpoint-eval flow, that means:
+
+            1. construct with `weight_init_on_cpu=True`, so the full precision
+               weights are allocated on the host;
+            2. load the checkpoint into them while they are still there;
+            3. move them to the compute device. `module.to(device)` suffices when
+               the weights stay at the same precision. When they are also being
+               quantized, fold the cast and the move into a single step so the
+               full precision copy never lands in HBM -- which is the whole point
+               of initializing on CPU. In the TorchRec stack that step is
+               `EmbeddingQuantizationUtils.quantize_embedding_modules(...,
+               target_device=<compute device>)`.
     """
 
     embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]]
@@ -792,6 +849,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         res_params: RESParams | None = None,
         is_qr_tbe: bool = False,
         preallocated_host_buffers: dict[str, torch.Tensor] | None = None,
+        weight_init_on_cpu: bool = False,
     ) -> None:
         super().__init__()
         self.uuid = str(uuid.uuid4())
@@ -1136,6 +1194,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             weights_precision, self.current_device
         )
 
+        self.weight_init_on_cpu: bool = weight_init_on_cpu
+        if self.weight_init_on_cpu:
+            self.log(
+                "weight_init_on_cpu is set: weights_dev is allocated on cpu "
+                f"instead of {self.current_device}. Move it to the compute device "
+                "before running forward."
+            )
+
         self._apply_split(
             weight_split,
             prefix="weights",
@@ -1151,6 +1217,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 if self._preallocated_host_buffers is not None
                 else None
             ),
+            dev_init_on_cpu=self.weight_init_on_cpu,
         )
 
         assert optimizer not in (
@@ -4182,6 +4249,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         dev_reshape: tuple[int, ...] | None = None,
         uvm_host_mapped: bool = False,
         preallocated_host_buffer: torch.Tensor | None = None,
+        dev_init_on_cpu: bool = False,
     ) -> None:
         apply_split_helper(
             self.register_buffer,
@@ -4200,6 +4268,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Only force persistent for Split TBE on MTIA, see D97971757 for details.
             make_persistent=(self.use_mtia and not self.is_qr_tbe),
             preallocated_host_buffer=preallocated_host_buffer,
+            dev_init_on_cpu=dev_init_on_cpu,
         )
 
     def _apply_cache_state(

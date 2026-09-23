@@ -214,9 +214,9 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// {N, stride} where stride = weights.size(1).
   virtual folly::SemiFuture<std::vector<folly::Unit>>
   get_kv_db_weights_only_async(
-      const at::Tensor& indices,
-      const at::Tensor& weights,
-      const at::Tensor& count) {
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*weights*/,
+      const at::Tensor& /*count*/) {
     return folly::makeSemiFuture(std::vector<folly::Unit>());
   }
 
@@ -225,9 +225,9 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// {N, metaheader_dim}.
   virtual folly::SemiFuture<std::vector<folly::Unit>>
   get_kv_db_metadata_only_async(
-      const at::Tensor& indices,
-      const at::Tensor& metadata,
-      const at::Tensor& count) {
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*metadata*/,
+      const at::Tensor& /*count*/) {
     return folly::makeSemiFuture(std::vector<folly::Unit>());
   }
 
@@ -261,9 +261,9 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// Default no-op for non-DRAM backends.
   /// @return (vids_tensor, sids_tensor) both int64
   virtual std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
-      at::Tensor hashed_indices,
-      at::Tensor unhashed_indices,
-      at::Tensor count) {
+      at::Tensor /*hashed_indices*/,
+      at::Tensor /*unhashed_indices*/,
+      at::Tensor /*count*/) {
     return {at::empty({0}, at::kLong), at::empty({0}, at::kLong)};
   }
 
@@ -332,7 +332,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /**
    * @brief pause any ongoing eviction, usually called before backend IO
    */
-  virtual void pause_ongoing_eviction(bool force_resume = false) {
+  virtual void pause_ongoing_eviction(bool /*force_resume*/ = false) {
     FBEXCEPTION("Not implemented");
   }
 
@@ -340,7 +340,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
    * @brief resume ongoing eviction, if any, usually called when there won't be
    * backend IO for a while
    */
-  virtual void resume_ongoing_eviction(bool force_pause = false) {
+  virtual void resume_ongoing_eviction(bool /*force_pause*/ = false) {
     FBEXCEPTION("Not implemented");
   }
 

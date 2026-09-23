@@ -310,7 +310,7 @@ CheckpointHandle::CheckpointHandle(
     EmbeddingRocksDB* db,
     const std::string& tbe_uuid,
     const std::string& ckpt_uuid,
-    const std::string& base_path,
+    const std::string& /*base_path*/,
     bool use_default_ssd_path)
     : db_(db), ckpt_uuid_(ckpt_uuid) {
   auto num_shards = db->num_shards();
