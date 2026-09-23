@@ -17,6 +17,7 @@ import time
 import unittest
 from typing import Any, Optional
 
+import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import (
     EmbeddingLocation,
@@ -334,6 +335,81 @@ class BackwardAdagradTest(unittest.TestCase):
             ),
             weight_decay_mode=weight_decay_mode,
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("Test demonstrates ROCm weighted-accumulation rounding")
+    def test_fp32_fma_crosses_bf16_midpoint(self) -> None:
+        device = torch.accelerator.current_accelerator(check_available=True)
+        weights = torch.zeros((3, 4), dtype=torch.float32, device=device)
+        weights[:, 0] = torch.tensor(
+            [-0.13136524, 1.852819, 1.8586746],
+            dtype=torch.float32,
+            device=device,
+        )
+        sample_weights = torch.tensor(
+            [0.2945752, 1.523428, 0.5155545],
+            dtype=torch.float32,
+            device=device,
+        )
+        indices = torch.tensor([0, 1, 2], device=device)
+        tbe_offsets = torch.tensor([0, 3], device=device)
+        torch_offsets = torch.tensor([0], device=device)
+
+        def make_tbe(output_dtype: SparseType) -> SplitTableBatchedEmbeddingBagsCodegen:
+            tbe = SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[(3, 4, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)],
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weights_precision=SparseType.FP32,
+                output_dtype=output_dtype,
+                pooling_mode=PoolingMode.SUM,
+                stochastic_rounding=False,
+            )
+            tbe.split_embedding_weights()[0].data.copy_(weights)
+            return tbe
+
+        tbe_fp32 = make_tbe(SparseType.FP32)(indices, tbe_offsets, sample_weights)
+        tbe_bf16 = make_tbe(SparseType.BF16)(indices, tbe_offsets, sample_weights)
+        torch_fp32 = torch.nn.functional.embedding_bag(
+            indices,
+            weights,
+            torch_offsets,
+            mode="sum",
+            per_sample_weights=sample_weights,
+        )
+
+        self.assertEqual(3.7421875, tbe_fp32[0, 0].item())
+        self.assertEqual(3.742187261581421, torch_fp32[0, 0].item())
+        self.assertEqual(3.75, tbe_bf16[0, 0].item())
+        self.assertEqual(3.734375, torch_fp32.to(torch.bfloat16)[0, 0].item())
+        torch.testing.assert_close(
+            tbe_bf16,
+            tbe_fp32.to(torch.bfloat16),
+            rtol=0,
+            atol=0,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfNotRocm("Test validates ROCm FP32/BF16 output in two stages")
+    def test_fp32_bf16_structural_regression(self) -> None:
+        np.random.seed(18)
+        torch.manual_seed(18)
+        with updated_env(
+            {
+                "FBGEMM_NO_JK": "1",
+                "FBGEMM_TBE_ROCM_HIP_BACKWARD_KERNEL": "0",
+            }
+        ):
+            self._test_backward_adagrad_rocm_kernel(
+                T=1,
+                D=40,
+                B=100,
+                log_E=3,
+                L=3,
+                weights_precision=SparseType.FP32,
+                output_dtype=SparseType.BF16,
+                weighted=True,
+                weight_decay_mode=WeightDecayMode.NONE,
+            )
 
     @given(
         T=st.integers(min_value=1, max_value=5),
