@@ -533,15 +533,17 @@ __build_fbgemm_gpu_set_run_multicore () {
     export run_multicore="-j ${BUILD_PARALLELISM}"
 
   else
+    # nproc respects the CPU affinity the process was actually given; lscpu
+    # reports the host's physical topology. On a dedicated EC2 runner those
+    # agree, but in a container scheduled onto a shared node they do not: an
+    # 11-CPU pod on a 192-core host read 48 cores x 2 sockets and built with
+    # -j 96, which OOM-killed the container well before linking.
     # shellcheck disable=SC2155
-    local core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
-    # shellcheck disable=SC2155
-    local sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
+    local n_core=$(nproc) && echo "nproc = ${n_core}" || echo "nproc not found"
     local re='^[0-9]+$'
 
     export run_multicore=""
-    if [[ $core =~ $re && $sockets =~ $re ]]; then
-      local n_core=$((core * sockets))
+    if [[ $n_core =~ $re ]]; then
       export run_multicore="-j ${n_core}"
     fi
   fi

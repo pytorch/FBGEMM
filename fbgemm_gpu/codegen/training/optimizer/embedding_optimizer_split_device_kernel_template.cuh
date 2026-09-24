@@ -245,7 +245,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     const uint32_t run_id,
     const uint32_t cache_loc_run_id,
     const int32_t D,
-    const int32_t t,
+    [[maybe_unused]] const int32_t t,
     const int64_t idx,
     {%- if has_global_weight_decay_support %}
     const float global_weight_decay,
@@ -260,7 +260,9 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     const int64_t {{ tensor }}_offset,
     const {{ args.split_tensor_types[tensor] }} {{ tensor }}_val,
     {%- endfor %}
-    {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
+    {%- for arg in args.split_ref_kernel_args | replace_pta_namespace() %}
+    {{ "[[maybe_unused]] " if "_placements" in arg or "_offsets" in arg else "" }}{{ arg }}{{ "," if not loop.last else "" }}
+    {%- endfor %}
 ) {
     constexpr auto kIsInt8 = std::is_same_v<emb_t, uint8_t>;
     // Copy value to max_vecs to make max_vecs_per_thread known at compile time

@@ -444,12 +444,10 @@ class InputCombineTest(unittest.TestCase):
         self.assertEqual(outputs[1].dtype, torch.int32)
         self.assertEqual(outputs[1].tolist(), [0, int32_max, 1])
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_tbe_input_combine_rejects_offset_above_int32_max(self) -> None:
         self._assert_offset_range_error(int(torch.iinfo(torch.int32).max) + 1)
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_padding_fused_tbe_input_combine_rejects_offset_above_int32_max(
         self,
@@ -459,19 +457,16 @@ class InputCombineTest(unittest.TestCase):
             batch_size=2,
         )
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_tbe_input_combine_accepts_offset_at_int32_max(self) -> None:
         self._assert_int32_max_boundary()
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_padding_fused_tbe_input_combine_accepts_offset_at_int32_max(
         self,
     ) -> None:
         self._assert_int32_max_boundary(batch_size=2)
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_tbe_input_combine_rejects_cumulative_offset_overflow(self) -> None:
         self._assert_offset_range_error(
@@ -479,7 +474,6 @@ class InputCombineTest(unittest.TestCase):
             cumulative=True,
         )
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_padding_fused_tbe_input_combine_rejects_cumulative_offset_overflow(
         self,
@@ -490,12 +484,10 @@ class InputCombineTest(unittest.TestCase):
             cumulative=True,
         )
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_tbe_input_combine_rejects_offset_below_int32_min(self) -> None:
         self._assert_offset_range_error(int(torch.iinfo(torch.int32).min) - 1)
 
-    @unittest.skip("Requires int32 range validation from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for int32 range validation")
     def test_padding_fused_tbe_input_combine_rejects_offset_below_int32_min(
         self,
@@ -505,7 +497,6 @@ class InputCombineTest(unittest.TestCase):
             batch_size=2,
         )
 
-    @unittest.skip("Requires padding bounds checks from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
     def test_padding_fused_tbe_input_combine_preserves_empty_feature(self) -> None:
         for dtype in (torch.int32, torch.int64):
@@ -519,7 +510,6 @@ class InputCombineTest(unittest.TestCase):
                 )
                 self.assertEqual(outputs[1].tolist(), [0, 0, 0])
 
-    @unittest.skip("Requires padding bounds checks from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
     def test_padding_fused_tbe_input_combine_zero_batch_size(self) -> None:
         for dtype in (torch.int32, torch.int64):
@@ -533,7 +523,6 @@ class InputCombineTest(unittest.TestCase):
                 )
                 self.assertEqual(outputs[1].tolist(), [0])
 
-    @unittest.skip("Requires padding bounds checks from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
     def test_padding_fused_tbe_input_combine_rejects_negative_batch_size(
         self,
@@ -547,7 +536,6 @@ class InputCombineTest(unittest.TestCase):
                 -1,
             )
 
-    @unittest.skip("Requires padding bounds checks from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
     def test_padding_fused_tbe_input_combine_rejects_output_size_overflow(
         self,
@@ -561,7 +549,6 @@ class InputCombineTest(unittest.TestCase):
                 int(torch.iinfo(torch.int64).max),
             )
 
-    @unittest.skip("Requires padding bounds checks from the follow-up change")
     @optests.dontGenerateOpCheckTests("regression test for padding bounds validation")
     def test_padding_fused_tbe_input_combine_rejects_excess_effective_offsets(
         self,

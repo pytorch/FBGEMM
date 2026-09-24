@@ -489,7 +489,7 @@ permute_2D_sparse_preallocated_out_cuda(
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
-  Tensor permuted_weights;
+  std::optional<Tensor> permuted_weights;
 
   permuted_lengths = permuted_lengths_out.has_value()
       ? permuted_lengths_out.value()
@@ -681,7 +681,7 @@ permute_2D_sparse_preallocated_out_cuda(
                             input_offsets.data_ptr<offsets_t>(),
                             output_offsets.data_ptr<offsets_t>(),
                             permuted_indices.data_ptr<indices_t>(),
-                            permuted_weights.data_ptr<weights_t>());
+                            permuted_weights->data_ptr<weights_t>());
                       } else {
                         FBGEMM_LAUNCH_KERNEL(
                             (permute_2D_data_kernel<
@@ -703,7 +703,7 @@ permute_2D_sparse_preallocated_out_cuda(
                             input_offsets.data_ptr<offsets_t>(),
                             output_offsets.data_ptr<offsets_t>(),
                             permuted_indices.data_ptr<indices_t>(),
-                            permuted_weights.data_ptr<weights_t>());
+                            permuted_weights->data_ptr<weights_t>());
                       }
                     }); // for each weights_t
               } else {
@@ -831,7 +831,7 @@ permute_sparse_features_cuda(
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
-  Tensor permuted_weights;
+  std::optional<Tensor> permuted_weights;
 
   permuted_lengths = at::empty({num_output_features, B}, lengths.options());
 
@@ -913,7 +913,7 @@ permute_sparse_features_cuda(
                     input_offsets.data_ptr<index_t>(),
                     output_offsets.data_ptr<index_t>(),
                     permuted_indices.data_ptr<index_t>(),
-                    permuted_weights.data_ptr<scalar_t>());
+                    permuted_weights->data_ptr<scalar_t>());
               });
         });
   } else {

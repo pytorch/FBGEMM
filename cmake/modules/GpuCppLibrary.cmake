@@ -463,14 +463,16 @@ function(gpu_cpp_library)
         set(set_rpath_to_origin 1)
     endif()
 
-    # Add a post-build step to remove errant RPATHs from the .SO
-    add_custom_target(${lib_name}_postbuild ALL
-        DEPENDS
+    # Strip errant RPATHs from the .SO after it is linked.
+    #
+    # This must be POST_BUILD and not a separate target. The script edits the
+    # .SO in place. A separate target only runs after the .SO is built; it does
+    # not stop other libraries linking against that .SO at the same time, and
+    # those links then fail on a half-written file. POST_BUILD makes the edit
+    # part of building the library, so anything using it waits.
+    add_custom_command(TARGET ${lib_name} POST_BUILD
         WORKING_DIRECTORY ${OUTPUT_DIR}
         COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash $<TARGET_FILE:${lib_name}> ${set_rpath_to_origin})
-
-    # Set the post-build steps to run AFTER the build completes
-    add_dependencies(${lib_name}_postbuild ${lib_name})
 
     ############################################################################
     # Set the Output Variable(s)

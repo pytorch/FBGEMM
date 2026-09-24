@@ -84,7 +84,7 @@ enum class BoundsCheckMode : uint8_t {
 // what device kernels (whose format is selected per-arch at device-compile
 // time) read and write.
 inline at::ScalarType getNFP8ScalarType(
-    const c10::DeviceIndex device_index = -1) {
+    [[maybe_unused]] const c10::DeviceIndex device_index = -1) {
 #ifdef USE_ROCM
   // fnuz archs: the gfx94x family (gfx940/941/942, MI300) and gfx90a. The
   // substring match mirrors split_embedding_configs.py:nfp8_dtype; keep the
