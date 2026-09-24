@@ -20,7 +20,15 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu import sparse_ops  # noqa: F401
-from fbgemm_gpu.tbe.config.embedding_config import BoundsCheckMode, PoolingMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    SplitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.tbe.config.embedding_config import (
+    BoundsCheckMode,
+    ComputeDevice,
+    EmbeddingLocation,
+    PoolingMode,
+)
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
@@ -130,6 +138,127 @@ def transpose_embedding_input_ref(
 
 
 class SplitEmbeddingsUtilsTest(unittest.TestCase):
+    def test_training_rejects_trailing_mode(self) -> None:
+        with self.assertRaises(NotImplementedError):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (4, 4, EmbeddingLocation.HOST, ComputeDevice.CPU),
+                ],
+                bounds_check_mode=BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
+            )
+
+    @given(
+        T=st.integers(min_value=1, max_value=8),
+        B=st.integers(min_value=1, max_value=8),
+        max_L=st.integers(min_value=1, max_value=16),
+        trailing_size=st.integers(min_value=1, max_value=32),
+        use_cpu=use_cpu_strategy(),
+        dtype=st.sampled_from([torch.int32, torch.int64]),
+        bounds_check_version=st.sampled_from((1, 2)),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_bounds_check_allows_trailing_indices(
+        self,
+        T: int,
+        B: int,
+        max_L: int,
+        trailing_size: int,
+        use_cpu: bool,
+        dtype: torch.dtype,
+        bounds_check_version: int,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        rows_per_table_values = np.random.randint(low=1, high=1000, size=(T,))
+        rows_per_table = torch.tensor(
+            rows_per_table_values, device=device, dtype=torch.int64
+        )
+        lengths = np.random.randint(low=0, high=max_L, size=(T * B,))
+        lengths[0] = max_L
+        offsets = torch.tensor(
+            [0] + np.cumsum(lengths).tolist(), device=device, dtype=dtype
+        )
+        indices = torch.cat(
+            [
+                torch.randint(
+                    int(rows_per_table_values[t]),
+                    (int(sum(lengths[t * B : (t + 1) * B])),),
+                    device=device,
+                    dtype=dtype,
+                )
+                for t in range(T)
+            ]
+        )
+        valid_indices = indices.clone()
+        indices = torch.cat(
+            (
+                indices,
+                torch.full((trailing_size,), -1, device=device, dtype=dtype),
+            )
+        )
+        original_offsets = offsets.clone()
+        warning = torch.zeros(1, device=device, dtype=torch.int64)
+        kernel_mode = BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES.value
+
+        torch.ops.fbgemm.bounds_check_indices(
+            rows_per_table,
+            indices,
+            offsets,
+            kernel_mode,
+            warning,
+            bounds_check_version=bounds_check_version,
+        )
+
+        torch.testing.assert_close(indices[: valid_indices.numel()], valid_indices)
+        torch.testing.assert_close(
+            indices[valid_indices.numel() :],
+            torch.full((trailing_size,), -1, device=device, dtype=dtype),
+        )
+        torch.testing.assert_close(offsets, original_offsets)
+        self.assertEqual(warning.item(), 0)
+
+        invalid_indices = indices.clone()
+        invalid_indices[0] = rows_per_table[0]
+        torch.ops.fbgemm.bounds_check_indices(
+            rows_per_table,
+            invalid_indices,
+            offsets,
+            kernel_mode,
+            warning,
+            bounds_check_version=bounds_check_version,
+        )
+        self.assertEqual(invalid_indices[0].item(), 0)
+        torch.testing.assert_close(
+            invalid_indices[valid_indices.numel() :],
+            indices[valid_indices.numel() :],
+        )
+        self.assertGreater(warning.item(), 0)
+
+        if use_cpu:
+            regular_offsets = original_offsets.clone()
+            torch.ops.fbgemm.bounds_check_indices(
+                rows_per_table,
+                indices,
+                regular_offsets,
+                BoundsCheckMode.WARNING.value,
+                warning,
+                bounds_check_version=bounds_check_version,
+            )
+            self.assertEqual(regular_offsets[-1].item(), indices.numel())
+            self.assertGreater(warning.item(), 0)
+
+            oversized_offsets = original_offsets.clone()
+            oversized_offsets[-1] = indices.numel() + 1
+            torch.ops.fbgemm.bounds_check_indices(
+                rows_per_table,
+                indices,
+                oversized_offsets,
+                kernel_mode,
+                warning,
+                bounds_check_version=bounds_check_version,
+            )
+            self.assertEqual(oversized_offsets[-1].item(), indices.numel())
+            self.assertGreater(warning.item(), 0)
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=10, max_value=25),
@@ -280,6 +409,9 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         warning = torch.tensor([0]).long()
 
         if mixed_B:
+            # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+            # OSS FBGEMM supports PyTorch versions without torch.accelerator.
+            vbe_device = torch.device("cpu" if use_cpu else "cuda")
             B_offsets = torch.tensor(
                 B_offsets, device="cpu" if use_cpu else "cuda", dtype=torch.int32
             )
@@ -291,7 +423,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 feature_dims_cpu=torch.tensor(
                     [-1] * T, device="cpu", dtype=torch.int64
                 ),  # unused
-                device=torch.device("cuda") if not use_cpu else torch.device("cpu"),
+                device=vbe_device,
             )
             B_offsets = vbe_metadata.B_offsets
             assert isinstance(B_offsets, torch.Tensor), "B_offsets must be tensor"
@@ -306,7 +438,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 vbe_metadata.output_offsets_feature_rank,
                 torch.tensor(
                     [-1] * (T + 1),
-                    device=torch.device("cuda") if not use_cpu else torch.device("cpu"),
+                    device=vbe_device,
                     dtype=torch.int,
                 ),  # unused D_offsets
                 -1,  # unused max_D

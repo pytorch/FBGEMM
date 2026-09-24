@@ -280,7 +280,9 @@ def pruned_array_lookup(  # noqa C901
     f"NONE={BoundsCheckMode.NONE.value}, "
     f"V2_IGNORE={BoundsCheckMode.V2_IGNORE.value}, "
     f"V2_WARNING={BoundsCheckMode.V2_WARNING.value}, "
-    f"V2_FATAL={BoundsCheckMode.V2_FATAL.value}",
+    f"V2_FATAL={BoundsCheckMode.V2_FATAL.value}, "
+    "WARNING_ALLOW_TRAILING_INDICES="
+    f"{BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES.value}",
 )
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
