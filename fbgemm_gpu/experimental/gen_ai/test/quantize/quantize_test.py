@@ -264,9 +264,16 @@ class FP8TorchExportTests(unittest.TestCase):
             def forward(self, xq: torch.Tensor, wq: torch.Tensor) -> torch.Tensor:
                 M, K = xq.shape
                 N, _ = wq.shape
-                row_scale = torch.randn(M).cuda()
-                col_scale = torch.randn(N).cuda()
-                block_scale = torch.randn(M // 128, K // 128).cuda()
+                # Citrine C7: create test tensors directly on the GPU.
+                row_scale = torch.randn(
+                    M, device=torch.accelerator.current_accelerator()
+                )
+                col_scale = torch.randn(
+                    N, device=torch.accelerator.current_accelerator()
+                )
+                block_scale = torch.randn(
+                    M // 128, K // 128, device=torch.accelerator.current_accelerator()
+                )
                 _ = torch.ops.fbgemm.f8f8bf16_blockwise(
                     xq, wq, block_scale, block_scale
                 )
@@ -295,7 +302,8 @@ class FP8Tests(unittest.TestCase):
         cls.device = torch.accelerator.current_accelerator()
 
     def test_fp8_python(self) -> None:
-        src_float = torch.randn(1000, 1000).cuda()
+        # Citrine C7: create test tensors directly on the GPU.
+        src_float = torch.randn(1000, 1000, device=self.device)
         src_float[0, 0] = 1e6
         fp8_152 = src_float.to(fp8_e5m2)
         fp8_143 = src_float.to(fp8_e4m3)
@@ -743,6 +751,13 @@ class FP8Tests(unittest.TestCase):
         elif Mode == "rowwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
             x = (xq.float() / x_scale.unsqueeze(1)).to(dtype)  # Fake quantization
+            if stochastic_rounding:
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Stochastic rounding is not yet supported",
+                ):
+                    torch.ops.fbgemm.quantize_fp8_per_row(x, stochastic_rounding=True)
+                return
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
                 x, stochastic_rounding=stochastic_rounding
             )

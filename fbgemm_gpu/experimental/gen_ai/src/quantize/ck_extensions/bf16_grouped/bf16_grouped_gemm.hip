@@ -285,7 +285,7 @@ __global__ void set_kernel_args_m_sizes_kernel(
     BDataType* B,
     CDataType* output,
     int64_t* M_sizes,
-    int64_t M,
+    [[maybe_unused]] int64_t M,
     int64_t N,
     int64_t K,
     int64_t group_count) {
@@ -521,7 +521,7 @@ at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor W,
     at::Tensor M_sizes,
     std::optional<at::Tensor> out,
-    std::optional<int64_t> num_sms) {
+    [[maybe_unused]] std::optional<int64_t> num_sms) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int64_t group_count = M_sizes.size(0);
@@ -554,9 +554,19 @@ at::Tensor bf16bf16bf16_grouped_stacked(
       "M_sizes and inputs must be on the same device.");
   TORCH_CHECK(M_sizes.dtype() == at::kLong, "M_sizes must be int64.");
 
-  // Allocate an empty output array. We will set its values to zero as part
-  // of kernel setup.
-  at::Tensor Y = at::empty({total_M, N}, X.options().dtype(at::kBFloat16));
+  at::Tensor Y;
+  if (out.has_value()) {
+    Y = out.value();
+    TORCH_CHECK(Y.device() == X.device(), "Output must be on the input device.");
+    TORCH_CHECK(Y.is_contiguous(), "Output must be contiguous.");
+    TORCH_CHECK(Y.dtype() == at::kBFloat16, "Output must be type bfloat16.");
+    TORCH_CHECK(
+        Y.numel() == total_M * N,
+        "Output must contain total_M * N elements.");
+    Y = Y.view({total_M, N});
+  } else {
+    Y = at::empty({total_M, N}, X.options().dtype(at::kBFloat16));
+  }
 
   // Early exit for empty input.
   if (total_M == 0) {
