@@ -433,6 +433,8 @@ def get_available_compute_device() -> ComputeDevice:
         return ComputeDevice.CUDA
     elif torch.mtia.is_available():
         return ComputeDevice.MTIA
+    elif torch.xpu.is_available():
+        return ComputeDevice.XPU
     else:
         return ComputeDevice.CPU
 
@@ -512,6 +514,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             (2) `CUDA` = performing table lookup on GPU
 
             (3) `MTIA` = performing table lookup on MTIA
+
+            (4) `XPU` = performing table lookup on XPU
 
         feature_table_map (list[int] | None = None): An optional list that
             specifies feature-table mapping. feature_table_map[i] indicates the
@@ -992,6 +996,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Split TBE has different function schemas for CUDA and CPU.
         # For MTIA device type, it uses the CPU one.
         self.use_cpu: bool = compute_devices[0] == ComputeDevice.CPU or self.use_mtia
+        use_xpu: bool = compute_devices[0] == ComputeDevice.XPU
 
         # Check if init is called from QRSplitTableBatchedEmbeddingBagsCodegen
         self.is_qr_tbe: bool = is_qr_tbe
@@ -1021,11 +1026,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ), "OptimType.NONE does not support mixed embedding dimension"
 
         if device is None:
-            self.current_device: torch.device = (
-                torch.device("cpu")
-                if self.use_cpu
-                else torch.device(torch.cuda.current_device())
-            )
+            if self.use_cpu:
+                self.current_device: torch.device = torch.device("cpu")
+            elif use_xpu:
+                self.current_device = torch.device(f"xpu:{torch.xpu.current_device()}")
+            else:
+                self.current_device = torch.device(torch.cuda.current_device())
         elif isinstance(device, torch.device):
             self.current_device = device
         else:
@@ -5474,6 +5480,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
+
+    The optional `device` argument explicitly selects the allocation device.
+    When omitted, the existing `use_cpu` / `use_mtia` / CUDA selection applies.
     """
 
     weights: Tensor
@@ -5494,6 +5503,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         use_cpu: bool = False,
         output_dtype: SparseType = SparseType.FP32,
         use_mtia: bool = False,
+        device: str | int | torch.device | None = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super().__init__()
         self.uuid = str(uuid.uuid4())
@@ -5520,12 +5530,16 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # pyre-fixme[8]: Attribute has type `device`; used as `int | device`.
         self.current_device: torch.device = (
-            torch.device("cpu")
-            if self.use_cpu
+            torch.device(device)
+            if device is not None
             else (
-                torch.device(f"mtia:{torch.mtia.current_device()}")
-                if self.use_mtia
-                else torch.cuda.current_device()
+                torch.device("cpu")
+                if self.use_cpu
+                else (
+                    torch.device(f"mtia:{torch.mtia.current_device()}")
+                    if self.use_mtia
+                    else torch.cuda.current_device()
+                )
             )
         )
         table_embedding_dtype = _table_embedding_dtype(

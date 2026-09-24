@@ -19,6 +19,7 @@ Tests cover:
 
 import enum
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -68,11 +69,46 @@ class EmbeddingConfigImportTest(unittest.TestCase):
 class EmbeddingConfigClassmethodTest(unittest.TestCase):
     """Test new classmethods added to existing enums."""
 
+    def test_compute_device_values(self) -> None:
+        from fbgemm_gpu.tbe.config import ComputeDevice
+
+        self.assertEqual(ComputeDevice.CPU.value, 0)
+        self.assertEqual(ComputeDevice.CUDA.value, 1)
+        self.assertEqual(ComputeDevice.MTIA.value, 2)
+        self.assertEqual(ComputeDevice.XPU.value, 3)
+
     def test_compute_device_get_available(self) -> None:
         from fbgemm_gpu.tbe.config import ComputeDevice
 
         result = ComputeDevice.get_available()
         self.assertIn(result, list(ComputeDevice))
+
+    def test_compute_device_get_available_xpu(self) -> None:
+        from fbgemm_gpu.tbe.config import ComputeDevice
+
+        with (
+            patch.object(torch.cuda, "is_available", return_value=False),
+            patch.object(torch.mtia, "is_available", return_value=False),
+            patch.object(torch.xpu, "is_available", return_value=True),
+        ):
+            self.assertEqual(ComputeDevice.get_available(), ComputeDevice.XPU)
+
+    def test_compute_device_get_available_priority(self) -> None:
+        from fbgemm_gpu.tbe.config import ComputeDevice
+
+        with (
+            patch.object(torch.cuda, "is_available", return_value=True),
+            patch.object(torch.mtia, "is_available", return_value=True),
+            patch.object(torch.xpu, "is_available", return_value=True),
+        ):
+            self.assertEqual(ComputeDevice.get_available(), ComputeDevice.CUDA)
+
+        with (
+            patch.object(torch.cuda, "is_available", return_value=False),
+            patch.object(torch.mtia, "is_available", return_value=True),
+            patch.object(torch.xpu, "is_available", return_value=True),
+        ):
+            self.assertEqual(ComputeDevice.get_available(), ComputeDevice.MTIA)
 
     def test_embedding_location_from_device_and_clf_cpu(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
@@ -80,6 +116,14 @@ class EmbeddingConfigClassmethodTest(unittest.TestCase):
         self.assertEqual(
             EmbeddingLocation.from_device_and_clf(torch.device("cpu"), 0.0),
             EmbeddingLocation.HOST,
+        )
+
+    def test_embedding_location_from_device_and_clf_xpu(self) -> None:
+        from fbgemm_gpu.tbe.config import EmbeddingLocation
+
+        self.assertEqual(
+            EmbeddingLocation.from_device_and_clf(torch.device("xpu"), 1.0),
+            EmbeddingLocation.DEVICE,
         )
 
     # pyrefly: ignore [bad-argument-type]

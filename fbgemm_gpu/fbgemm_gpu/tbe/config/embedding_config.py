@@ -72,8 +72,8 @@ class EmbeddingLocation(enum.IntEnum):
         Formerly the free function get_new_embedding_location() in
         split_table_batched_embeddings_ops_common.py.
         """
-        # Only support CPU and GPU device
-        assert device.type == "cpu" or device.type == "cuda"
+        # Only support CPU, CUDA and XPU device
+        assert device.type in ("cpu", "cuda", "xpu")
         if cache_load_factor < 0 or cache_load_factor > 1:
             raise ValueError(
                 f"cache_load_factor must be between 0.0 and 1.0, got {cache_load_factor}"
@@ -136,6 +136,7 @@ class ComputeDevice(enum.IntEnum):
     CPU = 0
     CUDA = 1
     MTIA = 2
+    XPU = 3
 
     @classmethod
     def get_available(cls) -> "ComputeDevice":
@@ -148,6 +149,8 @@ class ComputeDevice(enum.IntEnum):
             return ComputeDevice.CUDA
         elif torch.mtia.is_available():
             return ComputeDevice.MTIA
+        elif torch.xpu.is_available():
+            return ComputeDevice.XPU
         else:
             return ComputeDevice.CPU
 
