@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory_resource>
+#include <numeric>
 #include <ranges>
 #include <stdexcept>
 #include <utility>
@@ -260,7 +261,9 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << to_string(trigger_mode_) << eviction_trigger_stats_log
                   << ", strategy: " << to_string(trigger_strategy_)
                   << ", ttls_in_mins: " << ttls_in_mins_.value()
-                  << ", enable_ssd_writeback: " << enable_ssd_writeback_;
+                  << ", enable_ssd_writeback: " << enable_ssd_writeback_
+                  << ", training_id_keep_count: "
+                  << training_id_keep_count_.value_or(std::vector<int64_t>{});
         return;
       }
 
@@ -1468,6 +1471,7 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
       SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
       const std::vector<int64_t>& sub_table_hash_cumsum,
       const std::vector<int64_t>& ttls_in_mins,
+      const std::optional<std::vector<int64_t>>& training_id_keep_count,
       int64_t interval_for_insufficient_eviction_s,
       int64_t interval_for_sufficient_eviction_s,
       int64_t interval_for_feature_statistics_decay_s,
@@ -1481,7 +1485,10 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
             interval_for_feature_statistics_decay_s,
             is_training,
             enable_ssd_writeback),
-        ttls_in_mins_(ttls_in_mins) {}
+        ttls_in_mins_(ttls_in_mins),
+        total_training_id_keep_count_(get_total_training_id_keep_count(
+            training_id_keep_count,
+            sub_table_hash_cumsum.size())) {}
 
   void update_feature_statistics(weight_type* block) override {
     FixedBlockPool::update_timestamp(block);
@@ -1496,11 +1503,65 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
       return false;
     }
     auto current_time = FixedBlockPool::current_timestamp();
-    return current_time - FixedBlockPool::get_timestamp(block) > ttl * 60;
+    if (current_time - FixedBlockPool::get_timestamp(block) <= ttl * 60) {
+      return false;
+    }
+
+    if (total_training_id_keep_count_ <= 0) {
+      return true;
+    }
+
+    int64_t remaining = remaining_evict_count_.load();
+    while (remaining > 0) {
+      if (remaining_evict_count_.compare_exchange_weak(
+              remaining, remaining - 1)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void compute_thresholds() override {
+    if (total_training_id_keep_count_ <= 0) {
+      return;
+    }
+
+    const auto total = this->kv_store_.getNumRows();
+    remaining_evict_count_.store(
+        std::max<int64_t>(
+            static_cast<int64_t>(total) - total_training_id_keep_count_, 0));
   }
 
  private:
-  const std::vector<int64_t>& ttls_in_mins_; // Time-to-live for eviction.
+  static int64_t get_total_training_id_keep_count(
+      const std::optional<std::vector<int64_t>>& training_id_keep_count,
+      size_t num_tables) {
+    if (!training_id_keep_count.has_value()) {
+      return 0;
+    }
+    if (training_id_keep_count->size() != num_tables) {
+      throw std::invalid_argument(
+          "training_id_keep_count must have one value per table");
+    }
+    return std::accumulate(
+        training_id_keep_count->begin(),
+        training_id_keep_count->end(),
+        int64_t{0},
+        [](int64_t total, int64_t keep_count) {
+          return total + std::max<int64_t>(keep_count, 0);
+        });
+  }
+
+  std::vector<int64_t> ttls_in_mins_; // Time-to-live for eviction.
+  // Aggregate floor across all tables, enforced against the total row count
+  // (including non-evictable rows), so individual tables are not guaranteed
+  // their own keep count.
+  int64_t total_training_id_keep_count_;
+  // Decremented in evict_block() before the caller confirms the erase, so a
+  // round may keep slightly more than total_training_id_keep_count_ (never
+  // fewer). Reset from the live row count each round, so this does not
+  // accumulate.
+  std::atomic<int64_t> remaining_evict_count_{0};
 };
 
 template <typename weight_type>
@@ -1659,6 +1720,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           kv_store,
           sub_table_hash_cumsum,
           config->ttls_in_mins_.value(),
+          config->training_id_keep_count_,
           config->interval_for_insufficient_eviction_s_,
           config->interval_for_sufficient_eviction_s_,
           config->interval_for_feature_statistics_decay_s_,
