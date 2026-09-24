@@ -439,7 +439,7 @@ __global__ void scaleMatrix1(
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
-    const int64_t lda) {
+    [[maybe_unused]] const int64_t lda) {
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel;
        i += (size_t)blockDim.x * gridDim.x) {
     output[i] = T_OUT(
@@ -454,7 +454,7 @@ __global__ void scaleMatrix2(
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
-    const int64_t lda,
+    [[maybe_unused]] const int64_t lda,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
   auto stoc_rounding_state = StochasticRoundingRNGState(
       stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
@@ -703,7 +703,7 @@ __global__ void computeFP8QuantizeScale(
     T_S* const quant_ptr,
     const T_W* const weights,
     const int64_t size,
-    const int64_t n,
+    [[maybe_unused]] const int64_t n,
     const int64_t total_elements_per_slice,
     const int64_t* bs,
     const float* scale_ub) {
@@ -837,7 +837,7 @@ at::Tensor get_fp8_per_tensor_scale(
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
     at::Tensor scale,
-    std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
     bool stochastic_rounding) {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(
@@ -1308,16 +1308,20 @@ __global__ void fused_quantize_rowwise(
 
 std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
-    std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
     std::optional<c10::ScalarType> output_dtype, // Quantization type
     bool stochastic_rounding) {
   TORCH_CHECK(input.dim() >= 2, "Invalid dim. The dim of input should be >= 2");
   TORCH_CHECK(
+      !stochastic_rounding,
+      "Stochastic rounding is not yet supported in the fused rowwise kernel.");
+  TORCH_CHECK(
       input.scalar_type() == torch::kBFloat16 ||
           input.scalar_type() == torch::kFloat ||
           input.scalar_type() == torch::kHalf,
       "input must be BF16, FP16 or FP32");
+  // TODO: Add stochastic rounding support to the fused rowwise kernel.
   // choose FP8 format
   c10::ScalarType qtype = torch_fp8_e4m3;
   if (output_dtype.has_value()) {
@@ -1381,8 +1385,8 @@ std::vector<at::Tensor> quantize_fp8_per_row(
 
 std::vector<at::Tensor> quantize_fp8_per_col(
     at::Tensor input,
-    std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) // scale upperbound)
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub) // scale upperbound)
 {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(
@@ -2241,18 +2245,19 @@ void scaled_fp4_quant(
 }
 #else
 void scaled_fp4_quant(
-    at::Tensor const& output,
-    at::Tensor const& input,
-    at::Tensor const& output_sf,
-    at::Tensor const& input_sf) {
+    [[maybe_unused]] at::Tensor const& output,
+    [[maybe_unused]] at::Tensor const& input,
+    [[maybe_unused]] at::Tensor const& output_sf,
+    [[maybe_unused]] at::Tensor const& input_sf) {
   throw std::runtime_error(
       "CUDA version is older than 12.8"); // requires CUDA>=12.8
 }
 std::vector<at::Tensor> fake_quantize_nvfp4_per_tensor(
-    at::Tensor input,
-    std::optional<at::Tensor> static_scales, // static scale is optional
-    std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) // scale upperbound)
+    [[maybe_unused]] at::Tensor input,
+    [[maybe_unused]] std::optional<at::Tensor>
+        static_scales, // static scale is optional
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub) // scale upperbound)
 {
   throw std::runtime_error(
       "CUDA version is older than 12.8"); // requires CUDA>=12.8
@@ -2261,62 +2266,63 @@ std::vector<at::Tensor> fake_quantize_nvfp4_per_tensor(
 
 #else
 std::vector<at::Tensor> quantize_fp8_per_tensor(
-    at::Tensor input,
-    std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub,
-    bool stochastic_rounding) { // scale upperbound
+    [[maybe_unused]] at::Tensor input,
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub,
+    [[maybe_unused]] bool stochastic_rounding) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 std::vector<at::Tensor> quantize_fp8_per_row(
-    at::Tensor input,
-    std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub, // scale upperbound
-    std::optional<c10::ScalarType> output_dtype,
-    bool stochastic_rounding) { // quantization type
+    [[maybe_unused]] at::Tensor input,
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub, // scale upperbound
+    [[maybe_unused]] std::optional<c10::ScalarType> output_dtype,
+    [[maybe_unused]] bool stochastic_rounding) { // quantization type
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
-    at::Tensor input,
-    at::Tensor scale,
-    std::optional<at::Tensor> bs,
-    bool stochastic_rounding) { // batch size
+    [[maybe_unused]] at::Tensor input,
+    [[maybe_unused]] at::Tensor scale,
+    [[maybe_unused]] std::optional<at::Tensor> bs,
+    [[maybe_unused]] bool stochastic_rounding) { // batch size
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 at::Tensor get_fp8_per_tensor_scale(
-    at::Tensor input,
-    std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) { // scale upperbound
+    [[maybe_unused]] at::Tensor input,
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 std::vector<at::Tensor> quantize_fp8_per_col(
-    at::Tensor input,
-    std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) { // scale upperbound
+    [[maybe_unused]] at::Tensor input,
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 void scaled_fp4_quant(
-    at::Tensor const& output,
-    at::Tensor const& input,
-    at::Tensor const& output_sf,
-    at::Tensor const& input_sf) {
+    [[maybe_unused]] at::Tensor const& output,
+    [[maybe_unused]] at::Tensor const& input,
+    [[maybe_unused]] at::Tensor const& output_sf,
+    [[maybe_unused]] at::Tensor const& input_sf) {
   throw std::runtime_error(
       "CUDA version is older than 12.8"); // requires CUDA>=12.8
 }
 std::vector<at::Tensor> fake_quantize_nvfp4_per_tensor(
-    at::Tensor input,
-    std::optional<at::Tensor> static_scales, // static scale is optional
-    std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) // scale upperbound)
+    [[maybe_unused]] at::Tensor input,
+    [[maybe_unused]] std::optional<at::Tensor>
+        static_scales, // static scale is optional
+    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub) // scale upperbound)
 {
   throw std::runtime_error(
       "CUDA version is older than 12.8"); // requires CUDA>=12.8
