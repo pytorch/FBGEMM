@@ -29,6 +29,7 @@ jobs:
       os: linux
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
+      runner-fleet: osdc
       with-cuda: enable
       with-rocm: enable
       with-cpu: disable
@@ -60,24 +61,29 @@ jobs:
       #   rocm 7.0/6.4/6.3/6.2); the build produces no wheel and the job fails
       #   on the empty dist/. Drop until supported.
       #
-      # Nova Runner Overrides (release pipeline only):
-      # cuda: see build_wheels_linux_x86.yml - the Nova default
-      #   linux.g5.4xlarge.nvidia.gpu is FBGEMM's CUDA *test* machine, only 8
-      #   physical cores and 64 GB.  RC/final tag pushes build on
-      #   linux.g5.12xlarge.nvidia.gpu instead: 24 cores and 192 GB, same g5
-      #   family so test-infra's unconditional `--gpus all` for cuda rows is
-      #   still satisfied.  A CPU-only runner is not an option here even
-      #   though the build never uses the GPU.  The general Nova CI - nightly,
-      #   main, PRs and manual dispatch - is left on the Nova default runner.
+      # Nova Runner Overrides:
+      # cuda: the Nova default is the 41Gi 1-GPU pod, FBGEMM's CUDA *test*
+      #   machine. Nova builds and tests in one job, and the cutlass kernels do
+      #   not fit there, so both paths build on a 104Gi 1-GPU L4 pod instead --
+      #   mt-rel-l-x86aavx2-29-113-l4 for release refs, which keeps them on a
+      #   release-class runner, and mt-l-x86aavx2-29-113-l4 otherwise.
+      #   The pod has to have a GPU even though the build never uses one:
+      #   test-infra runs the job container with `--gpus all` for every cuda
+      #   row, so a CPU-only runner cannot start it. One is enough.
+      #   The refs below mirror RELEASE_REF_PREFIXES in test-infra's
+      #   generate_binary_build_matrix.
       run: |
         set -ex
         pwd
         ls
 
         runner_args=()
-        if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
-          runner_args=(--runner 'gpu_arch_type:cuda=linux.g5.12xlarge.nvidia.gpu')
-        fi
+        case "${GITHUB_REF}" in
+          refs/heads/main|refs/heads/nightly|refs/heads/release/*|refs/tags/v*)
+            runner_args=(--runner 'gpu_arch_type:cuda=mt-rel-l-x86aavx2-29-113-l4') ;;
+          *)
+            runner_args=(--runner 'gpu_arch_type:cuda=mt-l-x86aavx2-29-113-l4') ;;
+        esac
 
         MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' --filter 'gpu_arch_type:rocm;gpu_arch_version:7.14' "${runner_args[@]}" )"
         echo "${MATRIX_BLOB}"
