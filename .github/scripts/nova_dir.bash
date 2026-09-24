@@ -62,3 +62,33 @@ elif [[ "$CU_VERSION" == "rocm"* ]]; then
     echo "[NOVA] Will default to the PYTORCH_ROCM_ARCH supplied by the environment!!!"
     echo "################################################################################"
 fi
+
+## Optional cgroup memory trace: set FBGEMM_MEMORY_TRACE=1 on the job.
+#
+# Builds that fit a 64GiB EC2 box at -j 16 are being OOM-killed in a 226Gi
+# container at -j 27, so the limit is being hit by something other than the
+# compilers' own anonymous memory. This samples the cgroup's own accounting so
+# that can be read off directly rather than inferred: anon is what the
+# compilers hold, file/file_dirty/file_writeback is page cache the build
+# generates by writing object files, and memory.events counts how many times
+# the limit was actually reached.
+if [[ -n "${FBGEMM_MEMORY_TRACE:-}" ]] && [[ -r /sys/fs/cgroup/memory.current ]]; then
+    (
+        while true; do
+            awk -v ts="$(date -u +%H:%M:%S)" \
+                -v cur="$(cat /sys/fs/cgroup/memory.current)" \
+                -v max="$(cat /sys/fs/cgroup/memory.max)" \
+                -v ev="$(tr '\n' ' ' < /sys/fs/cgroup/memory.events)" '
+                { stat[$1] = $2 }
+                END {
+                    g = 1073741824
+                    printf "[mem] %s max=%.0fG current=%.1fG anon=%.1fG file=%.1fG dirty=%.2fG writeback=%.2fG inactive_file=%.1fG slab=%.1fG | %s\n",
+                        ts, max/g, cur/g, stat["anon"]/g, stat["file"]/g,
+                        stat["file_dirty"]/g, stat["file_writeback"]/g,
+                        stat["inactive_file"]/g, stat["slab"]/g, ev
+                }' /sys/fs/cgroup/memory.stat
+            sleep 10
+        done
+    ) &
+    echo "[NOVA] cgroup memory trace started (pid $!)"
+fi
