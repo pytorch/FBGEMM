@@ -19,13 +19,20 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_memory_lt_gb, gpu_unavailable, optests
+    from test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+        skipIfRocm,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
         gpu_memory_lt_gb,
         gpu_unavailable,
         optests,
+        skipIfRocm,
     )
 
 
@@ -238,6 +245,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @skipIfRocm(
+        "Intentionally-oversized grid exceeds the HIP 2^32 threads-per-launch "
+        "limit (CUDA silently wraps); this large-grid path is CUDA-only."
+    )
     def test_jagged_softmax_forward_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in jagged_softmax_kernel
@@ -294,6 +305,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*gpu_memory_lt_gb(4))
+    @skipIfRocm(
+        "Intentionally-oversized grid exceeds the HIP 2^32 threads-per-launch "
+        "limit (CUDA silently wraps); this large-grid path is CUDA-only."
+    )
     def test_jagged_softmax_backward_large_grid(self) -> None:
         """
         Reproduces the HIP grid-overflow bug in
