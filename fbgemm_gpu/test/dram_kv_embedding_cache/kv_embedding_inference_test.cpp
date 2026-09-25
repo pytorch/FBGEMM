@@ -146,6 +146,17 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
     }
   }
 
+  static int64_t refreshRange(
+      DramKVInferenceEmbedding<float>& backend,
+      int64_t start_id,
+      int64_t count,
+      uint32_t ts) {
+    return backend.refresh_timestamps(
+        at::arange(start_id, start_id + count, at::kLong),
+        at::tensor({count}, at::kLong),
+        ts);
+  }
+
   // Run parallel operations with configurable thread count and work
   template <typename WorkFn>
   void runParallel(int num_threads, WorkFn work_fn) {
@@ -204,6 +215,40 @@ TEST_F(KVEmbeddingInferenceTest, InferenceLifecycleWithMetadata) {
       << "Embedding should be different after eviction";
 
   LOG(INFO) << "Test completed successfully";
+}
+
+// refresh_timestamps must write through the 12-byte inference header. The
+// 16-byte setter lands a full uint32 on the packed timestamp:31 + used:1 word
+// and clears `used`, which makes get_block() return nullptr for the row and
+// hides it from the eviction traversal permanently -- it would survive the
+// second evict below instead of aging out.
+TEST_F(KVEmbeddingInferenceTest, RefreshedRowIsKeptAndStillEvictable) {
+  const int64_t id = 4242;
+  insertEmbedding(id, 1000);
+  ASSERT_EQ(backend_->get_num_rows(), 1);
+
+  ASSERT_EQ(refreshRange(*backend_, id, 1, 5000), 1);
+
+  // Refreshed past the threshold, so it stays.
+  backend_->trigger_feature_evict(3000);
+  backend_->wait_until_eviction_done();
+  EXPECT_EQ(backend_->get_num_rows(), 1);
+  EXPECT_TRUE(verifyEmbedding(readEmbedding(id), generateEmbedding(id)));
+
+  // Still older than this threshold, so it has to go.
+  backend_->trigger_feature_evict(9000);
+  backend_->wait_until_eviction_done();
+  EXPECT_EQ(backend_->get_num_rows(), 0);
+}
+
+// The mark pass gates the pre-load evict on a non-zero return, so a miss must
+// not be counted as marked.
+TEST_F(KVEmbeddingInferenceTest, RefreshTimestampsCountsOnlyResidentRows) {
+  insertEmbedding(1, 1000);
+  insertEmbedding(2, 1000);
+
+  EXPECT_EQ(refreshRange(*backend_, 1, 2, 5000), 2);
+  EXPECT_EQ(refreshRange(*backend_, 50, 10, 5000), 0);
 }
 
 // Concurrent reads test

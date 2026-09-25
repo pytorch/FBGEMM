@@ -611,6 +611,62 @@ class DramKVInferenceEmbedding
 
   void compact() override {}
 
+  int64_t refresh_timestamps(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      uint32_t inplace_update_ts) override {
+    if (!feature_evict_) {
+      return 0;
+    }
+    auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<int64_t>> futures;
+    futures.reserve(shardid_to_indexes.size());
+
+    for (const auto& [shard_id, indexes] : shardid_to_indexes) {
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([this, shard_id, indexes, &indices, inplace_update_ts](
+                             folly::Unit) {
+                int64_t hit_cnt = 0;
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(),
+                    "inference_dram_kv_refresh_timestamps",
+                    [this,
+                     shard_id,
+                     indexes,
+                     &indices,
+                     inplace_update_ts,
+                     &hit_cnt] {
+                      using index_t = scalar_t;
+                      CHECK(indices.is_contiguous());
+                      auto indices_data_ptr = indices.data_ptr<index_t>();
+                      // Eviction erases under the shard wlock before freeing,
+                      // so the rlock keeps the block valid. No eviction may
+                      // be running: a row it already picked is erased even if
+                      // stamped here.
+                      auto rlmap = kv_store_.by(shard_id).rlock();
+                      for (const auto& idx : indexes) {
+                        auto id = int64_t(indices_data_ptr[idx]);
+                        auto it = rlmap->find(id);
+                        if (it != rlmap->end()) {
+                          InferenceFixedBlockPool::set_timestamp(
+                              it->second, inplace_update_ts);
+                          ++hit_cnt;
+                        }
+                      }
+                    });
+                return hit_cnt;
+              });
+      futures.emplace_back(std::move(f));
+    }
+
+    int64_t total_hit_cnt = 0;
+    for (const auto& hit_cnt : folly::collect(std::move(futures)).get()) {
+      total_hit_cnt += hit_cnt;
+    }
+    return total_hit_cnt;
+  }
+
   void trigger_feature_evict(
       std::optional<uint32_t> inplace_update_ts = std::nullopt) override {
     if (feature_evict_) {

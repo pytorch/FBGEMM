@@ -48,6 +48,12 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
 
   at::Tensor get_embeddings(const at::Tensor& indices);
 
+  // Stamps inplace_update_ts onto existing rows so the next trigger_evict()
+  // keeps them. Returns the number of rows matched.
+  int64_t refresh_timestamps(
+      const at::Tensor& indices,
+      int64_t inplace_update_ts_64b);
+
   void log_inplace_update_stats();
 
   std::vector<int64_t> get_read_hit_rate_stats();

@@ -99,6 +99,18 @@ class KVInferenceEmbeddingInterface {
   /// Compact the KV store (placeholder for future implementations)
   virtual void compact() = 0;
 
+  /// Refresh the eviction timestamp of existing rows without reading or writing
+  /// their data. Callers must ensure no eviction is in flight.
+  ///
+  /// @param indices The 1D embedding index tensor
+  /// @param count A single element tensor with number of indices to process
+  /// @param inplace_update_ts Timestamp to stamp onto matched rows
+  /// @return Number of rows that were found and refreshed
+  virtual int64_t refresh_timestamps(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      uint32_t inplace_update_ts) = 0;
+
   /// Trigger feature eviction
   ///
   /// @param inplace_update_ts Optional timestamp for eviction threshold
