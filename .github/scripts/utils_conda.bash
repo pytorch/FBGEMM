@@ -73,7 +73,14 @@ setup_miniconda () {
 
   echo "[SETUP] Reloading the bash configuration ..."
   print_exec "${conda_install_prefix}/bin/conda" init bash
-  print_exec . ~/.bashrc
+  # Source conda's own profile script rather than ~/.bashrc. `conda init` appends
+  # its block to the end of ~/.bashrc, but Debian/Ubuntu ship a ~/.bashrc that
+  # returns on the second line when the shell is non-interactive, so the block is
+  # never reached and the `conda` calls below fail with "command not found". This
+  # only shows up where HOME points at a home that already has a distro .bashrc:
+  # on EC2 HOME is /github/home and `conda init` creates the file from scratch.
+  # shellcheck disable=SC1091
+  print_exec . "${conda_install_prefix}/etc/profile.d/conda.sh"
 
   # https://medium.com/data-tyro/resolving-the-conda-libmamba-issue-and-environment-activation-trouble-9f911a6106a4
   # https://www.reddit.com/r/learnpython/comments/160kjz9/how_do_i_get_anaconda_to_work_the_way_i_want_it_to/

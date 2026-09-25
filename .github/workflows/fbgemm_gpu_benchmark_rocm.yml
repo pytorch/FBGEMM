@@ -51,7 +51,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.24xlarge" },
+          { arch: x86, instance: "mt-l-x86iavx512-94-192" },
         ]
         container-image: [ "ubuntu:22.04" ]
         python-version: [ "3.14" ]
