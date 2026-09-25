@@ -1,12 +1,14 @@
 name: Build FBGEMM GenAI Aarch64 Linux Wheels
 
 on:
-    pull_request:
     push:
       branches:
         - nightly
         - main
       tags:
+        # A pull request opts into the wheel builds with the ciflow/binaries
+        # label, which pushes this tag.
+        - ciflow/binaries/*
         # Release candidate tag look like: v1.11.0-rc1
         - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
         - v[0-9]+.[0-9]+.[0-9]+
@@ -29,6 +31,7 @@ jobs:
       os: linux-aarch64
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
+      runner-fleet: osdc
       with-cuda: enable
       with-cpu: disable
 
@@ -57,7 +60,15 @@ jobs:
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_version:13.2,13.4' )"
+        # Release refs already resolve to a 340Gi release-class runner; only the
+        # 56Gi non-release default is too small for the cutlass kernels.
+        runner_args=()
+        case "${GITHUB_REF}" in
+          refs/heads/main|refs/heads/nightly|refs/heads/release/*|refs/tags/v*) ;;
+          *) runner_args=(--runner 'gpu_arch_type:cuda-aarch64=mt-l-arm64g3-61-463') ;;
+        esac
+
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_version:13.2,13.4' "${runner_args[@]}" )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 

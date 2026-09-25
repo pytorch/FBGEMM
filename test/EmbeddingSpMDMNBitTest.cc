@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <cstring>
 #include <random>
 
 #include <gtest/gtest.h>
@@ -1236,6 +1237,118 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagNegativeIndexTest) {
 
   EXPECT_FALSE(success) << "NoBag kernel should return false for negative index"
                         << " bit_rate=" << bit_rate;
+}
+
+TEST(
+    FusedNBitRowwiseEmbeddingLookupDeterministicTest,
+    Int4AutovecFp32BoundariesAndTails) {
+  constexpr int bit_rate = 4;
+  constexpr int num_rows = 3;
+  constexpr int output_size = 2;
+  constexpr int num_sentries = 8;
+  constexpr float sentry_value = -12345.5f;
+  const vector<int64_t> indices{0, 1, 2, 2, 0};
+  const vector<int64_t> offsets{0, 3, 5};
+  const vector<float> scales{1.0f, 2.0f, 0.5f};
+  const vector<float> biases{0.0f, 1.0f, -2.0f};
+
+  auto quantized_value = [](int row, int column) -> uint8_t {
+    switch (row) {
+      case 0:
+        return column % 16;
+      case 1:
+        return 15 - column % 16;
+      default:
+        return (5 * column + 3) % 16;
+    }
+  };
+
+  ScopedKernelOverride kernel_override(DISPATCH_AUTOVEC);
+  for (int embedding_dim : {32, 33, 34, 64, 96}) {
+    const int packed_dim = (embedding_dim + 1) / 2;
+    const int fused_embedding_dim = packed_dim + 2 * sizeof(float16);
+    for (bool scale_bias_last : {true, false}) {
+      SCOPED_TRACE(
+          testing::Message() << "embedding_dim=" << embedding_dim
+                             << " scale_bias_last=" << scale_bias_last);
+      vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
+      for (int row = 0; row < num_rows; ++row) {
+        const int row_offset = row * fused_embedding_dim;
+        const int data_offset = scale_bias_last ? 0 : 2 * sizeof(float16);
+        for (int column = 0; column < embedding_dim; column += 2) {
+          const uint8_t low = quantized_value(row, column);
+          const uint8_t high = column + 1 < embedding_dim
+              ? quantized_value(row, column + 1)
+              : 0xf;
+          fused_embedding_table[row_offset + data_offset + column / 2] =
+              low | (high << 4);
+        }
+
+        float16 scale;
+        float16 bias;
+        FloatToFloat16_ref(&scales[row], &scale, 1, true /* clip */);
+        FloatToFloat16_ref(&biases[row], &bias, 1, true /* clip */);
+        const int scale_bias_offset = scale_bias_last ? packed_dim : 0;
+        memcpy(
+            fused_embedding_table.data() + row_offset + scale_bias_offset,
+            &scale,
+            sizeof(scale));
+        memcpy(
+            fused_embedding_table.data() + row_offset + scale_bias_offset +
+                sizeof(scale),
+            &bias,
+            sizeof(bias));
+      }
+
+      auto kernel =
+          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float>(
+              bit_rate,
+              embedding_dim,
+              false /* has_weight */,
+              false /* normalize_by_lengths */,
+              0 /* prefetch */,
+              false /* is_weight_positional */,
+              true /* use_offsets */,
+              -1 /* output_stride */,
+              -1 /* input_stride */,
+              scale_bias_last,
+              false /* is_bf16_out */);
+
+      vector<float> output(
+          2 * num_sentries + output_size * embedding_dim, sentry_value);
+      float* output_data = output.data() + num_sentries;
+      ASSERT_TRUE(kernel(
+          output_size,
+          indices.size(),
+          num_rows,
+          fused_embedding_table.data(),
+          indices.data(),
+          offsets.data(),
+          nullptr,
+          output_data));
+
+      for (int batch = 0; batch < output_size; ++batch) {
+        for (int column = 0; column < embedding_dim; ++column) {
+          float expected = 0.0f;
+          for (int position = offsets[batch]; position < offsets[batch + 1];
+               ++position) {
+            const int row = indices[position];
+            expected +=
+                scales[row] * quantized_value(row, column) + biases[row];
+          }
+          EXPECT_EQ(output_data[batch * embedding_dim + column], expected)
+              << "batch=" << batch << " column=" << column;
+        }
+      }
+      for (int i = 0; i < num_sentries; ++i) {
+        EXPECT_EQ(output[i], sentry_value) << "leading sentry=" << i;
+        EXPECT_EQ(
+            output[num_sentries + output_size * embedding_dim + i],
+            sentry_value)
+            << "trailing sentry=" << i;
+      }
+    }
+  }
 }
 
 // int4 -> int4 is the only combination the nbit no_bag gather supports, so it

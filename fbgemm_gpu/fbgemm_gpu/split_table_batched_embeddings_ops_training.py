@@ -666,6 +666,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 invalid index to zero and adjusting an invalid offset to be
                 within the bound)
 
+            `WARNING_ALLOW_TRAILING_INDICES` is inference-only and is not
+            supported by this training module.
+
         uvm_non_rowwise_momentum (bool = False): If True, place non-rowwise
             momentum on the unified virtual memory
 

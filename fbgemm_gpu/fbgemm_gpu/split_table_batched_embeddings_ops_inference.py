@@ -254,18 +254,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         bounds_check_mode (BoundsCheckMode = BoundsCheckMode.WARNING): Input
             checking mode. Available `BoundsCheckMode` options are
 
-            (1) `NONE` = skip bounds check
-
-            (2) `FATAL` = throw an error when encountering an invalid
+            - `FATAL` (0) = throw an error when encountering an invalid
                 index/offset
 
-            (3) `WARNING` = print a warning message when encountering an
+            - `WARNING` (1) = print a warning message when encountering an
                 invalid index/offset and fix it (setting an invalid index to
                 zero and adjusting an invalid offset to be within the bound)
 
-            (4) `IGNORE` = silently fix an invalid index/offset (setting an
+            - `IGNORE` (2) = silently fix an invalid index/offset (setting an
                 invalid index to zero and adjusting an invalid offset to be
                 within the bound)
+
+            - `NONE` (3) = skip bounds check
+
+            - `WARNING_ALLOW_TRAILING_INDICES` (7) = behave like `WARNING`,
+                but allow unused indices after the final offset
 
         weight_lists (list[tuple[Tensor, Tensor | None]] | None = None):
             [T]

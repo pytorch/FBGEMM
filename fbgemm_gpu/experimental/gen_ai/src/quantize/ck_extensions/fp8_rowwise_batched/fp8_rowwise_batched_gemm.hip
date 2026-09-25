@@ -217,6 +217,7 @@ at::Tensor f8f8bf16_rowwise_batched(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");
   TORCH_CHECK(use_fast_accum, "AMD does not support disabling use_fast_accum.");
+  TORCH_CHECK(!bias.has_value(), "AMD does not support fused bias.");
 
   // Check inputs are in expected format.
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
