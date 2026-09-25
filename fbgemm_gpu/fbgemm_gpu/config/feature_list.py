@@ -84,6 +84,9 @@ class FeatureGateName(Enum):
     # Parallelise the CPU NOBAG inference TBE over row ranges, not whole tables
     TBE_NOBAG_ROW_PARALLELISM = auto()
 
+    # Pool per-iteration UVA scratch pads (inserted_rows) in SSD prefetch
+    TBE_SSD_POOL_INSERTED_ROWS = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
