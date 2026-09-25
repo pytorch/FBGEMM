@@ -355,13 +355,13 @@ gen_cpu_files_training_pt2 = (
     ]
     + [
         "gen_embedding_backward_split_{}_pt2_cpu_wrapper.cpp".format(optimizer)
-        for optimizer in ALL_OPTIMIZERS
+        for optimizer in CPU_OPTIMIZERS
     ]
 )
 
 gen_gpu_files_training_pt2 = [
     "gen_embedding_backward_split_{}_pt2_cuda_wrapper.cpp".format(optimizer)
-    for optimizer in ALL_OPTIMIZERS
+    for optimizer in GPU_OPTIMIZERS
 ] + [
     "gen_embedding_backward_ssd_{}_pt2_cuda_wrapper.cpp".format(optimizer)
     for optimizer in SSD_OPTIMIZERS
