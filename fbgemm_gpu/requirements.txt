@@ -25,7 +25,7 @@ parameterized
 pyre-extensions
 pyyaml
 scikit-build
-setuptools==78.1.1
+setuptools==83.0.0
 setuptools_git_versioning>=3.0.0
 tabulate
 patchelf
