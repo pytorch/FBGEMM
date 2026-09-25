@@ -7,6 +7,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <bit>
 #include <cmath>
 #include <random>
 
@@ -17,36 +18,39 @@ using namespace std;
 using namespace fbgemm;
 
 TEST(FBGemmBfloat16Test, Conversion) {
-  float a[100]; // fp32 type
+  float a[100];
   for (int i = 0; i < 100; ++i) {
     a[i] = i + 1.25;
   }
-  bfloat16 b[100]; // bfloat16 type
-  float c[100]; // fp32 type
+  bfloat16 b[100];
+  float c[100];
   FloatToBfloat16_ref(a, b, 100);
   Bfloat16ToFloat_ref(b, c, 100);
   for (int i = 0; i < 100; ++i) {
-    // The relative error should be less than 1/(2^7) since bfloat16
-    // has 7 bits mantissa.
+    EXPECT_EQ(b[i], cpu_float2bfloat16(a[i]))
+        << "ref conversion differs from scalar at i=" << i;
     EXPECT_LE(fabs(c[i] - a[i]) / a[i], 1.0 / 128);
   }
 }
 
 TEST(FBGemmBfloat16Test, Conversion_simd) {
-  float a[100]; // fp32 type
+  float a[100];
   for (int i = 0; i < 100; ++i) {
     a[i] = i + 1.25;
   }
-  bfloat16 b[100]; // bfloat16 type
-  float c[100]; // fp32 type
-  FloatToBfloat16_simd(a, b, 100);
-  Bfloat16ToFloat_simd(b, c, 100);
+  bfloat16 b_ref[100];
+  bfloat16 b_simd[100];
+  float c[100];
+  FloatToBfloat16_ref(a, b_ref, 100);
+  FloatToBfloat16_simd(a, b_simd, 100);
+  Bfloat16ToFloat_simd(b_simd, c, 100);
   for (int i = 0; i < 100; ++i) {
-    // The relative error should be less than 1/(2^7) since bfloat16
-    // has 7 bits mantissa.
-    EXPECT_LE(fabs(c[i] - a[i]) / a[i], 1.0 / 128)
-        << "Conversion results differ at (" << i << " ). ref: " << a[i]
-        << " conversion: " << c[i];
+    EXPECT_EQ(b_simd[i], b_ref[i])
+        << "simd and ref differ at i=" << i
+        << " input=0x" << std::hex << std::bit_cast<uint32_t>(a[i]);
+    EXPECT_EQ(b_simd[i], cpu_float2bfloat16(a[i]))
+        << "simd differs from scalar at i=" << i;
+    EXPECT_LE(fabs(c[i] - a[i]) / a[i], 1.0 / 128);
   }
 }
 
@@ -67,24 +71,23 @@ TEST(FBGemmBfloat16Test, Conversion_simd2) {
     int m = s[0];
     int n = s[1];
 
-    cerr << "m = " << m << " n = " << n << '\n';
-    aligned_vector<float> A_fp32_ref(m * n); // fp32 type
-    aligned_vector<bfloat16> A_bfloat16(m * n); // bfloat16 type
-    aligned_vector<float> A_fp32_final(m * n); // fp32 type
-    // randFill(A_fp32_ref, 0.0f, 4.0f);
+    aligned_vector<float> A_fp32_ref(m * n);
+    aligned_vector<bfloat16> A_bf16_ref(m * n);
+    aligned_vector<bfloat16> A_bf16_simd(m * n);
+    aligned_vector<float> A_fp32_final(m * n);
     for (int i = 0; i < m * n; ++i) {
       A_fp32_ref[i] = i + 1.25;
     }
 
-    FloatToBfloat16_simd(A_fp32_ref.data(), A_bfloat16.data(), m * n);
-    Bfloat16ToFloat_simd(A_bfloat16.data(), A_fp32_final.data(), m * n);
+    FloatToBfloat16_ref(A_fp32_ref.data(), A_bf16_ref.data(), m * n);
+    FloatToBfloat16_simd(A_fp32_ref.data(), A_bf16_simd.data(), m * n);
+    Bfloat16ToFloat_simd(A_bf16_simd.data(), A_fp32_final.data(), m * n);
     for (int i = 0; i < m * n; ++i) {
-      // The relative error should be less than 1/(2^7) since bfloat16
-      // has 7 bits mantissa.
-      // printf( "A_fp32_final[%d]: %f; A_fp32_ref[%d]: %f\n", i,
-      // A_fp32_final[i], i, A_fp32_ref[i]);
+      EXPECT_EQ(A_bf16_simd[i], A_bf16_ref[i])
+          << "m=" << m << " n=" << n << " i=" << i;
       EXPECT_LE(
           fabs(A_fp32_final[i] - A_fp32_ref[i]) / A_fp32_ref[i], 1.0 / 128);
     }
   }
 }
+

@@ -156,12 +156,17 @@ if(NOT MSVC)
 endif()
 
 set(fbgemm_arm_defs)
+set(fbgemm_arm_bf16_flags)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
   set(fbgemm_arm_defs
       FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
       FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
   if(NOT APPLE)
     list(APPEND fbgemm_arm_defs FBGEMM_ENABLE_KLEIDIAI)
+  endif()
+  check_cxx_compiler_flag("-march=armv8.6-a+bf16+fp16fml" COMPILER_SUPPORTS_BF16)
+  if(COMPILER_SUPPORTS_BF16)
+    set(fbgemm_arm_bf16_flags "-march=armv8.6-a+bf16+fp16fml")
   endif()
 endif()
 
@@ -177,6 +182,10 @@ endif()
 set(fbgemm_generic_defs "${fbgemm_arm_defs}")
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
+endif()
+# Gates the BFCVT dispatch in FbgemmBfloat16Convert.cc.
+if(COMPILER_SUPPORTS_BF16)
+  list(APPEND fbgemm_generic_defs FBGEMM_HAVE_BF16_BFCVT)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
@@ -320,6 +329,29 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
 
 else()
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build Neon target")
+endif()
+
+################################################################################
+# FBGEMM BFCVT Target
+################################################################################
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64" AND COMPILER_SUPPORTS_BF16)
+  message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build BFCVT target")
+  cpp_library(
+    PREFIX
+      fbgemm_bfcvt
+    TYPE
+      OBJECT
+    SRCS
+      src/FbgemmBfloat16ConvertBfcvt.cc
+    CC_FLAGS
+      ${fbgemm_arm_bf16_flags}
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_bfcvt)
 endif()
 
 ################################################################################

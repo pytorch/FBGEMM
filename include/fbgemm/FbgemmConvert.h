@@ -47,6 +47,24 @@ FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size);
 FBGEMM_API void
 Bfloat16ToFloat_simd(const bfloat16* src, float* dst, size_t size);
 
+#if defined(__aarch64__)
+/**
+ * @brief BFCVT (hardware bf16) implementation to convert fp32 numbers to
+ * bf16 numbers.
+ *
+ */
+FBGEMM_API void
+FloatToBfloat16_bfcvt(const float* src, bfloat16* dst, size_t size);
+
+/**
+ * @brief BFCVT (hardware bf16) implementation to convert bf16 numbers to
+ * fp32 numbers.
+ *
+ */
+FBGEMM_API void
+Bfloat16ToFloat_bfcvt(const bfloat16* src, float* dst, size_t size);
+#endif
+
 #if !defined(__aarch64__)
 /**
  * @brief AVX2 implementation to convert fp32 numbers to bf16 numbers.
