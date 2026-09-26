@@ -22,6 +22,19 @@ using namespace fbgemm_gpu;
 
 constexpr uint32_t VEC_WIDTH = 4;
 
+// STEP_MASK for process_all_indices_large_Ls: bits {0, N, ..., (step - 1) * N}
+// with N = kWarpSize / LOAD_GROUP_SIZE, i.e. the cache lookup bits of the rows
+// a load group reads in one step. Depends on kWarpSize, so do not hardcode.
+template <uint32_t LOAD_GROUP_SIZE>
+constexpr uint32_t large_Ls_step_mask(const uint32_t step) {
+  constexpr uint32_t num_load_groups = kWarpSize / LOAD_GROUP_SIZE;
+  uint32_t mask = 0;
+  for (uint32_t j = 0; j < step; ++j) {
+    mask |= 1u << (j * num_load_groups);
+  }
+  return mask;
+}
+
 enum SAVED_PARAMS {
   P_indices = 0,
   P_weights,
@@ -990,32 +1003,29 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     }
 
     // Tail warp
-    // STEP_MASK computation assumes STEP = 4
     {% if not weighted %}
     if (load_D - load_d < kWarpSize) {
       const auto tail_warp_size = load_D % kWarpSize;
       if (tail_warp_size <= 8) {
-        INVOKE_PROCESS_ALL_INDICES(large_Ls, 8, 0x1111)
+        INVOKE_PROCESS_ALL_INDICES(large_Ls, 8, large_Ls_step_mask<8>(STEP))
       }
       else if (tail_warp_size <= 16) {
-        INVOKE_PROCESS_ALL_INDICES(large_Ls, 16, 0x55)
+        INVOKE_PROCESS_ALL_INDICES(large_Ls, 16, large_Ls_step_mask<16>(STEP))
       }
 #if defined(USE_ROCM)
-      // not sure step mask value to set when group size is 32
-      // while use_lxu_cache is false step mask makes no sense
       else if (tail_warp_size <= 32 && !use_lxu_cache) {
-        INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, 0xf)
+        INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, large_Ls_step_mask<32>(STEP))
       }
 #endif
       else {
-        INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
+        INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, large_Ls_step_mask<kWarpSize>(STEP))
       }
     }
     else {
-      INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
+      INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, large_Ls_step_mask<kWarpSize>(STEP))
     }
     {% else %}
-    INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
+    INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, large_Ls_step_mask<kWarpSize>(STEP))
     {% endif %}
 
 #if defined(USE_ROCM)
