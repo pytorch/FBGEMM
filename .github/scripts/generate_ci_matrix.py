@@ -327,9 +327,9 @@ class BuildConfigScheme:
 
         if self.variant == VARIANT_CPU:
             return [
-                {"arch": "x86", "instance": "linux.4xlarge"},
+                {"arch": "x86", "instance": "mt-l-x86iavx512-16-128"},
                 # Use Graviton 3 instances for FP16FML support
-                {"arch": "arm", "instance": "linux.arm64.m7g.4xlarge"},
+                {"arch": "arm", "instance": "mt-l-arm64g3-16-62"},
             ]
 
         elif self.variant == VARIANT_CUDA:
@@ -338,17 +338,21 @@ class BuildConfigScheme:
             # { arch: x86, instance: "linux.gcp.a100" },
             if self.jobtype == JOBTYPE_BUILD:
                 table = {
-                    TARGET_DEFAULT: [{"arch": "x86", "instance": "linux.24xlarge"}],
-                    TARGET_GENAI: [
-                        {"arch": "x86", "instance": "linux.12xlarge.memory"}
+                    TARGET_DEFAULT: [
+                        {"arch": "x86", "instance": "mt-l-x86iavx512-94-192"}
                     ],
-                    TARGET_HSTU: [{"arch": "x86", "instance": "linux.24xlarge.memory"}],
+                    TARGET_GENAI: [
+                        {"arch": "x86", "instance": "mt-l-x86iavx512-48-384"}
+                    ],
+                    TARGET_HSTU: [
+                        {"arch": "x86", "instance": "mt-l-x86iavx512-94-768"}
+                    ],
                 }
                 return table[self.target]
             else:
                 # NOTE: Move to linux.aws.h100 at a later date when the queue is
                 # small enough (https://hud.pytorch.org/metrics)
-                return [{"arch": "x86", "instance": "linux.g5.4xlarge.nvidia.gpu"}]
+                return [{"arch": "x86", "instance": "mt-l-x86aavx2-11-41-a10g"}]
 
         elif self.variant == VARIANT_ROCM:
             return [{"arch": "x86", "instance": "linux.rocm.gpu.2"}]

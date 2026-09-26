@@ -87,11 +87,8 @@ jobs:
         }
       container: >-
         {
-          "image": "amazonlinux:2023",
-          "options": "--user root --privileged --pid=host",
-          "volumes": [
-            "/var/run/docker.sock:/var/run/docker.sock"
-          ]
+          "image": "almalinux:9",
+          "options": "--user root"
         }
     secrets:
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}

@@ -309,7 +309,14 @@ function(fbgemm_get_warning_flags)
     -Wno-error=header-hygiene
     # ROCm can miss Composable Kernel's requested occupancy for some gfx908
     # kernels. This is a backend tuning diagnostic, not an invalid program.
-    -Wno-error=pass-failed)
+    -Wno-error=pass-failed
+    # The generated embedding kernels emit ~776k of these on a full build,
+    # 95% of all warnings, and each costs ~10 lines of source and caret
+    # context. That is 1.5 GB of log, which is more than a CI runner survives.
+    # The flag stays on for host and CUDA code, where the count is still
+    # visible. Remove this line when the device count is small enough to
+    # print.
+    -Wno-shorten-64-to-32)
 
   set(_hipcc
     ${_cc_common}

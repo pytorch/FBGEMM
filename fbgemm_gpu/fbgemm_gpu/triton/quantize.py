@@ -322,7 +322,11 @@ def _kernel_quantize_mx4(
         # since implied one is included in exp_diff.
         fp32_sig_bits = tl.where(is_subnorm, 23, 24).to(tl.int32)
         # Now we're ready to shift down to target bitwidth (with an extra bit for rounding).
-        mantissa = mantissa >> (fp32_sig_bits + exp_diff - MBITS_IMPLICIT - 1)
+        # The shift can reach 45 for tiny values. Shifting an int32 by >= 32 is undefined:
+        # NVIDIA saturates to 0 but AMD GPUs only use the low 5 bits of the shift amount.
+        # Mantissa fits in 24 bits, so clamping to 31 gives 0 on all backends.
+        mantissa_shift = tl.minimum(fp32_sig_bits + exp_diff - MBITS_IMPLICIT - 1, 31)
+        mantissa = mantissa >> mantissa_shift
         # Perform rounding by adding 1 and shifting down.
         mantissa = (mantissa + 1) >> 1
 

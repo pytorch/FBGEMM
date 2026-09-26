@@ -28,9 +28,9 @@ jobs:
     permissions:
       # Grant write permission here so that the generated docs can be pushed to `gh-pages` branch
       contents: write
-    runs-on: linux.2xlarge
+    runs-on: mt-l-x86iavx512-8-64
     container:
-      image: amazonlinux:2023
+      image: almalinux:9
       options: --user root
     defaults:
       run:

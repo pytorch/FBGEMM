@@ -39,7 +39,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, settings, Verbosity
+from hypothesis import given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -1319,9 +1319,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         counter_weight_decay_mode: CounterWeightDecayMode,
         counter_halflife: int,
     ) -> None:
-        if torch.version.hip:
-            assume(not (optimizer == OptimType.EXACT_ROWWISE_ADAGRAD and D == 2))
-
         if (
             pooling_mode == PoolingMode.NONE
             or optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
