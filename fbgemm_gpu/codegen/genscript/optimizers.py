@@ -962,6 +962,199 @@ def rowwise_rmsprop_ar() -> dict[str, Any]:
     }
 
 
+def ftrl() -> dict[str, Any]:
+    """
+    FTRL-Proximal (Follow The Regularized Leader).
+
+    Algorithm 1 of McMahan et al. 2013 ("Ad Click Prediction: a View from the
+    Trenches"), with the paper's fixed square root generalized to an arbitrary
+    exponent the way TensorFlow's FtrlOptimizer does. Per element:
+
+        new_accum = accum + g^2
+        sigma_new = new_accum ^ (-learning_rate_power)
+        sigma_old = accum     ^ (-learning_rate_power)
+        linear   += g - (sigma_new - sigma_old) / learning_rate * weight
+        accum     = new_accum
+        quadratic = (beta + sigma_new) / learning_rate + l2_reg
+        weight    = |linear| > l1_reg ? (l1_reg * sgn(linear) - linear) / quadratic : 0
+
+    `learning_rate`, `ftrl_beta`, `ftrl_l1_reg` and `ftrl_l2_reg` are the
+    paper's alpha, beta, lambda1 and lambda2. `learning_rate_power == -0.5`
+    (the default) recovers the paper's alpha / (beta + sqrt(n)) learning rate
+    exactly and takes the faster sqrtf path.
+
+    This matches NVIDIA DynamicEmb's FTRL (NVIDIA/recsys-examples#487) element
+    for element, so the two can be compared directly. Note that TensorFlow and
+    x-deeplearning scale their l2 knob differently -- their quadratic term is
+    `2 * l2` with no beta -- so a configuration ported from either must halve
+    its l2 value.
+
+    Per-element state, laid out to match DynamicEmb:
+      momentum1 -- `linear`, the accumulated linear term (z in the paper)
+      momentum2 -- `accum`, the running sum of squared gradients (n)
+    2 * D floats per row, the same footprint as ADAM.
+
+    User-facing knobs (`ftrl_`-prefixed because OptimizerArgs is a flat
+    namespace shared by every optimizer):
+      ftrl_learning_rate_power -- exponent applied to `accum`; must be <= 0.
+                      -0.5 gives the classic 1/sqrt schedule, 0 holds the
+                      learning rate fixed, and a positive value would make it
+                      grow without bound.
+      ftrl_beta     -- keeps the per-coordinate learning rate finite while
+                      `accum` is still small.
+      ftrl_l1_reg   -- L1 strength. A weight whose |linear| never exceeds this
+                      stays exactly 0, which is what makes FTRL produce sparse
+                      embedding rows.
+      ftrl_l2_reg   -- proximal L2 strength. It enters the denominator, NOT as
+                      a gradient-space decay, so FTRL deliberately ignores
+                      `weight_decay` / `weight_decay_mode`.
+
+    NOTE: FTRL *recomputes* the weight from (linear, accum) instead of
+    incrementing it, so a row's initial (random) value is discarded the first
+    time that row is touched. This is inherent to the algorithm.
+
+    NOTE: `momentum1` holds `linear`, which must start at zero. Any framework
+    that seeds optimizer state by buffer name (TorchEasyRec seeds `momentum1`
+    for Adagrad, for instance) must not point that at FTRL, or it will corrupt
+    `linear`. `accum` is `momentum2`.
+
+    NOTE: the update divides by `learning_rate`, which must be > 0.
+    """
+    split_precomputation = ""
+
+    split_weight_update = """
+      Vec4T<cache_t> linear_t(&momentum1[idx * D + d]);
+      Vec4T<cache_t> accum_t(&momentum2[idx * D + d]);
+
+      // -0.5 is by far the common case, and sqrtf beats powf for it.
+      const bool ftrl_use_sqrt = fabsf(ftrl_learning_rate_power + 0.5f) < 1e-6f;
+      const float ftrl_accum_exponent = -ftrl_learning_rate_power;
+
+      {
+        const auto n_old = accum_t.acc.x;
+        const auto n_new = n_old + grad.acc.x * grad.acc.x;
+        const auto sigma_new = ftrl_use_sqrt ? sqrtf(n_new) : powf(n_new, ftrl_accum_exponent);
+        const auto sigma_old = ftrl_use_sqrt ? sqrtf(n_old) : powf(n_old, ftrl_accum_exponent);
+        // NOTE: reads weight_new *before* it is overwritten below.
+        linear_t.acc.x += grad.acc.x
+            - (sigma_new - sigma_old) / learning_rate * weight_new.acc.x;
+        const auto z = linear_t.acc.x;
+        const auto quadratic = (ftrl_beta + sigma_new) / learning_rate + ftrl_l2_reg;
+        const auto sgn_z = static_cast<float>((z > 0.0f) - (z < 0.0f));
+        weight_new.acc.x = fabsf(z) > ftrl_l1_reg
+            ? (ftrl_l1_reg * sgn_z - z) / quadratic
+            : 0.0f;
+        accum_t.acc.x = n_new;
+      }
+
+      {
+        const auto n_old = accum_t.acc.y;
+        const auto n_new = n_old + grad.acc.y * grad.acc.y;
+        const auto sigma_new = ftrl_use_sqrt ? sqrtf(n_new) : powf(n_new, ftrl_accum_exponent);
+        const auto sigma_old = ftrl_use_sqrt ? sqrtf(n_old) : powf(n_old, ftrl_accum_exponent);
+        // NOTE: reads weight_new *before* it is overwritten below.
+        linear_t.acc.y += grad.acc.y
+            - (sigma_new - sigma_old) / learning_rate * weight_new.acc.y;
+        const auto z = linear_t.acc.y;
+        const auto quadratic = (ftrl_beta + sigma_new) / learning_rate + ftrl_l2_reg;
+        const auto sgn_z = static_cast<float>((z > 0.0f) - (z < 0.0f));
+        weight_new.acc.y = fabsf(z) > ftrl_l1_reg
+            ? (ftrl_l1_reg * sgn_z - z) / quadratic
+            : 0.0f;
+        accum_t.acc.y = n_new;
+      }
+
+      {
+        const auto n_old = accum_t.acc.z;
+        const auto n_new = n_old + grad.acc.z * grad.acc.z;
+        const auto sigma_new = ftrl_use_sqrt ? sqrtf(n_new) : powf(n_new, ftrl_accum_exponent);
+        const auto sigma_old = ftrl_use_sqrt ? sqrtf(n_old) : powf(n_old, ftrl_accum_exponent);
+        // NOTE: reads weight_new *before* it is overwritten below.
+        linear_t.acc.z += grad.acc.z
+            - (sigma_new - sigma_old) / learning_rate * weight_new.acc.z;
+        const auto z = linear_t.acc.z;
+        const auto quadratic = (ftrl_beta + sigma_new) / learning_rate + ftrl_l2_reg;
+        const auto sgn_z = static_cast<float>((z > 0.0f) - (z < 0.0f));
+        weight_new.acc.z = fabsf(z) > ftrl_l1_reg
+            ? (ftrl_l1_reg * sgn_z - z) / quadratic
+            : 0.0f;
+        accum_t.acc.z = n_new;
+      }
+
+      {
+        const auto n_old = accum_t.acc.w;
+        const auto n_new = n_old + grad.acc.w * grad.acc.w;
+        const auto sigma_new = ftrl_use_sqrt ? sqrtf(n_new) : powf(n_new, ftrl_accum_exponent);
+        const auto sigma_old = ftrl_use_sqrt ? sqrtf(n_old) : powf(n_old, ftrl_accum_exponent);
+        // NOTE: reads weight_new *before* it is overwritten below.
+        linear_t.acc.w += grad.acc.w
+            - (sigma_new - sigma_old) / learning_rate * weight_new.acc.w;
+        const auto z = linear_t.acc.w;
+        const auto quadratic = (ftrl_beta + sigma_new) / learning_rate + ftrl_l2_reg;
+        const auto sgn_z = static_cast<float>((z > 0.0f) - (z < 0.0f));
+        weight_new.acc.w = fabsf(z) > ftrl_l1_reg
+            ? (ftrl_l1_reg * sgn_z - z) / quadratic
+            : 0.0f;
+        accum_t.acc.w = n_new;
+      }
+      linear_t.store(&momentum1[idx * D + d]);
+      accum_t.store(&momentum2[idx * D + d]);
+    """
+
+    split_weight_update_cpu = """
+        const bool ftrl_use_sqrt = std::fabs(ftrl_learning_rate_power + 0.5) < 1e-6;
+        const double ftrl_accum_exponent = -ftrl_learning_rate_power;
+        for (int64_t d = 0; d < D; ++d) {
+          const at::acc_type<grad_t, true> g = grad_buffer[d];
+          const auto n_old = momentum2[idx * D + d];
+          const auto n_new = n_old + g * g;
+          const auto sigma_new =
+              ftrl_use_sqrt ? std::sqrt(n_new) : std::pow(n_new, ftrl_accum_exponent);
+          const auto sigma_old =
+              ftrl_use_sqrt ? std::sqrt(n_old) : std::pow(n_old, ftrl_accum_exponent);
+          // NOTE: reads weights[d] *before* it is overwritten below.
+          const auto z = momentum1[idx * D + d] + g
+              - (sigma_new - sigma_old) / learning_rate * weights[d];
+          const auto quadratic =
+              (ftrl_beta + sigma_new) / learning_rate + ftrl_l2_reg;
+          const auto sgn_z = static_cast<double>((z > 0) - (z < 0));
+          momentum1[idx * D + d] = z;
+          weights[d] = std::fabs(z) > ftrl_l1_reg
+              ? (ftrl_l1_reg * sgn_z - z) / quadratic
+              : 0;
+          momentum2[idx * D + d] = n_new;
+        }
+    """
+
+    return {
+        "optimizer": "ftrl",
+        "args": OptimizerArgsSet.create(
+            [
+                # linear: the FTRL linearized-loss accumulator (z)
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                # accum: running sum of squared gradients (n)
+                OptimItem(ArgType.TENSOR, "momentum2"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "ftrl_learning_rate_power", -0.5),
+                OptimItem(ArgType.FLOAT, "ftrl_beta", 0.0),
+                OptimItem(ArgType.FLOAT, "ftrl_l1_reg", 0.0),
+                OptimItem(ArgType.FLOAT, "ftrl_l2_reg", 0.0),
+            ],
+        ),
+        "split_precomputation": split_precomputation,
+        "split_weight_update": split_weight_update,
+        "split_post_update": "",
+        "split_weight_update_cpu": split_weight_update_cpu,
+        "has_cpu_support": True,
+        "has_gpu_support": True,
+        "has_vbe_support": True,
+        # FTRL's proximal L2 is not a gradient-space decay, so global weight
+        # decay does not compose with it; this must stay False.
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
+    }
+
+
 # Deprecated, to be cleaned up
 def rowwise_weighted_adagrad() -> dict[str, Any]:
     split_weight_update = """
