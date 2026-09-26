@@ -17,7 +17,11 @@ on:
         description: 'Container configuration for the job'
         type: string
         required: false
-        default: '{"image": null}'
+        default: >-
+          {
+            "image": "almalinux:9",
+            "options": "--user root"
+          }
       repo-ref:
         description: Repository ref/sha
         type: string
@@ -103,10 +107,6 @@ jobs:
       with:
         submodules: true
         ref: ${{ inputs.repo-ref }}
-
-    - name: Free Disk Space on Host
-      if: ${{ fromJson(inputs.container).image != null }}
-      run: . $PRELUDE; free_disk_space_on_host
 
     # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
     - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
