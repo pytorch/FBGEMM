@@ -751,13 +751,6 @@ class FP8Tests(unittest.TestCase):
         elif Mode == "rowwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
             x = (xq.float() / x_scale.unsqueeze(1)).to(dtype)  # Fake quantization
-            if stochastic_rounding:
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    "Stochastic rounding is not yet supported",
-                ):
-                    torch.ops.fbgemm.quantize_fp8_per_row(x, stochastic_rounding=True)
-                return
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
                 x, stochastic_rounding=stochastic_rounding
             )
