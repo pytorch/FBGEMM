@@ -16,9 +16,9 @@ from .common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_rocm
+    from test_utils import gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 if torch.cuda.is_available():
     from fbgemm_gpu.sll.triton import triton_array_jagged_bmm_jagged_out
@@ -33,8 +33,6 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyrefly: ignore [bad-argument-type]
-    @unittest.skipIf(*running_on_rocm)
     @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out(
         self,
@@ -161,8 +159,6 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyrefly: ignore [bad-argument-type]
-    @unittest.skipIf(*running_on_rocm)
     @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out_with_grad(
         self,
@@ -250,8 +246,6 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyrefly: ignore [bad-argument-type]
-    @unittest.skipIf(*running_on_rocm)
     @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out_meta_backend(
         self,

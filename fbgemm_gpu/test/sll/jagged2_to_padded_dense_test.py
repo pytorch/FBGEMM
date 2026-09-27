@@ -15,16 +15,14 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_rocm
+    from test_utils import gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
 class Jagged2ToPaddedDenseTest(unittest.TestCase):
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyrefly: ignore [bad-argument-type]
-    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 10),
