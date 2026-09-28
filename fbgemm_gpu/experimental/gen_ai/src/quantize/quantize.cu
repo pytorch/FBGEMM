@@ -1311,17 +1311,13 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
     std::optional<c10::ScalarType> output_dtype, // Quantization type
-    bool stochastic_rounding) {
+    [[maybe_unused]] bool stochastic_rounding) {
   TORCH_CHECK(input.dim() >= 2, "Invalid dim. The dim of input should be >= 2");
-  TORCH_CHECK(
-      !stochastic_rounding,
-      "Stochastic rounding is not yet supported in the fused rowwise kernel.");
   TORCH_CHECK(
       input.scalar_type() == torch::kBFloat16 ||
           input.scalar_type() == torch::kFloat ||
           input.scalar_type() == torch::kHalf,
       "input must be BF16, FP16 or FP32");
-  // TODO: Add stochastic rounding support to the fused rowwise kernel.
   // choose FP8 format
   c10::ScalarType qtype = torch_fp8_e4m3;
   if (output_dtype.has_value()) {
