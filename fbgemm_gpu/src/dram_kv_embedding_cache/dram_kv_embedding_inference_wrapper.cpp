@@ -93,9 +93,11 @@ DramKVEmbeddingInferenceWrapper::DramKVEmbeddingInferenceWrapper(
       uniform_init_lower_(uniform_init_lower),
       uniform_init_upper_(uniform_init_upper),
       disable_random_init_(disable_random_init) {
-  LOG(INFO)
-      << "DramKVEmbeddingInferenceWrapper created with disable_random_init = "
-      << disable_random_init_ << ", num_shards = " << num_shards_;
+  LOG(INFO) << "DramKVEmbeddingInferenceWrapper constructed with "
+            << "disable_random_init = " << disable_random_init_
+            << ", num_shards = " << num_shards_ << ", this = " << this
+            << " (deserialize() may overwrite this if a 3+-entry payload is "
+            << "present)";
 }
 
 void DramKVEmbeddingInferenceWrapper::init(
@@ -134,7 +136,10 @@ void DramKVEmbeddingInferenceWrapper::init_impl(
     const int64_t scale_bias_size_in_bytes,
     const std::optional<at::Tensor>& hash_size_cumsum,
     const InitMode mode) {
-  LOG(INFO) << "DramKVEmbeddingInferenceWrapper::init_impl() starts";
+  LOG(INFO) << "DramKVEmbeddingInferenceWrapper::init_impl() starts with "
+            << "disable_random_init = " << disable_random_init_
+            << ", backend already set = " << (kv_backend_ != nullptr)
+            << ", this = " << this;
   TORCH_CHECK(!specs.empty(), "Dram KV embedding specs must not be empty");
   TORCH_CHECK(
       logical_row_alignment > 0,
@@ -345,6 +350,9 @@ c10::List<at::Tensor> DramKVEmbeddingInferenceWrapper::serialize() const {
   results.push_back(
       torch::tensor(
           {static_cast<int64_t>(disable_random_init_)}, torch::kInt64));
+  LOG(INFO) << "DramKVEmbeddingInferenceWrapper serialized " << results.size()
+            << " entries with disable_random_init = " << disable_random_init_
+            << ", this = " << this;
   return results;
 }
 
@@ -369,6 +377,9 @@ void DramKVEmbeddingInferenceWrapper::deserialize(
   if (states.size() >= 3 && states[2].numel() >= 1) {
     disable_random_init_ = states[2].const_data_ptr<int64_t>()[0] != 0;
   }
+  LOG(INFO) << "DramKVEmbeddingInferenceWrapper deserialized " << states.size()
+            << " entries, final disable_random_init = " << disable_random_init_
+            << ", num_shards = " << num_shards_ << ", this = " << this;
 }
 
 } // namespace fbgemm_gpu
