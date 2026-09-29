@@ -64,6 +64,115 @@ class IndexRemapTest
     : public testing::TestWithParam<tuple<int, int, int, bool, bool>> {};
 } // namespace
 
+TEST(EmbeddingSpMDMLegacyTest, Uint16DispatchesByRuntimeFlags) {
+  constexpr int64_t block_size = 2;
+  const vector<int32_t> indices{0, 1};
+  const vector<int32_t> offsets{0, 2};
+
+  auto verify = [&]<typename HalfType>(bool is_bf16) {
+    const vector<HalfType> input{
+        from_float<HalfType>(1.5f),
+        from_float<HalfType>(-2.0f),
+        from_float<HalfType>(3.0f),
+        from_float<HalfType>(4.0f)};
+    vector<HalfType> expected(block_size);
+    ASSERT_TRUE((EmbeddingSpMDM_ref<HalfType, int32_t, int32_t, HalfType>(
+        block_size,
+        1,
+        indices.size(),
+        2,
+        input.data(),
+        indices.data(),
+        offsets.data(),
+        nullptr,
+        false,
+        expected.data())));
+
+    auto kernel = GenerateEmbeddingSpMDM<uint16_t, int32_t, int32_t, uint16_t>(
+        block_size, false, false, 16, false, true, is_bf16, is_bf16);
+    vector<HalfType> actual(block_size);
+    ASSERT_TRUE(kernel(
+        1,
+        indices.size(),
+        2,
+        reinterpret_cast<const uint16_t*>(input.data()),
+        indices.data(),
+        offsets.data(),
+        nullptr,
+        reinterpret_cast<uint16_t*>(actual.data())));
+
+    EXPECT_EQ(actual, expected);
+  };
+
+  verify.template operator()<float16>(false);
+  verify.template operator()<bfloat16>(true);
+
+  auto verify_strided_to_float = [&]<typename HalfType>(bool is_bf16) {
+    constexpr int64_t input_stride = 3;
+    constexpr int64_t output_stride = 3;
+    const vector<int64_t> indices64{0, 1};
+    const vector<HalfType> input{
+        from_float<HalfType>(1.5f),
+        from_float<HalfType>(-2.0f),
+        from_float<HalfType>(0.0f),
+        from_float<HalfType>(3.0f),
+        from_float<HalfType>(4.0f),
+        from_float<HalfType>(0.0f)};
+    vector<float> expected(output_stride);
+    ASSERT_TRUE((EmbeddingSpMDM_ref<HalfType, int64_t, int32_t, float>(
+        block_size,
+        1,
+        indices64.size(),
+        2,
+        input.data(),
+        indices64.data(),
+        offsets.data(),
+        nullptr,
+        false,
+        expected.data(),
+        false,
+        true,
+        output_stride,
+        input_stride,
+        true,
+        false)));
+
+    auto kernel = GenerateEmbeddingSpMDMWithStrides<
+        uint16_t,
+        int64_t,
+        int32_t,
+        float,
+        true>(
+        block_size,
+        false,
+        false,
+        16,
+        false,
+        true,
+        output_stride,
+        input_stride,
+        true,
+        false,
+        false,
+        is_bf16);
+    vector<float> actual(output_stride);
+    ASSERT_TRUE(kernel(
+        1,
+        indices64.size(),
+        2,
+        reinterpret_cast<const uint16_t*>(input.data()),
+        indices64.data(),
+        offsets.data(),
+        nullptr,
+        actual.data()));
+
+    EXPECT_EQ(actual, expected);
+  };
+
+  verify_strided_to_float.template operator()<float16>(false);
+  verify_strided_to_float.template operator()<bfloat16>(true);
+}
+
 static vector<int> prefetch_distances = {0, 16, 1000000};
 
 INSTANTIATE_TEST_SUITE_P(
@@ -216,8 +325,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
       output_ref[i] = sentry_value;
       output[i] = sentry_value;
-      output_ref_fp16[i] = cpu_float2half_rn(sentry_value);
-      output_fp16[i] = cpu_float2half_rn(sentry_value);
+      output_ref_fp16[i] = from_float<float16>(sentry_value);
+      output_fp16[i] = from_float<float16>(sentry_value);
       FloatToBfloat16_ref(&sentry_value, &output_ref_bf16[i], 1);
       FloatToBfloat16_ref(&sentry_value, &output_bf16[i], 1);
     }
@@ -251,9 +360,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       output_stride,                                           \
       input_stride,                                            \
       true,                                                    \
-      false,                                                   \
-      is_output_bfloat16,                                      \
-      isBf16);                                                 \
+      false);                                                  \
                                                                \
   auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
       InType,                                                  \
@@ -270,9 +377,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       output_stride,                                           \
       input_stride,                                            \
       true,                                                    \
-      false,                                                   \
-      is_output_bfloat16,                                      \
-      isBf16);                                                 \
+      false);                                                  \
   success = kernel(                                            \
       batch_size,                                              \
       lengths_sum,                                             \
@@ -342,7 +447,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         InType,                                                        \
         IndexType,                                                     \
         OffsetType,                                                    \
-        uint16_t);                                                     \
+        bfloat16);                                                     \
   } else {                                                             \
     TEST_THREAD_LOCAL(                                                 \
         table,                                                         \
@@ -353,7 +458,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         InType,                                                        \
         IndexType,                                                     \
         OffsetType,                                                    \
-        uint16_t);                                                     \
+        float16);                                                      \
   }
 
 #define TEST_OFFSET_TYPE(table, indices, InType, IndexType)                 \
@@ -373,9 +478,9 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   }
 
     if (isFp16) {
-      TEST_INDEX_TYPE(embedding_table_fp16, uint16_t);
+      TEST_INDEX_TYPE(embedding_table_fp16, float16);
     } else if (isBf16) {
-      TEST_INDEX_TYPE(embedding_table_bf16, uint16_t);
+      TEST_INDEX_TYPE(embedding_table_bf16, bfloat16);
     } else {
       TEST_INDEX_TYPE(embedding_table, float);
     }
@@ -402,7 +507,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         Bfloat16ToFloat_ref(&output_bf16[offset], &v, 1);
         return v;
       } else
-        return cpu_half2float(output_fp16[offset]);
+        return to_float(output_fp16[offset]);
     };
 
     auto get_expected = [&](int offset) {
@@ -413,7 +518,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         Bfloat16ToFloat_ref(&output_ref_bf16[offset], &v, 1);
         return v;
       } else
-        return cpu_half2float(output_ref_fp16[offset]);
+        return to_float(output_ref_fp16[offset]);
     };
 
     if (success) {
@@ -557,9 +662,7 @@ TEST_P(EmbeddingSpMDMTest, noBagUint8Test) {
       output_stride,                               \
       input_stride,                                \
       true, /* scale_bias_last */                  \
-      true, /* no_bag */                           \
-      false, /* is_output_bfloat16 */              \
-      false /* isBf16 */);                         \
+      true /* no_bag */);                          \
                                                    \
   auto kernel = GenerateEmbeddingSpMDMWithStrides< \
       InType,                                      \
@@ -575,9 +678,7 @@ TEST_P(EmbeddingSpMDMTest, noBagUint8Test) {
       output_stride,                               \
       input_stride,                                \
       true, /* scale_bias_last */                  \
-      true, /* no_bag */                           \
-      false, /* is_bf16_out */                     \
-      false /* is_bf16_in */);                     \
+      true /* no_bag */);                          \
   success = kernel(                                \
       output_size,                                 \
       output_size,                                 \
@@ -757,7 +858,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               use_offsets);
 
           auto kernel =
-              GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int64_t, int64_t>(
+              GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
@@ -768,7 +869,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
+              embedding_table_fp16.data(),
               corner_case == EMPTY_INDICES ? nullptr : indices.data(),
               offsets_or_lengths,
               use_weight ? weights.data() : nullptr,
@@ -827,7 +928,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               use_offsets);
 
           auto kernel =
-              GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int32_t, int64_t>(
+              GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t, int64_t>(
                   embedding_dim,
                   use_weight,
                   normalize_by_lengths,
@@ -838,7 +939,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
+              embedding_table_fp16.data(),
               corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
               offsets_or_lengths,
               use_weight ? weights.data() : nullptr,
@@ -898,7 +999,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               is_wt_positional,
               use_offsets);
 
-          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int64_t>(
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int64_t>(
               embedding_dim,
               use_weight,
               normalize_by_lengths,
@@ -909,7 +1010,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
+              embedding_table_fp16.data(),
               corner_case == EMPTY_INDICES ? nullptr : indices.data(),
               offsets_or_lengths_32,
               use_weight ? weights.data() : nullptr,
@@ -966,7 +1067,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               is_wt_positional,
               use_offsets);
 
-          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<uint16_t, int32_t>(
+          auto kernel = GenerateEmbeddingSpMDMRowWiseSparse<float16, int32_t>(
               embedding_dim,
               use_weight,
               normalize_by_lengths,
@@ -977,7 +1078,7 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
               batch_size,
               lengths_sum,
               num_rows,
-              reinterpret_cast<const uint16_t*>(embedding_table_fp16.data()),
+              embedding_table_fp16.data(),
               corner_case == EMPTY_INDICES ? nullptr : indices_32.data(),
               offsets_or_lengths_32,
               use_weight ? weights.data() : nullptr,
