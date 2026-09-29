@@ -7,14 +7,6 @@
  */
 
 // clang-format off
-{#
-// @lint-ignore LINTIGNORE
-// @lint-ignore-every CLANGFORMAT
-// clang-format off
-// Note: clang-format off doesn't work with this templaterized code,
-// so we need to keep lint-ignore-every.
-// See https://fburl.com/dw9ljh4h
-#}
 
 // Companion template is embedding_forward_split_template.cu
 
