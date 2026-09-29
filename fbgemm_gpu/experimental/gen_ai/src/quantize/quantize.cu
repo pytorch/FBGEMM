@@ -36,10 +36,12 @@
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
 
+#include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/device_sort.cuh"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 
@@ -373,6 +375,8 @@ at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale) {
 class FP8_E4M3_MAX {
  public:
 #ifndef USE_ROCM
+  static constexpr float value = 448.0;
+#elif HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ
   static constexpr float value = 448.0;
 #else
   static constexpr float value = 240.0;
@@ -1306,24 +1310,253 @@ __global__ void fused_quantize_rowwise(
   }
 }
 
+// A ROCm fat binary can select different FP8 C++ aliases in its host and
+// device passes. Keep those aliases out of kernel signatures so both passes
+// produce the same symbol name.
+template <typename SCALE>
+struct Fp8OutputType;
+
+template <>
+struct Fp8OutputType<FP8_E4M3_MAX> {
+  using type = __nv_fp8_e4m3;
+};
+
+template <>
+struct Fp8OutputType<FP8_E5M2_MAX> {
+  using type = __nv_fp8_e5m2;
+};
+
+template <typename SCALE, typename T_IN>
+__global__ void fused_quantize_rowwise_typed(
+    void* __restrict__ output,
+    float* __restrict__ scales,
+    const T_IN* __restrict__ input,
+    int K,
+    const float* __restrict__ scale_ub) {
+  using T_OUT = typename Fp8OutputType<SCALE>::type;
+  auto* const typed_output = static_cast<T_OUT*>(output);
+  const uint32_t row = blockIdx.x;
+  const uint32_t tid = threadIdx.x;
+  extern __shared__ __align__(sizeof(float)) char shmem_buffer[];
+  T_IN* shmem = reinterpret_cast<T_IN*>(shmem_buffer);
+  float thread_max = 0.0f;
+  for (int i = tid; i < K; i += blockDim.x) {
+    const T_IN value = input[row * K + i];
+    shmem[i] = value;
+    thread_max = fmaxf(thread_max, fabsf(static_cast<float>(value)));
+  }
+  const float row_max = blockReduceMax(thread_max);
+  __shared__ float row_scale;
+  if (tid == 0) {
+    const float bounded_max =
+        scale_ub == nullptr ? row_max : fminf(row_max, *scale_ub);
+    constexpr float min_scale = 1.0f / (SCALE::value * 512.0f);
+    row_scale = fmaxf(bounded_max / SCALE::value, min_scale);
+    scales[row] = row_scale;
+  }
+  __syncthreads();
+  for (int i = tid; i < K; i += blockDim.x) {
+    typed_output[row * K + i] =
+        static_cast<T_OUT>(static_cast<float>(shmem[i]) / row_scale);
+  }
+}
+
+template <typename T_IN, bool VECTORIZED>
+DEVICE_INLINE Vec4T<float> loadQuantizeInput4(const T_IN* input) {
+  if constexpr (VECTORIZED) {
+    return Vec4T<float>(input);
+  }
+  Vec4T<float> result;
+  result.acc.x = input[0];
+  result.acc.y = input[1];
+  result.acc.z = input[2];
+  result.acc.w = input[3];
+  return result;
+}
+
+template <>
+DEVICE_INLINE Vec4T<float> loadQuantizeInput4<at::BFloat16, true>(
+    const at::BFloat16* input) {
+  union PackedBFloat16 {
+    uint2 packed;
+    at::BFloat16 values[4];
+  } input_vec;
+  input_vec.packed = *reinterpret_cast<const uint2*>(input);
+  Vec4T<float> result;
+  result.acc.x = input_vec.values[0];
+  result.acc.y = input_vec.values[1];
+  result.acc.z = input_vec.values[2];
+  result.acc.w = input_vec.values[3];
+  return result;
+}
+
+template <typename T_IN, bool VECTORIZED>
+__global__ void fused_quantize_rowwise_stochastic(
+    void* __restrict__ output,
+    float* __restrict__ scales,
+    const T_IN* __restrict__ input,
+    int K,
+    const float* __restrict__ scale_ub,
+    at::PhiloxCudaState philox_args) {
+  auto* const typed_output = static_cast<__nv_fp8_e4m3*>(output);
+  const uint32_t row = blockIdx.x;
+  const uint32_t tid = threadIdx.x;
+  const int vecK = K / 4;
+  extern __shared__ __align__(sizeof(float)) char shmem_buffer[];
+  T_IN* shmem = reinterpret_cast<T_IN*>(shmem_buffer);
+  float thread_max = 0.0f;
+  for (int i = tid; i < vecK; i += blockDim.x) {
+    const int col = i * 4;
+    Vec4T<float> values =
+        loadQuantizeInput4<T_IN, VECTORIZED>(input + row * K + col);
+    shmem[col] = static_cast<T_IN>(values.acc.x);
+    shmem[col + 1] = static_cast<T_IN>(values.acc.y);
+    shmem[col + 2] = static_cast<T_IN>(values.acc.z);
+    shmem[col + 3] = static_cast<T_IN>(values.acc.w);
+    thread_max = fmaxf(thread_max, fabsf(values.acc.x));
+    thread_max = fmaxf(thread_max, fabsf(values.acc.y));
+    thread_max = fmaxf(thread_max, fabsf(values.acc.z));
+    thread_max = fmaxf(thread_max, fabsf(values.acc.w));
+  }
+  const float row_max = blockReduceMax(thread_max);
+  __shared__ float row_scale;
+  if (tid == 0) {
+    const float bounded_max =
+        scale_ub == nullptr ? row_max : fminf(row_max, *scale_ub);
+    constexpr float min_scale = 1.0f / (FP8_E4M3_MAX::value * 512.0f);
+    row_scale = fmaxf(bounded_max / FP8_E4M3_MAX::value, min_scale);
+    scales[row] = row_scale;
+  }
+  __syncthreads();
+
+  auto rng = StochasticRoundingRNGState(
+      philox_args, static_cast<uint64_t>(row) * blockDim.x + tid);
+  auto* const output_vec =
+      reinterpret_cast<__nv_fp8x4_e4m3*>(typed_output + row * K);
+  for (int i = tid; i < vecK; i += blockDim.x) {
+    const int col = i * 4;
+    const auto random_bits = rng.rand4();
+    float4 rounded;
+    rounded.x = stochastic_rounding_scalar_fp8(
+        static_cast<float>(shmem[col]) / row_scale, random_bits.x);
+    rounded.y = stochastic_rounding_scalar_fp8(
+        static_cast<float>(shmem[col + 1]) / row_scale, random_bits.y);
+    rounded.z = stochastic_rounding_scalar_fp8(
+        static_cast<float>(shmem[col + 2]) / row_scale, random_bits.z);
+    rounded.w = stochastic_rounding_scalar_fp8(
+        static_cast<float>(shmem[col + 3]) / row_scale, random_bits.w);
+    output_vec[i] = __nv_fp8x4_e4m3(rounded);
+  }
+}
+
+template <typename SCALE, typename T_IN>
+void invokeFusedQuantizeRowwiseTyped(
+    void* output,
+    float* scales,
+    const T_IN* input,
+    const int64_t rows,
+    const int64_t K,
+    const float* scale_ub,
+    const c10::cuda::CUDAStream stream) {
+  constexpr int threads = 128;
+  const size_t shmem_bytes = static_cast<size_t>(K) * sizeof(T_IN);
+#ifndef USE_ROCM
+  if (shmem_bytes >= (48 << 10)) {
+    C10_CUDA_CHECK(cudaFuncSetAttribute(
+        fused_quantize_rowwise_typed<SCALE, T_IN>,
+        cudaFuncAttributeMaxDynamicSharedMemorySize,
+        shmem_bytes));
+  }
+#endif
+  fused_quantize_rowwise_typed<SCALE, T_IN>
+      <<<dim3(rows), dim3(threads), shmem_bytes, stream>>>(
+          output, scales, input, static_cast<int>(K), scale_ub);
+}
+
+template <typename T_IN>
+void invokeFusedQuantizeRowwiseStochastic(
+    void* output,
+    float* scales,
+    const T_IN* input,
+    const int64_t rows,
+    const int64_t K,
+    const float* scale_ub,
+    const c10::cuda::CUDAStream stream) {
+  at::PhiloxCudaState philox_args;
+  auto gen = at::cuda::detail::getDefaultCUDAGenerator();
+  {
+    std::lock_guard<std::mutex> lock(gen.mutex());
+    // Philox seeds the per-thread xorshift states; rand4() advances those
+    // local states without consuming additional Philox offsets.
+    philox_args =
+        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
+  }
+  constexpr int threads = 128;
+  const size_t shmem_bytes = static_cast<size_t>(K) * sizeof(T_IN);
+  const bool vectorized =
+      reinterpret_cast<uintptr_t>(input) % (4 * sizeof(T_IN)) == 0;
+#ifndef USE_ROCM
+  if (shmem_bytes >= (48 << 10)) {
+    if (vectorized) {
+      C10_CUDA_CHECK(cudaFuncSetAttribute(
+          fused_quantize_rowwise_stochastic<T_IN, true>,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          shmem_bytes));
+    } else {
+      C10_CUDA_CHECK(cudaFuncSetAttribute(
+          fused_quantize_rowwise_stochastic<T_IN, false>,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          shmem_bytes));
+    }
+  }
+#endif
+  if (vectorized) {
+    fused_quantize_rowwise_stochastic<T_IN, true>
+        <<<dim3(rows), dim3(threads), shmem_bytes, stream>>>(
+            output, scales, input, static_cast<int>(K), scale_ub, philox_args);
+  } else {
+    fused_quantize_rowwise_stochastic<T_IN, false>
+        <<<dim3(rows), dim3(threads), shmem_bytes, stream>>>(
+            output, scales, input, static_cast<int>(K), scale_ub, philox_args);
+  }
+}
+
 std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
     [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
     std::optional<c10::ScalarType> output_dtype, // Quantization type
-    [[maybe_unused]] bool stochastic_rounding) {
+    bool stochastic_rounding) {
   TORCH_CHECK(input.dim() >= 2, "Invalid dim. The dim of input should be >= 2");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   TORCH_CHECK(
       input.scalar_type() == torch::kBFloat16 ||
           input.scalar_type() == torch::kFloat ||
           input.scalar_type() == torch::kHalf,
       "input must be BF16, FP16 or FP32");
-  // choose FP8 format
-  c10::ScalarType qtype = torch_fp8_e4m3;
+  if (!input.is_cuda()) {
+    if (scale_ub.has_value()) {
+      scale_ub = scale_ub.value().cuda();
+    }
+    auto outputs = quantize_fp8_per_row(
+        input.cuda(), bs, scale_ub, output_dtype, stochastic_rounding);
+    return {outputs[0].cpu(), outputs[1].cpu()};
+  }
+#ifdef USE_ROCM
+  const auto native_e4m3_type = getNFP8ScalarType(input.get_device());
+  const bool use_ocp_fp8 = native_e4m3_type == at::kFloat8_e4m3fn;
+  const auto native_e5m2_type =
+      use_ocp_fp8 ? at::kFloat8_e5m2 : at::kFloat8_e5m2fnuz;
+#else
+  constexpr bool use_ocp_fp8 = false;
+  constexpr auto native_e4m3_type = at::kFloat8_e4m3fn;
+  constexpr auto native_e5m2_type = at::kFloat8_e5m2;
+#endif
+  c10::ScalarType qtype = native_e4m3_type;
   if (output_dtype.has_value()) {
     TORCH_CHECK(
-        output_dtype.value() == torch_fp8_e4m3 ||
-            output_dtype.value() == torch_fp8_e5m2,
+        output_dtype.value() == native_e4m3_type ||
+            output_dtype.value() == native_e5m2_type,
         "output must be e4m3 or e5m2");
     qtype = output_dtype.value();
   }
@@ -1348,13 +1581,66 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     scale_ub_ptr =
         reinterpret_cast<const float*>(scale_ub.value().const_data_ptr());
   }
+  if (stochastic_rounding) {
+    TORCH_CHECK(
+        qtype == native_e4m3_type,
+        "Stochastic rounding is only supported for FP8 E4M3 output");
+    TORCH_CHECK(
+        K % 4 == 0,
+        "input row dim must be a multiple of 4 when stochastic_rounding is True");
+    auto* const scales_ptr = reinterpret_cast<float*>(scales.data_ptr());
+    FBGEMM_DISPATCH_FLOATING_TYPES(
+        input.scalar_type(), "fused_quantize_rowwise_stochastic", [&] {
+          invokeFusedQuantizeRowwiseStochastic(
+              quantized.data_ptr(),
+              scales_ptr,
+              input.const_data_ptr<scalar_t>(),
+              rows,
+              K,
+              scale_ub_ptr,
+              stream);
+        });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return {quantized, scales};
+  }
   // launch parameters
   const int threads = 128; // 128 threads / block
   const dim3 grid(rows);
   const dim3 block(threads);
   const size_t shmem_bytes =
       static_cast<size_t>(K) * sizeof(__nv_bfloat16); // 8 KB
-  if (qtype == torch_fp8_e4m3) {
+  const bool use_typed_kernel =
+      input.scalar_type() != torch::kBFloat16 || K % 2 != 0 || use_ocp_fp8;
+  if (use_typed_kernel) {
+    if (qtype == native_e4m3_type) {
+      FBGEMM_DISPATCH_FLOATING_TYPES(
+          input.scalar_type(), "fused_quantize_rowwise_typed_e4m3", [&] {
+            invokeFusedQuantizeRowwiseTyped<FP8_E4M3_MAX>(
+                quantized.data_ptr(),
+                reinterpret_cast<float*>(scales.data_ptr()),
+                input.const_data_ptr<scalar_t>(),
+                rows,
+                K,
+                scale_ub_ptr,
+                stream);
+          });
+    } else {
+      FBGEMM_DISPATCH_FLOATING_TYPES(
+          input.scalar_type(), "fused_quantize_rowwise_typed_e5m2", [&] {
+            invokeFusedQuantizeRowwiseTyped<FP8_E5M2_MAX>(
+                quantized.data_ptr(),
+                reinterpret_cast<float*>(scales.data_ptr()),
+                input.const_data_ptr<scalar_t>(),
+                rows,
+                K,
+                scale_ub_ptr,
+                stream);
+          });
+    }
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return {quantized, scales};
+  }
+  if (qtype == native_e4m3_type) {
     fused_quantize_rowwise<__nv_fp8_e4m3, FP8_E4M3_MAX>
         <<<grid, block, shmem_bytes, stream>>>(
             reinterpret_cast<__nv_fp8_e4m3*>(quantized.data_ptr()),

@@ -771,6 +771,123 @@ class FP8Tests(unittest.TestCase):
         tol = 0.125 if stochastic_rounding else 5.0e-2
         torch.testing.assert_close(xq.float(), xq_ref.float(), atol=tol, rtol=tol)
 
+    def test_quantize_fp8_per_row_stochastic_rounding(self) -> None:
+        fp8_max = torch.finfo(fp8_e4m3).max
+        for dtype in (torch.bfloat16, torch.float16, torch.float32):
+            with self.subTest(dtype=dtype):
+                x = torch.full(
+                    (16, 1024),
+                    1.0625 / fp8_max,
+                    dtype=dtype,
+                    device=self.device,
+                )
+                x[:, 0] = 1.0
+
+                scale_ref = x.abs().amax(dim=1).float() / fp8_max
+                nearest = (x.float() / scale_ref.unsqueeze(1)).to(fp8_e4m3)
+                torch.manual_seed(0)
+                stochastic, scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                    x, stochastic_rounding=True
+                )
+                torch.manual_seed(0)
+                stochastic_repeated, scale_repeated = (
+                    torch.ops.fbgemm.quantize_fp8_per_row(x, stochastic_rounding=True)
+                )
+
+                self.assertFalse(torch.equal(stochastic, nearest))
+                rounded_midpoints = stochastic[:, 1:].float()
+                torch.testing.assert_close(
+                    torch.unique(rounded_midpoints),
+                    torch.tensor([1.0, 1.125], device=self.device),
+                    atol=0,
+                    rtol=0,
+                )
+                torch.testing.assert_close(
+                    rounded_midpoints.mean(),
+                    torch.tensor(1.0625, device=self.device),
+                    atol=0.01,
+                    rtol=0,
+                )
+                self.assertFalse(
+                    torch.equal(stochastic[:, 1:512], stochastic[:, 513:1024])
+                )
+                torch.testing.assert_close(
+                    stochastic.float(), stochastic_repeated.float()
+                )
+                torch.testing.assert_close(scale, scale_ref)
+                torch.testing.assert_close(scale, scale_repeated)
+
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Stochastic rounding is only supported for FP8 E4M3 output",
+                ):
+                    torch.ops.fbgemm.quantize_fp8_per_row(
+                        x,
+                        output_dtype=fp8_e5m2,
+                        stochastic_rounding=True,
+                    )
+
+    def test_quantize_fp8_per_row_input_dtypes(self) -> None:
+        for dtype in (torch.bfloat16, torch.float16, torch.float32):
+            for output_dtype in (fp8_e4m3, fp8_e5m2):
+                for row_width in (127, 128):
+                    with self.subTest(
+                        dtype=dtype,
+                        output_dtype=output_dtype,
+                        row_width=row_width,
+                    ):
+                        fp8_max = torch.finfo(output_dtype).max
+                        x = torch.linspace(
+                            -1.0,
+                            1.0,
+                            steps=2 * row_width,
+                            dtype=dtype,
+                            device=self.device,
+                        ).reshape(2, row_width)
+                        scale_ref = x.abs().amax(dim=1).float() / fp8_max
+                        quantized_ref = (x.float() / scale_ref.unsqueeze(1)).to(
+                            output_dtype
+                        )
+
+                        quantized, scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                            x, output_dtype=output_dtype
+                        )
+
+                        torch.testing.assert_close(
+                            quantized.float(), quantized_ref.float(), atol=0, rtol=0
+                        )
+                        torch.testing.assert_close(scale, scale_ref)
+
+        storage = torch.ones(2 * 128 + 1, dtype=torch.bfloat16, device=self.device)
+        unaligned = storage[1:].view(2, 128)
+        self.assertTrue(unaligned.is_contiguous())
+        quantized, scale = torch.ops.fbgemm.quantize_fp8_per_row(
+            unaligned, stochastic_rounding=True
+        )
+        self.assertEqual(quantized.shape, unaligned.shape)
+        self.assertEqual(scale.shape, (2,))
+
+        noncontiguous = torch.ones(2, 256, dtype=torch.bfloat16, device=self.device)[
+            :, ::2
+        ]
+        self.assertFalse(noncontiguous.is_contiguous())
+        with self.assertRaisesRegex(RuntimeError, "input must be contiguous"):
+            torch.ops.fbgemm.quantize_fp8_per_row(noncontiguous)
+
+        cpu_input = torch.linspace(
+            -1.0, 1.0, steps=2 * 127, dtype=torch.bfloat16
+        ).reshape(2, 127)
+        cpu_quantized, cpu_scale = torch.ops.fbgemm.quantize_fp8_per_row(cpu_input)
+        device_quantized, device_scale = torch.ops.fbgemm.quantize_fp8_per_row(
+            cpu_input.to(self.device)
+        )
+        self.assertEqual(cpu_quantized.device.type, "cpu")
+        self.assertEqual(cpu_scale.device.type, "cpu")
+        torch.testing.assert_close(
+            cpu_quantized.float(), device_quantized.cpu().float(), atol=0, rtol=0
+        )
+        torch.testing.assert_close(cpu_scale, device_scale.cpu(), atol=0, rtol=0)
+
     @unittest.skipIf(
         not torch.version.cuda and torch.version.hip < "6.2",
         "Skip on AMD with < RoCM 6.2",
