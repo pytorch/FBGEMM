@@ -236,8 +236,10 @@ at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
   constexpr int32_t kThreadsPerBlock = 1024;
   auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
   dim3 threads = kThreadsPerBlock;
-  dim3 blocks =
-      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
+  const dim3 blocks = utils::cuda::cap_grid_dim_x(
+      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock),
+      kThreadsPerBlock,
+      at::cuda::getCurrentCUDAStream());
 
   FBGEMM_LAUNCH_KERNEL(
       (per_tensor_quantize_i8_kernel),
