@@ -42,17 +42,12 @@ namespace internal {
 static constexpr size_t LOCAL_STORAGE_SIZE = 512;
 
 template <typename OutType>
-static inline EmbeddingStatsTracker::DataType get_output_type(
-    const bool is_bf16_out) {
+static inline EmbeddingStatsTracker::DataType get_output_type() {
   if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-
-  } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-    if (is_bf16_out) {
-      return EmbeddingStatsTracker::DataType::BF16;
-    }
+  } else if constexpr (std::is_same_v<OutType, bfloat16>) {
+    return EmbeddingStatsTracker::DataType::BF16;
   }
-
   return EmbeddingStatsTracker::DataType::FP16;
 }
 
@@ -61,7 +56,6 @@ static inline void fill_output_sve(
     OutType* out,
     const float32x4x2_t* src,
     const uint64_t iters,
-    const bool is_bf16_out,
     svbool_t lastPredA,
     svbool_t lastPredB,
     svbool_t lastPredC,
@@ -100,8 +94,8 @@ static inline void fill_output_sve(
         svst1_f32(lastPredB, ptrOut + 4, trailing_row_1);
       }
     }
-  } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-    if (is_bf16_out) {
+  } else if constexpr (FbgemmHalfType<OutType>) {
+    if constexpr (std::is_same_v<OutType, bfloat16>) {
       auto ptrOut = reinterpret_cast<uint16_t*>(out);
 
       for (; srcPtr < endPtr;) {
@@ -205,14 +199,14 @@ static inline void sve_fma_round(
     svbool_t fullRowPred,
     svbool_t lastPredA,
     svbool_t lastPredB,
-    svbool_t lastPredC,
-    const bool is_bf16_out) {
+    svbool_t lastPredC) {
   // If we read from out, they must be float32
   static_assert(!FuseWithOutput || std::is_same_v<OutType, float>);
 
   float32x4x2_t* buf = reinterpret_cast<float32x4x2_t*>(out);
-  float16x4x2_t* outFp16 = reinterpret_cast<float16x4x2_t*>(out);
-  uint16_t* outBf16 = reinterpret_cast<uint16_t*>(out);
+  [[maybe_unused]] float16x4x2_t* outFp16 =
+      reinterpret_cast<float16x4x2_t*>(out);
+  [[maybe_unused]] uint16_t* outBf16 = reinterpret_cast<uint16_t*>(out);
 
   const uint64_t* input_row_v_0 = reinterpret_cast<const uint64_t*>(input_row);
   const uint64_t* input_row_v_1 =
@@ -251,8 +245,8 @@ static inline void sve_fma_round(
       buf->val[1] = svget_neonq(in_v_1_f);
 
       buf += 1;
-    } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-      if (is_bf16_out) {
+    } else if constexpr (FbgemmHalfType<OutType>) {
+      if constexpr (std::is_same_v<OutType, bfloat16>) {
         auto svrow_0 = svreinterpret_u32_u16(
             svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
         auto svrow_1 = svreinterpret_u32_u16(
@@ -301,8 +295,8 @@ static inline void sve_fma_round(
     if constexpr (std::is_same_v<OutType, float>) {
       svst1_f32(lastPredA, bufPtr, in_v_0_f);
       svst1_f32(lastPredB, bufPtr + 4, in_v_1_f);
-    } else if constexpr (std::is_same_v<OutType, uint16_t>) {
-      if (is_bf16_out) {
+    } else if constexpr (FbgemmHalfType<OutType>) {
+      if constexpr (std::is_same_v<OutType, bfloat16>) {
         auto trailing_row_0_u32 = svreinterpret_u32_u16(
             svrshrnb_n_u32(svreinterpret_u32_f32(in_v_0_f), 16));
         auto trailing_row_1_u32 = svreinterpret_u32_u16(
@@ -347,7 +341,7 @@ bool EmbeddingSpMDM8Bit_Sve(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last,
-    const bool is_bf16_out) {
+    [[maybe_unused]] const bool is_bf16_out) {
   constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
@@ -452,8 +446,7 @@ bool EmbeddingSpMDM8Bit_Sve(
             fullRowPred,
             lastPredA,
             lastPredB,
-            lastPredC,
-            is_bf16_out);
+            lastPredC);
       }
       out += output_stride;
     } // m
@@ -463,7 +456,7 @@ bool EmbeddingSpMDM8Bit_Sve(
         block_size,
         EmbeddingStatsTracker::DataType::INT8,
         isOutput8bit ? EmbeddingStatsTracker::DataType::INT8
-                     : get_output_type<OutType>(is_bf16_out),
+                     : get_output_type<OutType>(),
         output_size,
         1);
     return true;
@@ -499,7 +492,7 @@ bool EmbeddingSpMDM8Bit_Sve(
         data_size,
         block_size,
         EmbeddingStatsTracker::DataType::INT8,
-        get_output_type<OutType>(is_bf16_out),
+        get_output_type<OutType>(),
         output_size,
         len);
 
@@ -515,7 +508,7 @@ bool EmbeddingSpMDM8Bit_Sve(
       weights_addr = weights;
     }
     bool oneIterationDone = false;
-    for (; !oneIterationDone && current < end; ++current, ++weights_addr) {
+    for (; !oneIterationDone && current < end; ++current) {
       IndexType idx = indices[current];
 
       if constexpr (EnablePrefetching) {
@@ -553,6 +546,9 @@ bool EmbeddingSpMDM8Bit_Sve(
         if (!scale_bias_last && idx == -1) {
           // When scale_bias_last == false, assume this is for table batched
           // embedding (TBE) that can get -1 for pruned rows.
+          if (weights != nullptr) {
+            ++weights_addr;
+          }
           continue;
         }
         return false;
@@ -577,6 +573,7 @@ bool EmbeddingSpMDM8Bit_Sve(
         svfloat32_t weight_v = svdup_n_f32(weight);
         scale = svmul_f32_x(fullRowPred, scale, weight_v);
         bias = svmul_f32_x(fullRowPred, bias, weight_v);
+        ++weights_addr;
       }
 
       const uint8_t* input_row = input_row_base + input_offset;
@@ -589,13 +586,12 @@ bool EmbeddingSpMDM8Bit_Sve(
           fullRowPred,
           lastPredA,
           lastPredB,
-          lastPredC,
-          is_bf16_out);
+          lastPredC);
 
       oneIterationDone = true;
     }
 
-    for (; current < end; ++current, ++weights_addr) {
+    for (; current < end; ++current) {
       IndexType idx = indices[current];
 
       if constexpr (EnablePrefetching) {
@@ -633,6 +629,9 @@ bool EmbeddingSpMDM8Bit_Sve(
         if (!scale_bias_last && idx == -1) {
           // When scale_bias_last == false, assume this is for table batched
           // embedding (TBE) that can get -1 for pruned rows.
+          if (weights != nullptr) {
+            ++weights_addr;
+          }
           continue;
         }
         return false;
@@ -657,6 +656,7 @@ bool EmbeddingSpMDM8Bit_Sve(
         svfloat32_t weight_v = svdup_n_f32(weight);
         scale = svmul_f32_x(fullRowPred, scale, weight_v);
         bias = svmul_f32_x(fullRowPred, bias, weight_v);
+        ++weights_addr;
       }
 
       const uint8_t* input_row = input_row_base + input_offset;
@@ -669,8 +669,7 @@ bool EmbeddingSpMDM8Bit_Sve(
           fullRowPred,
           lastPredA,
           lastPredB,
-          lastPredC,
-          is_bf16_out);
+          lastPredC);
     }
     if (oneIterationDone) {
       if (len) {
@@ -678,24 +677,10 @@ bool EmbeddingSpMDM8Bit_Sve(
         float32x4_t normalize_scale = vdupq_n_f32(1.f);
         normalize_scale = vdivq_f32(normalize_scale, len_v);
         fill_output_sve<OutType, true>(
-            out,
-            buf,
-            iters,
-            is_bf16_out,
-            lastPredA,
-            lastPredB,
-            lastPredC,
-            normalize_scale);
+            out, buf, iters, lastPredA, lastPredB, lastPredC, normalize_scale);
       } else {
         fill_output_sve<OutType, false>(
-            out,
-            buf,
-            iters,
-            is_bf16_out,
-            lastPredA,
-            lastPredB,
-            lastPredC,
-            vdupq_n_f32(1.f));
+            out, buf, iters, lastPredA, lastPredB, lastPredC, vdupq_n_f32(1.f));
       }
     } else {
       memset(out, 0, sizeof(OutType) * block_size);
@@ -824,11 +809,10 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const bool scale_bias_last,
-    const bool /*is_bf16_out*/) {
-  // This kernel is only dispatched for fp16 output (OutType == uint16_t,
-  // !is_bf16_out). All paths produce fp16 directly — no fp32 widening.
-  if constexpr (!std::is_same_v<OutType, uint16_t>) {
+    const bool scale_bias_last) {
+  // This kernel is only dispatched for fp16 output (OutType == float16).
+  // All paths produce fp16 directly — no fp32 widening.
+  if constexpr (!std::is_same_v<OutType, float16>) {
     return false;
   }
 
@@ -1835,11 +1819,10 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const bool scale_bias_last,
-    const bool /*is_bf16_out*/) {
-  // This kernel is only dispatched for fp16 output (OutType == uint16_t
-  // && !is_bf16_out). All paths produce fp16 directly — no fp32 widening.
-  if constexpr (!std::is_same_v<OutType, uint16_t>) {
+    const bool scale_bias_last) {
+  // This kernel is only dispatched for fp16 output (OutType == float16).
+  // All paths produce fp16 directly — no fp32 widening.
+  if constexpr (!std::is_same_v<OutType, float16>) {
     return false;
   }
 
