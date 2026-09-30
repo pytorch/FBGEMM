@@ -44,7 +44,9 @@ jobs:
       id: resolve
       env:
         MATRIX: ${{ inputs.matrix }}
-      run: echo "matrix=$(python3 .github/scripts/resolve_rocm_container_images.py)" >> "${GITHUB_OUTPUT}"
+      run: |
+        matrix=$(python3 .github/scripts/resolve_rocm_container_images.py)
+        echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
 
   # Build on CPU hosts and upload to GHA
   build_artifact:
