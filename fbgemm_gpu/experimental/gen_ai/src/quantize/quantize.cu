@@ -1363,36 +1363,7 @@ __global__ void fused_quantize_rowwise_typed(
   }
 }
 
-template <typename T_IN, bool VECTORIZED>
-DEVICE_INLINE Vec4T<float> loadQuantizeInput4(const T_IN* input) {
-  if constexpr (VECTORIZED) {
-    return Vec4T<float>(input);
-  }
-  Vec4T<float> result;
-  result.acc.x = input[0];
-  result.acc.y = input[1];
-  result.acc.z = input[2];
-  result.acc.w = input[3];
-  return result;
-}
-
-template <>
-DEVICE_INLINE Vec4T<float> loadQuantizeInput4<at::BFloat16, true>(
-    const at::BFloat16* input) {
-  union PackedBFloat16 {
-    uint2 packed;
-    at::BFloat16 values[4];
-  } input_vec;
-  input_vec.packed = *reinterpret_cast<const uint2*>(input);
-  Vec4T<float> result;
-  result.acc.x = input_vec.values[0];
-  result.acc.y = input_vec.values[1];
-  result.acc.z = input_vec.values[2];
-  result.acc.w = input_vec.values[3];
-  return result;
-}
-
-template <typename T_IN, bool VECTORIZED>
+template <typename T_IN, bool kAligned>
 __global__ void fused_quantize_rowwise_stochastic(
     void* __restrict__ output,
     float* __restrict__ scales,
@@ -1409,8 +1380,8 @@ __global__ void fused_quantize_rowwise_stochastic(
   float thread_max = 0.0f;
   for (int i = tid; i < vecK; i += blockDim.x) {
     const int col = i * 4;
-    Vec4T<float> values =
-        loadQuantizeInput4<T_IN, VECTORIZED>(input + row * K + col);
+    const Vec4T<float> values =
+        Vec4T<float>::from<kAligned>(input + row * K + col);
     shmem[col] = static_cast<T_IN>(values.acc.x);
     shmem[col + 1] = static_cast<T_IN>(values.acc.y);
     shmem[col + 2] = static_cast<T_IN>(values.acc.z);
@@ -1495,11 +1466,12 @@ void invokeFusedQuantizeRowwiseStochastic(
   }
   constexpr int threads = 128;
   const size_t shmem_bytes = static_cast<size_t>(K) * sizeof(T_IN);
-  const bool vectorized =
-      reinterpret_cast<uintptr_t>(input) % (4 * sizeof(T_IN)) == 0;
+  const bool aligned =
+      reinterpret_cast<uintptr_t>(input) % (4 * sizeof(T_IN)) == 0 &&
+      K % 4 == 0;
 #ifndef USE_ROCM
   if (shmem_bytes >= (48 << 10)) {
-    if (vectorized) {
+    if (aligned) {
       C10_CUDA_CHECK(cudaFuncSetAttribute(
           fused_quantize_rowwise_stochastic<T_IN, true>,
           cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -1512,7 +1484,7 @@ void invokeFusedQuantizeRowwiseStochastic(
     }
   }
 #endif
-  if (vectorized) {
+  if (aligned) {
     fused_quantize_rowwise_stochastic<T_IN, true>
         <<<dim3(rows), dim3(threads), shmem_bytes, stream>>>(
             output, scales, input, static_cast<int>(K), scale_ub, philox_args);

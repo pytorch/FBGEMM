@@ -18,6 +18,9 @@ namespace fbgemm_gpu {
 // Vec4T Base
 ////////////////////////////////////////////////////////////////////////////////
 
+template <typename T>
+struct Vec4T {};
+
 // Customized 4-element vector data types (with element type Half, or float).
 template <typename T>
 struct Vec4BaseT {
@@ -45,10 +48,10 @@ struct Vec4BaseT {
     max_val = max(acc.w, max_val);
     return max_val;
   }
-};
 
-template <typename T>
-struct Vec4T {};
+  template <bool kAligned = false, typename T_IN>
+  DEVICE_INLINE static Vec4T<T> from(const T_IN* input);
+};
 
 // A wrapper for Vec4T with acc_type
 template <typename T>
@@ -57,6 +60,9 @@ using Vec4TAcc = Vec4T<at::acc_type<T, true>>;
 ////////////////////////////////////////////////////////////////////////////////
 // Vec4T<float>
 ////////////////////////////////////////////////////////////////////////////////
+
+// load() requires the input pointer to be naturally aligned for its vectorized
+// access. Use vec4_load_unaligned() when the caller cannot guarantee alignment.
 
 template <>
 struct Vec4T<float> : public Vec4BaseT<float> {
@@ -112,7 +118,6 @@ struct Vec4T<float> : public Vec4BaseT<float> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
-#ifdef USE_ROCM
     union {
       at::BFloat16 bf[4];
       uint2 ui;
@@ -122,12 +127,6 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     acc.y = tmp.bf[1];
     acc.z = tmp.bf[2];
     acc.w = tmp.bf[3];
-#else
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
-#endif
   }
 
   DEVICE_INLINE void load(const at::Float8_e4m3fnuz* p) {
@@ -300,7 +299,6 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
-#ifdef USE_ROCM
     union {
       at::BFloat16 bf[4];
       uint2 ui;
@@ -310,12 +308,6 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     acc.y = tmp.bf[1];
     acc.z = tmp.bf[2];
     acc.w = tmp.bf[3];
-#else
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
-#endif
   }
 
   DEVICE_INLINE void load(const float* p) {
@@ -466,7 +458,6 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE void load(const at::BFloat16* p) {
-#ifdef USE_ROCM
     union {
       at::BFloat16 bf[4];
       uint2 ui;
@@ -476,12 +467,6 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     acc.y = tmp.bf[1];
     acc.z = tmp.bf[2];
     acc.w = tmp.bf[3];
-#else
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
-#endif
   }
 
   DEVICE_INLINE void load(const at::Half* p) {
@@ -640,6 +625,21 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     acc.w *= acc.w;
   }
 };
+
+template <typename T>
+template <bool kAligned, typename T_IN>
+DEVICE_INLINE Vec4T<T> Vec4BaseT<T>::from(const T_IN* input) {
+  Vec4T<T> result;
+  if constexpr (kAligned) {
+    result.load(input);
+  } else {
+    result.acc.x = input[0];
+    result.acc.y = input[1];
+    result.acc.z = input[2];
+    result.acc.w = input[3];
+  }
+  return result;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Vec4T Ops
