@@ -340,8 +340,7 @@ bool EmbeddingSpMDM8Bit_Sve(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const bool scale_bias_last,
-    [[maybe_unused]] const bool is_bf16_out) {
+    const bool scale_bias_last) {
   constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
