@@ -316,6 +316,15 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
   return weights;
 }
 
+int64_t DramKVEmbeddingInferenceWrapper::mark_existing_keys(
+    const at::Tensor& indices,
+    int64_t inplace_update_ts_64b) {
+  check_initialized();
+  const auto count = at::tensor({indices.numel()}, at::ScalarType::Long);
+  return kv_backend_->mark_existing_keys(
+      indices, count, static_cast<std::uint32_t>(inplace_update_ts_64b));
+}
+
 void DramKVEmbeddingInferenceWrapper::log_inplace_update_stats() {
   check_initialized();
   kv_backend_->log_inplace_update_stats();
@@ -429,6 +438,14 @@ static auto dram_kv_embedding_inference_wrapper =
         .def(
             "get_lookup_row_bytes",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::get_lookup_row_bytes)
+        .def(
+            "mark_existing_keys",
+            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::mark_existing_keys,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("inplace_update_ts_64b"),
+            })
         .def(
             "trigger_evict",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::trigger_evict)
