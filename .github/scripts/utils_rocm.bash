@@ -16,16 +16,18 @@
 ################################################################################
 
 rocm_install_dir () {
-  # Print the location of the ROCm installation.  ROCm is not necessarily
-  # installed under /opt/rocm, so that is only used as a last resort.
+  # Print the location of the ROCm installation: ROCM_PATH if set, else
+  # /opt/rocm if it exists, else as reported by hipconfig.  hipconfig comes last
+  # because PyTorch's ROCm wheels can install a hipconfig of their own, for a
+  # ROCm runtime that is not a full ROCm installation.
   if [ -n "${ROCM_PATH:-}" ]; then
     echo "${ROCM_PATH}"
-  elif which hipconfig > /dev/null 2>&1; then
-    hipconfig --rocmpath
   elif [ -d /opt/rocm ]; then
     echo /opt/rocm
+  elif command -v hipconfig > /dev/null 2>&1; then
+    hipconfig --rocmpath
   else
-    echo "[ROCM] Unable to locate ROCm: ROCM_PATH is not set, hipconfig is not on PATH, and /opt/rocm does not exist" >&2
+    echo "[ROCM] Unable to locate ROCm: ROCM_PATH is not set, /opt/rocm does not exist, and hipconfig is not on PATH" >&2
     return 1
   fi
 }

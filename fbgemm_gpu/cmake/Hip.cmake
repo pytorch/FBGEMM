@@ -6,11 +6,13 @@
 
 set(FBGEMM_HAVE_HIP FALSE)
 
-# Locate ROCm from ROCM_PATH, or else from hipconfig (as CMake's own HIP support
-# does).  ROCm is not necessarily installed under /opt/rocm, so that is only
-# used as a last resort.
-if(DEFINED ENV{ROCM_PATH})
+# Locate ROCm from ROCM_PATH, else /opt/rocm if it exists, else hipconfig.
+# hipconfig comes last because PyTorch's ROCm wheels can install a hipconfig of
+# their own, for a ROCm runtime that is not a full ROCm installation.
+if(NOT "$ENV{ROCM_PATH}" STREQUAL "")
   set(ROCM_PATH $ENV{ROCM_PATH})
+elseif(EXISTS "/opt/rocm")
+  set(ROCM_PATH /opt/rocm)
 else()
   find_program(FBGEMM_HIPCONFIG_EXECUTABLE hipconfig)
   if(FBGEMM_HIPCONFIG_EXECUTABLE)
@@ -24,7 +26,9 @@ else()
     endif()
   endif()
   if(NOT ROCM_PATH)
-    set(ROCM_PATH /opt/rocm)
+    message(FATAL_ERROR
+      "Unable to locate ROCm: ROCM_PATH is not set, /opt/rocm does not exist, "
+      "and hipconfig is not on PATH")
   endif()
 endif()
 message(STATUS "ROCm path: ${ROCM_PATH}")
