@@ -46,8 +46,8 @@ EVENT_NAME_PUSH = "push"
 # need to be updated.  The images are listed explicitly because their tags do
 # not follow a fixed pattern across ROCm releases.
 ROCM_CONTAINER_IMAGES = {
-    "7.0": "rocm/dev-ubuntu-22.04:7.0-complete",
-    "7.1": "rocm/dev-ubuntu-22.04:7.1-complete",
+    "7.14": "rocm/dev-ubuntu-22.04:7.14.1-full",
+    "10.0": "rocm/dev-ubuntu-22.04:10.0.0-full",
 }
 
 
