@@ -121,6 +121,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a20050d43486676ac326f530cc01bee58" id="r_a20050d43486676ac326f530cc01bee58"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a20050d43486676ac326f530cc01bee58">get_kv_db_sync</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)=0</td></tr>
 <tr class="memitem:adf5b1b467367fa75894c265535eb3ac2" id="r_adf5b1b467367fa75894c265535eb3ac2"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#adf5b1b467367fa75894c265535eb3ac2">inference_set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, std::optional&lt; uint32_t &gt; inplace_update_ts)=0</td></tr>
 <tr class="memitem:ac346e4fb361109aa7b64c7ee70582704" id="r_ac346e4fb361109aa7b64c7ee70582704"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ac346e4fb361109aa7b64c7ee70582704">get_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)=0</td></tr>
+<tr class="memitem:a9f516adf28eb5af517e13dda7b217c33" id="r_a9f516adf28eb5af517e13dda7b217c33"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a9f516adf28eb5af517e13dda7b217c33">mark_existing_keys</a> (const at::Tensor &amp;indices, const at::Tensor &amp;count, uint32_t inplace_update_ts)=0</td></tr>
 <tr class="memitem:a6ea6cba4fe2f20e3a79aefe4c0a1dae6" id="r_a6ea6cba4fe2f20e3a79aefe4c0a1dae6"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a6ea6cba4fe2f20e3a79aefe4c0a1dae6">trigger_feature_evict</a> (std::optional&lt; uint32_t &gt; inplace_update_ts=std::nullopt)=0</td></tr>
 <tr class="memitem:a850d5c94ddabe014ab85a73154bc2506" id="r_a850d5c94ddabe014ab85a73154bc2506"><td class="memItemLeft">virtual size_t&#160;</td><td class="memItemRight"><a class="el" href="#a850d5c94ddabe014ab85a73154bc2506">get_map_used_memsize_in_bytes</a> () const =0</td></tr>
 <tr class="memitem:ad95407045f6e9e18e6e5fd0ad5a03295" id="r_ad95407045f6e9e18e6e5fd0ad5a03295"><td class="memItemLeft">virtual size_t&#160;</td><td class="memItemRight"><a class="el" href="#ad95407045f6e9e18e6e5fd0ad5a03295">get_map_actual_used_chunk_in_bytes</a> () const =0</td></tr>
@@ -575,6 +576,56 @@ template&lt;typename weight_type&gt; </div>
 </dl>
 
 <p>Implemented in <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a79b8b6ccaad97e6cf989a4051d6b3ac2">DramKVInferenceEmbedding&lt; weight_type &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a9f516adf28eb5af517e13dda7b217c33" name="a9f516adf28eb5af517e13dda7b217c33"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9f516adf28eb5af517e13dda7b217c33">&#9670;&#160;</a></span>mark_existing_keys()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual int64_t mark_existing_keys </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>inplace_update_ts</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel pure-virtual">pure virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Refresh the eviction timestamp of rows that already exist in the store, without reading or writing any embedding data.</p>
+<p>Lets a full-snapshot in-place update mark the rows the incoming snapshot will keep before any of its weights are streamed in, so the rows it drops can be evicted up front instead of after the store has already grown to the union of both snapshots.</p>
+<p>Callers must ensure no eviction is in flight, otherwise a block can be freed between the lookup and the timestamp write.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">indices</td><td>The 1D embedding index tensor </td></tr>
+    <tr><td class="paramname">count</td><td>A single element tensor with number of indices to process </td></tr>
+    <tr><td class="paramname">inplace_update_ts</td><td>Timestamp to stamp onto matched rows </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>Number of rows that were found and refreshed </dd></dl>
+
+<p>Implemented in <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a278ccda6f28c83750f55b4b39ca1a7d2">DramKVInferenceEmbedding&lt; weight_type &gt;</a>.</p>
 
 </div>
 </div>

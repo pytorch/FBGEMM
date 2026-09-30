@@ -106,8 +106,6 @@ document.addEventListener('DOMContentLoaded', codefold.init);
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a5af995fb14d4583c5cb6a98632a7ab07" id="r_a5af995fb14d4583c5cb6a98632a7ab07"><td class="memItemLeft">__device__ float&#160;</td><td class="memItemRight"><a class="el" href="#a5af995fb14d4583c5cb6a98632a7ab07">gwd</a> (const int64_t idx, const int64_t iter, const float weight_decay_base, const float gwd_lower_bound) const</td></tr>
-<tr class="memitem:a5af995fb14d4583c5cb6a98632a7ab07" id="r_a5af995fb14d4583c5cb6a98632a7ab07"><td class="memItemLeft">__device__ float&#160;</td><td class="memItemRight"><a class="el" href="#a5af995fb14d4583c5cb6a98632a7ab07">gwd</a> (const int64_t idx, const int64_t iter, const float weight_decay_base, const float gwd_lower_bound) const</td></tr>
-<tr class="memitem:a5af995fb14d4583c5cb6a98632a7ab07" id="r_a5af995fb14d4583c5cb6a98632a7ab07"><td class="memItemLeft">__device__ float&#160;</td><td class="memItemRight"><a class="el" href="#a5af995fb14d4583c5cb6a98632a7ab07">gwd</a> (const int64_t idx, const int64_t iter, const float weight_decay_base, const float gwd_lower_bound) const</td></tr>
 </table>
 <a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>A runtime-typed view over global weight decay's <span class="tt">prev_iter</span> buffer.</p>
@@ -115,7 +113,7 @@ Public Member Functions</h2></td></tr>
 <p>Exactly one of <span class="tt">data_f32</span> / <span class="tt">data_i64</span> is valid, named by <span class="tt">is_int64</span>. </p>
 </div><a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
 <a id="a5af995fb14d4583c5cb6a98632a7ab07" name="a5af995fb14d4583c5cb6a98632a7ab07"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5af995fb14d4583c5cb6a98632a7ab07">&#9670;&#160;</a></span>gwd() <span class="overload">[1/3]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a5af995fb14d4583c5cb6a98632a7ab07">&#9670;&#160;</a></span>gwd()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -155,92 +153,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a5af995fb14d4583c5cb6a98632a7ab07" name="a5af995fb14d4583c5cb6a98632a7ab07"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5af995fb14d4583c5cb6a98632a7ab07">&#9670;&#160;</a></span>gwd() <span class="overload">[2/3]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">__device__ float gwd </td>
-          <td>(</td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>idx</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>iter</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const float</td>          <td class="paramname"><span class="paramname"><em>weight_decay_base</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const float</td>          <td class="paramname"><span class="paramname"><em>gwd_lower_bound</em></span>&#160;) const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-<p>The global weight decay multiplier for row <span class="tt">idx</span> at iteration <span class="tt">iter</span>. <span class="tt">prev_iter == 0</span> is the first-touch sentinel and yields 1 (no decay).</p>
-<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. <span class="tt"><a class="el" href="namespacefbgemm__gpu.html#a0ed4e0116d45a79582094bca0c3fdc2e">warn_if_prev_iter_inexact</a></span> reports when a lookup crosses that point; nothing here changes as a result. </p>
-
-</div>
-</div>
-<a id="a5af995fb14d4583c5cb6a98632a7ab07" name="a5af995fb14d4583c5cb6a98632a7ab07"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5af995fb14d4583c5cb6a98632a7ab07">&#9670;&#160;</a></span>gwd() <span class="overload">[3/3]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">__device__ float gwd </td>
-          <td>(</td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>idx</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>iter</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const float</td>          <td class="paramname"><span class="paramname"><em>weight_decay_base</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const float</td>          <td class="paramname"><span class="paramname"><em>gwd_lower_bound</em></span>&#160;) const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-<p>The global weight decay multiplier for row <span class="tt">idx</span> at iteration <span class="tt">iter</span>. <span class="tt">prev_iter == 0</span> is the first-touch sentinel and yields 1 (no decay).</p>
-<p>NOTE: the float32 branch must stay bit-identical to the behavior that predates int64 support. It computes the gap in float, which rounds <span class="tt">iter</span> once it exceeds 2^24 &ndash; that rounding is precisely the bug int64 fixes, so reproducing it here is what makes opting into int64 the only thing that can change a model's results. <span class="tt"><a class="el" href="namespacefbgemm__gpu.html#a0ed4e0116d45a79582094bca0c3fdc2e">warn_if_prev_iter_inexact</a></span> reports when a lookup crosses that point; nothing here changes as a result. </p>
-
-</div>
-</div>
-<hr/>The documentation for this struct was generated from the following files:<ul>
+<hr/>The documentation for this struct was generated from the following file:<ul>
 <li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/utils/<b>prev_iter_ref.cuh</b></li>
-<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/<b>embedding_forward_split_kernel_template.cu</b></li>
-<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/<b>embedding_forward_split_template.cu</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->

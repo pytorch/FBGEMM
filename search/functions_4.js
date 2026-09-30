@@ -9,6 +9,6 @@ var searchData=
   ['direct_5fmapped_5flxu_5fcache_5flookup_5fcuda_6',['direct_mapped_lxu_cache_lookup_cuda',['../group__table-batched-embed-cuda.html#ga588c4e7ce44cac1a072e708a2fd52d16',1,'split_embeddings_cache_cuda.cuh']]],
   ['dispatchenrichmentasync_7',['dispatchEnrichmentAsync',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a047abf23fb18225675fcb9846a39f2dd',1,'kv_mem::DramKVEmbeddingCache']]],
   ['dramkvembeddingcache_8',['DramKVEmbeddingCache',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a59b88797ba6d36c6a0382360084b8589',1,'kv_mem::DramKVEmbeddingCache']]],
-  ['dramkvinferenceembedding_9',['DramKVInferenceEmbedding',['../classkv__mem_1_1_dram_k_v_inference_embedding.html#ab0c68a345d8e1601c5a8e487312e50a1',1,'kv_mem::DramKVInferenceEmbedding']]],
+  ['dramkvinferenceembedding_9',['DramKVInferenceEmbedding',['../classkv__mem_1_1_dram_k_v_inference_embedding.html#a16a7af5693b7d11e24096d3add8165f4',1,'kv_mem::DramKVInferenceEmbedding']]],
   ['dramssdkvembeddingcache_10',['DramSsdKVEmbeddingCache',['../classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#aee9a4fc42fd72ba2edd1cd7fff641373',1,'kv_db::DramSsdKVEmbeddingCache']]]
 ];
