@@ -6,8 +6,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <atomic>
 #include <future>
 #include <stdexcept>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -133,4 +136,28 @@ TEST(CodeCacheTest, SuccessIsCached) {
   EXPECT_EQ(cache.getOrCreate(1, gen), 7);
   EXPECT_EQ(cache.getOrCreate(1, gen), 7);
   EXPECT_EQ(calls, 1);
+}
+
+TEST(CodeCacheTest, ThreadLocalCacheGeneratesOncePerThread) {
+  CodeCache<int, int, /*THREAD_LOCAL=*/true> cache;
+  std::atomic<int> calls{0};
+  constexpr int kThreads = 4;
+  std::vector<int> first(kThreads);
+  std::vector<int> second(kThreads);
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([&, i] {
+      auto generate = [&] { return calls.fetch_add(1) + 1; };
+      first[i] = cache.getOrCreate(1, generate);
+      second[i] = cache.getOrCreate(1, generate);
+    });
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(first, second);
+  EXPECT_EQ(calls.load(), kThreads);
 }

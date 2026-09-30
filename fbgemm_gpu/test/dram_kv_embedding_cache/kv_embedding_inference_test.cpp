@@ -146,6 +146,13 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
     }
   }
 
+  int64_t markRange(int64_t start_id, int64_t count, uint32_t ts) {
+    return backend_->mark_existing_keys(
+        at::arange(start_id, start_id + count, at::kLong),
+        at::tensor({count}, at::kLong),
+        ts);
+  }
+
   // Run parallel operations with configurable thread count and work
   template <typename WorkFn>
   void runParallel(int num_threads, WorkFn work_fn) {
@@ -204,6 +211,37 @@ TEST_F(KVEmbeddingInferenceTest, InferenceLifecycleWithMetadata) {
       << "Embedding should be different after eviction";
 
   LOG(INFO) << "Test completed successfully";
+}
+
+// mark_existing_keys must write through the 12-byte inference header. The
+// 16-byte FixedBlockPool setter lands a full uint32 on the packed
+// timestamp:31 + used:1 word and clears `used`, which hides the row from the
+// eviction traversal permanently, so it would survive the second evict below.
+TEST_F(KVEmbeddingInferenceTest, MarkedRowIsKeptAndStillEvictable) {
+  const int64_t id = 4242;
+  insertEmbedding(id, 1000);
+  ASSERT_EQ(backend_->get_num_rows(), 1);
+
+  ASSERT_EQ(markRange(id, 1, 5000), 1);
+
+  backend_->trigger_feature_evict(3000);
+  backend_->wait_until_eviction_done();
+  EXPECT_EQ(backend_->get_num_rows(), 1);
+  EXPECT_TRUE(verifyEmbedding(readEmbedding(id), generateEmbedding(id)));
+
+  backend_->trigger_feature_evict(9000);
+  backend_->wait_until_eviction_done();
+  EXPECT_EQ(backend_->get_num_rows(), 0);
+}
+
+// The loader only runs the pre-load evict when something was marked, so ids
+// missing from the store must not be counted.
+TEST_F(KVEmbeddingInferenceTest, MarkExistingKeysCountsOnlyResidentRows) {
+  insertEmbedding(1, 1000);
+  insertEmbedding(2, 1000);
+
+  EXPECT_EQ(markRange(1, 2, 5000), 2);
+  EXPECT_EQ(markRange(50, 10, 5000), 0);
 }
 
 // Concurrent reads test

@@ -182,29 +182,38 @@ template <typename output_t>
 __global__ inline void _PaddedFP8rowwise_to_float_1d_cuda_kernel(
     output_t* const __restrict__ output,
     const std::uint8_t* const __restrict__ input,
+#ifdef USE_ROCM
+    const int64_t num_buckets,
+#endif
     const int output_columns,
     const int row_dim,
     const int* const __restrict__ offsets,
     const int row_ext,
     const int ebit,
     const int bias) {
+#ifdef USE_ROCM
+  for (int64_t row = blockIdx.x; row < num_buckets; row += gridDim.x) {
+#else
   const int64_t row = blockIdx.x;
-  // gridDim.x is num_rows
   if (row >= gridDim.x) {
     return;
   }
-  const std::uint8_t* const input_row = input + row * row_ext;
-  const float* input_row_scale =
-      reinterpret_cast<const float*>(input_row + row_dim);
-  const auto scale = input_row_scale[0];
-  int pad = *reinterpret_cast<const int*>(&input_row_scale[1]);
-  pad = ::max(0, ::min(pad, row_dim));
-  const auto pad_offset = offsets[row];
-  output_t* output_row = output + row * row_dim - pad_offset;
-  for (auto col = threadIdx.x; col < row_dim - pad; col += blockDim.x) {
-    const auto output_ = hfp8_to_float(input_row[col], ebit, bias) / scale;
-    quantize_float_store(&output_row[col], output_);
-  }
+#endif
+    const std::uint8_t* const input_row = input + row * row_ext;
+    const float* input_row_scale =
+        reinterpret_cast<const float*>(input_row + row_dim);
+    const auto scale = input_row_scale[0];
+    int pad = *reinterpret_cast<const int*>(&input_row_scale[1]);
+    pad = ::max(0, ::min(pad, row_dim));
+    const auto pad_offset = offsets[row];
+    output_t* output_row = output + row * row_dim - pad_offset;
+    for (auto col = threadIdx.x; col < row_dim - pad; col += blockDim.x) {
+      const auto output_ = hfp8_to_float(input_row[col], ebit, bias) / scale;
+      quantize_float_store(&output_row[col], output_);
+    }
+#ifdef USE_ROCM
+  } // for row (grid-stride loop, ROCm only)
+#endif
 }
 
 template <typename output_t>
@@ -347,7 +356,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
       ") must be a multiple of row_ext (",
       row_ext,
       ")");
-  const int num_buckets = ncols / row_ext;
+  const int64_t num_buckets = ncols / row_ext;
   int output_columns = ncols - num_buckets * 8;
   // Global memory instructions support reading or writing words of size equal
   // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
@@ -423,16 +432,24 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
     constexpr int kMaxThreads = 1024;
     const auto threads_per_block =
         kMaxThreads < row_dim ? kMaxThreads : row_dim;
+    TORCH_CHECK(
+        num_buckets > 0,
+        "num_buckets must be positive for the 1D dequantization launch");
+    const auto blocks = utils::cuda::cap_grid_dim_x(
+        num_buckets, threads_per_block, at::cuda::getCurrentCUDAStream());
     FBGEMM_DISPATCH_FLOATING_TYPES(
         output.scalar_type(), "PaddedFP8rowwise_to_float_1d_cuda_kernel", [&] {
           FBGEMM_LAUNCH_KERNEL(
               (_PaddedFP8rowwise_to_float_1d_cuda_kernel<scalar_t>),
-              num_buckets,
+              blocks,
               threads_per_block,
               0,
               at::cuda::getCurrentCUDAStream(),
               output.mutable_data_ptr<scalar_t>(),
               input.data_ptr<std::uint8_t>(),
+#ifdef USE_ROCM
+              num_buckets,
+#endif
               output_columns,
               row_dim,
               offsets.data_ptr<int>(),
