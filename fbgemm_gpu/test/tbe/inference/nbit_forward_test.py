@@ -401,18 +401,12 @@ class NBitFowardTest(NBitFowardTestCommon):
                 SparseType.FP32,
             ]
         ),
-        output_dtype=(
-            st.sampled_from(
-                [
-                    SparseType.FP32,
-                ]
-            )
-            if not TEST_WITH_ROCM
-            else st.sampled_from(
-                [
-                    SparseType.FP16,
-                ]
-            )
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.BF16,
+            ]
         ),
         weighted=st.booleans(),
     )
@@ -817,24 +811,13 @@ class NBitFowardTest(NBitFowardTestCommon):
                 # SparseType.INT2,
             ]
         ),
-        output_dtype=(
-            st.sampled_from(
-                [
-                    SparseType.FP16,
-                    SparseType.BF16,
-                    SparseType.INT8,
-                    # SparseType.INT4,
-                ]
-            )
-            if not TEST_WITH_ROCM
-            else st.sampled_from(
-                [
-                    SparseType.FP16,
-                    # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
-                    SparseType.INT8,
-                    # SparseType.INT4,
-                ]
-            )
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP16,
+                SparseType.BF16,
+                SparseType.INT8,
+                # SparseType.INT4,
+            ]
         ),
     )
     @settings(
