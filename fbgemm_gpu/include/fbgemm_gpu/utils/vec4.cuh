@@ -10,9 +10,33 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <cstdint>
 #include "fbgemm_gpu/utils/float.cuh"
 
 namespace fbgemm_gpu {
+
+namespace detail {
+
+DEVICE_INLINE void store_bfloat16x4(const float4 values, at::BFloat16* output) {
+  if (reinterpret_cast<std::uintptr_t>(output) % alignof(uint2) != 0) {
+    output[0] = values.x;
+    output[1] = values.y;
+    output[2] = values.z;
+    output[3] = values.w;
+    return;
+  }
+  union {
+    at::BFloat16 bf[4];
+    uint2 ui;
+  } tmp;
+  tmp.bf[0] = values.x;
+  tmp.bf[1] = values.y;
+  tmp.bf[2] = values.z;
+  tmp.bf[3] = values.w;
+  *reinterpret_cast<uint2*>(output) = tmp.ui;
+}
+
+} // namespace detail
 
 ////////////////////////////////////////////////////////////////////////////////
 // Vec4T Base
@@ -169,22 +193,7 @@ struct Vec4T<float> : public Vec4BaseT<float> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
-#ifdef USE_ROCM
-    union {
-      at::BFloat16 bf[4];
-      uint2 ui;
-    } tmp;
-    tmp.bf[0] = acc.x;
-    tmp.bf[1] = acc.y;
-    tmp.bf[2] = acc.z;
-    tmp.bf[3] = acc.w;
-    *reinterpret_cast<uint2*>(p) = tmp.ui;
-#else
-    p[0] = acc.x;
-    p[1] = acc.y;
-    p[2] = acc.z;
-    p[3] = acc.w;
-#endif
+    detail::store_bfloat16x4(acc, p);
   }
 
   DEVICE_INLINE void store(at::Float8_e4m3fn* p) const {
@@ -334,22 +343,7 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
-#ifdef USE_ROCM
-    union {
-      at::BFloat16 bf[4];
-      uint2 ui;
-    } tmp;
-    tmp.bf[0] = acc.x;
-    tmp.bf[1] = acc.y;
-    tmp.bf[2] = acc.z;
-    tmp.bf[3] = acc.w;
-    *reinterpret_cast<uint2*>(p) = tmp.ui;
-#else
-    p[0] = acc.x;
-    p[1] = acc.y;
-    p[2] = acc.z;
-    p[3] = acc.w;
-#endif
+    detail::store_bfloat16x4(acc, p);
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -526,22 +520,7 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE void store(at::BFloat16* p) const {
-#ifdef USE_ROCM
-    union {
-      at::BFloat16 bf[4];
-      uint2 ui;
-    } tmp;
-    tmp.bf[0] = acc.x;
-    tmp.bf[1] = acc.y;
-    tmp.bf[2] = acc.z;
-    tmp.bf[3] = acc.w;
-    *reinterpret_cast<uint2*>(p) = tmp.ui;
-#else
-    p[0] = acc.x;
-    p[1] = acc.y;
-    p[2] = acc.z;
-    p[3] = acc.w;
-#endif
+    detail::store_bfloat16x4(acc, p);
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -553,14 +532,15 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
   }
 
   DEVICE_INLINE static void copy(const at::BFloat16* src, at::BFloat16* dst) {
-#ifdef USE_ROCM
-    *reinterpret_cast<uint2*>(dst) = *reinterpret_cast<const uint2*>(src);
-#else
+    if (reinterpret_cast<std::uintptr_t>(src) % alignof(uint2) == 0 &&
+        reinterpret_cast<std::uintptr_t>(dst) % alignof(uint2) == 0) {
+      *reinterpret_cast<uint2*>(dst) = *reinterpret_cast<const uint2*>(src);
+      return;
+    }
     dst[0] = src[0];
     dst[1] = src[1];
     dst[2] = src[2];
     dst[3] = src[3];
-#endif
   }
 
   // this <- this + a * b
