@@ -81,7 +81,105 @@ constexpr int64_t kInt4NoBagInputStride =
      kInt4NoBagStorageAlignment) *
     kInt4NoBagStorageAlignment;
 
+#ifdef FBGEMM_HAS_SPMDM_NBIT_ROWWISE_SPARSE_THREAD_LOCAL
+template <typename IndexType, typename OffsetType>
+void expectThreadLocalKernelsMatchGlobal(int bit_rate) {
+  constexpr int64_t kBlockSize = 16;
+  constexpr int64_t kRows = 3;
+  const int64_t packed_row_size =
+      kBlockSize / (8 / bit_rate) + 2 * sizeof(float16);
+  vector<uint8_t> table(kRows * packed_row_size, 0x21);
+  for (int64_t row = 0; row < kRows; ++row) {
+    auto* scale_bias = reinterpret_cast<float16*>(
+        table.data() + (row + 1) * packed_row_size - 2 * sizeof(float16));
+    const float scale = 1.0f;
+    const float bias = 0.0f;
+    FloatToFloat16_ref(&scale, scale_bias, 1, true);
+    FloatToFloat16_ref(&bias, scale_bias + 1, 1, true);
+  }
+
+  const vector<IndexType> indices{0, 1, 2};
+  const vector<OffsetType> offsets{0, 3};
+  const vector<int32_t> compressed_indices{0, -1, 1};
+  vector<float> global_output(kBlockSize);
+  vector<float> thread_local_output(kBlockSize);
+
+  auto global_kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+      IndexType,
+      OffsetType,
+      float,
+      /*THREAD_LOCAL=*/false>(bit_rate, kBlockSize, false, false);
+  auto thread_local_kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+      IndexType,
+      OffsetType,
+      float,
+      /*THREAD_LOCAL=*/true>(bit_rate, kBlockSize, false, false);
+  ASSERT_TRUE(global_kernel(
+      1,
+      indices.size(),
+      kRows,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      nullptr,
+      global_output.data()));
+  ASSERT_TRUE(thread_local_kernel(
+      1,
+      indices.size(),
+      kRows,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      nullptr,
+      thread_local_output.data()));
+  EXPECT_EQ(thread_local_output, global_output);
+
+  global_output.assign(kBlockSize, 0.0f);
+  thread_local_output.assign(kBlockSize, 0.0f);
+  auto global_sparse_kernel = GenerateEmbeddingSpMDMNBitRowWiseSparse<
+      IndexType,
+      OffsetType,
+      /*THREAD_LOCAL=*/false>(bit_rate, kBlockSize, false, false);
+  auto thread_local_sparse_kernel = GenerateEmbeddingSpMDMNBitRowWiseSparse<
+      IndexType,
+      OffsetType,
+      /*THREAD_LOCAL=*/true>(bit_rate, kBlockSize, false, false);
+  ASSERT_TRUE(global_sparse_kernel(
+      1,
+      indices.size(),
+      kRows,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      nullptr,
+      global_output.data(),
+      compressed_indices.data()));
+  ASSERT_TRUE(thread_local_sparse_kernel(
+      1,
+      indices.size(),
+      kRows,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      nullptr,
+      thread_local_output.data(),
+      compressed_indices.data()));
+  EXPECT_EQ(thread_local_output, global_output);
+}
+#endif
+
 }; // namespace
+
+#ifdef FBGEMM_HAS_SPMDM_NBIT_ROWWISE_SPARSE_THREAD_LOCAL
+TEST(FusedNBitRowwiseEmbeddingLookupTest, ThreadLocalKernelsMatchGlobal) {
+  for (const int bit_rate : {2, 4}) {
+    expectThreadLocalKernelsMatchGlobal<int32_t, int32_t>(bit_rate);
+    expectThreadLocalKernelsMatchGlobal<int32_t, int64_t>(bit_rate);
+    expectThreadLocalKernelsMatchGlobal<int64_t, int32_t>(bit_rate);
+    expectThreadLocalKernelsMatchGlobal<int64_t, int64_t>(bit_rate);
+  }
+}
+#endif
 
 INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
