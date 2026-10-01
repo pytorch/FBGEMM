@@ -36,7 +36,7 @@ bool jitPerfMapEnabled();
 void registerJitCodeForProfiling(
     const void* addr,
     size_t size,
-    const std::string& name);
+    std::string_view name);
 
 // The options the EmbeddingSpMDM and EmbeddingSpMDMNBit generators share.
 // Kept in one place so both keep the same flag spelling and ordering as
