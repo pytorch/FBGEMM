@@ -50,7 +50,11 @@ def dense() -> dict[str, Any]:
                     ArgType.FLOAT,
                     "unused",
                     unused_on=frozenset(
-                        {DeclSurface.CPU_KERNEL, DeclSurface.HOST_FUNCTION}
+                        {
+                            DeclSurface.CPU_KERNEL,
+                            DeclSurface.GPU_KERNEL,
+                            DeclSurface.HOST_FUNCTION,
+                        }
                     ),
                 ),
             ],
@@ -745,13 +749,15 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
                 OptimItem(ArgType.FLOAT, "adjustment_ub", 1.0),
                 OptimItem(ArgType.INT, "learning_rate_mode", -1),
                 OptimItem(ArgType.INT, "weight_decay_mode", 1),
-                # The gradient-sum decay schedule is applied in the CUDA
-                # counter update only; the CPU kernel never reads it.
+                # The gradient-sum decay schedule is applied in the counter
+                # update only; table-update helpers only carry it through.
                 OptimItem(
                     ArgType.INT,
                     "grad_sum_decay",
                     -1,
-                    unused_on=frozenset({DeclSurface.CPU_KERNEL}),
+                    unused_on=frozenset(
+                        {DeclSurface.CPU_KERNEL, DeclSurface.GPU_KERNEL}
+                    ),
                 ),
                 OptimItem(ArgType.FLOAT, "max_counter"),
                 OptimItem(ArgType.FLOAT, "tail_id_threshold", 0.0),
@@ -1620,8 +1626,16 @@ def none_optimizer() -> dict[str, Any]:
         "dense": False,
         "args": OptimizerArgsSet.create(
             [
-                OptimItem(ArgType.INT, "total_hash_size"),
-                OptimItem(ArgType.SYM_INT, "total_unique_indices"),
+                OptimItem(
+                    ArgType.INT,
+                    "total_hash_size",
+                    unused_on=frozenset({DeclSurface.GPU_KERNEL}),
+                ),
+                OptimItem(
+                    ArgType.SYM_INT,
+                    "total_unique_indices",
+                    unused_on=frozenset({DeclSurface.GPU_KERNEL}),
+                ),
             ],
             {
                 "v1": "int total_hash_size = 0, SymInt total_unique_indices = 0",
