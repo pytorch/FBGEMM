@@ -443,11 +443,13 @@ struct VecNT<1, PrimitiveType::FP> {
     acc = a;
   }
 
-  DEVICE_INLINE void store(float* output_ptr, int num_valid_outputs = 1) {
+  DEVICE_INLINE void store(float* output_ptr, int /* num_valid_outputs */ = 1) {
     *output_ptr = acc;
   }
 
-  DEVICE_INLINE void store(at::Half* output_ptr, int num_valid_outputs = 1) {
+  DEVICE_INLINE void store(
+      at::Half* output_ptr,
+      int /* num_valid_outputs */ = 1) {
     __half val = to_half(acc);
     *reinterpret_cast<__half*>(output_ptr) = val;
   }
@@ -455,35 +457,43 @@ struct VecNT<1, PrimitiveType::FP> {
 #if defined(USE_ROCM) || !(defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
-      const int num_valid_outputs = 1) {
+      const int /* num_valid_outputs */ = 1) {
     __nv_bfloat16 val = to_bfloat16(acc);
     *reinterpret_cast<__nv_bfloat16*>(output_ptr) = val;
   }
 #endif
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 1) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      uint8_t* /* output_ptr */,
+      int /* num_valid_outputs */ = 1) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   DEVICE_INLINE void
-  store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 1) {
+  store(uint8_t* output_ptr, float2 qparams, int /* num_valid_outputs */ = 1) {
     const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
     output_ptr[0] = lrintf((acc - qparams.y) * inv_scale);
   }
 
-  DEVICE_INLINE void
-  store(float* output_ptr, float2 qparams, int num_valid_outputs = 1) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      float* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 1) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 1) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::Half* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 1) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 1) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::BFloat16* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 1) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   // acc <- acc + a * b
@@ -562,8 +572,10 @@ struct VecNT<2, PrimitiveType::FP> {
   }
 #endif
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 2) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      uint8_t* /* output_ptr */,
+      int /* num_valid_outputs */ = 2) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   DEVICE_INLINE void
@@ -577,19 +589,25 @@ struct VecNT<2, PrimitiveType::FP> {
     }
   }
 
-  DEVICE_INLINE void
-  store(float* output_ptr, float2 qparams, int num_valid_outputs = 2) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      float* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 2) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 2) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::Half* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 2) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 2) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::BFloat16* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 2) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   // acc <- acc + a * b
@@ -713,8 +731,10 @@ struct VecNT<4, PrimitiveType::FP> {
   }
 #endif
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      uint8_t* /* output_ptr */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   DEVICE_INLINE void
@@ -728,19 +748,25 @@ struct VecNT<4, PrimitiveType::FP> {
     }
   }
 
-  DEVICE_INLINE void
-  store(float* output_ptr, float2 qparams, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      float* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::Half* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::BFloat16* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   // acc <- acc + a * b
@@ -866,8 +892,10 @@ struct VecNT<4, PrimitiveType::INT> {
   }
 #endif
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      uint8_t* /* output_ptr */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   DEVICE_INLINE void
@@ -881,19 +909,25 @@ struct VecNT<4, PrimitiveType::INT> {
     }
   }
 
-  DEVICE_INLINE void
-  store(float* output_ptr, float2 qparams, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      float* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::Half* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 4) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::BFloat16* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 4) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   // acc <- acc + a * b
@@ -1043,8 +1077,10 @@ struct VecNT<8, PrimitiveType::INT> {
   }
 #endif
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 8) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      uint8_t* /* output_ptr */,
+      int /* num_valid_outputs */ = 8) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   DEVICE_INLINE void
@@ -1060,19 +1096,25 @@ struct VecNT<8, PrimitiveType::INT> {
     }
   }
 
-  DEVICE_INLINE void
-  store(float* output_ptr, float2 qparams, int num_valid_outputs = 8) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      float* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 8) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 8) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::Half* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 8) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 8) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::BFloat16* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 8) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   // acc <- acc + a * b
@@ -1233,8 +1275,10 @@ struct VecNT<16, PrimitiveType::INT> {
   }
 #endif
 
-  DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 16) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      uint8_t* /* output_ptr */,
+      int /* num_valid_outputs */ = 16) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   DEVICE_INLINE void
@@ -1251,19 +1295,25 @@ struct VecNT<16, PrimitiveType::INT> {
     }
   }
 
-  DEVICE_INLINE void
-  store(float* output_ptr, float2 qparams, int num_valid_outputs = 16) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      float* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 16) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 16) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::Half* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 16) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
-  DEVICE_INLINE void
-  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 16) {
-    CUDA_KERNEL_ASSERT(false);
+  DEVICE_INLINE void store(
+      at::BFloat16* /* output_ptr */,
+      float2 /* qparams */,
+      int /* num_valid_outputs */ = 16) {
+    CUDA_KERNEL_ASSERT(false && "Unsupported VecN operation");
   }
 
   // acc <- acc + a * b
