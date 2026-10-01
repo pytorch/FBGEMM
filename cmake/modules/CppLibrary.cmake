@@ -178,8 +178,7 @@ function(fbgemm_get_warning_flags)
     -Wno-deprecated-enum-enum-conversion
     -Wno-strict-aliasing
     -Wno-sign-compare
-    -Wno-vla
-    -Wno-error=attributes)
+    -Wno-vla)
 
   # Clang suppressions. The clang version controls which lines apply. The
   # CXX path uses the version of the host clang. The hipcc path uses all of
