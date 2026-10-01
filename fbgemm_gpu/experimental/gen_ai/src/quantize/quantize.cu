@@ -35,6 +35,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
+#include <cstdint>
 
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
@@ -165,6 +166,40 @@ struct __align__(8) i8x8 {
   int8_t vals[8];
 };
 
+namespace {
+
+void validate_per_tensor_quantize_i8_input(const at::Tensor& X) {
+  TORCH_CHECK(X.is_cuda(), "X must be a CUDA tensor");
+  TORCH_CHECK(
+      X.scalar_type() == at::kBFloat16,
+      "X must have dtype BFloat16, got ",
+      X.scalar_type());
+  TORCH_CHECK(X.dim() == 1, "X must be a 1-D tensor, got ", X.dim(), "-D");
+  TORCH_CHECK(X.is_contiguous(), "X must be contiguous");
+  TORCH_CHECK(
+      X.numel() % 8 == 0, "X.numel() must be divisible by 8, got ", X.numel());
+  TORCH_CHECK(
+      reinterpret_cast<std::uintptr_t>(X.const_data_ptr()) % alignof(uint4) ==
+          0,
+      "X data pointer must be ",
+      alignof(uint4),
+      "-byte aligned");
+}
+
+at::Tensor make_per_tensor_quantize_i8_output(const at::Tensor& X) {
+  auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
+  TORCH_INTERNAL_ASSERT(
+      reinterpret_cast<std::uintptr_t>(XQ.mutable_data_ptr()) %
+              alignof(uint2) ==
+          0,
+      "XQ data pointer must be ",
+      alignof(uint2),
+      "-byte aligned");
+  return XQ;
+}
+
+} // namespace
+
 __global__ void per_tensor_quantize_i8_kernel(
     pta::PackedTensorAccessor64<at::BFloat16, 1, at::RestrictPtrTraits> X,
     pta::PackedTensorAccessor64<int8_t, 1, at::RestrictPtrTraits> XQ,
@@ -176,8 +211,10 @@ __global__ void per_tensor_quantize_i8_kernel(
     inv_scale = 1.0 / (__bfloat162float(scale) + 1.0e-8);
   }
 
-  for (auto i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N;
-       i += 8 * blockDim.x * gridDim.x) {
+  const int64_t first_i = static_cast<int64_t>(threadIdx.x) * 8 +
+      static_cast<int64_t>(blockIdx.x) * blockDim.x * 8;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x * 8;
+  for (int64_t i = first_i; i < N; i += stride) {
     bf16x8 src;
     *reinterpret_cast<uint4*>(&src) = *reinterpret_cast<uint4*>(&X[i]);
 
@@ -230,16 +267,20 @@ __global__ void per_tensor_quantize_i8_kernel(
 ///
 /// @return int8 tensor-wise quantized tensor
 at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
+  validate_per_tensor_quantize_i8_input(X);
   CUDA_DEVICE_GUARD(X);
   TORCH_CHECK(scale != 0.0);
   float inv_scale = 1.0 / (scale + 1.0e-8);
   constexpr int32_t kThreadsPerBlock = 1024;
-  auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
+  const auto num_chunks = X.numel() / 8;
+  auto XQ = make_per_tensor_quantize_i8_output(X);
   dim3 threads = kThreadsPerBlock;
-  const dim3 blocks = utils::cuda::cap_grid_dim_x(
-      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock),
-      kThreadsPerBlock,
-      at::cuda::getCurrentCUDAStream());
+  const dim3 blocks = std::max<uint32_t>(
+      1,
+      std::min(
+          cuda_calc_block_count(num_chunks, kThreadsPerBlock),
+          utils::cuda::cap_grid_dim_x_from_workload(
+              num_chunks, kThreadsPerBlock, at::cuda::getCurrentCUDAStream())));
 
   FBGEMM_LAUNCH_KERNEL(
       (per_tensor_quantize_i8_kernel),
@@ -256,18 +297,23 @@ at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
 
 std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(
     at::Tensor X) {
-  // TORCH_CHECK(scale != 0.0);
+  validate_per_tensor_quantize_i8_input(X);
   CUDA_DEVICE_GUARD(X);
   constexpr int32_t kThreadsPerBlock = 1024;
-  auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
+  const auto num_chunks = X.numel() / 8;
+  auto XQ = make_per_tensor_quantize_i8_output(X);
 
   auto scale = at::norm(X, std::numeric_limits<double>::infinity())
                    .div_(127.0)
                    .to(X.dtype());
 
   dim3 threads = kThreadsPerBlock;
-  dim3 blocks =
-      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
+  const dim3 blocks = std::max<uint32_t>(
+      1,
+      std::min(
+          cuda_calc_block_count(num_chunks, kThreadsPerBlock),
+          utils::cuda::cap_grid_dim_x_from_workload(
+              num_chunks, kThreadsPerBlock, at::cuda::getCurrentCUDAStream())));
 
   FBGEMM_LAUNCH_KERNEL(
       (per_tensor_quantize_i8_kernel),
