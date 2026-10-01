@@ -18,7 +18,7 @@ namespace fbgemm_gpu {
 template <typename scalar_t, typename index_t>
 __global__
 __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
-    const int32_t N,
+    const int32_t N [[maybe_unused]],
     const int32_t B,
     const int32_t T,
     const scalar_t* __restrict__ weight, // N * sum(E) * 1 (embedding

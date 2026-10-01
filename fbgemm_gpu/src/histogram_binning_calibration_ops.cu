@@ -23,7 +23,7 @@ template <typename T>
 __global__
 __launch_bounds__(kMaxThreads) void histogram_binning_calibration_kernel(
     const int64_t num_logits,
-    const int64_t num_bins,
+    const int64_t num_bins [[maybe_unused]],
     const double recalibrate_value,
     const double step,
     const int64_t bin_ctr_in_use_after,
