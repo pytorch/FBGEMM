@@ -23,7 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     MultiPassPrefetchConfig,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
+from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm, UVMCacheStatsIndex
 from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, RecordCacheMetrics
 from fbgemm_gpu.tbe.utils import (
     generate_requests,
@@ -41,7 +41,6 @@ from .cache_common import (
     gpu_unavailable,
     optests,
     running_on_github,
-    running_on_rocm,
     TestingStatsReporter,
     TestingStatsReporterConfig,
     VERBOSITY,
@@ -87,7 +86,6 @@ class CacheTest(unittest.TestCase):
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_github)
-    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -461,7 +459,6 @@ class CacheTest(unittest.TestCase):
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_github)
-    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -490,7 +487,6 @@ class CacheTest(unittest.TestCase):
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_github)
-    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -520,7 +516,6 @@ class CacheTest(unittest.TestCase):
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_github)
-    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -1040,6 +1035,101 @@ class CacheTest(unittest.TestCase):
                 self.assertEqual(unique_cache_miss_count, t_counter[1])
                 for i in range(len(tablewise_cache_miss)):
                     self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
+
+    def _generate_single_set_cache_tbes(self, prefetch_pipeline: bool) -> tuple[
+        SplitTableBatchedEmbeddingBagsCodegen,
+        SplitTableBatchedEmbeddingBagsCodegen,
+        int,
+    ]:
+        """
+        Generate a cached TBE (LRU, uvm cache stats) with a single set of
+        WARP_SIZE ways, so a batch with more than WARP_SIZE unique indices is
+        guaranteed to have conflict misses, along with its reference TBE.
+
+        A sentinel row is placed directly in front of lxu_cache_weights so that
+        an out-of-bounds read of row kCacheLocationMissing (-1) is deterministic
+        instead of faulting or returning arbitrary memory.
+        """
+        cc, cc_ref, E, _ = generate_cache_tbes(
+            T=1,
+            D=4,
+            log_E=3,
+            mixed=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            prefetch_pipeline=prefetch_pipeline,
+            cache_sets=1,
+            gather_uvm_cache_stats=True,
+        )
+        padded = torch.full(
+            (cc.lxu_cache_weights.size(0) + 1, cc.lxu_cache_weights.size(1)),
+            1.0e6,
+            dtype=cc.lxu_cache_weights.dtype,
+            device=cc.lxu_cache_weights.device,
+        )
+        padded[1:] = cc.lxu_cache_weights
+        cc.lxu_cache_weights = padded[1:]
+        return cc, cc_ref, E
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_prefetch_pipeline_forward_ignores_next_batch_cache_stats(
+        self,
+    ) -> None:
+        """
+        With prefetch_pipeline=True, prefetch(batch_{i+1}) resets and refills
+        local_uvm_cache_stats before forward(batch_i) runs. The forward must use
+        the stats of batch_i's own prefetch: if batch_{i+1} has no conflict
+        misses while batch_i does, using batch_{i+1}'s stats makes the kernel
+        take the zero-miss path and read lxu_cache_weights[kCacheLocationMissing]
+        (an out-of-bounds row) for batch_i's uncached rows. forward(batch_{i+1})
+        then exercises the zero-miss path with its own (correct) stats.
+        """
+        cc, cc_ref, E = self._generate_single_set_cache_tbes(prefetch_pipeline=True)
+
+        # Batch A: 2 * WARP_SIZE unique rows, one per bag; only WARP_SIZE fit
+        indices_a = torch.randperm(E, device="cuda")[: 2 * WARP_SIZE]
+        offsets_a = torch.arange(indices_a.numel() + 1, device="cuda")
+        cc.prefetch(indices_a, offsets_a)
+        locations_a = cc.lxu_cache_locations_list[-1]
+        self.assertTrue(torch.any(locations_a == -1).item())
+
+        # Batch B: only rows of batch A that are cached, so it has no conflict
+        # misses and overwrites local_uvm_cache_stats with a zero count
+        indices_b = indices_a[locations_a != -1]
+        offsets_b = torch.arange(indices_b.numel() + 1, device="cuda")
+        cc.prefetch(indices_b, offsets_b)
+        self.assertEqual(
+            cc.local_uvm_cache_stats[
+                UVMCacheStatsIndex.num_conflict_unique_misses
+            ].item(),
+            0,
+        )
+
+        torch.testing.assert_close(
+            cc(indices_a, offsets_a), cc_ref(indices_a, offsets_a)
+        )
+        torch.testing.assert_close(
+            cc(indices_b, offsets_b), cc_ref(indices_b, offsets_b)
+        )
+        self.assertEqual(len(cc.prefetched_uvm_cache_stats_list), 0)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_forward_ignores_uvm_cache_stats_reset_after_prefetch(self) -> None:
+        """
+        reset_uvm_cache_stats() between prefetch() and forward() zeroes
+        local_uvm_cache_stats. The forward must still use the stats of its own
+        prefetch, otherwise the kernel takes the zero-miss path and reads
+        lxu_cache_weights[kCacheLocationMissing] for the uncached rows. This
+        does not require prefetch_pipeline.
+        """
+        cc, cc_ref, E = self._generate_single_set_cache_tbes(prefetch_pipeline=False)
+
+        indices = torch.randperm(E, device="cuda")[: 2 * WARP_SIZE]
+        offsets = torch.arange(indices.numel() + 1, device="cuda")
+        cc.prefetch(indices, offsets)
+        self.assertTrue(torch.any(cc.lxu_cache_locations_list[-1] == -1).item())
+
+        cc.reset_uvm_cache_stats()
+        torch.testing.assert_close(cc(indices, offsets), cc_ref(indices, offsets))
 
     @optests.dontGenerateOpCheckTests("Large grid HIP regression — uses ~4 GB HBM")
     @unittest.skipIf(*gpu_unavailable)

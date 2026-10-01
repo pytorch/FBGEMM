@@ -773,6 +773,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]]
     optimizer_args: invokers.lookup_args.OptimizerArgs
     lxu_cache_locations_list: list[Tensor]
+    # (lxu_cache_locations, uvm_cache_stats snapshot) per prefetched batch
+    prefetched_uvm_cache_stats_list: list[tuple[Tensor, Tensor]]
     lxu_cache_locations_empty: Tensor
     timesteps_prefetched: list[int]
     prefetched_info_list: list[PrefetchedInfo]
@@ -3088,16 +3090,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=self.lxu_cache_locations,
-            # Pass the local_uvm_cache_stats bc only that information is
-            # relevant for the current iteration
-            uvm_cache_stats=(
-                self.local_uvm_cache_stats
-                if (
-                    self.gather_uvm_cache_stats
-                    # Unique conflict misses are only collected when using CacheAlgorithm.LRU
-                    and self.cache_algorithm == CacheAlgorithm.LRU
-                )
-                else None
+            # Pass the stats of the prefetch that produced lxu_cache_locations,
+            # since only that information is relevant for the current iteration
+            uvm_cache_stats=self._pop_prefetched_uvm_cache_stats(
+                self.lxu_cache_locations
             ),
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
@@ -3713,6 +3709,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
         self.lxu_cache_locations_list.append(final_lxu_cache_locations)
 
+        # Unique conflict misses are only collected when using CacheAlgorithm.LRU
+        if self.gather_uvm_cache_stats and self.cache_algorithm == CacheAlgorithm.LRU:
+            # Snapshot the stats of this batch: with prefetch_pipeline, the next
+            # prefetch resets local_uvm_cache_stats (possibly on another stream)
+            # before or while forward() consumes final_lxu_cache_locations.
+            self.prefetched_uvm_cache_stats_list.append(
+                (final_lxu_cache_locations, self.local_uvm_cache_stats.clone())
+            )
+            # Entries are consumed in the same FIFO order as
+            # lxu_cache_locations_list, so any excess at the front belongs to
+            # locations that were popped without going through forward()
+            num_stale = len(self.prefetched_uvm_cache_stats_list) - len(
+                self.lxu_cache_locations_list
+            )
+            if num_stale > 0:
+                self.prefetched_uvm_cache_stats_list = (
+                    self.prefetched_uvm_cache_stats_list[num_stale:]
+                )
+
         if self.gather_uvm_cache_stats:
             # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
             # We may want to do this accumulation atomically, but as it's only
@@ -3751,6 +3766,38 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         for t in self.lxu_cache_locations_list:
             t.record_stream(forward_stream)
+
+        for _, stats in self.prefetched_uvm_cache_stats_list:
+            stats.record_stream(forward_stream)
+
+    def _pop_prefetched_uvm_cache_stats(
+        self, lxu_cache_locations: Tensor
+    ) -> Tensor | None:
+        """
+        Return the uvm_cache_stats to pass to the forward lookup for
+        `lxu_cache_locations`: the snapshot taken by the prefetch that produced
+        them, or local_uvm_cache_stats for locations that were not produced by
+        `_prefetch` (e.g. injected directly into lxu_cache_locations_list).
+
+        The forward kernel skips the kCacheLocationMissing check when the stats
+        report zero conflict misses, so the stats must describe exactly these
+        locations.
+        """
+        # Unique conflict misses are only collected when using CacheAlgorithm.LRU
+        if not (
+            self.gather_uvm_cache_stats and self.cache_algorithm == CacheAlgorithm.LRU
+        ):
+            return None
+        for i in range(len(self.prefetched_uvm_cache_stats_list)):
+            locations, stats = self.prefetched_uvm_cache_stats_list[i]
+            if locations is lxu_cache_locations:
+                # Earlier entries belong to locations that were popped without
+                # going through forward()
+                self.prefetched_uvm_cache_stats_list = (
+                    self.prefetched_uvm_cache_stats_list[i + 1 :]
+                )
+                return stats
+        return self.local_uvm_cache_stats
 
     def _update_cache_miss_counter(
         self,
@@ -4303,6 +4350,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.max_prefetch_depth = MAX_PREFETCH_DEPTH
         self.lxu_cache_locations_list = []
+        self.prefetched_uvm_cache_stats_list = []
         self.lxu_cache_locations_empty = torch.empty(
             0, device=self.current_device, dtype=torch.int32
         ).fill_(-1)
