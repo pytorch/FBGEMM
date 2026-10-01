@@ -185,7 +185,7 @@ __global__ inline void _PaddedFP8rowwise_to_float_1d_cuda_kernel(
 #ifdef USE_ROCM
     const int64_t num_buckets,
 #endif
-    const int output_columns,
+    const int output_columns [[maybe_unused]],
     const int row_dim,
     const int* const __restrict__ offsets,
     const int row_ext,
@@ -225,7 +225,7 @@ __global__ inline void _PaddedFP8rowwise_to_float_2d_cuda_kernel(
     output_t* const __restrict__ output,
     const bool forward,
     const int row_dim,
-    int* const __restrict__ offsets) {
+    int* const __restrict__ offsets [[maybe_unused]]) {
   const int row_ext = row_dim + 8;
   const int ebit = forward ? 4 : 5;
   const int bias = forward ? 15 : 31;

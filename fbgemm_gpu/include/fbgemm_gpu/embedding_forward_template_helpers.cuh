@@ -122,6 +122,7 @@ inline __device__ unsigned cutlass_get_smem_pointer(void* ptr) {
       : "l"(ptr));
   return smem_ptr;
 #else
+  (void)ptr;
   return 0;
 #endif
 }

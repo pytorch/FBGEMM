@@ -102,7 +102,7 @@ __global__ void quantize_float_to_mx4_kernel(
     const int group_size,
     const uint32_t total_elems,
     // const bool flush_fp32_subnorms,
-    const RoundingMode rounding_mode,
+    const RoundingMode rounding_mode [[maybe_unused]],
     pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const uint32_t num_warps_in_group,
     const uint32_t smem_stride) {
@@ -279,7 +279,8 @@ __global__ void dequantize_mx4_to_float_kernel(
 
   // last 4 bits
 
-  // CUDA_KERNEL_ASSERT(low < 16 && elem < 16 && low_2 < 16 && elem2 < 16);
+  // Disabled assert condition: low < 16 && elem < 16 && low_2 < 16 && elem2
+  // < 16.
   const int exp = shared_exp - FLOAT32_EXP_BIAS;
 
   // Use vectorized stores based on output type
