@@ -676,6 +676,30 @@ class PackedSegmentsTest(unittest.TestCase):
             msg="Expected input gradients to be equal but they are not",
         )
 
+    def test_pack_segments_backward_truncated_cpu(self) -> None:
+        lengths = torch.tensor([5, 2], dtype=torch.int)
+        input_data = torch.randn(7, 1, requires_grad=True)
+        packed = torch.ops.fbgemm.pack_segments(
+            t_in=input_data,
+            lengths=lengths,
+            max_length=3,
+        )
+        packed.backward(
+            torch.tensor(
+                [
+                    [[10.0], [11.0], [12.0]],
+                    [[20.0], [21.0], [30.0]],
+                ]
+            )
+        )
+
+        torch.testing.assert_close(
+            input_data.grad,
+            torch.tensor([[10.0], [11.0], [12.0], [0.0], [0.0], [20.0], [21.0]]),
+            rtol=0,
+            atol=0,
+        )
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         dtype=st.sampled_from(
