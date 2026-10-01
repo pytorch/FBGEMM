@@ -168,7 +168,7 @@ Tensor uvm_to_device_d(const Tensor& self, const at::Device& device);
 /// @param cuda_memory_advise The `cudaMemoryAdvise` enum value, as integer
 ///
 /// @see See <a
-/// href="https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html">here</a>
+/// href="https://docs.nvidia.com/cuda/archive/13.0.0/cuda-runtime-api/group__CUDART__MEMORY.html">here</a>
 /// for more information on the `cudaMemoryAdvise` enum.
 void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 
@@ -182,7 +182,7 @@ void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 ///                 destination
 ///
 /// @see See <a
-/// href="https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html">here</a>
+/// href="https://docs.nvidia.com/cuda/archive/13.0.0/cuda-runtime-api/group__CUDART__MEMORY.html">here</a>
 /// for more information on `cudaMemPrefetchAsync()`.
 void uvm_cuda_mem_prefetch_async(
     const Tensor& self,

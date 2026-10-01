@@ -48,7 +48,7 @@ template <typename func_t>
 int32_t compute_num_groups_and_dynamic_smem_bytes(
     uint32_t* num_groups_per_block,
     const int64_t mx_group_size,
-    const int device,
+    const int device [[maybe_unused]],
     const func_t kernel_func_name,
     const uint32_t num_warps_in_group) {
   int32_t smem_bytes = 0;
@@ -142,7 +142,9 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
   RoundingMode rd = static_cast<RoundingMode>(rounding_mode);
 
   const uint32_t num_warps_in_group = mx_group_size / WARP_SIZE;
-  CUDA_KERNEL_ASSERT(num_warps_in_group <= WARP_SIZE);
+  CUDA_KERNEL_ASSERT(
+      num_warps_in_group <= WARP_SIZE &&
+      "num_warps_in_group must not exceed warp size");
 
   uint32_t num_groups_per_block = MAX_THREADS / mx_group_size;
   const auto kernel_func = (num_warps_in_group > 1)

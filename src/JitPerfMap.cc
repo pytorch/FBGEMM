@@ -28,6 +28,7 @@
 #include <io.h>
 #include <process.h>
 #else
+#include <sys/uio.h>
 #include <unistd.h>
 #endif
 
@@ -73,13 +74,10 @@ std::time_t processStartTime() {
 }
 #endif // _MSC_VER
 
+#ifdef _MSC_VER
 bool writeAll(int fd, const char* data, size_t len) {
   while (len > 0) {
-#ifdef _MSC_VER
     const int written = _write(fd, data, static_cast<unsigned int>(len));
-#else
-    const ssize_t written = ::write(fd, data, len);
-#endif
     if (written <= 0) {
       if (written < 0 && errno == EINTR) {
         continue;
@@ -91,6 +89,31 @@ bool writeAll(int fd, const char* data, size_t len) {
   }
   return true;
 }
+#else
+bool writeAll(int fd, iovec* iov, int iovcnt) {
+  while (iovcnt > 0) {
+    const ssize_t written = ::writev(fd, iov, iovcnt);
+    if (written <= 0) {
+      if (written < 0 && errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+
+    size_t remaining = static_cast<size_t>(written);
+    while (iovcnt > 0 && remaining >= iov[0].iov_len) {
+      remaining -= iov[0].iov_len;
+      ++iov;
+      --iovcnt;
+    }
+    if (remaining > 0) {
+      iov[0].iov_base = static_cast<char*>(iov[0].iov_base) + remaining;
+      iov[0].iov_len -= remaining;
+    }
+  }
+  return true;
+}
+#endif
 
 // -1 before the first open. Written only by openPerfMap().
 std::atomic<int> perfMapFd{-1};
@@ -216,7 +239,7 @@ bool jitPerfMapEnabled() {
 void registerJitCodeForProfiling(
     const void* addr,
     size_t size,
-    const std::string& name) {
+    std::string_view name) {
   if (!jitPerfMapEnabled() || addr == nullptr || size == 0) {
     return;
   }
@@ -237,15 +260,26 @@ void registerJitCodeForProfiling(
     return;
   }
 
-  // Assembled first and written once: an O_APPEND write is what keeps records
-  // from other threads whole, and a record split across two writes could
-  // interleave with theirs.
+#ifdef _MSC_VER
+  // Assembled first and written once on Windows: an O_APPEND write is what
+  // keeps records from other threads whole.
   std::string record;
   record.reserve(static_cast<size_t>(headerLen) + name.size() + 1);
   record.assign(header, static_cast<size_t>(headerLen));
   record += name;
   record += '\n';
   writeAll(fd, record.data(), record.size());
+#else
+  // Keep the post-fork POSIX path allocation-free. writev() still publishes one
+  // O_APPEND record, without building a heap-backed std::string in the child.
+  char newline = '\n';
+  iovec iov[] = {
+      {header, static_cast<size_t>(headerLen)},
+      {const_cast<char*>(name.data()), name.size()},
+      {&newline, 1},
+  };
+  writeAll(fd, iov, 3);
+#endif
 }
 
 std::string embeddingKernelSymbol(

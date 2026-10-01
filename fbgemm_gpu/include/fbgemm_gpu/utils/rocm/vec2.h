@@ -127,7 +127,7 @@ struct Vec2T<float> : public Vec2BaseT<float> {
     acc = static_cast<float2>(fp8_ptr[0]);
   }
 
-  DEVICE_INLINE void load(const uint8_t* p) {
+  DEVICE_INLINE void load(const uint8_t*) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -164,7 +164,7 @@ struct Vec2T<float> : public Vec2BaseT<float> {
     fp8_ptr[0] = static_cast<__nv_fp8x2_e4m3>(acc);
   }
 
-  DEVICE_INLINE void store(uint8_t* p) const {
+  DEVICE_INLINE void store(uint8_t*) const {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -246,7 +246,7 @@ struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
     acc = *((const float2*)p);
   }
 
-  DEVICE_INLINE void load(const uint8_t* p) {
+  DEVICE_INLINE void load(const uint8_t*) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -274,7 +274,7 @@ struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
     *((float2*)p) = acc;
   }
 
-  DEVICE_INLINE void store(uint8_t* p) const {
+  DEVICE_INLINE void store(uint8_t*) const {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -378,7 +378,7 @@ struct Vec2T<at::BFloat16> : public Vec2BaseT<at::BFloat16> {
     acc = *((const float2*)p);
   }
 
-  DEVICE_INLINE void load(const uint8_t* p) {
+  DEVICE_INLINE void load(const uint8_t*) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -406,7 +406,7 @@ struct Vec2T<at::BFloat16> : public Vec2BaseT<at::BFloat16> {
     *((float2*)p) = acc;
   }
 
-  DEVICE_INLINE void store(uint8_t* p) const {
+  DEVICE_INLINE void store(uint8_t*) const {
     CUDA_KERNEL_ASSERT(false);
   }
 
