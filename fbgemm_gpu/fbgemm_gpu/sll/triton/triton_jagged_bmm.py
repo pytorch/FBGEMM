@@ -11,17 +11,45 @@ import triton
 import triton.language as tl
 
 
-def set_block_size(N: int) -> int:
-    if N > 64:
-        return 64
-    elif N > 16:
-        return 32
-    else:
-        return 16
+_JAGGED_DENSE_BMM_AUTOTUNE_CONFIGS = [
+    triton.Config(
+        {
+            "BLOCK_SIZE_M": block_size_m,
+            "BLOCK_SIZE_N": block_size_n,
+            "BLOCK_SIZE_K": block_size_k,
+        },
+        num_stages=3,
+        num_warps=4,
+    )
+    for block_size_m in [32, 64, 128]
+    for block_size_n in [16, 32, 64, 128]
+    for block_size_k in [16, 32, 64, 128]
+    if block_size_m * block_size_n <= 8192
+]
 
 
-# TODO add autotune to find best block size
+_JAGGED_JAGGED_BMM_AUTOTUNE_CONFIGS = [
+    triton.Config(
+        {
+            "BLOCK_SIZE_M": block_size_m,
+            "BLOCK_SIZE_N": block_size_n,
+            "BLOCK_SIZE_K": block_size_k,
+        },
+        num_stages=3,
+        num_warps=4,
+    )
+    for block_size_m in [16, 32, 64, 128]
+    for block_size_n in [16, 32, 64, 128]
+    for block_size_k in [16, 32, 64, 128]
+    if block_size_m * block_size_n <= 8192
+]
+
+
 # add supergroup to optimize GPU cache
+@triton.autotune(
+    configs=_JAGGED_DENSE_BMM_AUTOTUNE_CONFIGS,
+    key=["max_seq_len", "N", "K", "allow_tf32"],
+)
 @triton.jit
 def jagged_dense_bmm_kernel(
     a_ptr,
@@ -117,6 +145,10 @@ def jagged_dense_bmm_kernel(
     tl.store(c_ptrs, c, mask=mask)
 
 
+@triton.autotune(
+    configs=_JAGGED_JAGGED_BMM_AUTOTUNE_CONFIGS,
+    key=["max_seq_len", "M", "N", "allow_tf32"],
+)
 @triton.jit
 def jagged_jagged_bmm_kernel(
     a_ptr,
@@ -216,16 +248,13 @@ def triton_jagged_dense_bmm(a, b, a_offsets, max_seq_len, allow_tf32):
     # In that case, it is possible that the output is inconsistent with the padded version if empty is used
     c = a.new_zeros((sum_B, N))
 
-    BLOCK_SIZE_M = 32 if max_seq_len < 50 else 64
-    BLOCK_SIZE_N = set_block_size(N)
-    BLOCK_SIZE_K = set_block_size(K)
-
     # 2D launch kernel where each block gets its own program.
     # TODO, is this the best way to handle launch grid?
     # The grid number on M axises is larger than required often due to max_seq_len
-    grid = (
+    grid = lambda META: (
         B,
-        triton.cdiv(max_seq_len, BLOCK_SIZE_M) * triton.cdiv(N, BLOCK_SIZE_N),
+        triton.cdiv(max_seq_len, META["BLOCK_SIZE_M"])
+        * triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
 
     jagged_dense_bmm_kernel[grid](
@@ -244,9 +273,6 @@ def triton_jagged_dense_bmm(a, b, a_offsets, max_seq_len, allow_tf32):
         c.stride(1),
         max_seq_len,
         allow_tf32,
-        BLOCK_SIZE_M,
-        BLOCK_SIZE_N,
-        BLOCK_SIZE_K,
     )
     return c
 
@@ -261,12 +287,9 @@ def triton_jagged_jagged_bmm(a, b, a_offsets, max_seq_len, allow_tf32):
     # allocates output
     c = torch.empty((B, M, N), device=a.device, dtype=a.dtype)
     # 2D launch kernel where each block gets its own program.
-    BLOCK_SIZE_M = set_block_size(M)
-    BLOCK_SIZE_N = set_block_size(N)
-    BLOCK_SIZE_K = 32
-    grid = (
+    grid = lambda META: (
         B,
-        triton.cdiv(M, BLOCK_SIZE_M) * triton.cdiv(N, BLOCK_SIZE_N),
+        triton.cdiv(M, META["BLOCK_SIZE_M"]) * triton.cdiv(N, META["BLOCK_SIZE_N"]),
     )
     jagged_jagged_bmm_kernel[grid](
         a,
@@ -284,9 +307,6 @@ def triton_jagged_jagged_bmm(a, b, a_offsets, max_seq_len, allow_tf32):
         c.stride(2),
         max_seq_len,
         allow_tf32,
-        BLOCK_SIZE_M,
-        BLOCK_SIZE_N,
-        BLOCK_SIZE_K,
     )
     return c
 
