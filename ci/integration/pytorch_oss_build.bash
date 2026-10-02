@@ -18,7 +18,7 @@
 #   PYTHON_VERSION      - Python version (default: 3.12)
 #   BUILD_VARIANT       - cuda, rocm, or cpu (default: cuda)
 #   BUILD_CUDA_VERSION  - CUDA version (default: 13.0.2)
-#   BUILD_ROCM_VERSION  - ROCm version (default: 7.0)
+#   BUILD_ROCM_VERSION  - ROCm version (default: 10.0)
 #   PYTORCH_REPO_URL    - Repository URL (default: https://github.com/pytorch/pytorch)
 #   PYTORCH_CLONE_DIR   - Clone directory (default: /tmp/pytorch)
 #   BUILD_ENV           - Conda environment name (default: auto-generated)
@@ -238,7 +238,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
   BUILD_VARIANT="${BUILD_VARIANT:-cuda}"
   BUILD_CUDA_VERSION="${BUILD_CUDA_VERSION:-13.0.2}"
-  BUILD_ROCM_VERSION="${BUILD_ROCM_VERSION:-7.0}"
+  BUILD_ROCM_VERSION="${BUILD_ROCM_VERSION:-10.0}"
   PYTORCH_REPO_URL="${PYTORCH_REPO_URL:-https://github.com/pytorch/pytorch}"
   PYTORCH_CLONE_DIR="${PYTORCH_CLONE_DIR:-/tmp/pytorch}"
   BUILD_SCRIPTS_INIT="${BUILD_SCRIPTS_INIT:-${REPO_ROOT}/.github/scripts/setup_env.bash}"
