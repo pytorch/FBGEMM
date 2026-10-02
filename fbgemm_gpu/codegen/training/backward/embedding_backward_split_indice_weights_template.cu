@@ -81,7 +81,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights{{ " [[maybe_unused]]" if ssd else "" }},
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
