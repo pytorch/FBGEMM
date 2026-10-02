@@ -5471,17 +5471,78 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # No-Op context manager
         return contextlib.nullcontext()
 
+    @torch.jit.ignore
+    def _fetch_opt_states_from_buffers(
+        self, row_ids: torch.Tensor
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
+        """
+        Gather the rowwise optimizer state for the given linearized row ids
+        from the momentum buffers. Used when optimizer offloading is disabled
+        (trackers fetch per-row momentum for delta prioritization).
+
+        Returns ``([state], mask)`` where ``state`` is a 1D ``(N,)``
+        tensor with one rowwise state per id: ``momentum1`` for
+        EXACT_ROWWISE_ADAGRAD, ``momentum2`` for PARTIAL_ROWWISE_ADAM, in
+        the buffers' configured dtype. Unlike the offloaded route, which
+        returns one 2D ``(N, k)`` entry per optimizer state, this route
+        exposes only the single state named above. ``row_ids``
+        must be int64 on the momentum buffers' device. Ids outside
+        ``[0, total_hash_size)`` are zero-filled with ``mask`` False.
+
+        Raises:
+            RuntimeError: if ``row_ids`` is not int64 on the buffers'
+                device, the optimizer is not mapped, or the buffer size
+                mismatches ``total_hash_size``.
+        """
+        # Map to attribute names (not tensors): a module only carries the
+        # buffers for its own optimizer, so eager attribute access would fail.
+        buf_name = {
+            OptimType.EXACT_ROWWISE_ADAGRAD: "momentum1_dev",
+            OptimType.PARTIAL_ROWWISE_ADAM: "momentum2_dev",
+        }.get(self.optimizer)
+        if buf_name is None:
+            raise RuntimeError(
+                f"Fetching optimizer states using fetch_from_l1_sp_w_row_ids() is not yet supported for {self.optimizer} without optimizer offloading"
+            )
+        buf = getattr(self, buf_name)
+        if row_ids.dtype != torch.int64 or row_ids.device != buf.device:
+            raise RuntimeError(
+                "_fetch_opt_states_from_buffers requires int64 row_ids on "
+                f"{buf.device}, got {row_ids.dtype} on {row_ids.device}"
+            )
+        # Rowwise states are laid out flat by linearized row id.
+        if buf.numel() != self.total_hash_size:
+            raise RuntimeError(
+                f"_fetch_opt_states_from_buffers: {buf_name} has "
+                f"{buf.numel()} elements, expected total_hash_size="
+                f"{self.total_hash_size}"
+            )
+        # This route returns before the no_grad section below; keep the
+        # per-step fetch out of autograd like the offloaded route.
+        with torch.no_grad():
+            valid = (row_ids >= 0) & (row_ids < buf.numel())
+            out = buf[torch.where(valid, row_ids, 0)]
+            return [out.masked_fill(~valid, 0)], valid
+
     def fetch_from_l1_sp_w_row_ids(
         self, row_ids: torch.Tensor, only_get_optimizer_states: bool = False
     ) -> tuple[list[torch.Tensor], torch.Tensor]:
         """
         Fetch the optimizer states and/or weights from L1 and SP for given linearized row_ids.
+        When only_get_optimizer_states is set without optimizer offloading,
+        reads the rowwise momentum buffers instead (see
+        _fetch_opt_states_from_buffers). No-offload contract (differs from the
+        offloaded route): returns ``([state], mask)`` with a single 1D ``(N,)``
+        state — only index 0 exists — and ``mask`` means id-in-range, not
+        L1/SP hit.
         @return: updated_weights/optimizer_states, mask of which rows are filled
         """
-        if not self.enable_optimizer_offloading and only_get_optimizer_states:
-            raise RuntimeError(
-                "Optimizer states are not offloaded, while only_get_optimizer_states is True"
-            )
+        if only_get_optimizer_states and not self.enable_optimizer_offloading:
+            # Optimizer states live in separate momentum buffers rather than
+            # in L1 rows; gather the rowwise state per row id instead.
+            # Supported optimizers are gated inside
+            # _fetch_opt_states_from_buffers (single source of truth).
+            return self._fetch_opt_states_from_buffers(row_ids)
 
         # NOTE: Remove this once there is support for fetching multiple
         # optimizer states in fetch_from_l1_sp_w_row_ids
