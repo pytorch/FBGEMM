@@ -7,7 +7,9 @@
 # pyre-strict
 # pyre-ignore-all-errors[3,6,56]
 
+import tempfile
 import unittest
+import unittest.mock
 from typing import Any
 
 import hypothesis.strategies as st
@@ -1024,4 +1026,195 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
                 m2_states_per_tb.cpu().flatten().float(),
                 atol=tolerance,
                 rtol=tolerance,
+            )
+
+    def _seed_rowwise_state(
+        self, emb: SSDTableBatchedEmbeddingBags, buf_name: str
+    ) -> torch.Tensor:
+        total = sum(spec[0] for spec in emb.embedding_specs)
+        buf = getattr(emb, buf_name)
+        seed = torch.arange(1, total + 1, dtype=torch.float32, device=buf.device).to(
+            buf.dtype
+        )
+        with torch.no_grad():
+            buf.copy_(seed)
+        return seed
+
+    def test_fetch_opt_states_no_offload_matches_momentum_buffers(self) -> None:
+        # Non-offloaded fetch must return the rowwise state backing each id:
+        # momentum1 for Adagrad, momentum2 for partial-rowwise Adam.
+        for optimizer, buf_name in [
+            (OptimType.PARTIAL_ROWWISE_ADAM, "momentum2_dev"),
+            (OptimType.EXACT_ROWWISE_ADAGRAD, "momentum1_dev"),
+        ]:
+            emb, _ = self.generate_ssd_tbes(
+                2,  # T
+                2,  # D
+                1,  # B
+                1,  # log_E
+                1,  # L
+                False,  # weighted
+                optimizer=optimizer,
+            )
+            self.assertFalse(emb.enable_optimizer_offloading)
+            seed = self._seed_rowwise_state(emb, buf_name)
+            E = emb.embedding_specs[0][0]
+            row_ids = torch.tensor(
+                [0, E - 1, E, 2 * E - 1, E],
+                device=emb.current_device,
+                dtype=torch.int64,
+            )
+            states, mask = emb.fetch_from_l1_sp_w_row_ids(
+                row_ids, only_get_optimizer_states=True
+            )
+            self.assertEqual(len(states), 1)
+            self.assertEqual(states[0].shape, (row_ids.numel(),))
+            self.assertEqual(states[0].dtype, seed.dtype)
+            torch.testing.assert_close(states[0].cpu(), seed[row_ids].cpu())
+            self.assertTrue(bool(mask.all()))
+
+    def test_fetch_opt_states_no_offload_invalid_ids_zero_filled(self) -> None:
+        # Ids outside [0, total) must come back zero-filled with mask False,
+        # never as uninitialized memory or a wrapped wrong row.
+        emb, _ = self.generate_ssd_tbes(
+            2,  # T
+            2,  # D
+            1,  # B
+            1,  # log_E
+            1,  # L
+            False,  # weighted
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+        )
+        self.assertFalse(emb.enable_optimizer_offloading)
+        seed = self._seed_rowwise_state(emb, "momentum2_dev")
+        total = seed.numel()
+        # Strided (non-contiguous) input: advanced indexing must not assume
+        # contiguity.
+        row_ids = torch.tensor(
+            [total, 0, total + 5, 0, -1, 0, 0, 0],
+            device=emb.current_device,
+            dtype=torch.int64,
+        )[::2]
+        self.assertFalse(row_ids.is_contiguous())
+        states, mask = emb.fetch_from_l1_sp_w_row_ids(
+            row_ids, only_get_optimizer_states=True
+        )
+        # Literal 1.0 (not seed[0]): the valid row must hold a NONZERO
+        # value, otherwise dropping masked_fill still passes (invalid ids
+        # are pre-redirected to row 0 before zeroing).
+        torch.testing.assert_close(states[0].cpu(), torch.tensor([0.0, 0.0, 0.0, 1.0]))
+        self.assertEqual(mask.cpu().tolist(), [False, False, False, True])
+
+    def test_fetch_opt_states_no_offload_empty_matches_buffer_dtype(self) -> None:
+        # The empty-input path must use the configured state dtype (here BF16
+        # momentum2), exactly like the non-empty path.
+
+        # Direct construction: generate_ssd_tbes accepts
+        # optimizer_state_dtypes but silently drops it, so a non-default
+        # momentum dtype can only be configured this way.
+        with unittest.mock.patch("torch.distributed.get_rank", return_value=0):
+            emb = SSDTableBatchedEmbeddingBags(
+                embedding_specs=[(8, 8), (8, 8)],
+                feature_table_map=[0, 1],
+                cache_sets=4,
+                ssd_storage_directory=f"{tempfile.mkdtemp()},{tempfile.mkdtemp()}",
+                optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+                optimizer_state_dtypes={"momentum2": SparseType.BF16},
+            ).cuda()
+        self.assertFalse(emb.enable_optimizer_offloading)
+        self.assertEqual(emb.momentum2_dev.dtype, torch.bfloat16)
+        # Seed first: the buffer starts all-zero, and without a nonzero row 0
+        # the invalid-id assert below would pass even without masked_fill
+        # (invalid ids are redirected to row 0 before zeroing).
+        seed = self._seed_rowwise_state(emb, "momentum2_dev")
+        states, mask = emb.fetch_from_l1_sp_w_row_ids(
+            torch.empty(0, device=emb.current_device, dtype=torch.int64),
+            only_get_optimizer_states=True,
+        )
+        self.assertEqual(states[0].shape, (0,))
+        self.assertEqual(states[0].dtype, torch.bfloat16)
+        self.assertEqual(mask.shape, (0,))
+        self.assertEqual(mask.dtype, torch.bool)
+        one, one_mask = emb.fetch_from_l1_sp_w_row_ids(
+            torch.tensor([3, 100], device=emb.current_device, dtype=torch.int64),
+            only_get_optimizer_states=True,
+        )
+        # The invalid id exercises masked_fill(scalar 0) on BF16.
+        self.assertEqual(one[0].dtype, torch.bfloat16)
+        self.assertEqual(one_mask.cpu().tolist(), [True, False])
+        self.assertEqual(one[0][0].item(), seed[3].item())
+        self.assertEqual(one[0][1].item(), 0.0)
+
+    def test_fetch_opt_states_no_offload_unsupported_optimizer_raises(self) -> None:
+        emb, _ = self.generate_ssd_tbes(
+            1,  # T
+            2,  # D
+            1,  # B
+            1,  # log_E
+            1,  # L
+            False,  # weighted
+            optimizer=OptimType.ADAM,
+        )
+        with self.assertRaisesRegex(RuntimeError, "without optimizer offloading"):
+            emb.fetch_from_l1_sp_w_row_ids(
+                torch.tensor([0], device=emb.current_device, dtype=torch.int64),
+                only_get_optimizer_states=True,
+            )
+
+    def test_fetch_opt_states_no_offload_rejects_bad_device_dtype(self) -> None:
+        emb, _ = self.generate_ssd_tbes(
+            1,  # T
+            2,  # D
+            1,  # B
+            1,  # log_E
+            1,  # L
+            False,  # weighted
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+        )
+        with self.assertRaisesRegex(RuntimeError, "requires int64 row_ids"):
+            emb.fetch_from_l1_sp_w_row_ids(
+                torch.tensor([0], dtype=torch.int64),
+                only_get_optimizer_states=True,
+            )
+        with self.assertRaisesRegex(RuntimeError, "requires int64 row_ids"):
+            emb.fetch_from_l1_sp_w_row_ids(
+                torch.tensor([0], device=emb.current_device, dtype=torch.int32),
+                only_get_optimizer_states=True,
+            )
+
+    def test_fetch_opt_states_index0_is_momentum2_on_both_routes(self) -> None:
+        # Static lock only: the offloaded route builds its state list by
+        # iterating this dict in key order (`split_results_by_opt_states`),
+        # so index 0 is momentum2 as long as that iteration order holds. The
+        # offload-off side is pinned by value in
+        # test_fetch_opt_states_no_offload_matches_momentum_buffers, which
+        # compares the fetched values against momentum2_dev.
+        self.assertEqual(
+            list(
+                OptimType.PARTIAL_ROWWISE_ADAM.byte_offsets_along_row(
+                    8, SparseType.FP32, {}
+                )
+            ),
+            ["momentum2", "momentum1"],
+        )
+
+    def test_fetch_opt_states_no_offload_buffer_size_mismatch_raises(self) -> None:
+        # A buffer whose size disagrees with total_hash_size (corrupt or
+        # partially-loaded module) must fail loudly, not gather OOB.
+        emb, _ = self.generate_ssd_tbes(
+            1,  # T
+            2,  # D
+            1,  # B
+            1,  # log_E
+            1,  # L
+            False,  # weighted
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+        )
+        with (
+            unittest.mock.patch.object(emb, "total_hash_size", emb.total_hash_size + 1),
+            self.assertRaisesRegex(RuntimeError, "expected total_hash_size"),
+        ):
+            emb.fetch_from_l1_sp_w_row_ids(
+                torch.tensor([0], device=emb.current_device, dtype=torch.int64),
+                only_get_optimizer_states=True,
             )

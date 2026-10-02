@@ -3466,7 +3466,7 @@ Tensor pack_segments_backward_cpu(
         auto shape = data.sizes().vec();
         shape.erase(shape.begin());
         shape[0] = total_length;
-        unpacked_tensor = at::empty(shape, data.options());
+        unpacked_tensor = at::zeros(shape, data.options());
         TORCH_CHECK(unpacked_tensor.is_contiguous());
 
         if (!(data.sizes()[0] &&
@@ -3493,7 +3493,7 @@ Tensor pack_segments_backward_cpu(
                     out_data + block_size * start, // dst
                     data_ptr + block_size * data.sizes()[1] * i, // src
                     len * block_bytesize);
-                start += len;
+                start += lengths_data[i];
               }
             }));
       }));
