@@ -175,10 +175,10 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
     Vec4TAcc<cache_t>* smem_grad_sum,
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits>& grad_output,
     {%- if not nobag or is_index_select %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& D_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& D_offsets{% if is_index_select or vbe %} [[maybe_unused]]{% endif %},
     {%- endif %}
     const int32_t D,
-    const int32_t T,
+    const int32_t T [[maybe_unused]],
     const pta::PackedTensorAccessor32<{{ "int64_t" if nobag else "int32_t" }}, 1, at::RestrictPtrTraits>& sorted_infos,
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>& sorted_indice_weights,
