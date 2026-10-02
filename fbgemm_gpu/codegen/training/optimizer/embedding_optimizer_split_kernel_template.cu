@@ -13,6 +13,14 @@
 using namespace fbgemm_gpu;
 #include "gen_embedding_optimizer_{{ optimizer }}_split_device_kernel.cuh"
 
+// Template parameter kSubwarpDivisor: kThreadGroupSize is derived per-arch
+// inside the kernel body as (kWarpSize / kSubwarpDivisor). This keeps the
+// kernel's mangled name free of warpSize, so the host pass and every
+// per-arch device pass agree on the symbol. The actual kThreadGroupSize
+// used at runtime is set by the host launcher to (kWarpSizeHost() /
+// kSubwarpDivisor), which matches the device-side value because kWarpSize
+// (device) and kWarpSizeHost() (host) report the same warp size for the
+// active arch. kSubwarpDivisor = 1 for the full-warp case.
 template <
     typename emb_t,
     typename cache_t,
@@ -20,7 +28,7 @@ template <
     typename {{ ph_name + "_ph_t"}},
     {%- endfor %}
     size_t kMaxVecsPerThread,
-    int32_t kThreadGroupSize = kWarpSize,
+    int32_t kSubwarpDivisor,
     int32_t VEC_WIDTH
 >
 __global__ __launch_bounds__(kMaxThreads)
@@ -41,6 +49,7 @@ void split_{{ optimizer }}_update_kernel(
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {
+    constexpr int32_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
     // On ROCm the launch caps the grid to stay within the HIP 2^32
     // threads-per-launch limit, so we grid-stride to cover the full workload.
     // On CUDA the grid is not capped and the loop body runs once per warp.
@@ -125,16 +134,28 @@ void split_{{ optimizer }}_update_kernel(
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for ph_type_combo in args.placeholder_type_combos %}
 
+{#- Emit instantiations for the union of (kMaxVecsPerThread, kSubwarpDivisor)
+    needed by every wave size in scope. Build the union explicitly instead of
+    relying on one wave's current configuration range being a superset. -#}
+{%- set items_per_wave_configs = [] %}
+{%- if has_wave32 %}
+    {%- set ignored = items_per_wave_configs.append(items_per_wave32) %}
+{%- endif %}
+{%- if has_wave64 %}
+    {%- set ignored = items_per_wave_configs.append(items_per_wave64) %}
+{%- endif %}
 {%- set tuples = [] %}
-{%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_warp // 4) + 1) %}
+{%- for items_per_wave in items_per_wave_configs %}
+{%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_wave // 4) + 1) %}
 {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
     {%- set t0 = [ (kMaxElemPerThread // 4), 1 ] | max if not nobag else "NULL" %}
     {%- set t1 = [ 4 // kMaxElemPerThread, 1] | max %}
-    {%- set temp = tuples.append((t0, "(kWarpSize / " ~ t1 ~ ")" if use_subwarp else "kWarpSize")) %}
+    {%- set temp = tuples.append((t0, t1 if use_subwarp else 1)) %}
 {%- endif %}
 {%- endfor %}
+{%- endfor %}
 
-{%- for (kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
+{%- for (kMaxVecsPerThread, kSubwarpDivisor) in tuples | unique %}
 template __global__ __launch_bounds__(kMaxThreads)
 void split_{{ optimizer }}_update_kernel
 < {{ emb_type }},
@@ -143,7 +164,7 @@ void split_{{ optimizer }}_update_kernel
   {{ ph_type_combo[ph_name] }},
   {%- endfor %}
   {{ kMaxVecsPerThread }},
-  {{ kThreadGroupSize }},
+  {{ kSubwarpDivisor }},
   4 // VEC_WIDTH
 >(
     pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
@@ -167,7 +188,7 @@ void split_{{ optimizer }}_update_kernel
          replace("cache_t", cache_type)
     }});
 
-{%- endfor %} // for (kMaxVecsPerThread, kThreadGroupSize)
+{%- endfor %} // for (kMaxVecsPerThread, kSubwarpDivisor)
 {%- endfor %} // for ph_type_combo
 {%- endfor %} // for cache_type
 {%- endfor %} // for emb_type

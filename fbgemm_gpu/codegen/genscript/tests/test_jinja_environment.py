@@ -7,28 +7,11 @@
 
 import re
 import unittest
-from collections.abc import Callable
-from typing import cast
 from unittest.mock import patch
 
 from deeplearning.fbgemm.fbgemm_gpu.codegen.genscript import jinja_environment
 
 
-WaveConfigs = list[tuple[int, int, str]]
-_has_dual_wave_support = hasattr(
-    jinja_environment, "get_max_vecs_template_configs_union"
-)
-_get_max_vecs_template_configs_union = cast(
-    Callable[..., WaveConfigs],
-    getattr(jinja_environment, "get_max_vecs_template_configs_union", None),
-)
-_get_max_vecs_template_configs_union_forward = cast(
-    Callable[..., WaveConfigs],
-    getattr(jinja_environment, "get_max_vecs_template_configs_union_forward", None),
-)
-
-
-@unittest.skipUnless(_has_dual_wave_support, "requires D115263090")
 class WaveConfigUnionTest(unittest.TestCase):
     def test_wave64_only_union_and_dispatch(self) -> None:
         with patch.dict(
@@ -39,7 +22,7 @@ class WaveConfigUnionTest(unittest.TestCase):
                 "items_per_wave64": 256,
             },
         ):
-            configs = _get_max_vecs_template_configs_union(
+            configs = jinja_environment.get_max_vecs_template_configs_union(
                 fixed_max_vecs_per_thread=2,
                 use_subwarp_shuffle=True,
                 use_vec_blocking=True,
@@ -63,32 +46,76 @@ class WaveConfigUnionTest(unittest.TestCase):
         self.assertIn("if (MAX_D > 512)", dispatch)
         self.assertNotIn("(MAX_D + 128 - 1) / 128", dispatch)
 
-    def test_mixed_wave_union_preserves_order_and_deduplicates(self) -> None:
+    def test_wave32_only_union_and_dispatch(self) -> None:
         with patch.dict(
             jinja_environment.env.globals,
             {
                 "has_wave32": True,
-                "has_wave64": True,
-                "items_per_warp32": 128,
-                "items_per_wave64": 256,
+                "has_wave64": False,
+                "items_per_wave32": 128,
             },
         ):
-            configs = _get_max_vecs_template_configs_union(
+            configs = jinja_environment.get_max_vecs_template_configs_union(
                 fixed_max_vecs_per_thread=2,
                 use_subwarp_shuffle=True,
                 use_vec_blocking=True,
+            )
+            dispatch = jinja_environment.dispatch_optimal_kernel(
+                items_per_warp=128,
+                fixed_max_vecs_per_thread=2,
+                use_subwarp_shuffle=True,
             )
 
         self.assertEqual(
             [
                 (2, 1, "true"),
-                (1, 8, "false"),
                 (1, 4, "false"),
                 (1, 2, "false"),
                 (1, 1, "false"),
                 (2, 1, "false"),
             ],
             configs,
+        )
+        divisors = re.findall(r"kSubwarpDivisor =\s+\\\n\s+(\d+);", dispatch)
+        self.assertTrue(divisors)
+        self.assertNotIn("8", divisors)
+        self.assertIn("if (MAX_D <= 256)", dispatch)
+        self.assertIn("if (MAX_D > 256)", dispatch)
+
+    def test_mixed_wave_union_preserves_order_and_deduplicates(self) -> None:
+        with patch.dict(
+            jinja_environment.env.globals,
+            {
+                "has_wave32": True,
+                "has_wave64": True,
+                "items_per_wave32": 128,
+                "items_per_wave64": 256,
+            },
+        ):
+            configs = jinja_environment.get_max_vecs_template_configs_union(
+                fixed_max_vecs_per_thread=2,
+                use_subwarp_shuffle=True,
+                use_vec_blocking=True,
+            )
+            dispatch = jinja_environment.dispatch_non_vec_blocking_kernel(
+                items_per_warp=256,
+                fixed_max_vecs_per_thread=2,
+                use_subwarp_shuffle=True,
+            )
+
+        self.assertEqual(
+            [
+                (2, 1, "true"),
+                (1, 4, "false"),
+                (1, 2, "false"),
+                (1, 1, "false"),
+                (2, 1, "false"),
+            ],
+            configs,
+        )
+        self.assertEqual(
+            ["4", "2", "1", "1"],
+            re.findall(r"kSubwarpDivisor =\s+\\\n\s+(\d+);", dispatch),
         )
 
     def test_missing_wave_flags_fall_back_to_items_per_warp(self) -> None:
@@ -100,7 +127,7 @@ class WaveConfigUnionTest(unittest.TestCase):
                 "items_per_warp": 128,
             },
         ):
-            configs = _get_max_vecs_template_configs_union(
+            configs = jinja_environment.get_max_vecs_template_configs_union(
                 fixed_max_vecs_per_thread=2,
                 use_subwarp_shuffle=True,
                 use_vec_blocking=True,
@@ -123,11 +150,11 @@ class WaveConfigUnionTest(unittest.TestCase):
             {
                 "has_wave32": True,
                 "has_wave64": True,
-                "items_per_warp32": 128,
+                "items_per_wave32": 128,
                 "items_per_wave64": 256,
             },
         ):
-            configs = _get_max_vecs_template_configs_union_forward(
+            configs = jinja_environment.get_max_vecs_template_configs_union_forward(
                 max_forward_embedding_dim=256,
                 use_subwarp_shuffle=False,
                 use_vec_blocking=True,
@@ -144,14 +171,17 @@ class WaveConfigUnionTest(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(_has_dual_wave_support, "requires D115263090")
 class DispatchCodeGenerationTest(unittest.TestCase):
     def test_non_vec_blocking_dispatch_uses_runtime_warp_size(self) -> None:
-        code = jinja_environment.dispatch_non_vec_blocking_kernel(
-            items_per_warp=256,
-            fixed_max_vecs_per_thread=2,
-            use_subwarp_shuffle=True,
-        )
+        with patch.dict(
+            jinja_environment.env.globals,
+            {"has_wave32": False, "has_wave64": True},
+        ):
+            code = jinja_environment.dispatch_non_vec_blocking_kernel(
+                items_per_warp=256,
+                fixed_max_vecs_per_thread=2,
+                use_subwarp_shuffle=True,
+            )
 
         self.assertEqual(
             ["32", "64", "128", "256", "512"],
@@ -174,3 +204,21 @@ class DispatchCodeGenerationTest(unittest.TestCase):
         self.assertIn("(MAX_D + 256 - 1) / 256", code)
         self.assertIn("constexpr int kSubwarpDivisor = 1", code)
         self.assertIn("kThreadGroupSize = kWarpSizeHost()", code)
+
+    def test_non_vec_and_vec_thresholds_have_no_gap(self) -> None:
+        for items_per_warp in (128, 256):
+            with self.subTest(items_per_warp=items_per_warp):
+                code = jinja_environment.dispatch_optimal_kernel(
+                    items_per_warp=items_per_warp,
+                    fixed_max_vecs_per_thread=2,
+                    use_subwarp_shuffle=True,
+                )
+                non_vec_thresholds = [
+                    int(value) for value in re.findall(r"if \(MAX_D <= (\d+)\)", code)
+                ]
+                vec_thresholds = [
+                    int(value) for value in re.findall(r"if \(MAX_D > (\d+)\)", code)
+                ]
+
+                self.assertEqual(1, len(vec_thresholds))
+                self.assertEqual(max(non_vec_thresholds), vec_thresholds[0])
