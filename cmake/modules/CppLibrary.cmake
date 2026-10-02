@@ -179,11 +179,7 @@ function(fbgemm_get_warning_flags)
     -Wno-strict-aliasing
     -Wno-sign-compare
     -Wno-vla
-    -Wno-error=unused-parameter
     -Wno-error=attributes
-    # Both compilers accept this line. Remove it when the warning count is
-    # zero.
-    -Wno-error=shadow
     # Both compilers accept this line. The warning also occurs in
     # third-party headers, and those headers need `-isystem`. Remove this line
     # when the count is zero and the headers are system includes.
