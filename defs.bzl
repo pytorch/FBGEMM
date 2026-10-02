@@ -29,12 +29,9 @@ def default_compiler_flags():
             # Buck exposes Folly as non-system headers, where its intentional
             # `__int128` use triggers the `-pedantic` diagnostic.
             "-Wno-error=pedantic",
-            # These four lines mirror the complete CMake GCC-specific list.
+            # This line mirrors the complete CMake GCC-specific list.
             # Remove each line when its warning count is zero.
-            "-Wno-error=array-bounds",
             "-Wno-error=maybe-uninitialized",
-            "-Wno-error=unused-but-set-parameter",
-            "-Wno-error=unused-but-set-variable",
             "-fno-trapping-math",
         ]
         + select({
