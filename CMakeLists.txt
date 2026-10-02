@@ -82,6 +82,29 @@ option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
+option(
+  FBGEMM_AARCH64_BUILD_NATIVE
+  "Compile all FBGEMM AArch64 targets for the build host CPU"
+  OFF)
+
+set(FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS)
+if(FBGEMM_AARCH64_BUILD_NATIVE)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    message(FATAL_ERROR
+      "FBGEMM_AARCH64_BUILD_NATIVE requires an AArch64 build host")
+  endif()
+
+  check_cxx_compiler_flag(
+    "-mcpu=native" FBGEMM_COMPILER_SUPPORTS_AARCH64_NATIVE)
+  if(NOT FBGEMM_COMPILER_SUPPORTS_AARCH64_NATIVE)
+    message(FATAL_ERROR
+      "The selected compiler does not support -mcpu=native")
+  endif()
+
+  set(FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS "-mcpu=native")
+  message(STATUS
+    "FBGEMM_AARCH64_BUILD_NATIVE=ON: compiling FBGEMM AArch64 targets for the build host CPU")
+endif()
 
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
@@ -280,19 +303,21 @@ endif()
 ################################################################################
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
-  check_cxx_compiler_flag(-march=armv8.2-a+fp16fml COMPILER_SUPPORTS_FP16FML)
-  if(COMPILER_SUPPORTS_FP16FML)
-    set(fbgemm_fml_flags "-march=armv8.2-a+fp16fml")
-  endif()
-  if(NOT COMPILER_SUPPORTS_FP16FML) # for clang
-    check_cxx_compiler_flag(-mfp16fml  COMPILER_SUPPORTS_FP16FML)
+  if(NOT FBGEMM_AARCH64_BUILD_NATIVE)
+    check_cxx_compiler_flag(-march=armv8.2-a+fp16fml COMPILER_SUPPORTS_FP16FML)
     if(COMPILER_SUPPORTS_FP16FML)
-      set(fbgemm_fml_flags "-march=armv8.2 -mfp16fml")
+      set(fbgemm_fml_flags "-march=armv8.2-a+fp16fml")
     endif()
-  endif()
+    if(NOT COMPILER_SUPPORTS_FP16FML) # for clang
+      check_cxx_compiler_flag(-mfp16fml  COMPILER_SUPPORTS_FP16FML)
+      if(COMPILER_SUPPORTS_FP16FML)
+        set(fbgemm_fml_flags "-march=armv8.2 -mfp16fml")
+      endif()
+    endif()
 
-  if(NOT COMPILER_SUPPORTS_FP16FML)
-    message(FATAL_ERROR "The current compiler does not support building FP16FML code")
+    if(NOT COMPILER_SUPPORTS_FP16FML)
+      message(FATAL_ERROR "The current compiler does not support building FP16FML code")
+    endif()
   endif()
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")
@@ -339,10 +364,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64" AND
   check_cxx_compiler_flag(-march=armv8-a+sve2 COMPILER_SUPPORTS_SVE2)
   if(COMPILER_SUPPORTS_SVE2)
     set(FBGEMM_BUILD_SVE True)
-    set(fbgemm_sve_flags "-march=armv8-a+sve2")
+    if(NOT FBGEMM_AARCH64_BUILD_NATIVE)
+      set(fbgemm_sve_flags "-march=armv8-a+sve2")
+    endif()
   elseif(COMPILER_SUPPORTS_SVE)
     set(FBGEMM_BUILD_SVE True)
-    set(fbgemm_sve_flags "-march=armv8-a+sve")
+    if(NOT FBGEMM_AARCH64_BUILD_NATIVE)
+      set(fbgemm_sve_flags "-march=armv8-a+sve")
+    endif()
   endif()
 endif()
 

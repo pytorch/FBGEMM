@@ -412,7 +412,8 @@ function(cpp_library)
     endif()
 
     target_compile_options(${lib_name} PRIVATE
-        ${lib_cc_flags})
+        ${lib_cc_flags}
+        ${FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS})
 
     if(args_DEFINITIONS)
         target_compile_definitions(${lib_name}
