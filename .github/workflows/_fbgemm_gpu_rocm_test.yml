@@ -83,7 +83,7 @@ jobs:
     - name: Setup Build Container
       run: |
         apt update -y
-        apt install -y git jq wget
+        apt install -y git jq pciutils sudo wget
         git config --global --add safe.directory '*'
 
     - name: Merge Extra Environment Variables
