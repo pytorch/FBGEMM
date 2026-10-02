@@ -65,9 +65,6 @@ function(fbgemm_get_warning_flags)
     -Wmissing-braces
     -Wmismatched-tags
     -Waddress-of-packed-member
-    # The two flags below are on, but they do not stop the build. See the
-    # `-Wno-error=` lines in `_cc_suppressions_common`. Those lines give the
-    # condition to remove them.
     -Wshadow
     -Wzero-as-null-pointer-constant
     -Wunused-variable
@@ -178,16 +175,7 @@ function(fbgemm_get_warning_flags)
     -Wno-deprecated-enum-enum-conversion
     -Wno-strict-aliasing
     -Wno-sign-compare
-    -Wno-vla
-    -Wno-error=unused-parameter
-    -Wno-error=attributes
-    # Both compilers accept this line. Remove it when the warning count is
-    # zero.
-    -Wno-error=shadow
-    # Both compilers accept this line. The warning also occurs in
-    # third-party headers, and those headers need `-isystem`. Remove this line
-    # when the count is zero and the headers are system includes.
-    -Wno-error=zero-as-null-pointer-constant)
+    -Wno-vla)
 
   # Clang suppressions. The clang version controls which lines apply. The
   # CXX path uses the version of the host clang. The hipcc path uses all of
@@ -203,10 +191,6 @@ function(fbgemm_get_warning_flags)
     # Remove this line when the warning count is zero.
     -Wno-error=shorten-64-to-32)
 
-  set(_cc_suppressions_clang_gt13
-    -Wno-error=unused-but-set-parameter
-    -Wno-error=unused-but-set-variable)
-
   set(_cc_suppressions_clang_gt17
     -Wno-vla-cxx-extension
     -Wno-error=global-constructors)
@@ -215,12 +199,9 @@ function(fbgemm_get_warning_flags)
   # available even when the HOST compiler is GCC. Used only for the hipcc list.
   set(_cc_suppressions_clang
     ${_cc_suppressions_clang_base}
-    ${_cc_suppressions_clang_gt13}
     ${_cc_suppressions_clang_gt17})
 
   set(_cc_suppressions_gcc
-    -Wno-error=unused-but-set-parameter
-    -Wno-error=unused-but-set-variable
     -Wno-error=array-bounds
     -Wno-error=maybe-uninitialized)
 
@@ -230,10 +211,6 @@ function(fbgemm_get_warning_flags)
 
   if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
     list(APPEND _cc_suppressions ${_cc_suppressions_clang_base})
-
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
-      list(APPEND _cc_suppressions ${_cc_suppressions_clang_gt13})
-    endif()
 
     if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
       list(APPEND _cc_suppressions ${_cc_suppressions_clang_gt17})
