@@ -15,6 +15,23 @@
 # ROCm Setup Functions
 ################################################################################
 
+rocm_install_dir () {
+  # Print the location of the ROCm installation: ROCM_PATH if set, else
+  # /opt/rocm if it exists, else as reported by hipconfig.  hipconfig comes last
+  # because PyTorch's ROCm wheels can install a hipconfig of their own, for a
+  # ROCm runtime that is not a full ROCm installation.
+  if [ -n "${ROCM_PATH:-}" ]; then
+    echo "${ROCM_PATH}"
+  elif [ -d /opt/rocm ]; then
+    echo /opt/rocm
+  elif command -v hipconfig > /dev/null 2>&1; then
+    hipconfig --rocmpath
+  else
+    echo "[ROCM] Unable to locate ROCm: ROCM_PATH is not set, /opt/rocm does not exist, and hipconfig is not on PATH" >&2
+    return 1
+  fi
+}
+
 install_rocm_amdsmi_ubuntu () {
   # Manually install AMD SMI to work around missing package error
   # https://github.com/pytorch/pytorch/pull/119182/
@@ -22,17 +39,15 @@ install_rocm_amdsmi_ubuntu () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
+  local rocm_dir
+  rocm_dir=$(rocm_install_dir) || return 1
 
-  echo "[INSTALL] Installing roctracer-dev and amd-smi-lib ..."
-  (apt-get install -y --allow-unauthenticated \
-      libdw-dev \
-      roctracer-dev \
-      amd-smi-lib) || return 1
+  echo "[INSTALL] Installing libdw ..."
+  (apt-get install -y --allow-unauthenticated libdw-dev) || return 1
 
-  echo "[INSTALL] Installing amd-smi ..."
-  cd /opt/rocm/share/amd_smi || return 1
+  echo "[INSTALL] Installing amd-smi from ${rocm_dir} ..."
   # shellcheck disable=SC2086
-  (conda run ${env_prefix} pip install .) || return 1
+  (conda run ${env_prefix} pip install "${rocm_dir}/share/amd_smi") || return 1
 
   echo "[INSTALL] Checking Python imports for amd-smi ..."
   (test_python_import_package "${env_name}" amdsmi) || return 1
@@ -90,6 +105,9 @@ install_rocm_ubuntu () {
 
   echo "[INSTALL] Installing HIP-relevant packages ..."
   (install_system_packages hipify-clang miopen-hip miopen-hip-dev) || return 1
+
+  echo "[INSTALL] Installing roctracer-dev and amd-smi-lib ..."
+  (apt-get install -y --allow-unauthenticated roctracer-dev amd-smi-lib) || return 1
 
   # There is no need to install these packages for ROCm
   # install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
