@@ -10,10 +10,9 @@
 {%- set mdesc = "ssd" if ssd else "split" %}
 {%- set sdesc = "_ssd" if ssd else "" %}
 
-import torch
-{%- if is_experimental_optimizer %}
 import warnings
-{%- endif %}
+
+import torch
 from .lookup_args{{ sdesc }} import *
 
 {%- if is_fbcode %}
@@ -347,11 +346,22 @@ def invoke(
     {%- endfor %}
     {%- endif %}
 
+    # Backend optimizer specifications and frontend wiring can be deployed
+    # independently. Append one value for every positional backend slot so a
+    # missing frontend value cannot shift the remaining optimizer arguments.
     # optim_int
     {%- if "optim_int" in args_pt2.unified_pt2.split_function_arg_names %}
     optim_int: List[int] = []
     {%- for name in args_pt2.unified_pt2.split_args_dict["optim_int"] %}
-    optim_int.append(dict_optim_int["{{ name }}"])
+    if "{{ name }}" in dict_optim_int:
+        optim_int.append(dict_optim_int["{{ name }}"])
+    else:
+        warnings.warn(
+            "Optimizer argument '{{ name }}' is supported by the backend but "
+            "was not provided by the frontend; using its default value "
+            "{{ args_pt2.unified_pt2.split_args_defaults['optim_int'][name] }}."
+        )
+        optim_int.append({{ args_pt2.unified_pt2.split_args_defaults["optim_int"][name] }})
     {%- endfor %}
     {%- endif %}
     # optim_float
@@ -359,14 +369,30 @@ def invoke(
     {%- if "optim_float" in args_pt2.unified_pt2.split_function_arg_names %}
     optim_float: List[float] = []
     {%- for name in args_pt2.unified_pt2.split_args_dict["optim_float"] %}
-    optim_float.append(dict_optim_float["{{ name }}"])
+    if "{{ name }}" in dict_optim_float:
+        optim_float.append(dict_optim_float["{{ name }}"])
+    else:
+        warnings.warn(
+            "Optimizer argument '{{ name }}' is supported by the backend but "
+            "was not provided by the frontend; using its default value "
+            "{{ args_pt2.unified_pt2.split_args_defaults['optim_float'][name] }}."
+        )
+        optim_float.append({{ args_pt2.unified_pt2.split_args_defaults["optim_float"][name] }})
     {%- endfor %}
     {%- endif %}
     # optim_bool
     {%- if "optim_bool" in args_pt2.unified_pt2.split_function_arg_names %}
     optim_bool: List[bool] = []
     {%- for name in args_pt2.unified_pt2.split_args_dict["optim_bool"] %}
-    optim_bool.append(dict_optim_bool["{{ name }}"])
+    if "{{ name }}" in dict_optim_bool:
+        optim_bool.append(dict_optim_bool["{{ name }}"])
+    else:
+        warnings.warn(
+            "Optimizer argument '{{ name }}' is supported by the backend but "
+            "was not provided by the frontend; using its default value "
+            "{{ args_pt2.unified_pt2.split_args_defaults['optim_bool'][name] }}."
+        )
+        optim_bool.append({{ args_pt2.unified_pt2.split_args_defaults["optim_bool"][name] }})
     {%- endfor %}
     {%- endif %}
 
