@@ -35,6 +35,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
+#include <cstdint>
 
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
@@ -165,6 +166,40 @@ struct __align__(8) i8x8 {
   int8_t vals[8];
 };
 
+namespace {
+
+void validate_per_tensor_quantize_i8_input(const at::Tensor& X) {
+  TORCH_CHECK(X.is_cuda(), "X must be a CUDA tensor");
+  TORCH_CHECK(
+      X.scalar_type() == at::kBFloat16,
+      "X must have dtype BFloat16, got ",
+      X.scalar_type());
+  TORCH_CHECK(X.dim() == 1, "X must be a 1-D tensor, got ", X.dim(), "-D");
+  TORCH_CHECK(X.is_contiguous(), "X must be contiguous");
+  TORCH_CHECK(
+      X.numel() % 8 == 0, "X.numel() must be divisible by 8, got ", X.numel());
+  TORCH_CHECK(
+      reinterpret_cast<std::uintptr_t>(X.const_data_ptr()) % alignof(uint4) ==
+          0,
+      "X data pointer must be ",
+      alignof(uint4),
+      "-byte aligned");
+}
+
+at::Tensor make_per_tensor_quantize_i8_output(const at::Tensor& X) {
+  auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
+  TORCH_INTERNAL_ASSERT(
+      reinterpret_cast<std::uintptr_t>(XQ.mutable_data_ptr()) %
+              alignof(uint2) ==
+          0,
+      "XQ data pointer must be ",
+      alignof(uint2),
+      "-byte aligned");
+  return XQ;
+}
+
+} // namespace
+
 __global__ void per_tensor_quantize_i8_kernel(
     pta::PackedTensorAccessor64<at::BFloat16, 1, at::RestrictPtrTraits> X,
     pta::PackedTensorAccessor64<int8_t, 1, at::RestrictPtrTraits> XQ,
@@ -176,8 +211,10 @@ __global__ void per_tensor_quantize_i8_kernel(
     inv_scale = 1.0 / (__bfloat162float(scale) + 1.0e-8);
   }
 
-  for (auto i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N;
-       i += 8 * blockDim.x * gridDim.x) {
+  const int64_t first_i = static_cast<int64_t>(threadIdx.x) * 8 +
+      static_cast<int64_t>(blockIdx.x) * blockDim.x * 8;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x * 8;
+  for (int64_t i = first_i; i < N; i += stride) {
     bf16x8 src;
     *reinterpret_cast<uint4*>(&src) = *reinterpret_cast<uint4*>(&X[i]);
 
@@ -230,16 +267,20 @@ __global__ void per_tensor_quantize_i8_kernel(
 ///
 /// @return int8 tensor-wise quantized tensor
 at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
+  validate_per_tensor_quantize_i8_input(X);
   CUDA_DEVICE_GUARD(X);
   TORCH_CHECK(scale != 0.0);
   float inv_scale = 1.0 / (scale + 1.0e-8);
   constexpr int32_t kThreadsPerBlock = 1024;
-  auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
+  const auto num_chunks = X.numel() / 8;
+  auto XQ = make_per_tensor_quantize_i8_output(X);
   dim3 threads = kThreadsPerBlock;
-  const dim3 blocks = utils::cuda::cap_grid_dim_x(
-      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock),
-      kThreadsPerBlock,
-      at::cuda::getCurrentCUDAStream());
+  const dim3 blocks = std::max<uint32_t>(
+      1,
+      std::min(
+          cuda_calc_block_count(num_chunks, kThreadsPerBlock),
+          utils::cuda::cap_grid_dim_x_from_workload(
+              num_chunks, kThreadsPerBlock, at::cuda::getCurrentCUDAStream())));
 
   FBGEMM_LAUNCH_KERNEL(
       (per_tensor_quantize_i8_kernel),
@@ -256,18 +297,23 @@ at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
 
 std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(
     at::Tensor X) {
-  // TORCH_CHECK(scale != 0.0);
+  validate_per_tensor_quantize_i8_input(X);
   CUDA_DEVICE_GUARD(X);
   constexpr int32_t kThreadsPerBlock = 1024;
-  auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
+  const auto num_chunks = X.numel() / 8;
+  auto XQ = make_per_tensor_quantize_i8_output(X);
 
   auto scale = at::norm(X, std::numeric_limits<double>::infinity())
                    .div_(127.0)
                    .to(X.dtype());
 
   dim3 threads = kThreadsPerBlock;
-  dim3 blocks =
-      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
+  const dim3 blocks = std::max<uint32_t>(
+      1,
+      std::min(
+          cuda_calc_block_count(num_chunks, kThreadsPerBlock),
+          utils::cuda::cap_grid_dim_x_from_workload(
+              num_chunks, kThreadsPerBlock, at::cuda::getCurrentCUDAStream())));
 
   FBGEMM_LAUNCH_KERNEL(
       (per_tensor_quantize_i8_kernel),
@@ -294,61 +340,62 @@ __global__ void silu_mul_quantize_i8_kernel(
     at::PackedTensorAccessor64<int8_t, 2, at::RestrictPtrTraits>
         Y, // [B][MAX_T][N_KVH][D_H]
     float inv_scale) {
-  auto b = blockIdx.x;
-  auto N = X1.size(1);
-  for (auto i = threadIdx.x * 8; i < N; i += 8 * blockDim.x) {
-    bf16x8 src1;
-    *reinterpret_cast<uint4*>(&src1) = *reinterpret_cast<uint4*>(&X1[b][i]);
-    bf16x8 src2;
-    *reinterpret_cast<uint4*>(&src2) = *reinterpret_cast<uint4*>(&X2[b][i]);
+  for (int64_t b = blockIdx.x; b < X1.size(0); b += gridDim.x) {
+    auto N = X1.size(1);
+    for (auto i = threadIdx.x * 8; i < N; i += 8 * blockDim.x) {
+      bf16x8 src1;
+      *reinterpret_cast<uint4*>(&src1) = *reinterpret_cast<uint4*>(&X1[b][i]);
+      bf16x8 src2;
+      *reinterpret_cast<uint4*>(&src2) = *reinterpret_cast<uint4*>(&X2[b][i]);
 
-    auto x1_0 = __bfloat162float(src1.vals[0].x);
-    auto x1_1 = __bfloat162float(src1.vals[0].y);
-    auto x1_2 = __bfloat162float(src1.vals[1].x);
-    auto x1_3 = __bfloat162float(src1.vals[1].y);
-    auto x1_4 = __bfloat162float(src1.vals[2].x);
-    auto x1_5 = __bfloat162float(src1.vals[2].y);
-    auto x1_6 = __bfloat162float(src1.vals[3].x);
-    auto x1_7 = __bfloat162float(src1.vals[3].y);
+      auto x1_0 = __bfloat162float(src1.vals[0].x);
+      auto x1_1 = __bfloat162float(src1.vals[0].y);
+      auto x1_2 = __bfloat162float(src1.vals[1].x);
+      auto x1_3 = __bfloat162float(src1.vals[1].y);
+      auto x1_4 = __bfloat162float(src1.vals[2].x);
+      auto x1_5 = __bfloat162float(src1.vals[2].y);
+      auto x1_6 = __bfloat162float(src1.vals[3].x);
+      auto x1_7 = __bfloat162float(src1.vals[3].y);
 
-    auto x2_0 = __bfloat162float(src2.vals[0].x);
-    auto x2_1 = __bfloat162float(src2.vals[0].y);
-    auto x2_2 = __bfloat162float(src2.vals[1].x);
-    auto x2_3 = __bfloat162float(src2.vals[1].y);
-    auto x2_4 = __bfloat162float(src2.vals[2].x);
-    auto x2_5 = __bfloat162float(src2.vals[2].y);
-    auto x2_6 = __bfloat162float(src2.vals[3].x);
-    auto x2_7 = __bfloat162float(src2.vals[3].y);
+      auto x2_0 = __bfloat162float(src2.vals[0].x);
+      auto x2_1 = __bfloat162float(src2.vals[0].y);
+      auto x2_2 = __bfloat162float(src2.vals[1].x);
+      auto x2_3 = __bfloat162float(src2.vals[1].y);
+      auto x2_4 = __bfloat162float(src2.vals[2].x);
+      auto x2_5 = __bfloat162float(src2.vals[2].y);
+      auto x2_6 = __bfloat162float(src2.vals[3].x);
+      auto x2_7 = __bfloat162float(src2.vals[3].y);
 
-    auto y_0 = x1_0 * __sigmoid(x1_0) * x2_0 * inv_scale;
-    auto y_1 = x1_1 * __sigmoid(x1_1) * x2_1 * inv_scale;
-    auto y_2 = x1_2 * __sigmoid(x1_2) * x2_2 * inv_scale;
-    auto y_3 = x1_3 * __sigmoid(x1_3) * x2_3 * inv_scale;
-    auto y_4 = x1_4 * __sigmoid(x1_4) * x2_4 * inv_scale;
-    auto y_5 = x1_5 * __sigmoid(x1_5) * x2_5 * inv_scale;
-    auto y_6 = x1_6 * __sigmoid(x1_6) * x2_6 * inv_scale;
-    auto y_7 = x1_7 * __sigmoid(x1_7) * x2_7 * inv_scale;
+      auto y_0 = x1_0 * __sigmoid(x1_0) * x2_0 * inv_scale;
+      auto y_1 = x1_1 * __sigmoid(x1_1) * x2_1 * inv_scale;
+      auto y_2 = x1_2 * __sigmoid(x1_2) * x2_2 * inv_scale;
+      auto y_3 = x1_3 * __sigmoid(x1_3) * x2_3 * inv_scale;
+      auto y_4 = x1_4 * __sigmoid(x1_4) * x2_4 * inv_scale;
+      auto y_5 = x1_5 * __sigmoid(x1_5) * x2_5 * inv_scale;
+      auto y_6 = x1_6 * __sigmoid(x1_6) * x2_6 * inv_scale;
+      auto y_7 = x1_7 * __sigmoid(x1_7) * x2_7 * inv_scale;
 
-    y_0 = fmaxf(-128.0, fminf(y_0, 127));
-    y_1 = fmaxf(-128.0, fminf(y_1, 127));
-    y_2 = fmaxf(-128.0, fminf(y_2, 127));
-    y_3 = fmaxf(-128.0, fminf(y_3, 127));
-    y_4 = fmaxf(-128.0, fminf(y_4, 127));
-    y_5 = fmaxf(-128.0, fminf(y_5, 127));
-    y_6 = fmaxf(-128.0, fminf(y_6, 127));
-    y_7 = fmaxf(-128.0, fminf(y_7, 127));
+      y_0 = fmaxf(-128.0, fminf(y_0, 127));
+      y_1 = fmaxf(-128.0, fminf(y_1, 127));
+      y_2 = fmaxf(-128.0, fminf(y_2, 127));
+      y_3 = fmaxf(-128.0, fminf(y_3, 127));
+      y_4 = fmaxf(-128.0, fminf(y_4, 127));
+      y_5 = fmaxf(-128.0, fminf(y_5, 127));
+      y_6 = fmaxf(-128.0, fminf(y_6, 127));
+      y_7 = fmaxf(-128.0, fminf(y_7, 127));
 
-    i8x8 dst;
-    dst.vals[0] = __float2int_rn(y_0);
-    dst.vals[1] = __float2int_rn(y_1);
-    dst.vals[2] = __float2int_rn(y_2);
-    dst.vals[3] = __float2int_rn(y_3);
-    dst.vals[4] = __float2int_rn(y_4);
-    dst.vals[5] = __float2int_rn(y_5);
-    dst.vals[6] = __float2int_rn(y_6);
-    dst.vals[7] = __float2int_rn(y_7);
+      i8x8 dst;
+      dst.vals[0] = __float2int_rn(y_0);
+      dst.vals[1] = __float2int_rn(y_1);
+      dst.vals[2] = __float2int_rn(y_2);
+      dst.vals[3] = __float2int_rn(y_3);
+      dst.vals[4] = __float2int_rn(y_4);
+      dst.vals[5] = __float2int_rn(y_5);
+      dst.vals[6] = __float2int_rn(y_6);
+      dst.vals[7] = __float2int_rn(y_7);
 
-    *reinterpret_cast<uint2*>(&Y[b][i]) = *reinterpret_cast<uint2*>(&dst);
+      *reinterpret_cast<uint2*>(&Y[b][i]) = *reinterpret_cast<uint2*>(&dst);
+    }
   }
 }
 
@@ -356,9 +403,13 @@ at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale) {
   float inv_scale = 1.0 / (scale + 1.0e-8);
   auto Y = at::empty(X1.sizes(), X1.options().dtype(at::kChar));
   TORCH_CHECK(X1.size(1) % 8 == 0);
+  if (X1.size(0) == 0) {
+    return Y;
+  }
   constexpr int32_t kThreadsPerBlock = 1024;
   dim3 threads = std::min<int32_t>(kThreadsPerBlock, X1.size(1) / 8);
-  dim3 blocks = X1.size(0);
+  const dim3 blocks = utils::cuda::cap_grid_dim_x(
+      X1.size(0), threads.x, at::cuda::getCurrentCUDAStream());
   FBGEMM_LAUNCH_KERNEL(
       (silu_mul_quantize_i8_kernel),
       blocks,
