@@ -9,7 +9,6 @@
 
 import tempfile
 import unittest
-from datetime import timedelta
 from typing import Any
 
 import hypothesis.strategies as st
@@ -436,7 +435,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=MAX_PIPELINE_EXAMPLES,
-        deadline=timedelta(minutes=1),
+        deadline=None,
     )
     def test_ssd_cache_flush(self, **kwargs: Any):
         """

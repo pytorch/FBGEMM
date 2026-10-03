@@ -114,9 +114,9 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
     AMD/ROCm support status:
         This operator supports AMD GPUs (ROCm/HIP). Key adaptations:
-        - Cache associativity (ASSOC) is set to 64 to match AMD's 64-wide
-          wavefronts (vs. 32 for NVIDIA warps). Python-side tensor shapes
-          and C++ kernel indexing are kept in sync via common.ASSOC.
+        - Cache associativity (ASSOC) matches the active device's warp or
+          wavefront width. Python-side tensor shapes and C++ kernel indexing
+          are kept in sync via common.ASSOC.
         - BitonicSort includes a 6th merge stage (L=32) for 64-element sorts.
         - lxu_cache_lookup uses HIP-native __ballot() instead of
           __ballot_sync().
@@ -165,7 +165,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         assert cache_assoc == ASSOC, (
             f"cache_assoc must match platform ASSOC={ASSOC} "
-            f"(CUDA=32, ROCm=64), got {cache_assoc}"
+            f"(active device warp size), got {cache_assoc}"
         )
 
         self.enable_cache_locking = enable_cache_locking
@@ -473,7 +473,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         if IS_ROCM:
             logging.info(
                 "SSD TBE inference running on ROCm with ASSOC=%d "
-                "(matching AMD 64-wide wavefronts).",
+                "(matching the active device wavefront).",
                 ASSOC,
             )
 
