@@ -24,6 +24,7 @@ from .training_common import (
     default_strategies,
     MAX_EXAMPLES,
     SSDSplitTableBatchedEmbeddingsTestCommon,
+    VIRTUAL_TABLE_ROWS,
 )
 
 
@@ -985,7 +986,8 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             )
             torch.testing.assert_close(
                 id_extracted_from_emb_w,
-                bucket_asc_ids_list[table_index].view(-1),
+                bucket_asc_ids_list[table_index].view(-1)
+                + table_index * VIRTUAL_TABLE_ROWS,
                 atol=tolerance,
                 rtol=tolerance,
             )

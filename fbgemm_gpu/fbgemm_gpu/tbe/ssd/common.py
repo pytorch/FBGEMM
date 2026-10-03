@@ -20,11 +20,15 @@ try:
 except Exception:
     pass
 
-# Match cache associativity to hardware warp/wavefront width:
-# NVIDIA warp = 32 lanes, AMD wavefront = 64 lanes.
-# C++ kernels use kWarpSize for cache set indexing, so Python-side
-# tensor shapes must agree.
-ASSOC: int = 32 if torch.version.hip is None else 64
+# Match cache associativity to the active hardware warp/wavefront width.  Newer
+# AMD architectures such as gfx1250 use wave32, so the presence of a HIP build
+# alone is not enough to select the right value.  Preserve the historical
+# wave64 fallback when a ROCm build is imported without an available device.
+ASSOC: int = (
+    torch.cuda.get_device_properties(torch.cuda.current_device()).warp_size
+    if torch.cuda.is_available()
+    else (64 if torch.version.hip is not None else 32)
+)
 
 
 def pad4(value: int) -> int:

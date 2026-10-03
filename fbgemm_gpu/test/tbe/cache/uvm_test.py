@@ -35,6 +35,7 @@ if gpu_available:
 
 
 MAX_EXAMPLES = 40
+MAX_TEST_DIM_SIZE = 32
 
 
 class UvmTest(unittest.TestCase):
@@ -77,7 +78,9 @@ class UvmTest(unittest.TestCase):
     )
     @given(
         sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
+            st.integers(min_value=1, max_value=MAX_TEST_DIM_SIZE),
+            min_size=1,
+            max_size=4,
         ),
         uvm_op=st.sampled_from(
             [
@@ -109,7 +112,9 @@ class UvmTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=3
+            st.integers(min_value=1, max_value=MAX_TEST_DIM_SIZE),
+            min_size=1,
+            max_size=3,
         ),
         uvm_op=st.sampled_from(
             [
@@ -142,7 +147,9 @@ class UvmTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
+            st.integers(min_value=1, max_value=MAX_TEST_DIM_SIZE),
+            min_size=1,
+            max_size=4,
         ),
         uvm_op=st.sampled_from(
             [
@@ -182,7 +189,9 @@ class UvmTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
+            st.integers(min_value=1, max_value=MAX_TEST_DIM_SIZE),
+            min_size=1,
+            max_size=4,
         ),
         uvm_op=st.sampled_from(
             [

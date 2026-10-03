@@ -399,13 +399,19 @@ class DramKvInferenceTest(unittest.TestCase):
                         f"id1: {embs[1][:4]} failed",
                     )
                     self.assertTrue(
-                        # pyrefly: ignore [bad-argument-type]
-                        equal_one_of(embs[2][:4], possible_embs + [9, 10, 11, 12]),
+                        equal_one_of(
+                            embs[2][:4],
+                            possible_embs
+                            + [torch.tensor([9, 10, 11, 12], dtype=torch.uint8)],
+                        ),
                         f"id2: {embs[2][:4]} failed",
                     )
                     self.assertTrue(
-                        # pyrefly: ignore [bad-argument-type]
-                        equal_one_of(embs[3][:4], possible_embs + [13, 14, 15, 16]),
+                        equal_one_of(
+                            embs[3][:4],
+                            possible_embs
+                            + [torch.tensor([13, 14, 15, 16], dtype=torch.uint8)],
+                        ),
                         f"id3: {embs[3][:4]} failed",
                     )
                     self.assertTrue(
