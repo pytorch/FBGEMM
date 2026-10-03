@@ -340,61 +340,62 @@ __global__ void silu_mul_quantize_i8_kernel(
     at::PackedTensorAccessor64<int8_t, 2, at::RestrictPtrTraits>
         Y, // [B][MAX_T][N_KVH][D_H]
     float inv_scale) {
-  auto b = blockIdx.x;
-  auto N = X1.size(1);
-  for (auto i = threadIdx.x * 8; i < N; i += 8 * blockDim.x) {
-    bf16x8 src1;
-    *reinterpret_cast<uint4*>(&src1) = *reinterpret_cast<uint4*>(&X1[b][i]);
-    bf16x8 src2;
-    *reinterpret_cast<uint4*>(&src2) = *reinterpret_cast<uint4*>(&X2[b][i]);
+  for (int64_t b = blockIdx.x; b < X1.size(0); b += gridDim.x) {
+    auto N = X1.size(1);
+    for (auto i = threadIdx.x * 8; i < N; i += 8 * blockDim.x) {
+      bf16x8 src1;
+      *reinterpret_cast<uint4*>(&src1) = *reinterpret_cast<uint4*>(&X1[b][i]);
+      bf16x8 src2;
+      *reinterpret_cast<uint4*>(&src2) = *reinterpret_cast<uint4*>(&X2[b][i]);
 
-    auto x1_0 = __bfloat162float(src1.vals[0].x);
-    auto x1_1 = __bfloat162float(src1.vals[0].y);
-    auto x1_2 = __bfloat162float(src1.vals[1].x);
-    auto x1_3 = __bfloat162float(src1.vals[1].y);
-    auto x1_4 = __bfloat162float(src1.vals[2].x);
-    auto x1_5 = __bfloat162float(src1.vals[2].y);
-    auto x1_6 = __bfloat162float(src1.vals[3].x);
-    auto x1_7 = __bfloat162float(src1.vals[3].y);
+      auto x1_0 = __bfloat162float(src1.vals[0].x);
+      auto x1_1 = __bfloat162float(src1.vals[0].y);
+      auto x1_2 = __bfloat162float(src1.vals[1].x);
+      auto x1_3 = __bfloat162float(src1.vals[1].y);
+      auto x1_4 = __bfloat162float(src1.vals[2].x);
+      auto x1_5 = __bfloat162float(src1.vals[2].y);
+      auto x1_6 = __bfloat162float(src1.vals[3].x);
+      auto x1_7 = __bfloat162float(src1.vals[3].y);
 
-    auto x2_0 = __bfloat162float(src2.vals[0].x);
-    auto x2_1 = __bfloat162float(src2.vals[0].y);
-    auto x2_2 = __bfloat162float(src2.vals[1].x);
-    auto x2_3 = __bfloat162float(src2.vals[1].y);
-    auto x2_4 = __bfloat162float(src2.vals[2].x);
-    auto x2_5 = __bfloat162float(src2.vals[2].y);
-    auto x2_6 = __bfloat162float(src2.vals[3].x);
-    auto x2_7 = __bfloat162float(src2.vals[3].y);
+      auto x2_0 = __bfloat162float(src2.vals[0].x);
+      auto x2_1 = __bfloat162float(src2.vals[0].y);
+      auto x2_2 = __bfloat162float(src2.vals[1].x);
+      auto x2_3 = __bfloat162float(src2.vals[1].y);
+      auto x2_4 = __bfloat162float(src2.vals[2].x);
+      auto x2_5 = __bfloat162float(src2.vals[2].y);
+      auto x2_6 = __bfloat162float(src2.vals[3].x);
+      auto x2_7 = __bfloat162float(src2.vals[3].y);
 
-    auto y_0 = x1_0 * __sigmoid(x1_0) * x2_0 * inv_scale;
-    auto y_1 = x1_1 * __sigmoid(x1_1) * x2_1 * inv_scale;
-    auto y_2 = x1_2 * __sigmoid(x1_2) * x2_2 * inv_scale;
-    auto y_3 = x1_3 * __sigmoid(x1_3) * x2_3 * inv_scale;
-    auto y_4 = x1_4 * __sigmoid(x1_4) * x2_4 * inv_scale;
-    auto y_5 = x1_5 * __sigmoid(x1_5) * x2_5 * inv_scale;
-    auto y_6 = x1_6 * __sigmoid(x1_6) * x2_6 * inv_scale;
-    auto y_7 = x1_7 * __sigmoid(x1_7) * x2_7 * inv_scale;
+      auto y_0 = x1_0 * __sigmoid(x1_0) * x2_0 * inv_scale;
+      auto y_1 = x1_1 * __sigmoid(x1_1) * x2_1 * inv_scale;
+      auto y_2 = x1_2 * __sigmoid(x1_2) * x2_2 * inv_scale;
+      auto y_3 = x1_3 * __sigmoid(x1_3) * x2_3 * inv_scale;
+      auto y_4 = x1_4 * __sigmoid(x1_4) * x2_4 * inv_scale;
+      auto y_5 = x1_5 * __sigmoid(x1_5) * x2_5 * inv_scale;
+      auto y_6 = x1_6 * __sigmoid(x1_6) * x2_6 * inv_scale;
+      auto y_7 = x1_7 * __sigmoid(x1_7) * x2_7 * inv_scale;
 
-    y_0 = fmaxf(-128.0, fminf(y_0, 127));
-    y_1 = fmaxf(-128.0, fminf(y_1, 127));
-    y_2 = fmaxf(-128.0, fminf(y_2, 127));
-    y_3 = fmaxf(-128.0, fminf(y_3, 127));
-    y_4 = fmaxf(-128.0, fminf(y_4, 127));
-    y_5 = fmaxf(-128.0, fminf(y_5, 127));
-    y_6 = fmaxf(-128.0, fminf(y_6, 127));
-    y_7 = fmaxf(-128.0, fminf(y_7, 127));
+      y_0 = fmaxf(-128.0, fminf(y_0, 127));
+      y_1 = fmaxf(-128.0, fminf(y_1, 127));
+      y_2 = fmaxf(-128.0, fminf(y_2, 127));
+      y_3 = fmaxf(-128.0, fminf(y_3, 127));
+      y_4 = fmaxf(-128.0, fminf(y_4, 127));
+      y_5 = fmaxf(-128.0, fminf(y_5, 127));
+      y_6 = fmaxf(-128.0, fminf(y_6, 127));
+      y_7 = fmaxf(-128.0, fminf(y_7, 127));
 
-    i8x8 dst;
-    dst.vals[0] = __float2int_rn(y_0);
-    dst.vals[1] = __float2int_rn(y_1);
-    dst.vals[2] = __float2int_rn(y_2);
-    dst.vals[3] = __float2int_rn(y_3);
-    dst.vals[4] = __float2int_rn(y_4);
-    dst.vals[5] = __float2int_rn(y_5);
-    dst.vals[6] = __float2int_rn(y_6);
-    dst.vals[7] = __float2int_rn(y_7);
+      i8x8 dst;
+      dst.vals[0] = __float2int_rn(y_0);
+      dst.vals[1] = __float2int_rn(y_1);
+      dst.vals[2] = __float2int_rn(y_2);
+      dst.vals[3] = __float2int_rn(y_3);
+      dst.vals[4] = __float2int_rn(y_4);
+      dst.vals[5] = __float2int_rn(y_5);
+      dst.vals[6] = __float2int_rn(y_6);
+      dst.vals[7] = __float2int_rn(y_7);
 
-    *reinterpret_cast<uint2*>(&Y[b][i]) = *reinterpret_cast<uint2*>(&dst);
+      *reinterpret_cast<uint2*>(&Y[b][i]) = *reinterpret_cast<uint2*>(&dst);
+    }
   }
 }
 
@@ -402,9 +403,13 @@ at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale) {
   float inv_scale = 1.0 / (scale + 1.0e-8);
   auto Y = at::empty(X1.sizes(), X1.options().dtype(at::kChar));
   TORCH_CHECK(X1.size(1) % 8 == 0);
+  if (X1.size(0) == 0) {
+    return Y;
+  }
   constexpr int32_t kThreadsPerBlock = 1024;
   dim3 threads = std::min<int32_t>(kThreadsPerBlock, X1.size(1) / 8);
-  dim3 blocks = X1.size(0);
+  const dim3 blocks = utils::cuda::cap_grid_dim_x(
+      X1.size(0), threads.x, at::cuda::getCurrentCUDAStream());
   FBGEMM_LAUNCH_KERNEL(
       (silu_mul_quantize_i8_kernel),
       blocks,
