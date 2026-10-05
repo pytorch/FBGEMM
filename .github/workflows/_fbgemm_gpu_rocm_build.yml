@@ -116,7 +116,11 @@ jobs:
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
-    # ROCm itself is provided by the container image
+    # The container is plain Ubuntu. Install the matrix ROCm version, then PyTorch
+    # from the matching nightly index (rocm/<version>, not a fixed release).
+    - name: Install ROCm (${{ matrix.rocm-version }})
+      run: . $PRELUDE; install_rocm_pip $BUILD_ENV ${{ matrix.rocm-version }}
+
     - name: Install ROCm AMD-SMI
       run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
 
