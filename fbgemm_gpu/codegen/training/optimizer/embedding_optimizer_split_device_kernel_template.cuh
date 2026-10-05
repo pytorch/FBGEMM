@@ -94,7 +94,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {%- if has_global_weight_decay_support %}
     const float global_weight_decay,
     {%- endif %}
-    const uint32_t shfl_sync_mask,
+    [[maybe_unused]] const uint32_t shfl_sync_mask,
     const int32_t max_vecs_per_thread,
     {%- if ssd %}
     const bool enable_optimizer_offloading [[maybe_unused]],
@@ -250,7 +250,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {%- if has_global_weight_decay_support %}
     const float global_weight_decay,
     {%- endif %}
-    const uint32_t shfl_sync_mask,
+    [[maybe_unused]] const uint32_t shfl_sync_mask,
     const int32_t max_vecs_per_thread,
     {%- if ssd %}
     const bool enable_optimizer_offloading,
