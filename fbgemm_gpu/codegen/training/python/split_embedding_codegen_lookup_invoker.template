@@ -11,10 +11,11 @@
 {%- set sdesc = "_ssd" if ssd else "" %}
 
 import torch
+from .lookup_args{{ sdesc }} import *
+
 {%- if is_experimental_optimizer %}
 import warnings
 {%- endif %}
-from .lookup_args{{ sdesc }} import *
 
 {%- if is_fbcode %}
 
@@ -94,6 +95,24 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     {{ arg_type }}.append(dict_{{ arg_type }}["{{ var }}"])
 
     {%- endfor %}
+{%- endmacro %}
+
+{# Pack optimizer scalars through typed helpers shared by all generated
+   invokers. One value is emitted for every positional backend slot so a
+   missing frontend value cannot shift the remaining optimizer arguments. #}
+{%- macro pack_optimizer_scalars(arg_type) %}
+    {%- if arg_type in args_pt2.unified_pt2.split_function_arg_names %}
+    {%- set scalar_type = arg_type.split("_")[1] %}
+    {{ arg_type }}: List[{{ scalar_type }}] = [
+        {%- for name in args_pt2.unified_pt2.split_args_dict[arg_type] %}
+        get_optimizer_{{ scalar_type }}_arg_or_default(
+            dict_{{ arg_type }},
+            "{{ name }}",
+            {{ args_pt2.unified_pt2.split_args_defaults[arg_type][name] }},
+        ),
+        {%- endfor %}
+    ]
+    {%- endif %}
 {%- endmacro %}
 
 
@@ -348,27 +367,12 @@ def invoke(
     {%- endif %}
 
     # optim_int
-    {%- if "optim_int" in args_pt2.unified_pt2.split_function_arg_names %}
-    optim_int: List[int] = []
-    {%- for name in args_pt2.unified_pt2.split_args_dict["optim_int"] %}
-    optim_int.append(dict_optim_int["{{ name }}"])
-    {%- endfor %}
-    {%- endif %}
+{{ pack_optimizer_scalars("optim_int") }}
     # optim_float
     # {{ args_pt2.unified_pt2.split_function_arg_names }}
-    {%- if "optim_float" in args_pt2.unified_pt2.split_function_arg_names %}
-    optim_float: List[float] = []
-    {%- for name in args_pt2.unified_pt2.split_args_dict["optim_float"] %}
-    optim_float.append(dict_optim_float["{{ name }}"])
-    {%- endfor %}
-    {%- endif %}
+{{ pack_optimizer_scalars("optim_float") }}
     # optim_bool
-    {%- if "optim_bool" in args_pt2.unified_pt2.split_function_arg_names %}
-    optim_bool: List[bool] = []
-    {%- for name in args_pt2.unified_pt2.split_args_dict["optim_bool"] %}
-    optim_bool.append(dict_optim_bool["{{ name }}"])
-    {%- endfor %}
-    {%- endif %}
+{{ pack_optimizer_scalars("optim_bool") }}
 
     return torch.ops.fbgemm.{{ mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
         # common_args

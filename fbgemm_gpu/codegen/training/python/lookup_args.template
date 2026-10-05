@@ -7,9 +7,37 @@
 
 # pyre-strict
 
+import warnings
 from typing import NamedTuple, Optional, Dict, List
 
 import torch
+
+
+{%- macro define_optimizer_arg_or_default(arg_type) %}
+def get_optimizer_{{ arg_type }}_arg_or_default(
+    optimizer_args: Dict[str, {{ arg_type }}],
+    name: str,
+    default: {{ arg_type }},
+) -> {{ arg_type }}:
+    """Return a backend optimizer scalar, defaulting if the frontend omitted it."""
+    if name in optimizer_args:
+        return optimizer_args[name]
+
+    warnings.warn(
+        "Optimizer argument '" + name + "' is supported by the backend but "
+        "was not provided by the frontend; using its default value."
+    )
+    return default
+{%- endmacro %}
+
+
+{{ define_optimizer_arg_or_default("int") }}
+
+
+{{ define_optimizer_arg_or_default("float") }}
+
+
+{{ define_optimizer_arg_or_default("bool") }}
 
 
 class VBEMetadata(NamedTuple):
