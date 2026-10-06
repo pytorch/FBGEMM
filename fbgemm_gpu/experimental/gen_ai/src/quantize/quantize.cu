@@ -1308,59 +1308,71 @@ __global__ void fused_quantize_rowwise(
     T_OUT* __restrict__ output,
     float* __restrict__ scales,
     const __nv_bfloat16* __restrict__ input,
+#ifdef USE_ROCM
+    int64_t rows,
+#endif
     int K,
     const float* __restrict__ scale_ub) {
+#ifdef USE_ROCM
+  for (int64_t row = blockIdx.x; row < rows; row += gridDim.x) {
+#else
   const uint32_t row = blockIdx.x;
-  const uint32_t tid = threadIdx.x; // 0 … 127
-  const int vecK = K / 2; // K is even (4096)
-  // ------------------------------------------------------------------
-  // 1) Load row into shared memory (vectorised) and compute per‑row max
-  // ------------------------------------------------------------------
-  extern __shared__ __nv_bfloat16 shmem[]; // size K * sizeof(bf16) = 8 KiB
-  float thread_max = 0.0f;
-  for (int i = tid; i < vecK; i += 128) {
-    // load two bf16 values at once
-    __nv_bfloat162 v =
-        *reinterpret_cast<const __nv_bfloat162*>(input + row * K + i * 2);
-    // store to shared memory
-    reinterpret_cast<__nv_bfloat162*>(shmem)[i] = v;
-    // compute max
-    float f0 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[0]);
-    float f1 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[1]);
-    thread_max = fmaxf(thread_max, fmaxf(fabsf(f0), fabsf(f1)));
-  }
-  // ------------------------------------------------------------------
-  // 2) Reduce to obtain row‑wise max
-  // ------------------------------------------------------------------
-  float row_max = blockReduceMax(thread_max);
-  // ------------------------------------------------------------------
-  // 3) Compute scale and broadcast it
-  // ------------------------------------------------------------------
-  __shared__ float s_val;
-  if (tid == 0) {
-    float bounded = row_max;
-    if (scale_ub != nullptr)
-      bounded = fminf(bounded, *scale_ub);
-    constexpr float min_scale = 1.0f / (SCALE::value * 512.0f);
-    float s = fmaxf(bounded / SCALE::value, min_scale);
-    scales[row] = s;
-    s_val = s;
-  }
-  __syncthreads(); // make sure s_val is visible to all threads
-  // ------------------------------------------------------------------
-  // 4) Quantise the row (vectorised) using the broadcast scale
-  // ------------------------------------------------------------------
-  for (int i = tid; i < vecK; i += 128) {
-    __nv_bfloat162 v = reinterpret_cast<__nv_bfloat162*>(shmem)[i];
-    float f0 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[0]);
-    float f1 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[1]);
-    float q0 = f0 / s_val;
-    float q1 = f1 / s_val;
-    // write back as FP8
-    reinterpret_cast<T_OUT*>(output)[row * K + i * 2] = static_cast<T_OUT>(q0);
-    reinterpret_cast<T_OUT*>(output)[row * K + i * 2 + 1] =
-        static_cast<T_OUT>(q1);
-  }
+#endif
+    const uint32_t tid = threadIdx.x; // 0 … 127
+    const int vecK = K / 2; // K is even (4096)
+    // ------------------------------------------------------------------
+    // 1) Load row into shared memory (vectorised) and compute per‑row max
+    // ------------------------------------------------------------------
+    extern __shared__ __nv_bfloat16 shmem[]; // size K * sizeof(bf16) = 8 KiB
+    float thread_max = 0.0f;
+    for (int i = tid; i < vecK; i += 128) {
+      // load two bf16 values at once
+      __nv_bfloat162 v =
+          *reinterpret_cast<const __nv_bfloat162*>(input + row * K + i * 2);
+      // store to shared memory
+      reinterpret_cast<__nv_bfloat162*>(shmem)[i] = v;
+      // compute max
+      float f0 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[0]);
+      float f1 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[1]);
+      thread_max = fmaxf(thread_max, fmaxf(fabsf(f0), fabsf(f1)));
+    }
+    // ------------------------------------------------------------------
+    // 2) Reduce to obtain row‑wise max
+    // ------------------------------------------------------------------
+    float row_max = blockReduceMax(thread_max);
+    // ------------------------------------------------------------------
+    // 3) Compute scale and broadcast it
+    // ------------------------------------------------------------------
+    __shared__ float s_val;
+    if (tid == 0) {
+      float bounded = row_max;
+      if (scale_ub != nullptr)
+        bounded = fminf(bounded, *scale_ub);
+      constexpr float min_scale = 1.0f / (SCALE::value * 512.0f);
+      float s = fmaxf(bounded / SCALE::value, min_scale);
+      scales[row] = s;
+      s_val = s;
+    }
+    __syncthreads(); // make sure s_val is visible to all threads
+    // ------------------------------------------------------------------
+    // 4) Quantise the row (vectorised) using the broadcast scale
+    // ------------------------------------------------------------------
+    for (int i = tid; i < vecK; i += 128) {
+      __nv_bfloat162 v = reinterpret_cast<__nv_bfloat162*>(shmem)[i];
+      float f0 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[0]);
+      float f1 = __bfloat162float(reinterpret_cast<__nv_bfloat16*>(&v)[1]);
+      float q0 = f0 / s_val;
+      float q1 = f1 / s_val;
+      // write back as FP8
+      reinterpret_cast<T_OUT*>(output)[row * K + i * 2] =
+          static_cast<T_OUT>(q0);
+      reinterpret_cast<T_OUT*>(output)[row * K + i * 2 + 1] =
+          static_cast<T_OUT>(q1);
+    }
+#ifdef USE_ROCM
+    __syncthreads();
+  } // for row (block-uniform grid-stride loop, ROCm only)
+#endif
 }
 
 // A ROCm fat binary can select different FP8 C++ aliases in its host and
@@ -1630,8 +1642,12 @@ std::vector<at::Tensor> quantize_fp8_per_row(
   }
   // launch parameters
   const int threads = 128; // 128 threads / block
-  const dim3 grid(rows);
   const dim3 block(threads);
+#ifdef USE_ROCM
+  const dim3 grid = utils::cuda::cap_grid_dim_x(rows, threads, stream);
+#else
+  const dim3 grid(rows);
+#endif
   const size_t shmem_bytes =
       static_cast<size_t>(K) * sizeof(__nv_bfloat16); // 8 KB
   const bool use_typed_kernel =
@@ -1671,6 +1687,9 @@ std::vector<at::Tensor> quantize_fp8_per_row(
             reinterpret_cast<__nv_fp8_e4m3*>(quantized.data_ptr()),
             reinterpret_cast<float*>(scales.data_ptr()),
             reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
+#ifdef USE_ROCM
+            rows,
+#endif
             static_cast<int>(K),
             scale_ub_ptr);
   } else {
@@ -1679,6 +1698,9 @@ std::vector<at::Tensor> quantize_fp8_per_row(
             reinterpret_cast<__nv_fp8_e5m2*>(quantized.data_ptr()),
             reinterpret_cast<float*>(scales.data_ptr()),
             reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
+#ifdef USE_ROCM
+            rows,
+#endif
             static_cast<int>(K),
             scale_ub_ptr);
   }
