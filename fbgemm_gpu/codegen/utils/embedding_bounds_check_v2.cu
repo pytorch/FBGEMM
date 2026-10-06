@@ -42,10 +42,6 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   index_t invalid_i = -1, invalid_idx = -1;
   int32_t invalid_b_t = -1;
   int64_t warning_inc = 0;
-  __shared__ int64_t block_warning_buffer[kMaxThreads];
-  const uint32_t linear_tid = threadIdx.z * (blockDim.y * blockDim.x) +
-      threadIdx.y * blockDim.x + threadIdx.x;
-  const uint32_t active_threads = blockDim.x * blockDim.y * blockDim.z;
 #endif
 
   // Last-element check; one thread only.
@@ -208,30 +204,6 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     print_warning = (gpuAtomicIncrement(&warning[0]) == 0);
   }
 
-  // Warning modes never read the summed counter, so the reduction (and its
-  // ~10 __syncthreads) is pure overhead there. bounds_check_mode is a template
-  // parameter, so this branch is resolved at compile time and the barriers
-  // below stay block-uniform.
-  if (!is_warning_mode) {
-    block_warning_buffer[linear_tid] = warning_inc;
-    __syncthreads();
-
-    for (int stride = active_threads / 2; stride > 0; stride >>= 1) {
-      if (linear_tid < stride) {
-        block_warning_buffer[linear_tid] +=
-            block_warning_buffer[linear_tid + stride];
-      }
-      __syncthreads();
-    }
-
-    if (linear_tid == 0) {
-      int64_t block_warning_sum = block_warning_buffer[0];
-      if (block_warning_sum > 0) {
-        gpuAtomicAdd(&warning[0], block_warning_sum);
-      }
-    }
-    __syncthreads();
-  }
   if (print_warning) {
     int32_t b;
     int32_t t;

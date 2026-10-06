@@ -1130,12 +1130,12 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- if optimizer != "none" %}
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    [[maybe_unused]] pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    [[maybe_unused]] pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    [[maybe_unused]] const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
     {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    [[maybe_unused]] const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag or is_index_select %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
@@ -1150,9 +1150,9 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
-    const bool use_uniq_cache_locations,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
+    [[maybe_unused]] const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    [[maybe_unused]] const bool use_uniq_cache_locations,
+    [[maybe_unused]] const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
@@ -1173,13 +1173,15 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
-    const int32_t max_D,
-    const int32_t max_vecs_per_thread,
+    [[maybe_unused]] const int32_t max_D,
+    [[maybe_unused]] const int32_t max_vecs_per_thread,
     {%- if is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
     {%- else %}
-    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
+    {%- for arg in args.split_kernel_args | replace_pta_namespace() %}
+    {{ "[[maybe_unused]] " if "momentum1_uvm" in arg or "momentum1_placements" in arg or "momentum1_offsets" in arg or "weight_decay_mode" in arg or "max_norm" in arg else "" }}{{ arg }}{{ "," if not loop.last else "" }}
+    {%- endfor %}
     {%- endif %}
 ) {
     int32_t T = D_offsets.size(0) - 1;

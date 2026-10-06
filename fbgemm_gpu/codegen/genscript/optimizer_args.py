@@ -676,6 +676,11 @@ def make_ivalue_cast(ty: ArgType) -> str:
     }[ty]
 
 
+def make_default_literal(default: int | float | bool) -> str:
+    """Format a packed optimizer default as a C++ scalar literal."""
+    return str(default).lower() if isinstance(default, bool) else str(default)
+
+
 def reorder_args(split_arg_spec: list[OptimItem]) -> list[OptimItem]:
     """
     Reorder such that tensor arguments come first. This is used in backend, wrapper and kernels where tensors are no longer optional.
@@ -714,6 +719,7 @@ class PT2ArgsSet:
     split_variables: list[str]
     split_unpacked_arg_names: list[str]
     split_args_dict: dict[str, list[str]]
+    split_args_defaults: dict[str, dict[str, int | float | bool]]
 
     @staticmethod
     # pyre-ignore[3]
@@ -750,6 +756,9 @@ class PT2ArgsSet:
             split_args_dict: dict[str, list[str]] - Dict of optim arguments' types containing the argument names of that type.
                                             e.g., if an optimizer only has an int argument called iter, the dict will look like:
                                             {'optim_tensor': [], 'optim_int': ['iter'], 'optim_float': [], 'optim_bool': []}
+            split_args_defaults: Default values for packed optimizer scalars, keyed by list type and argument name.
+                                            The generated Python invoker uses them when frontend wiring does not
+                                            provide a value defined by the backend optimizer specification.
         """
         split_function_arg_names = []
         split_function_args = []
@@ -769,10 +778,20 @@ class PT2ArgsSet:
             "optim_float": [],
             "optim_bool": [],
         }
+        split_args_defaults: dict[str, dict[str, int | float | bool]] = {
+            "optim_int": {},
+            "optim_float": {},
+            "optim_bool": {},
+        }
         # list of symint args to be appended after optim_xxx args
         # since they have default values
         symint_list: list[OptimItem] = []
 
+        # Packed scalar arguments are append-only across package versions. A
+        # newer backend can receive a shorter list from an older frontend, so
+        # every generated C++ read checks the runtime length and falls back to
+        # the declared default. An older backend already ignores values that a
+        # newer frontend appends after its known prefix.
         for s in arg_spec:
             if s.name == "learning_rate_tensor":
                 split_function_arg_names.append(s.name)
@@ -819,11 +838,18 @@ class PT2ArgsSet:
                 if s.ty == ArgType.INT:
                     # iter is passed in aux_int
                     if s.name != "iter":
+                        int_default = int(s.default)
                         split_args_dict["optim_int"].append(s.name)
+                        int_index = len(split_args_dict["optim_int"]) - 1
+                        split_args_defaults["optim_int"][s.name] = int_default
                         split_saved_data.append(
                             (
                                 s.name,
-                                f"optim_int[{len(split_args_dict['optim_int']) - 1}]",
+                                (
+                                    f"optim_int.size() > {int_index} ? "
+                                    f"optim_int[{int_index}] : "
+                                    f"{make_default_literal(int_default)}"
+                                ),
                                 make_ivalue_cast(s.ty),
                                 "int64_t",
                             )
@@ -840,22 +866,36 @@ class PT2ArgsSet:
                         )
                     )
                 elif s.ty == ArgType.FLOAT:
+                    float_default = float(s.default)
                     split_args_dict["optim_float"].append(s.name)
+                    float_index = len(split_args_dict["optim_float"]) - 1
+                    split_args_defaults["optim_float"][s.name] = float_default
                     split_saved_data.append(
                         (
                             s.name,
-                            f"optim_float[{len(split_args_dict['optim_float']) - 1}]",
+                            (
+                                f"optim_float.size() > {float_index} ? "
+                                f"optim_float[{float_index}] : "
+                                f"{make_default_literal(float_default)}"
+                            ),
                             make_ivalue_cast(s.ty),
                             "double",
                         )
                     )
                     has_optim_float = True
                 elif s.ty == ArgType.BOOL:
+                    bool_default = bool(s.default)
                     split_args_dict["optim_bool"].append(s.name)
+                    bool_index = len(split_args_dict["optim_bool"]) - 1
+                    split_args_defaults["optim_bool"][s.name] = bool_default
                     split_saved_data.append(
                         (
                             s.name,
-                            f"optim_bool[{len(split_args_dict['optim_bool']) - 1}]",
+                            (
+                                f"optim_bool.size() > {bool_index} ? "
+                                f"optim_bool[{bool_index}] : "
+                                f"{make_default_literal(bool_default)}"
+                            ),
                             make_ivalue_cast(s.ty),
                             "bool",
                         )
@@ -906,6 +946,7 @@ class PT2ArgsSet:
             split_variables=split_variables,
             split_unpacked_arg_names=split_unpacked_arg_names,
             split_args_dict=split_args_dict,
+            split_args_defaults=split_args_defaults,
         )
 
 
