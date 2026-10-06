@@ -11,29 +11,25 @@
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 #include <cstdint>
+#include <type_traits>
 #include "fbgemm_gpu/utils/float.cuh"
 
 namespace fbgemm_gpu {
 
 namespace detail {
 
-DEVICE_INLINE void store_bfloat16x4(const float4 values, at::BFloat16* output) {
-  if (reinterpret_cast<std::uintptr_t>(output) % alignof(uint2) != 0) {
-    output[0] = values.x;
-    output[1] = values.y;
-    output[2] = values.z;
-    output[3] = values.w;
-    return;
-  }
-  union {
-    at::BFloat16 bf[4];
-    uint2 ui;
-  } tmp;
-  tmp.bf[0] = values.x;
-  tmp.bf[1] = values.y;
-  tmp.bf[2] = values.z;
-  tmp.bf[3] = values.w;
-  *reinterpret_cast<uint2*>(output) = tmp.ui;
+union PackedBFloat16x4 {
+  at::BFloat16 bf[4];
+  uint2 ui;
+};
+
+DEVICE_INLINE PackedBFloat16x4 pack_bfloat16x4(const float4 values) {
+  PackedBFloat16x4 packed;
+  packed.bf[0] = values.x;
+  packed.bf[1] = values.y;
+  packed.bf[2] = values.z;
+  packed.bf[3] = values.w;
+  return packed;
 }
 
 } // namespace detail
@@ -73,6 +69,40 @@ struct Vec4BaseT {
     return max_val;
   }
 
+  // kAligned selects the packed BF16 store. Other output types retain their
+  // existing store implementations so generic call sites can use one API.
+  template <bool kAligned = false, typename OutputT>
+  DEVICE_INLINE void store(OutputT* output) const {
+    if constexpr (std::is_same_v<OutputT, at::BFloat16>) {
+      if constexpr (kAligned) {
+#ifndef NDEBUG
+        CUDA_KERNEL_ASSERT(
+            reinterpret_cast<uintptr_t>(output) % alignof(uint2) == 0);
+#endif
+        *reinterpret_cast<uint2*>(output) = detail::pack_bfloat16x4(acc).ui;
+      } else {
+        output[0] = acc.x;
+        output[1] = acc.y;
+        output[2] = acc.z;
+        output[3] = acc.w;
+      }
+    } else {
+      constexpr bool kSupportedOutput =
+          (std::is_same_v<T, float> &&
+           (std::is_same_v<OutputT, float> || std::is_same_v<OutputT, float4> ||
+            std::is_same_v<OutputT, at::Half> ||
+            std::is_same_v<OutputT, at::Float8_e4m3fn> ||
+            std::is_same_v<OutputT, at::Float8_e4m3fnuz> ||
+            std::is_same_v<OutputT, uint8_t>)) ||
+          ((std::is_same_v<T, at::Half> || std::is_same_v<T, at::BFloat16>) &&
+           (std::is_same_v<OutputT, float> ||
+            std::is_same_v<OutputT, at::Half> ||
+            std::is_same_v<OutputT, uint8_t>));
+      static_assert(kSupportedOutput, "Unsupported Vec4 store output type");
+      static_cast<const Vec4T<T>*>(this)->store(output);
+    }
+  }
+
   template <bool kAligned = false, typename T_IN>
   DEVICE_INLINE static Vec4T<T> from(const T_IN* input);
 };
@@ -90,6 +120,8 @@ using Vec4TAcc = Vec4T<at::acc_type<T, true>>;
 
 template <>
 struct Vec4T<float> : public Vec4BaseT<float> {
+  using Vec4BaseT<float>::store;
+
   DEVICE_INLINE Vec4T() {}
 
   DEVICE_INLINE Vec4T(const float* p) {
@@ -192,10 +224,6 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     out.store(p);
   }
 
-  DEVICE_INLINE void store(at::BFloat16* p) const {
-    detail::store_bfloat16x4(acc, p);
-  }
-
   DEVICE_INLINE void store(at::Float8_e4m3fn* p) const {
     __nv_fp8x4_e4m3* fp8_ptr = reinterpret_cast<__nv_fp8x4_e4m3*>(p);
     fp8_ptr[0] = static_cast<__nv_fp8x4_e4m3>(acc);
@@ -260,6 +288,8 @@ struct Vec4T<float> : public Vec4BaseT<float> {
 
 template <>
 struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
+  using Vec4BaseT<at::Half>::store;
+
   DEVICE_INLINE Vec4T() {}
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
@@ -340,10 +370,6 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     out.a = __float22half2_rn(a);
     out.b = __float22half2_rn(b);
     out.store(p);
-  }
-
-  DEVICE_INLINE void store(at::BFloat16* p) const {
-    detail::store_bfloat16x4(acc, p);
   }
 
   DEVICE_INLINE void store(float* p) const {
@@ -437,6 +463,8 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
 
 template <>
 struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
+  using Vec4BaseT<at::BFloat16>::store;
+
   DEVICE_INLINE Vec4T() {}
 
   DEVICE_INLINE Vec4T(const at::BFloat16* p) {
@@ -519,10 +547,6 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     out.store(p);
   }
 
-  DEVICE_INLINE void store(at::BFloat16* p) const {
-    detail::store_bfloat16x4(acc, p);
-  }
-
   DEVICE_INLINE void store(float* p) const {
     *((float4*)p) = acc;
   }
@@ -531,16 +555,30 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     CUDA_KERNEL_ASSERT(false && "Unsupported Vec4 operation");
   }
 
+  // store() requires explicit alignment to avoid emitting both store paths.
+  // copy() retains runtime dispatch for callers that cannot prove both
+  // pointers.
+  template <bool kAligned = false>
   DEVICE_INLINE static void copy(const at::BFloat16* src, at::BFloat16* dst) {
-    if (reinterpret_cast<std::uintptr_t>(src) % alignof(uint2) == 0 &&
-        reinterpret_cast<std::uintptr_t>(dst) % alignof(uint2) == 0) {
+    if constexpr (kAligned) {
+#ifndef NDEBUG
+      CUDA_KERNEL_ASSERT(
+          (reinterpret_cast<uintptr_t>(src) |
+           reinterpret_cast<uintptr_t>(dst)) %
+              alignof(uint2) ==
+          0);
+#endif
       *reinterpret_cast<uint2*>(dst) = *reinterpret_cast<const uint2*>(src);
-      return;
+    } else if (
+        ((reinterpret_cast<uintptr_t>(src) | reinterpret_cast<uintptr_t>(dst)) &
+         (alignof(uint2) - 1)) == 0) {
+      *reinterpret_cast<uint2*>(dst) = *reinterpret_cast<const uint2*>(src);
+    } else {
+      dst[0] = src[0];
+      dst[1] = src[1];
+      dst[2] = src[2];
+      dst[3] = src[3];
     }
-    dst[0] = src[0];
-    dst[1] = src[1];
-    dst[2] = src[2];
-    dst[3] = src[3];
   }
 
   // this <- this + a * b
