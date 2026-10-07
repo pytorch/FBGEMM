@@ -71,13 +71,13 @@ install_rocm_pip () {
     --index-url "${rocm_index}" \
     "rocm[devel]==${rocm_version}") || return 1
 
-  # Runtime files live in _rocm_sdk_core. Headers and lib/cmake are packed in
-  # rocm-sdk-devel and only appear after the devel tree is expanded. CMake
-  # finds HIP from that expanded root, not from the core package.
+  # Headers and lib/cmake are packed in rocm-sdk-devel and only appear after
+  # that tree is expanded. rocm-sdk path --root expands it and prints the root
+  # CMake uses to find HIP.
   echo "[INSTALL] Expanding the ROCm devel tree ..."
   local rocm_dir
   # shellcheck disable=SC2086
-  rocm_dir=$(conda run ${env_prefix} python -c 'from rocm_sdk._devel import get_devel_root; print("ROCM_DEVEL_ROOT=" + str(get_devel_root()))' | sed -n 's/^ROCM_DEVEL_ROOT=//p' | tail -n 1) || return 1
+  rocm_dir=$(conda run ${env_prefix} rocm-sdk path --root | tail -n 1) || return 1
   if [ -z "${rocm_dir}" ] || [ ! -d "${rocm_dir}/lib/cmake/hip" ]; then
     echo "[INSTALL] ROCm devel tree is missing lib/cmake/hip: ${rocm_dir:-<empty>}" >&2
     return 1
