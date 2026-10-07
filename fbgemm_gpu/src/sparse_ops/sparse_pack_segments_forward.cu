@@ -77,6 +77,8 @@ __global__ void pack_segments_cuda_kernel(
       data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1] &&
       "data first dimension must equal the sum of segment lengths");
 
+  // int64_t index: num_seq * max_length * cell_size overflows int32 for large
+  // batches, wrapping i negative and making out_ptr[i] an illegal access.
   CUDA_KERNEL_LOOP_TYPE(i, num_seq * max_length * cell_size, int64_t) {
     const auto seq = (i / cell_size) / max_length;
     const auto cell = (i / cell_size) % max_length;
@@ -392,8 +394,8 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
 
             // HIP enforces a hard limit of 2^32 total threads per launch
             // (unlike CUDA, which silently wraps). pack_segments_cuda_kernel
-            // uses CUDA_KERNEL_LOOP, which already grid-strides, so capping is
-            // correctness-preserving.
+            // uses CUDA_KERNEL_LOOP_TYPE, which already grid-strides, so
+            // capping is correctness-preserving.
             // See: https://github.com/ROCm/hip/issues/2253
             const auto blocks = utils::cuda::cap_grid_dim_x_from_workload(
                 num_seq * max_length * cell_size,
