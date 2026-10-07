@@ -125,7 +125,11 @@ using namespace fbgemm_gpu;
             weights_slice.store(&output[output_offset + output_j * output_stride + d]);
             {%- else %}
             // output is 2D
+            {%- if dense %}
             weights_slice.store(&output[output_j][d]);
+            {%- else %}
+            weights_slice.template store<true>(&output[output_j][d]);
+            {%- endif %}
             {%- endif %}
         }
     }
@@ -205,7 +209,11 @@ using namespace fbgemm_gpu;
             weights_slice.store(&output[output_offset + output_j * output_stride + d]);
             {%- else %}
             // output is 2D
+            {%- if dense %}
             weights_slice.store(&output[output_j][d]);
+            {%- else %}
+            weights_slice.template store<true>(&output[output_j][d]);
+            {%- endif %}
             {%- endif %}
         }
     }
@@ -780,7 +788,11 @@ constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
             // Compute the mean (for mean pooling) and store directly to memory as is
             accumulators[i].mul_(inv_L);
             int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+            {%- if vbe or dense %}
             accumulators[i].store(output_ + d);
+            {%- else %}
+            accumulators[i].template store<true>(output_ + d);
+            {%- endif %}
         }
 
     } else {
