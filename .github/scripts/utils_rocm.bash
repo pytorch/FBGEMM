@@ -71,15 +71,19 @@ install_rocm_pip () {
     --index-url "${rocm_index}" \
     "rocm[devel]==${rocm_version}") || return 1
 
-  echo "[INSTALL] Locating the ROCm wheel install ..."
+  # Runtime files live in _rocm_sdk_core. Headers and lib/cmake are packed in
+  # rocm-sdk-devel and only appear after the devel tree is expanded. CMake
+  # finds HIP from that expanded root, not from the core package.
+  echo "[INSTALL] Expanding the ROCm devel tree ..."
   local rocm_dir
   # shellcheck disable=SC2086
-  rocm_dir=$(conda run ${env_prefix} python -c 'import importlib.util; from pathlib import Path; spec = importlib.util.find_spec("_rocm_sdk_core");
-if spec is None or not spec.origin:
-    raise SystemExit("ROCm wheel did not install _rocm_sdk_core")
-print(Path(spec.origin).parent.resolve())' | tail -n 1) || return 1
-  if [ -z "${rocm_dir}" ] || [ ! -d "${rocm_dir}" ]; then
-    echo "[INSTALL] Unable to locate the ROCm ${rocm_version} wheel install" >&2
+  rocm_dir=$(conda run ${env_prefix} python -c 'from rocm_sdk._devel import get_devel_root; print("ROCM_DEVEL_ROOT=" + str(get_devel_root()))' | sed -n 's/^ROCM_DEVEL_ROOT=//p' | tail -n 1) || return 1
+  if [ -z "${rocm_dir}" ] || [ ! -d "${rocm_dir}/lib/cmake/hip" ]; then
+    echo "[INSTALL] ROCm devel tree is missing lib/cmake/hip: ${rocm_dir:-<empty>}" >&2
+    return 1
+  fi
+  if [ ! -e "${rocm_dir}/bin/hipcc" ] || [ ! -e "${rocm_dir}/bin/amd-smi" ]; then
+    echo "[INSTALL] ROCm devel tree is missing hipcc or amd-smi: ${rocm_dir}/bin" >&2
     return 1
   fi
 
@@ -91,8 +95,97 @@ print(Path(spec.origin).parent.resolve())' | tail -n 1) || return 1
   if [ -n "${GITHUB_ENV:-}" ]; then
     echo "ROCM_PATH=${rocm_dir}" >> "${GITHUB_ENV}"
   fi
+  # The wheel's libamd_smi is versioned, and later steps load it by the
+  # unversioned name. amd-smi and hipcc are not on PATH until published.
+  publish_rocm_library_path "${env_name}" "${rocm_dir}" || return 1
+  publish_rocm_bin_path "${rocm_dir}" || return 1
 
   echo "[INSTALL] Successfully installed ROCm ${rocm_version}"
+}
+
+ensure_libamd_smi_soname () {
+  # ROCm wheels ship libamd_smi.so.<version>. amdsmi looks up libamd_smi.so.
+  local rocm_dir="$1"
+  local lib_dir="${rocm_dir}/lib"
+  local soname="${lib_dir}/libamd_smi.so"
+  if [ -e "${soname}" ]; then
+    return 0
+  fi
+  if [ ! -d "${lib_dir}" ]; then
+    echo "[INSTALL] ROCm lib directory does not exist: ${lib_dir}" >&2
+    return 1
+  fi
+
+  local versioned
+  versioned=$(find "${lib_dir}" -maxdepth 1 -name 'libamd_smi.so.*' -printf '%p\n' | sort -V | tail -n 1)
+  if [ -z "${versioned}" ]; then
+    echo "[INSTALL] libamd_smi.so was not found under ${lib_dir}" >&2
+    return 1
+  fi
+
+  echo "[INSTALL] Linking ${soname} -> $(basename "${versioned}")"
+  ln -s "$(basename "${versioned}")" "${soname}"
+}
+
+publish_rocm_library_path () {
+  local env_name="$1"
+  local rocm_dir="$2"
+  local lib_dir="${rocm_dir}/lib"
+
+  ensure_libamd_smi_soname "${rocm_dir}" || return 1
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+  # shellcheck disable=SC2155,SC2086
+  local current_library_path=$(conda run ${env_prefix} printenv LD_LIBRARY_PATH 2>/dev/null || true)
+  case ":${current_library_path}:" in
+    *":${lib_dir}:"*) ;;
+    *)
+      (append_to_library_path "${env_name}" "${lib_dir}") || return 1
+      ;;
+  esac
+
+  case ":${LD_LIBRARY_PATH:-}:" in
+    *":${lib_dir}:"*) ;;
+    *)
+      export LD_LIBRARY_PATH="${lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+      ;;
+  esac
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}" >> "${GITHUB_ENV}"
+  fi
+}
+
+publish_rocm_bin_path () {
+  # amd-smi resolves ../libexec relative to the script path, so the real bin
+  # directory has to come first when the devel tree only symlinks bin/amd-smi.
+  local rocm_dir="$1"
+  local bin_dir="${rocm_dir}/bin"
+  if [ ! -e "${bin_dir}/amd-smi" ]; then
+    echo "[INSTALL] amd-smi is not at ${bin_dir}; leaving PATH unchanged"
+    return 0
+  fi
+  local real_bin
+  real_bin=$(dirname "$(readlink -f "${bin_dir}/amd-smi")")
+
+  if [ "${real_bin}" != "${bin_dir}" ]; then
+    publish_one_bin_path "${bin_dir}" || return 1
+  fi
+  publish_one_bin_path "${real_bin}" || return 1
+}
+
+publish_one_bin_path () {
+  local bin_dir="$1"
+  case ":${PATH}:" in
+    *":${bin_dir}:"*) ;;
+    *)
+      export PATH="${bin_dir}:${PATH}"
+      ;;
+  esac
+  # GITHUB_PATH is prepended for later steps. Repeating a directory is harmless.
+  if [ -n "${GITHUB_PATH:-}" ]; then
+    echo "${bin_dir}" >> "${GITHUB_PATH}"
+  fi
 }
 
 install_rocm_amdsmi_ubuntu () {
@@ -108,12 +201,38 @@ install_rocm_amdsmi_ubuntu () {
   echo "[INSTALL] Installing libdw ..."
   (apt-get install -y --allow-unauthenticated libdw-dev) || return 1
 
-  if [ -d "${rocm_dir}/share/amd_smi" ]; then
-    echo "[INSTALL] Installing amd-smi from ${rocm_dir} ..."
+  # The pip-installed amdsmi package looks for libamd_smi.so next to itself
+  # and under ${ROCM_PATH}/lib. The wheel only provides the versioned library.
+  publish_rocm_library_path "${env_name}" "${rocm_dir}" || return 1
+  publish_rocm_bin_path "${rocm_dir}" || return 1
+
+  local amd_smi_src="${rocm_dir}/share/amd_smi"
+  if [ ! -d "${amd_smi_src}" ]; then
+    local core_dir
     # shellcheck disable=SC2086
-    (conda run ${env_prefix} python -m pip install "${rocm_dir}/share/amd_smi") || return 1
+    core_dir=$(conda run ${env_prefix} python -c 'import importlib.util; from pathlib import Path; spec = importlib.util.find_spec("_rocm_sdk_core");
+if spec is None or not spec.origin:
+    raise SystemExit("ROCm wheel did not install _rocm_sdk_core")
+print("ROCM_CORE_ROOT=" + str(Path(spec.origin).parent.resolve()))' | sed -n 's/^ROCM_CORE_ROOT=//p' | tail -n 1) || return 1
+    amd_smi_src="${core_dir}/share/amd_smi"
+  fi
+  if [ -d "${amd_smi_src}" ]; then
+    echo "[INSTALL] Installing amd-smi from ${amd_smi_src} ..."
+    # shellcheck disable=SC2086
+    (conda run ${env_prefix} python -m pip install "${amd_smi_src}") || return 1
   else
-    echo "[INSTALL] ${rocm_dir}/share/amd_smi is not present; expecting amd-smi from the ROCm wheel"
+    echo "[INSTALL] ${amd_smi_src} is not present; expecting amd-smi from the ROCm wheel"
+  fi
+
+  local amdsmi_dir
+  # shellcheck disable=SC2086
+  amdsmi_dir=$(conda run ${env_prefix} python -c 'import importlib.util; from pathlib import Path; spec = importlib.util.find_spec("amdsmi");
+if spec is None or not spec.origin:
+    raise SystemExit("amdsmi was not installed")
+print(Path(spec.origin).parent.resolve())' | tail -n 1) || return 1
+  if [ ! -e "${amdsmi_dir}/libamd_smi.so" ]; then
+    echo "[INSTALL] Linking ${amdsmi_dir}/libamd_smi.so -> ${rocm_dir}/lib/libamd_smi.so"
+    ln -s "${rocm_dir}/lib/libamd_smi.so" "${amdsmi_dir}/libamd_smi.so" || return 1
   fi
 
   echo "[INSTALL] Checking Python imports for amd-smi ..."
