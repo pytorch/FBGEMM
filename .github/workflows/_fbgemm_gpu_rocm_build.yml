@@ -72,7 +72,9 @@ jobs:
     - name: Setup Build Container
       run: |
         apt update -y
-        apt install -y binutils git jq pciutils sudo wget
+        # g++ supplies the host libstdc++ headers. ROCm's clang looks for them
+        # on the system; the plain Ubuntu image does not install them.
+        apt install -y binutils g++ git jq pciutils sudo wget
         git config --global --add safe.directory '*'
 
     - name: Merge Extra Environment Variables
