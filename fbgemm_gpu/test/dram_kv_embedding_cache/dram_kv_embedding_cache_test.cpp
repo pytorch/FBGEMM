@@ -6,14 +6,91 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/oneflow_enrichment.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_cache.h"
 
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+#include <cmath>
+#include <cstdint>
 #include <vector>
 
 namespace kv_mem {
+
+namespace {
+
+int64_t decodeInt64(const float* encoded) {
+  uint64_t value = 0;
+  for (int64_t index = 0; index < oneflow_enrichment::kDibitsPerInt64;
+       ++index) {
+    const auto dibit =
+        static_cast<uint64_t>(std::lround(encoded[index] * 2.0f - 1.0f)) & 0x3;
+    value |= dibit << (index * 2);
+  }
+  return static_cast<int64_t>(value);
+}
+
+} // namespace
+
+TEST(OneFlowEnrichmentTest, EncodesVariableLengthIdListsWithPadding) {
+  const std::vector<int64_t> hashedIds{101, 202};
+  const std::vector<int64_t> unhashedIds{1001, 2002};
+  const oneflow_enrichment::OpenTabBackend::IdListPayloadMap payloads{
+      {1001, {11, 22}},
+      {2002, {31, 32, 33, 34, 35, 36, 37, 38, 39}},
+  };
+  constexpr int64_t kMaxTags = 8;
+  constexpr int64_t kCacheDim = kMaxTags * oneflow_enrichment::kDibitsPerInt64;
+
+  const auto result = oneflow_enrichment::prepareInt64ListPayloadTensors<float>(
+      hashedIds, unhashedIds, payloads, kCacheDim);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->indices.sizes(), at::IntArrayRef({2}));
+  EXPECT_EQ(result->weights.sizes(), at::IntArrayRef({2, kCacheDim}));
+  EXPECT_EQ(result->count.item<int64_t>(), 2);
+  const auto weights = result->weights.contiguous();
+  const float* values = weights.const_data_ptr<float>();
+  EXPECT_EQ(decodeInt64(values), 11);
+  EXPECT_EQ(decodeInt64(values + 32), 22);
+  EXPECT_EQ(decodeInt64(values + 64), 0);
+  EXPECT_EQ(decodeInt64(values + kCacheDim), 31);
+  EXPECT_EQ(decodeInt64(values + kCacheDim + 7 * 32), 38);
+}
+
+TEST(OneFlowEnrichmentTest, EncodesIdListsIntoRowWithOptimizerStatePadding) {
+  // Physical cache row = 256-dim embedding + pad4(rowwise optimizer state).
+  const std::vector<int64_t> hashedIds{101};
+  const std::vector<int64_t> unhashedIds{1001};
+  const oneflow_enrichment::OpenTabBackend::IdListPayloadMap payloads{
+      {1001, {11, 22, 33, 44, 55, 66, 77, 88, 99}},
+  };
+  constexpr int64_t kIdWidth = 8 * oneflow_enrichment::kDibitsPerInt64;
+  constexpr int64_t kPhysicalRowDim = kIdWidth + 4;
+
+  const auto result = oneflow_enrichment::prepareInt64ListPayloadTensors<float>(
+      hashedIds, unhashedIds, payloads, kPhysicalRowDim);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->weights.sizes(), at::IntArrayRef({1, kIdWidth}));
+  const auto weights = result->weights.contiguous();
+  const float* values = weights.const_data_ptr<float>();
+  EXPECT_EQ(decodeInt64(values), 11);
+  EXPECT_EQ(decodeInt64(values + 7 * 32), 88);
+}
+
+TEST(OneFlowEnrichmentTest, RejectsRowNarrowerThanOneId) {
+  const std::vector<int64_t> hashedIds{101};
+  const std::vector<int64_t> unhashedIds{1001};
+  const oneflow_enrichment::OpenTabBackend::IdListPayloadMap payloads{
+      {1001, {11}},
+  };
+  EXPECT_FALSE(
+      oneflow_enrichment::prepareInt64ListPayloadTensors<float>(
+          hashedIds, unhashedIds, payloads, 16)
+          .has_value());
+}
 
 struct MetaHeader {
   int64_t key;

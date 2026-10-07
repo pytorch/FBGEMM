@@ -191,9 +191,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             igr_enrichment::initializeLaserClient(*enrichment_config_.value());
       }
 
-      // Initialize OpenTab reader if type is ONEFLOW_OPENTAB_SID
+      // Initialize OpenTab reader for scalar and ID-list payload enrichment.
       if (enrichment_config_.value()->enrichment_type_ ==
-          kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
+              kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID ||
+          enrichment_config_.value()->enrichment_type_ ==
+              kv_mem::EnrichmentType::ONEFLOW_OPENTAB_ID_LIST) {
         open_tab_reader_ = oneflow_enrichment::initializeOpenTabReader(
             *enrichment_config_.value());
       }
@@ -729,7 +731,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         .thenValue([start_ts](const std::vector<folly::Unit>& results) {
           auto latency_ms =
               (facebook::WallClockUtil::NowInUsecFast() - start_ts) / 1000;
-          XLOG(INFO)
+          XLOG_EVERY_MS(INFO, 60000)
               << "[EmbeddingCacheEnrich] set_kv_db_async_on_enrichment_executor "
               << "completed, latency_ms=" << latency_ms;
           return results;
@@ -912,9 +914,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           auto payloads = co_await fetchFn(unhashed_ids);
           auto latency_ms =
               (facebook::WallClockUtil::NowInUsecFast() - start_time) / 1000;
-          XLOG(INFO) << "[EmbeddingCacheEnrich] " << log_prefix
-                     << payloads.size() << "/" << unhashed_ids.size()
-                     << ", latency_ms: " << latency_ms;
+          XLOG_EVERY_MS(INFO, 60000)
+              << "[EmbeddingCacheEnrich] " << log_prefix << payloads.size()
+              << "/" << unhashed_ids.size() << ", latency_ms: " << latency_ms;
           enrichment_query_count_.fetch_add(unhashed_ids.size());
           if (unhashed_ids.size() >= payloads.size()) {
             enrichment_empty_count_.fetch_add(
@@ -1037,8 +1039,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       }
     }
 
-    XLOG(INFO) << "[fetch_sids_sync] cache hits: " << result_vids.size()
-               << ", need fetch: " << need_fetch_unhashed.size();
+    XLOG_EVERY_MS(INFO, 60000)
+        << "[fetch_sids_sync] cache hits: " << result_vids.size()
+        << ", need fetch: " << need_fetch_unhashed.size();
 
     // ─── Step 2: Remote fetch for misses ───
     if (!need_fetch_unhashed.empty()) {
@@ -1064,8 +1067,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       << static_cast<int64_t>(enrichment_type);
       }
 
-      XLOG(INFO) << "[fetch_sids_sync] remote fetched: " << payloads.size()
-                 << "/" << need_fetch_unhashed.size();
+      XLOG_EVERY_MS(INFO, 60000)
+          << "[fetch_sids_sync] remote fetched: " << payloads.size() << "/"
+          << need_fetch_unhashed.size();
 
       for (const auto& [vid, sid] : payloads) {
         if (sid != 0 && sid != -1) {
@@ -1092,8 +1096,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                            torch::kInt64)
                            .clone();
 
-    XLOG(INFO) << "[fetch_sids_sync] returning " << result_vids.size()
-               << " VID->SID pairs";
+    XLOG_EVERY_MS(INFO, 60000) << "[fetch_sids_sync] returning "
+                               << result_vids.size() << " VID->SID pairs";
 
     return {vids_tensor, sids_tensor};
   }
@@ -1111,7 +1115,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // not inside lambda (which would be too late and cause race condition).
     bool expected = false;
     if (!laser_write_in_progress_.compare_exchange_strong(expected, true)) {
-      XLOG(INFO)
+      XLOG_EVERY_MS(INFO, 60000)
           << "[EmbeddingCacheEnrich] skipping - laser write already in progress";
       return;
     }
@@ -1202,7 +1206,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               }
                             }
                             if (shard_id == 0) {
-                              XLOG(INFO)
+                              XLOG_EVERY_MS(INFO, 60000)
                                   << "[EmbeddingCacheEnrich] shard_0: "
                                   << "total=" << indexes.size()
                                   << ", in_cache_zero=" << in_cache_zero_count
@@ -1239,20 +1243,21 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       unhashed_ids.end());
                 }
 
-                XLOG(INFO) << "[EmbeddingCacheEnrich] found "
-                           << all_zero_weight_unhashed_ids.size()
-                           << " zero_weight_ids, enrichment_type: "
-                           << static_cast<int64_t>(
-                                  enrichment_config_.value()->enrichment_type_)
-                           << ", pending_laser_requests: "
-                           << pending_laser_requests_.load();
+                XLOG_EVERY_MS(INFO, 60000)
+                    << "[EmbeddingCacheEnrich] found "
+                    << all_zero_weight_unhashed_ids.size()
+                    << " zero_weight_ids, enrichment_type: "
+                    << static_cast<int64_t>(
+                           enrichment_config_.value()->enrichment_type_)
+                    << ", pending_laser_requests: "
+                    << pending_laser_requests_.load();
 
                 // Skip if too many pending requests (avoid overwhelming
                 // the external source)
                 constexpr int64_t kMaxPendingLaserRequests = 2;
                 if (pending_laser_requests_.load() >=
                     kMaxPendingLaserRequests) {
-                  XLOG(INFO)
+                  XLOG_EVERY_MS(INFO, 60000)
                       << "[EmbeddingCacheEnrich] skipping fetch, too many pending requests: "
                       << pending_laser_requests_.load();
                   laser_write_in_progress_.store(false);
@@ -1262,8 +1267,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                 // Fetch from external source for zero-weight IDs
                 if (!all_zero_weight_unhashed_ids.empty() &&
                     enrichment_config_.has_value()) {
-                  XLOG(INFO) << "[EmbeddingCacheEnrich] starting fetch for "
-                             << all_zero_weight_unhashed_ids.size() << " IDs";
+                  XLOG_EVERY_MS(INFO, 60000)
+                      << "[EmbeddingCacheEnrich] starting fetch for "
+                      << all_zero_weight_unhashed_ids.size() << " IDs";
 
                   pending_laser_requests_.fetch_add(1);
 
@@ -1325,6 +1331,27 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             const auto& data) {
                           return oneflow_enrichment::prepareInt64PayloadTensors<
                               weight_type>(h, u, data, max_D_);
+                        });
+                  } else if (
+                      enrichment_type ==
+                      kv_mem::EnrichmentType::ONEFLOW_OPENTAB_ID_LIST) {
+                    dispatchEnrichmentAsync(
+                        std::move(all_zero_weight_hashed_ids),
+                        std::move(all_zero_weight_unhashed_ids),
+                        "opentab_id_list_hit: ",
+                        [this](const std::vector<int64_t>& ids) {
+                          return oneflow_enrichment::fetchIdListsFromOpenTab(
+                              open_tab_reader_,
+                              *enrichment_config_.value(),
+                              ids);
+                        },
+                        [this](
+                            const std::vector<int64_t>& h,
+                            const std::vector<int64_t>& u,
+                            const auto& data) {
+                          return oneflow_enrichment::
+                              prepareInt64ListPayloadTensors<weight_type>(
+                                  h, u, data, max_D_);
                         });
                   } else if (
                       enrichment_type ==
