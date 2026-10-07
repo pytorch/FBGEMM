@@ -207,15 +207,6 @@ install_rocm_amdsmi_ubuntu () {
   publish_rocm_bin_path "${rocm_dir}" || return 1
 
   local amd_smi_src="${rocm_dir}/share/amd_smi"
-  if [ ! -d "${amd_smi_src}" ]; then
-    local core_dir
-    # shellcheck disable=SC2086
-    core_dir=$(conda run ${env_prefix} python -c 'import importlib.util; from pathlib import Path; spec = importlib.util.find_spec("_rocm_sdk_core");
-if spec is None or not spec.origin:
-    raise SystemExit("ROCm wheel did not install _rocm_sdk_core")
-print("ROCM_CORE_ROOT=" + str(Path(spec.origin).parent.resolve()))' | sed -n 's/^ROCM_CORE_ROOT=//p' | tail -n 1) || return 1
-    amd_smi_src="${core_dir}/share/amd_smi"
-  fi
   if [ -d "${amd_smi_src}" ]; then
     echo "[INSTALL] Installing amd-smi from ${amd_smi_src} ..."
     # shellcheck disable=SC2086
