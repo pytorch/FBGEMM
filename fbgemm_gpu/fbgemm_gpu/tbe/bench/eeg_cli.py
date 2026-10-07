@@ -41,7 +41,12 @@ def estimate(indices: str) -> None:
     )
 
     params = IndicesParams(
-        heavy_hitters=heavy_hitters, zipf_q=q, zipf_s=s, index_dtype=indices.dtype
+        # pyrefly: ignore [missing-attribute]
+        heavy_hitters=heavy_hitters,
+        zipf_q=q,
+        zipf_s=s,
+        # pyrefly: ignore [missing-attribute]
+        index_dtype=indices.dtype,
     )
 
     print(params.json(format=True), f"max_index={max_index}\nnum_indices={num_indices}")
