@@ -111,9 +111,6 @@ jobs:
     - name: Display System Info
       run: . $PRELUDE; print_system_info
 
-    - name: Display GPU Info
-      run: . $PRELUDE; print_gpu_info
-
     - name: Free Disk Space
       run: . $PRELUDE; free_disk_space
 
@@ -138,6 +135,11 @@ jobs:
 
     - name: Install ROCm AMD-SMI
       run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
+
+    # amd-smi comes from the wheel install above. ENFORCE_ROCM_DEVICE fails
+    # the job when that binary is missing, so this cannot run any earlier.
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
 
     - name: Install PyTorch-ROCm (${{ inputs.pytorch-channel-version }})
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ inputs.pytorch-channel-version }} rocm/${{ matrix.rocm-version }}
