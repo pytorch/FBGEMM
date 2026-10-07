@@ -41,10 +41,6 @@ REFS_MAIN = "refs/heads/main"
 
 EVENT_NAME_PUSH = "push"
 
-# The ROCm versions used in CI, oldest to newest.  This is the only place where
-# those versions need to be updated.  Every rocm/dev-ubuntu-22.04 tag already
-# contains a ROCm install, so the jobs run on plain Ubuntu 22.04 (the base of
-# those images) and install this version with pip in the setup script.
 ROCM_BASE_IMAGE = "ubuntu:22.04"
 ROCM_CONTAINER_IMAGES = {
     "7.14": ROCM_BASE_IMAGE,
