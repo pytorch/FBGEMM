@@ -145,6 +145,8 @@ detect_amd_gpu_model() {
     #   amd-smi static --asic | grep "TARGET_GRAPHICS_VERSION"
     #
     declare -A AMD_GFX_MODEL_MAP=(
+        # MI450 series
+        ["gfx1250"]="mi450"
         # MI350 series (CDNA 4)
         ["gfx950"]="mi350"
         # MI300 series (CDNA 3)
