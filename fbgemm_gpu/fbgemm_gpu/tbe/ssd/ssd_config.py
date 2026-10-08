@@ -217,6 +217,8 @@ class EnrichmentType(enum.IntEnum):
     # from the requested ID. Used by hermetic tests to exercise the
     # enrichment + EC.write() round trip without a real Laser tier.
     IN_MEMORY_TEST_ONLY = 4
+    # 5 is reserved for ONEFLOW_FEATURE_STORE_EMBEDDING.
+    ONEFLOW_OPENTAB_ID_LIST = 6
 
 
 class EnrichmentResponseFormat(enum.IntEnum):

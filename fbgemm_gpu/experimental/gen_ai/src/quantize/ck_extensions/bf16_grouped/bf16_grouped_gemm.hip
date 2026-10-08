@@ -36,6 +36,7 @@ using KernelArguments =
 using ADataType = ck::bhalf_t;
 using BDataType = ck::bhalf_t;
 using CDataType = ck::bhalf_t;
+constexpr int kGroupSetupThreads = 256;
 
 // Define a custom hash function for std::tuple<int, int, int>
 struct IntTupleHash {
@@ -257,9 +258,12 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     int64_t N,
     int64_t K,
     int64_t group_count) {
-  int group_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each thread is responsible for setting up the arguments for one group.
-  if (group_idx < group_count) {
+  const int64_t first_group =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t group_stride =
+      static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t group_idx = first_group; group_idx < group_count;
+       group_idx += group_stride) {
     // Compute offsets for this group.
     int64_t group_M = prepad_M[group_idx];
     KernelArguments kernel_group_args = {
@@ -343,7 +347,7 @@ void set_dynamic_kernel_args(
   int64_t N = B.size(1);
 
   // Launch a kernel that sets kernel argument memory.
-  set_kernel_args_fixed_nk_kernel<<<1, group_count, 0, stream>>>(
+  set_kernel_args_fixed_nk_kernel<<<1, kGroupSetupThreads, 0, stream>>>(
       reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
       reinterpret_cast<ADataType*>(A.data_ptr()),
       reinterpret_cast<BDataType*>(B.data_ptr()),
