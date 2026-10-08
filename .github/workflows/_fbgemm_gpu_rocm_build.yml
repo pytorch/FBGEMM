@@ -118,10 +118,10 @@ jobs:
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
-    # The container is plain Ubuntu. Install the matrix ROCm version, then PyTorch
-    # from the matching nightly index (rocm/<version>, not a fixed release).
+    # The container is plain Ubuntu. Install the matrix ROCm version from the
+    # same PyTorch wheel index as the torch install below.
     - name: Install ROCm (${{ matrix.rocm-version }})
-      run: . $PRELUDE; install_rocm_pip $BUILD_ENV ${{ matrix.rocm-version }}
+      run: . $PRELUDE; install_rocm_pip $BUILD_ENV ${{ matrix.rocm-version }} ${{ inputs.pytorch-channel-version }}
 
     - name: Install ROCm AMD-SMI
       run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
