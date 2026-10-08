@@ -387,6 +387,15 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
+  /**
+   * @brief resume ongoing eviction after every get() completes, for frontends
+   * that never issue backward write-backs (e.g. embedding cache mode), which
+   * are otherwise the only point where training resumes eviction
+   */
+  void set_resume_eviction_after_get(bool enable) {
+    resume_eviction_after_get_.store(enable);
+  }
+
   virtual std::optional<kv_mem::FeatureEvictMetricTensors>
   get_feature_evict_metric() const {
     FBEXCEPTION("Not implemented");
@@ -518,6 +527,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   }
 
  private:
+  void maybe_resume_eviction_after_get();
+
   /// Find non-negative embedding indices in <indices> and shard them into
   /// #cachelib_pools pieces to be lookedup in parallel
   ///
@@ -611,6 +622,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   bool enable_async_update_;
   std::unique_ptr<std::thread> cache_filling_thread_;
   std::atomic<bool> stop_{false};
+  std::atomic<bool> resume_eviction_after_get_{false};
   // Condition variable for signaling between fill queue
   // producer/consumer/waiter. Replaces the previous spin-wait polling pattern
   // with proper CV notification.
