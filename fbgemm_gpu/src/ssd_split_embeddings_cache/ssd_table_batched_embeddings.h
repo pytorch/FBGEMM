@@ -9,10 +9,13 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <ctime>
 #include <iostream>
 #include <memory>
+#include <mutex>
 
 #include <c10/util/irange.h>
 #include <folly/coro/BlockingWait.h>
@@ -61,13 +64,54 @@ class SnapshotHandle {
   ~SnapshotHandle();
   void release();
   snapshot_ptr_t get_snapshot_for_shard(size_t shard) const;
+  int64_t id() const {
+    return id_;
+  }
 
  private:
   friend class EmbeddingRocksDB;
 
   EmbeddingRocksDB* db_;
   std::vector<snapshot_ptr_t> shard_snapshots_;
+  // Assigned once per store from a counter, never reused. The handle's
+  // address cannot serve as an identity: after a release the allocator may
+  // hand it to the next snapshot, and a stale id would then report alive.
+  int64_t id_{0};
 }; // class SnapshotHandle
+
+/// @ingroup embedding-ssd
+///
+/// @brief RAII registration of one in-flight read issued against a snapshot.
+///
+/// Readers copy the raw `rocksdb::Snapshot*` into their per-shard closures.
+/// What makes that safe is that a snapshot is never released while a read
+/// registered against it is still running.
+///
+/// One guard per logical read, taken at the top of `EmbeddingKVDB::get()`
+/// before the read decides which rows L2 can answer, so that decision and the
+/// fetch filling its misses are pinned to the same snapshot. A `shared_ptr`
+/// is held by the `get()` frame and captured by each per-shard task, so the
+/// count drops only when the last is destroyed -- no error path can skip the
+/// decrement and strand a switch.
+class SnapshotReadGuard : public kv_db::ReadGuard {
+ public:
+  SnapshotReadGuard(EmbeddingRocksDB* db, const SnapshotHandle* handle)
+      : db_(db), handle_(handle) {}
+  ~SnapshotReadGuard() override;
+
+  SnapshotReadGuard(const SnapshotReadGuard&) = delete;
+  SnapshotReadGuard& operator=(const SnapshotReadGuard&) = delete;
+  SnapshotReadGuard(SnapshotReadGuard&&) = delete;
+  SnapshotReadGuard& operator=(SnapshotReadGuard&&) = delete;
+
+  const SnapshotHandle* handle() const {
+    return handle_;
+  }
+
+ private:
+  EmbeddingRocksDB* db_;
+  const SnapshotHandle* handle_;
+}; // class SnapshotReadGuard
 
 // @lint-ignore CLANGTIDY cppcoreguidelines-special-member-functions
 class CheckpointHandle {
@@ -340,6 +384,18 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   ~EmbeddingRocksDB() override {
+    // Stop handing the active snapshot out to new reads.
+    has_active_snapshot_.store(false, std::memory_order_release);
+    // Reads registered through acquire_read_snapshot() run on executor_ and
+    // their guards call back into this object, so they must finish before it
+    // goes away -- whether or not any snapshot is still registered: the last
+    // one can be released while such a read is still unwinding. Gated on a
+    // read view having ever been installed, since only those reads can
+    // outlive their caller; a job that never installs one reaches this
+    // destructor exactly as before, with no join.
+    if (read_snapshot_ever_installed_.load(std::memory_order_acquire)) {
+      executor_->join();
+    }
     // clear all the snapshots if not released
     if (!snapshots_.empty()) {
       LOG(WARNING)
@@ -660,15 +716,55 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return;
   }
 
-  folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
+  /// Register a read against the currently installed snapshot, if any.
+  ///
+  /// EmbeddingKVDB::get() calls this before it decides which rows L2 already
+  /// has, so the decision and the fetch that follows it both belong to the
+  /// snapshot pinned here. A null guard means "read the live DB", which is
+  /// the default and what training uses.
+  std::shared_ptr<kv_db::ReadGuard> acquire_read_guard() override {
+    return acquire_read_snapshot();
+  }
+
+  /// Storage-tier fetch for a read that get() has already registered.
+  ///
+  /// Reads through <read_guard>'s snapshot, not whichever is installed now:
+  /// by the time this runs the view may have switched, and the L2 hits
+  /// already resolved in this batch belong to the old one. Takes no
+  /// registration of its own -- the caller's guard holds one, and a second
+  /// would count one logical read twice in the in-flight total.
+  folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async_with_guard(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) override {
+      const at::Tensor& count,
+      const std::shared_ptr<kv_db::ReadGuard>& read_guard) override {
+    // The only thing that ever produces a guard for this object is
+    // acquire_read_guard() above, so the type is known.
+    auto snapshot_guard =
+        std::static_pointer_cast<SnapshotReadGuard>(read_guard);
+    const auto* snapshot_handle =
+        snapshot_guard == nullptr ? nullptr : snapshot_guard->handle();
     return get_kv_db_async_impl</*use_iterator=*/false>(
         indices,
         weights,
         count,
-        /*snapshot_handle=*/nullptr);
+        snapshot_handle,
+        /*width_offset=*/0,
+        /*width_length=*/std::nullopt,
+        /*read_guard=*/std::move(snapshot_guard));
+  }
+
+  /// Storage-tier fetch for a caller that has not registered a read.
+  ///
+  /// Registers one itself and drops it when the last per-shard task is
+  /// destroyed. get() does not come through here; the remaining callers are
+  /// the composite DRAM+SSD backend and the unit tests.
+  folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count) override {
+    return get_kv_db_async_with_guard(
+        indices, weights, count, acquire_read_snapshot());
   }
 
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_weights_only_async(
@@ -929,6 +1025,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return snapshots_.contains(snapshot_handle);
   }
 
+  /// Whether a snapshot with this SnapshotHandle::id() is still registered.
+  bool is_valid_snapshot_id(int64_t snapshot_id) const {
+    return std::any_of(
+        snapshots_.begin(), snapshots_.end(), [&](const auto& kv) {
+          return kv.second->id() == snapshot_id;
+        });
+  }
+
   bool is_valid_checkpoint(const std::string& ckpt_uuid) const {
     return checkpoints_.contains(ckpt_uuid);
   }
@@ -945,10 +1049,249 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
 
     auto handle = std::make_unique<SnapshotHandle>(this);
+    handle->id_ = next_snapshot_id_++;
     auto handlePtr = handle.get();
     snapshots_[handlePtr] = std::move(handle);
+    // The line naming who created a snapshot is emitted from Python, since
+    // C++ cannot name its caller; both carry the same id (Python's `snap=`,
+    // `id=` here), so grepping it finds the creator. Kept here behind VLOG(2)
+    // to catch a creator Python does not know about.
+    VLOG(2) << "[SSD_SNAPSHOT] tbe=" << get_unique_id()
+            << " created snap=" << handlePtr << " id=" << handlePtr->id()
+            << " uuid=" << tbe_uuid_ << " snaps=" << snapshots_.size();
     return handlePtr;
   }
+
+  /// @name Active read snapshot
+  ///
+  /// The read view `EmbeddingKVDB::get` serves from. Null by default, meaning
+  /// "read the live DB". Async checkpoint load for eval installs a snapshot
+  /// before streaming rows into the live DB, so a concurrent evaluator keeps
+  /// a consistent pre-load view, then switches once the load lands.
+  ///
+  /// It belongs on the store and not on `KVTensorWrapper`, which the serving
+  /// read path never touches: `_prefetch` calls `ssd_db.get_cuda()` directly,
+  /// and every `KVTensorWrapper` use in the TBE is state-dict extraction. A
+  /// snapshot on the KVTensor would isolate the save path and leave forwards
+  /// reading live data, silently.
+  ///
+  /// Lifetime is handled by draining, not by refcounting the handle: a read
+  /// registers against the generation it was issued against, and a switch
+  /// installs the new handle then blocks until the retiring generation's
+  /// count reaches zero. Reads issued during a drain register against the NEW
+  /// generation, so the retiring count only decreases -- which is what makes
+  /// this terminate under the continuous load of an online evaluator.
+  ///
+  /// Lock ordering: a read registers before taking `l2_cache_mtx_` and
+  /// deregisters after releasing it, so a lookup never holds the L2 lock
+  /// while touching `active_snapshot_mutex_`. The other half of the
+  /// invariant is that no code may hold `l2_cache_mtx_` while waiting for a
+  /// drain -- `set_active_snapshot` does not take it, and
+  /// `invalidate_l2_cache`, which does, never waits on a generation.
+  ///@{
+
+  /// Register one read against the currently installed snapshot and return
+  /// the guard that holds that registration, or nullptr if reads go to the
+  /// live DB.
+  ///
+  /// The trainer calls this on every lookup and never installs a snapshot.
+  /// That path is two loads of bools that are each written at most once on
+  /// it, then a null return: no lock, no allocation, no counter.
+  ///
+  /// Also records that a lookup has run, which is what lets
+  /// set_active_snapshot() refuse to move off the live DB once lookups that
+  /// it cannot track may be in flight.
+  std::shared_ptr<SnapshotReadGuard> acquire_read_snapshot() {
+    // Store, then load, both seq_cst: paired with set_active_snapshot(),
+    // which stores has_active_snapshot_ and then loads lookup_has_run_. At
+    // least one side sees the other's store, so a lookup racing the first
+    // install either registers against the snapshot or makes the install
+    // fail -- it can never slip through untracked.
+    if (!lookup_has_run_.load(std::memory_order_relaxed)) {
+      lookup_has_run_.store(true, std::memory_order_seq_cst);
+    }
+    if (!has_active_snapshot_.load(std::memory_order_seq_cst)) {
+      return nullptr;
+    }
+    std::scoped_lock lock(active_snapshot_mutex_);
+    if (active_snapshot_.handle == nullptr) {
+      return nullptr;
+    }
+    ++active_snapshot_.in_flight;
+    return std::make_shared<SnapshotReadGuard>(this, active_snapshot_.handle);
+  }
+
+  /// Drop one read registration. Called from ~SnapshotReadGuard only.
+  void end_read_snapshot(const SnapshotHandle* snapshot_handle) {
+    std::scoped_lock lock(active_snapshot_mutex_);
+    if (active_snapshot_.handle == snapshot_handle) {
+      --active_snapshot_.in_flight;
+      return;
+    }
+    CHECK(retiring_snapshot_.handle == snapshot_handle)
+        << "read registered against snapshot " << snapshot_handle
+        << " which is neither the active nor the retiring generation";
+    if (--retiring_snapshot_.in_flight == 0) {
+      snapshot_drained_cv_.notify_all();
+    }
+  }
+
+  /// Install <snapshot_handle> as the read snapshot for subsequent lookups
+  /// and wait until no read issued against the previous one is still
+  /// running. Passing nullptr reverts the read path to the live DB.
+  ///
+  /// On return the previous handle has no readers and is safe to release.
+  /// Releasing it is the caller's job, because the caller is the one that
+  /// owns it (Python holds an EmbeddingSnapshotHandleWrapper).
+  ///
+  /// Replacing the live DB with a snapshot throws once any lookup has run on
+  /// this store: install the first snapshot before serving starts.
+  ///
+  /// BLOCKS. Must not be called from a thread in executor_, since the reads
+  /// it waits for complete on that pool; it is called from the Python thread
+  /// driving the checkpoint switch, which is never an executor_ thread.
+  /// Switches must be serialised; a second concurrent switch throws rather
+  /// than silently losing a generation. `release_snapshot` drives a switch
+  /// when it releases the active handle, so it is bound by the same rule.
+  void set_active_snapshot(const SnapshotHandle* snapshot_handle) {
+    // TORCH_CHECK, not CHECK: both conditions are caller errors reachable
+    // through the pybind binding, so they throw into Python and leave the
+    // active read view unchanged rather than aborting the process.
+    if (snapshot_handle != nullptr) {
+      TORCH_CHECK(
+          is_valid_snapshot(snapshot_handle),
+          "set_active_snapshot called with a handle that is not registered "
+          "with this db; it was either never created here or already "
+          "released");
+    }
+    std::unique_lock<std::mutex> lock(active_snapshot_mutex_);
+    TORCH_CHECK(
+        retiring_snapshot_.handle == nullptr,
+        "another snapshot switch is still draining; switches must be "
+        "serialised");
+
+    const auto* previous = active_snapshot_.handle;
+    if (previous == snapshot_handle) {
+      // Re-installing the handle already active is a no-op, and must not fall
+      // through: it would retire the same handle it installs, and
+      // end_read_snapshot() resolves against the active generation first, so
+      // every in-flight read would decrement the new generation's count while
+      // the retiring one stayed at its original value. The drain below would
+      // then never complete.
+      return;
+    }
+    if (previous != nullptr) {
+      retiring_snapshot_ = active_snapshot_;
+    }
+    active_snapshot_ = SnapshotReadGeneration{snapshot_handle, 0};
+    // Published before the wait, so reads that arrive during the drain join
+    // the new generation and cannot keep the retiring one alive. seq_cst for
+    // the pairing with acquire_read_snapshot() described there.
+    has_active_snapshot_.store(
+        snapshot_handle != nullptr, std::memory_order_seq_cst);
+    if (previous == nullptr && snapshot_handle != nullptr &&
+        lookup_has_run_.load(std::memory_order_seq_cst)) {
+      // Leaving the live DB cannot drain the reads already running against
+      // it: they took no registration, so nothing counts them. A load
+      // started after this returns would then race them, and a lookup that
+      // fetches its misses after the first rows land returns a batch mixing
+      // pre-load L2 hits with rewritten rows. So the move off the live DB is
+      // only allowed before any lookup has run; afterwards, switch between
+      // snapshots, which do drain.
+      active_snapshot_ = SnapshotReadGeneration{nullptr, 0};
+      has_active_snapshot_.store(false, std::memory_order_seq_cst);
+      TORCH_CHECK(
+          false,
+          "set_active_snapshot: a read snapshot can only replace the live DB "
+          "before the first lookup on this store, because lookups already "
+          "running against the live DB are not tracked and cannot be "
+          "drained. Install the first snapshot before serving starts, and "
+          "switch between snapshots after that.");
+    }
+    if (snapshot_handle != nullptr) {
+      // Latched, never cleared: once a read view has been installed, reads
+      // registered against it may be in flight on executor_ for the rest of
+      // this object's life, so the destructor has to drain. See
+      // ~EmbeddingRocksDB.
+      read_snapshot_ever_installed_.store(true, std::memory_order_release);
+    }
+
+    // Callers drain too, but only best-effort: an online evaluator's commit
+    // path logs a drain timeout and commits anyway. That is harmless there,
+    // where a straggler just reads a tensor being overwritten, but here it
+    // would free a snapshot under a live reader. So this wait is the actual
+    // guarantee rather than a second belt.
+    if (retiring_snapshot_.handle != nullptr) {
+      // Captured before the wait and reported after it, whether or not the
+      // drain was instant. Only the timeout path used to say anything, so a
+      // switch that quietly blocked for four seconds looked exactly like one
+      // that returned at once. The two are worth telling apart: a non-zero
+      // initial_in_flight on an offline evaluator means readers were running
+      // during a load that is not supposed to have any.
+      const auto initialInFlight = retiring_snapshot_.in_flight;
+      const auto drainStart = std::chrono::steady_clock::now();
+      while (retiring_snapshot_.in_flight > 0) {
+        if (!snapshot_drained_cv_.wait_for(
+                lock, std::chrono::seconds(5), [this] {
+                  return retiring_snapshot_.in_flight == 0;
+                })) {
+          // Never give up: proceeding would release a snapshot out from
+          // under a live reader. A hang is loud in the log and debuggable;
+          // an early release is memory corruption.
+          LOG(WARNING) << "[SSD_COMMIT] tbe=" << get_unique_id()
+                       << " still draining " << retiring_snapshot_.in_flight
+                       << " in-flight reads against snap="
+                       << retiring_snapshot_.handle
+                       << " before it can be released";
+        }
+      }
+      const auto drainUs =
+          std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::steady_clock::now() - drainStart)
+              .count();
+      // INFO only for the case this line exists to catch: readers were in
+      // flight against the retiring view. On an offline evaluator that is not
+      // supposed to happen, and initial_in_flight is not derivable from
+      // anything else. The quiet case -- the overwhelming majority -- is
+      // already reported by the caller as `drain=<n>s` on its one-line switch
+      // record, so at INFO it was one more line saying zero.
+      if (initialInFlight > 0) {
+        LOG(INFO) << "[SSD_COMMIT] tbe=" << get_unique_id()
+                  << " drain_complete snap=" << retiring_snapshot_.handle
+                  << " initial_in_flight=" << initialInFlight
+                  << " waited_us=" << drainUs;
+      } else {
+        VLOG(2) << "[SSD_COMMIT] tbe=" << get_unique_id()
+                << " drain_complete snap=" << retiring_snapshot_.handle
+                << " initial_in_flight=0 waited_us=" << drainUs;
+      }
+      retiring_snapshot_ = SnapshotReadGeneration{};
+    }
+    // VLOG(2): the caller reports the installed view as `to=` on its one-line
+    // switch record, sourced from has_active_snapshot(), so this was the same
+    // fact one layer down. `from=` survives here and is also on the caller's
+    // `pinned` line, which is where the snapshot being retired was named.
+    VLOG(2) << "[SSD_COMMIT] tbe=" << get_unique_id()
+            << " active_snapshot_switched from=" << previous
+            << " to=" << snapshot_handle;
+  }
+
+  void clear_active_snapshot() {
+    set_active_snapshot(nullptr);
+  }
+
+  bool has_active_snapshot() const {
+    return has_active_snapshot_.load(std::memory_order_acquire);
+  }
+
+  /// Reads currently registered against the active snapshot. 0 when no
+  /// snapshot is installed. For tests and diagnostics; inherently racy under
+  /// concurrent lookups.
+  int64_t get_active_snapshot_read_count() const {
+    std::scoped_lock lock(active_snapshot_mutex_);
+    return active_snapshot_.in_flight;
+  }
+  ///@}
 
   std::string create_checkpoint(int64_t global_step) {
     const auto num_ckpts = checkpoints_.size();
@@ -1034,9 +1377,44 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   void release_snapshot(const SnapshotHandle* snapshot_handle) {
-    CHECK(is_valid_snapshot(snapshot_handle));
+    TORCH_CHECK(
+        is_valid_snapshot(snapshot_handle),
+        "release_snapshot called with a handle that is not registered with "
+        "this db");
+    bool was_active = false;
+    if (has_active_snapshot_.load(std::memory_order_acquire)) {
+      std::scoped_lock lock(active_snapshot_mutex_);
+      was_active = active_snapshot_.handle == snapshot_handle;
+    }
+    if (was_active) {
+      // Erasing the handle here would destroy it, and readers registered
+      // against it are still holding its raw rocksdb snapshots. Revert the
+      // read path to the live DB and drain them first. This also stops the
+      // read path serving from a view the caller believes is gone.
+      LOG(WARNING)
+          << "[SSD_SNAPSHOT] tbe=" << get_unique_id()
+          << " snap=" << snapshot_handle
+          << " is being released while still installed as the active read "
+             "snapshot; reverting the read path to the live DB and draining";
+      // Releasing the active snapshot drives a switch, so this call is
+      // subject to the same serialisation rule as set_active_snapshot: it
+      // must run on the thread driving switches. Interleaving with a switch
+      // from another thread throws from the check there rather than
+      // corrupting a generation.
+      set_active_snapshot(nullptr);
+    }
+    // Pre-existing line, restored unchanged, for the same reason as the
+    // warning in create_snapshot: every job that takes a checkpoint prints
+    // this today, and dropping it is a fleet-wide behaviour change that has
+    // nothing to do with the read-view switch.
     LOG(INFO) << "Snapshot " << snapshot_handle << " released";
     snapshots_.erase(snapshot_handle);
+    // VLOG(2), additive. Carries the tbe id and the resulting count, which
+    // the line above does not, so one table's snapshot ledger can be followed
+    // when someone turns this on.
+    VLOG(2) << "[SSD_SNAPSHOT] tbe=" << get_unique_id()
+            << " released snap=" << snapshot_handle
+            << " snaps=" << snapshots_.size();
   }
 
   /// get existing ids from rocksdb in a given range at a given rocksdb
@@ -1743,6 +2121,18 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   // use_iterator=true is only efficient when the key sequence being looked up
   // matches the key sequence matches the key sequence obtained through the
   // iterator. see the comment for ssd_get_weights_iterator.
+  /// @param snapshot_handle the snapshot to read through, or null to read
+  /// the live DB. The per-shard `rocksdb::Snapshot*` is resolved here and
+  /// copied into the closure, as it always has been. That is safe because a
+  /// snapshot is never released while a read against it is registered: the
+  /// switch drains the retiring generation before the handle is freed.
+  ///
+  /// @param read_guard the registration that makes the above true, for reads
+  /// on the embedding lookup path. Captured by every per-shard task, so the
+  /// registration is dropped only once the last of those closures is
+  /// destroyed. Null for reads that go to the live DB, and null for the
+  /// checkpointing reads below, which block on .wait() and so cannot
+  /// outlive the handle their caller owns.
   template <bool use_iterator>
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async_impl(
       const at::Tensor& indices,
@@ -1750,7 +2140,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       const SnapshotHandle* snapshot_handle,
       int64_t width_offset = 0,
-      std::optional<int64_t> width_length = std::nullopt) {
+      std::optional<int64_t> width_length = std::nullopt,
+      std::shared_ptr<SnapshotReadGuard> read_guard = nullptr) {
     RECORD_USER_SCOPE("EmbeddingRocksDB::get");
 #ifdef FBGEMM_FBCODE
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
@@ -1778,7 +2169,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       local_ro.snapshot = snapshot;
       auto f =
           folly::via(executor_.get())
-              .thenValue([=, this, &indices, &weights](folly::Unit) {
+              .thenValue([=, this, &indices, &weights, guard = read_guard](
+                             folly::Unit) {
+                // `guard` holds this read's registration against the
+                // snapshot that local_ro.snapshot points into. It is not
+                // used, only held: a switch cannot release that snapshot
+                // until every shard's copy of the guard is destroyed. Null,
+                // and therefore free, when reading the live DB.
+                (void)guard;
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_get", [&] {
                       using value_t = scalar_t;
@@ -1926,8 +2324,43 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> flush_write_dur_{0};
   std::atomic<int64_t> total_rows_written_{0}; // cumulative actual rows written
 
+  // Snapshot registry. Ownership is shared rather than unique so that an
+  // in-flight read can keep a snapshot alive past release_snapshot(); see the
+  // "Active read snapshot" section above.
   std::unordered_map<const SnapshotHandle*, std::unique_ptr<SnapshotHandle>>
       snapshots_;
+  int64_t next_snapshot_id_{1};
+
+  // A read snapshot plus the number of reads currently registered against
+  // it. Reads only ever register against the active generation, so the
+  // retiring one drains monotonically even under continuous lookup load.
+  struct SnapshotReadGeneration {
+    const SnapshotHandle* handle{nullptr};
+    int64_t in_flight{0};
+  };
+  // Guards both generations. Only taken when a snapshot is actually
+  // installed; the no-snapshot path short circuits on has_active_snapshot_.
+  mutable std::mutex active_snapshot_mutex_;
+  std::condition_variable snapshot_drained_cv_;
+  // Read view used by get_kv_db_async(). Null handle means read the live DB.
+  SnapshotReadGeneration active_snapshot_;
+  // Generation a switch is waiting to drain. Null handle outside a switch.
+  SnapshotReadGeneration retiring_snapshot_;
+  // Mirrors "active_snapshot_.handle != nullptr" so the read path can rule
+  // out a snapshot without taking active_snapshot_mutex_. Never written on
+  // the training path, so the line stays shared in every core's cache.
+  std::atomic<bool> has_active_snapshot_{false};
+  // Whether any lookup has gone through acquire_read_snapshot(). Latched.
+  // set_active_snapshot() refuses to leave the live DB once it is set, since
+  // reads against the live DB are not registered and so cannot be drained.
+  std::atomic<bool> lookup_has_run_{false};
+  // Whether a read view was EVER installed on this store. Unlike
+  // has_active_snapshot_ this is latched, because the question the destructor
+  // asks is not "is one installed now" but "could a read registered against
+  // one still be running". False for the entire life of any job that does not
+  // use the read-view switch, which is what keeps the destructor's drain off
+  // those jobs entirely.
+  std::atomic<bool> read_snapshot_ever_installed_{false};
   int64_t max_D_;
   int64_t metadata_dim_{0};
   int64_t elem_size_;

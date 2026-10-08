@@ -7,6 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[3,6,56]
 
+import gc
 import math
 import pickle
 import tempfile
@@ -421,6 +422,45 @@ class SSDCheckpointTest(unittest.TestCase):
             emb.step += 1
             emb.flush()
             self.assertEqual(mock_calls.call_count, 2)
+
+    def test_release_active_snapshot_reverts_to_live_db(self) -> None:
+        """
+        Releasing the snapshot that is still installed must not leave the read
+        path pointing at a handle that is no longer registered, and must not
+        crash. It falls back to the live DB.
+        """
+        max_D = 16
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            backend = self.generate_fbgemm_kv_backend(
+                max_D,
+                SparseType.FP32,
+                enable_l2=False,
+                ssd_directory=ssd_directory,
+            )
+            indices = torch.arange(0, 8, dtype=torch.int64)
+            count = torch.as_tensor([indices.numel()])
+            pre_load = torch.full((8, max_D), 3.0, dtype=torch.float32)
+            post_load = torch.full((8, max_D), 4.0, dtype=torch.float32)
+
+            backend.set(indices, pre_load, count)  # pyre-ignore
+            snapshot = backend.create_snapshot()  # pyre-ignore
+            backend.set_active_snapshot(snapshot)  # pyre-ignore
+            backend.set(indices, post_load, count)
+
+            out = torch.empty_like(pre_load)
+            backend.get(indices.clone(), out, count)  # pyre-ignore
+            self.assertTrue(torch.equal(out, pre_load))
+
+            # Dropping the last Python reference releases the snapshot while
+            # it is still installed as the active read view.
+            del snapshot
+            gc.collect()
+            self.assertFalse(backend.has_active_snapshot())  # pyre-ignore
+            self.assertEqual(backend.get_snapshot_count(), 0)  # pyre-ignore
+
+            out = torch.empty_like(pre_load)
+            backend.get(indices.clone(), out, count)
+            self.assertTrue(torch.equal(out, post_load))
 
     @given(**default_st)
     @settings(**default_settings)
