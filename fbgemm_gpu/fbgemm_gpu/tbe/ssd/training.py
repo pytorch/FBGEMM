@@ -66,6 +66,21 @@ from .common import ASSOC, pad4, tensor_pad4
 from .utils.partially_materialized_tensor import PartiallyMaterializedTensor
 
 
+def _log_rank() -> int:
+    """This process's rank, for log lines, or -1 when there is no process group.
+
+    Every rank writes to the same aggregated stdout, so a line without a rank
+    on it cannot be attributed and one table's story is not contiguous.
+    Guarded rather than assumed initialised: these lines are also emitted from
+    single-process tests and from init paths that run before the process group
+    exists, and a log call must never be the thing that raises.
+    """
+    try:
+        return dist.get_rank() if dist.is_initialized() else -1
+    except Exception:
+        return -1
+
+
 @dataclass
 class IterData:
     indices: Tensor
@@ -84,6 +99,41 @@ class KVZCHCachedData:
     cached_weight_tensor_per_table: list[torch.Tensor]
     cached_id_tensor_per_table: list[torch.Tensor]
     cached_bucket_splits: list[torch.Tensor]
+
+
+@dataclass
+class SwitchStats:
+    """What one `switch_read_snapshot` call did, for the caller to report.
+
+    Returned rather than logged. This frame is the only one that can time the
+    drain, the L1 wipe and the L2 wipe apart -- it makes all three calls --
+    but the caller is the one that knows why the switch is happening, which
+    table it belongs to in its own terms, and what became of the snapshot
+    being retired. Handing the numbers up lets that one line carry everything
+    instead of four lines carrying a quarter each.
+
+    Durations are seconds, matching the logging convention used across the
+    checkpoint-load path.
+    """
+
+    # Time inside set_active_snapshot, which blocks until every read issued
+    # against the retiring view has finished. Non-zero means readers were in
+    # flight, which an offline evaluator is not supposed to have.
+    drain_s: float
+    # Time in each cache wipe. None when the wipe did not run: L1/L2 are only
+    # emptied when the backing store was rewritten under them. l2_s is also
+    # None when L2 is configured off.
+    l1_s: float | None
+    l2_s: float | None
+    # Whether L2 is configured at all, so the caller can print `l2=disabled`
+    # rather than leaving the reader to guess why the timing is missing.
+    l2_enabled: bool
+    # Wall time for the whole call, including the parts not broken out above.
+    total_s: float
+    # The store's view after the switch: whether a snapshot is installed, and
+    # how many snapshots this store is holding in total.
+    active: bool
+    snapshot_count: int
 
 
 class DramKvPerfStat(str, Enum):
@@ -3835,6 +3885,32 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 logging.info(
                     f"created snapshot for weight states: {snapshot_handle}, latency: {(time.time() - start_time) * 1000} ms"
                 )
+                # Names the creator of a snapshot, which C++ cannot do -- it
+                # logs the same `snap=` pointer at VLOG(2), so grepping one
+                # pointer joins the two.
+                #
+                # DEBUG behind isEnabledFor: a TBE has no opt-in signal to
+                # gate on, so the level is the gate, and the guard keeps the
+                # two pybind calls below off every save in the fleet. The try
+                # keeps a diagnostic from failing a save; an unreadable field
+                # prints "?".
+                if logging.getLogger().isEnabledFor(logging.DEBUG):
+                    try:
+                        snap = f"{self.ssd_db.get_snapshot_id(snapshot_handle):#x}"
+                        snaps = str(self.ssd_db.get_snapshot_count())
+                    except Exception:
+                        snap = snaps = "?"
+                    try:
+                        reason = sys._getframe(1).f_code.co_name
+                    except Exception:
+                        reason = "?"
+                    logging.debug(
+                        f"[SSD_SNAPSHOT] rank={_log_rank()} tbe={self.tbe_unique_id} "
+                        f"created snap={snap} "
+                        f"reason=state_dict:{reason} "
+                        f"snaps={snaps} "
+                        f"elapsed={time.time() - start_time:.3f}s"
+                    )
         elif self.backend_type == BackendType.DRAM:
             # if there is any ongoing eviction, lets wait until eviction is finished before state_dict
             # so that we can reach consistent model state before/after state_dict
@@ -4521,6 +4597,285 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             logging.warning(
                 "create_rocksdb_hard_link_snapshot is only supported for SSD and DRAM_SSD backends"
             )
+
+    def _assert_lookup_pipeline_drained(self, caller: str) -> None:
+        """
+        Fail loudly if a forward/prefetch is still in flight.
+
+        Emptying the caches underneath a running lookup is not safe: the
+        prefetch queues hold L1 slot assignments and scratch pads that refer to
+        cache state we are about to throw away, and ``forward`` asserts that
+        ``ssd_prefetch_data`` is non-empty. The caller has to stop issuing
+        lookups and let the ones in flight finish first.
+        """
+        pending = len(self.timesteps_prefetched) + len(self.ssd_prefetch_data)
+        if self.prefetch_pipeline:
+            pending += len(self.ssd_scratch_pads)
+        if pending != 0:
+            raise RuntimeError(
+                f"{caller} requires a drained lookup pipeline, but "
+                f"{len(self.timesteps_prefetched)} prefetched timesteps, "
+                f"{len(self.ssd_prefetch_data)} prefetch payloads and "
+                f"{len(self.ssd_scratch_pads) if self.prefetch_pipeline else 0} "
+                "scratch pads are still outstanding. Stop issuing lookups and "
+                "let the in-flight forwards complete before switching."
+            )
+
+    @torch.jit.ignore
+    def invalidate_l1_cache(self, *, backend_rewritten: bool = False) -> None:
+        """
+        Empty the GPU (L1) cache.
+
+        L1 sits in front of both L2 and the backend, so a row that is cached in
+        L1 is returned without the lookup reaching rocksdb at all. After the
+        backend read snapshot changes, every L1 row is from the old view and
+        has to go.
+
+        Contents are dropped, not written down. In eval that loses nothing:
+        ``evict`` returns immediately when ``self.training`` is false, so L1
+        rows are already discarded rather than written back on ordinary cache
+        eviction, and ``flush`` is a no-op as well. In training L1 is the
+        authoritative copy of a row until it is evicted, so dropping it loses
+        writes -- hence the guard below.
+
+        Marking every slot empty is all that is required; the weights
+        themselves are never read through a slot tagged ``-1``, so the large
+        ``lxu_cache_weights`` tensor is deliberately left alone.
+
+        Args:
+            backend_rewritten: The caller has just rewritten the backing store
+                authoritatively -- in practice, a checkpoint load has landed
+                its rows in rocksdb. That inverts the guard's premise: L1
+                cannot hold anything newer than the store, because the store
+                was written after L1 was filled, so every cached row is stale
+                by construction and dropping it loses nothing. Only pass this
+                when that is actually true; it is not a way to silence the
+                check.
+
+        .. note::
+            ``self.training`` is a weak signal here and deliberately not the
+            only one. A sharded TBE is reached through
+            ``ShardedEmbeddingCollection._lookups``, a plain ``list`` that
+            ``nn.Module`` never registers, so ``model.eval()`` does not recurse
+            into it and this flag stays ``True`` for the whole job even in an
+            eval-only run. Callers that know the store is authoritative must
+            say so rather than relying on a flag nobody maintains.
+        """
+        if self.training and not backend_rewritten:
+            raise RuntimeError(
+                "invalidate_l1_cache drops cached rows without writing them "
+                "down, which loses data in training mode. It is only valid on "
+                "a module in eval mode, or with backend_rewritten=True when "
+                "the backing store has just been rewritten authoritatively "
+                "(e.g. by a checkpoint load), which makes every cached row "
+                "stale by construction. Note that a sharded TBE never sees "
+                "model.eval(), so this flag can be True in an eval job."
+            )
+        self._assert_lookup_pipeline_drained("invalidate_l1_cache")
+        invalidate_start = time.time()
+
+        # Make sure nothing is still reading or writing the cache on another
+        # stream before we retag every slot as empty.
+        torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
+        if self.prefetch_stream is not None:
+            torch.cuda.current_stream().wait_stream(self.prefetch_stream)
+        torch.cuda.synchronize()
+
+        # -1 marks a slot as empty; this is the same invalidation the
+        # inference module does in load_snapshot().
+        self.lxu_cache_state.fill_(-1)
+        # LRU timestamps describe slots that no longer hold anything.
+        self.lru_state.zero_()
+        if self.prefetch_pipeline:
+            self.lxu_cache_locking_counter.zero_()
+        torch.cuda.synchronize()
+        # DEBUG: the duration is reported as `l1=<n>s` on the caller's single
+        # switch line. What is here and not there is the slot count and byte
+        # figure bounding how much was dropped, both free from shape metadata.
+        # Elapsed covers both cuda.synchronize() calls.
+        logging.debug(
+            f"[SSD_COMMIT] tbe={self.tbe_unique_id} l1_invalidated "
+            f"slots={self.lxu_cache_state.numel()} "
+            f"weight_bytes={self.lxu_cache_weights.numel() * self.lxu_cache_weights.element_size()} "
+            f"elapsed={time.time() - invalidate_start:.3f}s"
+        )
+
+    @torch.jit.ignore
+    def invalidate_l2_cache(self) -> None:
+        """
+        Empty the host (L2) cache.
+
+        Same reasoning as :meth:`invalidate_l1_cache`: L2 sits in front of
+        rocksdb, so a cached row is served without the read reaching rocksdb
+        and a snapshot switch would have no effect on it.
+
+        Unlike ``ssd_db.reset_l2_cache()``, which nulls the cache pointer and
+        leaves L2 permanently disabled (it exists as a unit-test bypass), this
+        rebuilds an empty but working cache.
+        """
+        if self.backend_type != BackendType.SSD:
+            # Only EmbeddingRocksDBWrapper exposes the binding; the DRAM
+            # backends do not put a cachelib L2 in front of their store.
+            logging.warning(
+                f"[SSD_COMMIT] rank={_log_rank()} tbe={self.tbe_unique_id} "
+                f"l2_invalidate_skipped backend={self.backend_type} -- "
+                "only the SSD backend has a cachelib L2 to empty; this "
+                "backend has none, so there is nothing to invalidate."
+            )
+            return
+        invalidate_start = time.time()
+        self.ssd_db.invalidate_l2_cache()
+        # DEBUG for the same reason as l1_invalidated: switch_read_snapshot
+        # times this call and its caller reports it as `l2=<n>s` on the single
+        # switch line, which is where "was L2 actually emptied" is answered.
+        logging.debug(
+            f"[SSD_COMMIT] tbe={self.tbe_unique_id} l2_invalidated "
+            f"elapsed={time.time() - invalidate_start:.3f}s"
+        )
+
+    @torch.jit.ignore
+    def switch_read_snapshot(
+        # `object`, not the concrete type: the handle is an
+        # EmbeddingSnapshotHandleWrapper, deliberately not imported here to
+        # avoid a production import dependency. It is only passed through.
+        self,
+        snapshot_handle: object = None,
+        *,
+        backend_rewritten: bool = False,
+    ) -> SwitchStats:
+        """
+        Install a new backend read view, emptying the caches when it matters.
+
+        This is the "safe switch" of async checkpoint load for eval. The
+        caller (checkpointing, fanned out by TorchRec) creates a snapshot
+        before the load starts and installs it here, streams the new
+        checkpoint into the live rocksdb, then installs a snapshot taken after
+        the load has landed. Passing ``None`` reverts the read path to the live
+        DB, which is the default and what training uses.
+
+        After a load has rewritten the store, install a post-load snapshot
+        rather than ``None``. Going back to the live DB re-enables L2 eviction
+        write-back at once, while an L2 fill queued against the old view may
+        still be waiting on the background fill thread; when it runs, its
+        eviction writes a pre-load row on top of a loaded one. Keeping a
+        snapshot installed keeps write-back off across the switch, and this
+        raises ``ValueError`` for ``None`` with ``backend_rewritten=True``.
+
+        Ordering matters: the snapshot is installed first and the caches are
+        emptied afterwards, so there is no window in which a lookup can miss
+        into the old view and repopulate the caches from it. That ordering
+        does not cover the fill queue above, which is drained only by the L2
+        invalidation that follows the install.
+
+        Releasing the previous snapshot is the caller's business and is safe
+        to do immediately after this returns. ``set_active_snapshot`` blocks
+        until every backend lookup that was issued against the previous view
+        has finished, so on return nothing is reading it. Lookups issued while
+        that drain is in progress register against the new view instead, which
+        is what makes the drain terminate under a concurrently serving
+        evaluator rather than waiting forever.
+
+        This is a blocking call. Do not call it from a thread that backend
+        reads need in order to complete; the backend reads run on their own
+        executor pool, so the Python thread driving the switch is fine.
+
+        The Python-level pipeline state is checked for you: the L1
+        invalidation below cannot run safely with a forward or prefetch still
+        outstanding, so this raises rather than corrupting it.
+
+        Args:
+            snapshot_handle: snapshot produced by
+                ``ssd_db.create_snapshot()``, or ``None`` to read the live DB.
+            backend_rewritten: The backing store has just been rewritten
+                authoritatively, which is what a checkpoint load does. This is
+                the only case in which the caches have to be emptied -- they
+                then hold pre-load rows the store has already superseded -- and
+                it is also what makes dropping them safe, so it both enables
+                the invalidation and satisfies the training-mode guard on
+                :meth:`invalidate_l1_cache`. Leave it False when installing a
+                pre-load snapshot: the caches agree with that view, so there is
+                nothing to empty.
+
+        Returns:
+            A :class:`SwitchStats` breaking the call into its drain, L1 and L2
+            components. Returned rather than logged: this frame can time the
+            three phases apart but the caller is the one that knows why the
+            switch is happening and what became of the retired snapshot, so it
+            is the caller that emits the one line covering all of it. The
+            success path here logs only at DEBUG.
+        """
+        if self.backend_type != BackendType.SSD:
+            raise RuntimeError(
+                "switch_read_snapshot is only supported for the SSD backend, "
+                f"got {self.backend_type}"
+            )
+        if snapshot_handle is None and backend_rewritten:
+            # Going back to the live DB re-enables L2 write-back before the
+            # L2 invalidation below drains the fill queue, so a fill queued
+            # against the old view could write a stale row over a loaded one.
+            raise ValueError(
+                "switch_read_snapshot(None, backend_rewritten=True): after the "
+                "store has been rewritten, install a post-load snapshot "
+                "instead of reverting to the live DB."
+            )
+        self._assert_lookup_pipeline_drained("switch_read_snapshot")
+        switch_start = time.time()
+        # DEBUG: its only unique content was `to_live_db`, which the caller
+        # reports as `to=live|0x…`. The failure it was standing in for -- a
+        # switch that hangs in the drain below and so never reaches the
+        # completion line -- is covered better by the C++ "still draining"
+        # warning, which repeats every 5s with the in-flight count.
+        logging.debug(
+            f"[SSD_COMMIT] tbe={self.tbe_unique_id} read_snapshot_switch_start "
+            f"to_live_db={snapshot_handle is None}"
+        )
+
+        # A lookup's backend read runs as a host callback when its stream gets
+        # to it, so one already queued would otherwise read the new view.
+        torch.cuda.synchronize()
+        # Blocks until every read issued against the retiring view has
+        # finished, so this duration is the drain.
+        drain_start = time.time()
+        self.ssd_db.set_active_snapshot(snapshot_handle)
+        drain_s = time.time() - drain_start
+        # Only needed when the installed view disagrees with what the caches
+        # hold, i.e. post-load. The pre-load snapshot holds the same rows the
+        # caches do, so wiping there would cost a slot retag, a device sync
+        # and an L2 rebuild to change nothing.
+        #
+        # Order is load bearing: caches are emptied only after the new view is
+        # in place, or a racing refill repopulates from the old one.
+        l1_s: float | None = None
+        l2_s: float | None = None
+        if backend_rewritten:
+            l1_start = time.time()
+            self.invalidate_l1_cache(backend_rewritten=True)
+            l1_s = time.time() - l1_start
+            l2_start = time.time()
+            self.invalidate_l2_cache()
+            l2_s = time.time() - l2_start
+        stats = SwitchStats(
+            drain_s=drain_s,
+            l1_s=l1_s,
+            l2_s=l2_s,
+            # Read from the Python-side config rather than asking the store,
+            # so the caller can say `l2=disabled` without a round trip. This
+            # is the case the C++ l2_invalidate_noop line used to announce.
+            l2_enabled=self.l2_cache_size > 0,
+            total_s=time.time() - switch_start,
+            active=self.ssd_db.has_active_snapshot(),
+            snapshot_count=self.ssd_db.get_snapshot_count(),
+        )
+        # DEBUG. Everything here is in the returned stats, and the caller
+        # folds it into a single line that also names the table, the phase and
+        # the fate of the retired snapshot. Kept so a caller that ignores the
+        # return value -- a third-party user of this method -- is not silent.
+        logging.debug(
+            f"[SSD_COMMIT] tbe={self.tbe_unique_id} read_snapshot_switched "
+            f"active={stats.active} snaps={stats.snapshot_count} "
+            f"elapsed={stats.total_s:.3f}s"
+        )
+        return stats
 
     def prepare_inputs(
         self,

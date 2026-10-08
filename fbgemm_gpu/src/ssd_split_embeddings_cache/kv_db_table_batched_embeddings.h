@@ -14,6 +14,7 @@
 #endif
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <random>
 
 #include <ATen/ATen.h>
@@ -418,7 +419,48 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const int64_t interval);
 
   // reset L2 cache, this is used for unittesting to bypass l2 cache
+  //
+  // NOTE: this permanently disables L2 for the lifetime of this object; there
+  // is no way to rebuild the cache afterwards. Use invalidate_l2_cache() if
+  // you want an empty but still functioning L2.
   void reset_l2_cache();
+
+  /// Whether rows evicted out of L2 have to be written down to the backend.
+  ///
+  /// Normally yes: L2 is write-back and an evicted row may be the only copy
+  /// of the newest value. Must be false while the read path is served from a
+  /// snapshot, when L2 holds pre-load values that would clobber rows a
+  /// concurrent load has already written. Defaults to the legacy behaviour.
+  virtual bool l2_eviction_write_back_enabled() const {
+    return true;
+  }
+
+  /// Empty the L2 (host) cache while keeping it enabled.
+  ///
+  /// Cachelib has no bulk erase, so the cache is emptied by destroying the
+  /// allocator and rebuilding from the original config. Unlike
+  /// reset_l2_cache(), L2 is left empty and immediately usable.
+  ///
+  /// Needed after a read-snapshot switch: L2 sits in front of the backend, so
+  /// a cached row is returned without the read reaching rocksdb and the
+  /// switch would not affect it.
+  ///
+  /// Contents are dropped, not written down. That is safe only when the cache
+  /// holds nothing newer than what the backend already has, which is the case
+  /// in eval because every write-down path is gated on training mode. Do not
+  /// call this on a training TBE with a dirty cache.
+  ///
+  /// Waits for the background fill queue to drain and takes the same
+  /// l2_cache_mtx_ that get()/set() hold, so it is safe against concurrent
+  /// lookups. No-op when L2 is disabled.
+  void invalidate_l2_cache();
+
+  /// TEST ONLY. Rebuild L2 empty with a capacity of <cache_size_bytes>.
+  ///
+  /// The constructor sizes L2 in whole GB, so forcing an eviction in a unit
+  /// test would otherwise mean writing gigabytes of rows. No-op when L2 is
+  /// disabled.
+  void resize_l2_cache_for_testing(size_t cache_size_bytes);
 
   // block waiting for working items in queue to be finished, this is called by
   // get_cache() as embedding read should wait until previous write to be
@@ -598,6 +640,9 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& weights);
 
   std::unique_ptr<l2_cache::CacheLibCache> l2_cache_;
+  // Config that l2_cache_ was built from, kept so invalidate_l2_cache() can
+  // rebuild an empty cache with identical geometry. Empty when L2 is disabled.
+  std::optional<l2_cache::CacheLibCache::CacheConfig> l2_cache_config_;
   // when flushing l2, the block size in bytes that we flush l2 progressively
   int64_t flushing_block_size_;
   const int64_t unique_id_;

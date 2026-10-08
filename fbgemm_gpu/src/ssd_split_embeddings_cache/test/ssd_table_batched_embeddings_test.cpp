@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <future>
 #include <mutex>
+#include <numeric>
 #include <thread>
 #include <vector>
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
@@ -1538,4 +1539,256 @@ TEST(
 
   EXPECT_FALSE(db->has_active_snapshot());
   db->release_snapshot(snapshot);
+}
+
+TEST(
+    SSDTableBatchedEmbeddingsTest,
+    TestL2EvictionWriteBackSuppressedUnderSnapshot) {
+  // While reads are snapshot isolated, everything L2 holds is at most as new
+  // as the snapshot. Writing an eviction down would clobber a row the
+  // checkpoint load has already landed, so the write-back is off.
+  auto db = getMockEmbeddingRocksDB(/*num_shards=*/1, "l2WriteBackGate");
+
+  EXPECT_TRUE(db->l2_eviction_write_back_enabled());
+
+  write_rows(*db, {30L}, 7.0f);
+  const auto* snapshot = db->create_snapshot();
+  db->set_active_snapshot(snapshot);
+  EXPECT_FALSE(db->l2_eviction_write_back_enabled());
+
+  db->clear_active_snapshot();
+  EXPECT_TRUE(db->l2_eviction_write_back_enabled());
+  db->release_snapshot(snapshot);
+}
+
+TEST(SSDTableBatchedEmbeddingsTest, TestInvalidateL2CacheKeepsCacheUsable) {
+  // invalidate_l2_cache has to leave a working, empty cache behind, unlike
+  // reset_l2_cache which disables L2 for good.
+  std::filesystem::path rocksdb_dir =
+      std::filesystem::temp_directory_path() / "invalidateL2";
+  std::filesystem::create_directories(rocksdb_dir);
+  auto db = std::make_unique<ssd::EmbeddingRocksDB>(
+      rocksdb_dir.string(),
+      /*num_shards=*/1,
+      /*num_threads=*/2,
+      /*memtable_flush_period=*/0,
+      /*memtable_flush_offset=*/0,
+      /*l0_files_per_compact=*/4,
+      /*max_D=*/EMBEDDING_DIMENSION,
+      /*rate_limit_mbps=*/0,
+      /*size_ratio=*/1,
+      /*compaction_trigger=*/8,
+      /*write_buffer_size=*/536870912,
+      /*max_write_buffer_num=*/8,
+      /*uniform_init_lower=*/-0.01,
+      /*uniform_init_upper=*/0.01,
+      /*row_storage_bitwidth=*/32,
+      /*cache_size=*/0,
+      /*use_passed_in_path=*/true,
+      /*tbe_unqiue_id=*/0,
+      /*l2_cache_size_gb=*/1);
+
+  const std::vector<int64_t> ids{40L, 41L};
+  const auto expected = at::full(
+      {2, EMBEDDING_DIMENSION}, 8.0f, at::TensorOptions().dtype(at::kFloat));
+
+  write_rows(*db, ids, 8.0f);
+  // Populate L2 by reading through the cache-aware entry point.
+  auto indices = at::tensor(ids, at::TensorOptions().dtype(at::kLong));
+  auto out = at::zeros(
+      {2, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  auto count = at::tensor({2L}, at::TensorOptions().dtype(at::kLong));
+  db->get(indices, out, count, /*sleep_ms=*/0);
+  EXPECT_TRUE(at::equal(out, expected));
+
+  db->invalidate_l2_cache();
+
+  // L2 is empty, so this read has to miss through to rocksdb and still
+  // return the right rows, then repopulate the cache.
+  auto out_after = at::zeros(
+      {2, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  db->get(indices, out_after, count, /*sleep_ms=*/0);
+  EXPECT_TRUE(at::equal(out_after, expected));
+
+  auto out_cached = at::zeros(
+      {2, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  db->get(indices, out_cached, count, /*sleep_ms=*/0);
+  EXPECT_TRUE(at::equal(out_cached, expected));
+}
+
+namespace {
+
+/// Holds the L2 fill thread at its write-back decision for an eviction.
+///
+/// The decision is l2_eviction_write_back_enabled(), read by the fill thread
+/// when it processes a queued fill, not when the fill was queued. Parking
+/// there lets a test change the read view in exactly that gap.
+class WriteBackGateParkingRocksDB : public MockEmbeddingRocksDB {
+ public:
+  using MockEmbeddingRocksDB::MockEmbeddingRocksDB;
+
+  bool l2_eviction_write_back_enabled() const override {
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      ++evictions_;
+      if (armed_) {
+        armed_ = false;
+        parked_ = true;
+        cv_.notify_all();
+        cv_.wait(lock, [this] { return released_; });
+      }
+    }
+    // Read after the park, the same way the fill thread reads it for real.
+    return MockEmbeddingRocksDB::l2_eviction_write_back_enabled();
+  }
+
+  int64_t evictions() const {
+    const std::scoped_lock lock(mutex_);
+    return evictions_;
+  }
+
+  void arm() {
+    const std::scoped_lock lock(mutex_);
+    armed_ = true;
+  }
+
+  bool wait_until_parked() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return cv_.wait_for(
+        lock, std::chrono::seconds(60), [this] { return parked_; });
+  }
+
+  void release() {
+    {
+      const std::scoped_lock lock(mutex_);
+      released_ = true;
+    }
+    cv_.notify_all();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  mutable std::condition_variable cv_;
+  mutable int64_t evictions_{0};
+  mutable bool armed_{false};
+  mutable bool parked_{false};
+  bool released_{false};
+};
+
+constexpr float kLoadedValue = 2.0f;
+
+std::vector<int64_t> id_range(int64_t start, int64_t count) {
+  std::vector<int64_t> ids(count);
+  std::iota(ids.begin(), ids.end(), start);
+  return ids;
+}
+
+/// Replays an async checkpoint load under eval with an L2 fill still queued
+/// when the read view switches, and returns the loaded rows as the live DB
+/// holds them afterwards.
+///
+/// 1. Pin a pre-load snapshot before any lookup, as the store requires.
+/// 2. Fill L2 through it until L2 evicts, then land the "checkpoint" in the
+///    live DB under those rows.
+/// 3. Look up fresh ids under the pre-load view: they miss L2 and queue a
+///    fill whose insert evicts pre-load rows. Hold the fill thread at the
+///    write-back decision for that eviction.
+/// 4. Switch the read view, either to a post-load snapshot or back to live.
+/// 5. Let the fill thread finish, then read the loaded rows from the live DB.
+at::Tensor loaded_rows_after_switch_with_queued_eviction(
+    const std::string& dir,
+    bool install_post_load_snapshot) {
+  constexpr int64_t kBatch = 65536;
+  constexpr int64_t kMaxRows = 8 * 1024 * 1024;
+  constexpr size_t kL2Bytes = 64UL * 1024 * 1024;
+
+  const auto rocksdb_dir = std::filesystem::temp_directory_path() / dir;
+  std::filesystem::create_directories(rocksdb_dir);
+  auto db = std::make_unique<WriteBackGateParkingRocksDB>(
+      rocksdb_dir.string(),
+      /*num_shards=*/1,
+      /*num_threads=*/8,
+      /*memtable_flush_period=*/0,
+      /*memtable_flush_offset=*/0,
+      /*l0_files_per_compact=*/4,
+      /*max_D=*/EMBEDDING_DIMENSION,
+      /*rate_limit_mbps=*/0,
+      /*size_ratio=*/1,
+      /*compaction_trigger=*/8,
+      /*write_buffer_size=*/536870912,
+      /*max_write_buffer_num=*/8,
+      /*uniform_init_lower=*/-0.01,
+      /*uniform_init_upper=*/0.01,
+      /*row_storage_bitwidth=*/32,
+      /*cache_size=*/0,
+      /*use_passed_in_path=*/true,
+      /*tbe_unqiue_id=*/0,
+      /*l2_cache_size_gb=*/1,
+      /*enable_async_update=*/true);
+  db->resize_l2_cache_for_testing(kL2Bytes);
+  const auto* pre_load = db->create_snapshot();
+  db->set_active_snapshot(pre_load);
+
+  std::vector<int64_t> loaded_ids;
+  int64_t next_id = 0;
+  while (db->evictions() == 0) {
+    EXPECT_LT(next_id, kMaxRows) << "L2 never evicted";
+    if (next_id >= kMaxRows) {
+      return at::Tensor();
+    }
+    const auto ids = id_range(next_id, kBatch);
+    next_id += kBatch;
+    get_rows(*db, ids);
+    db->wait_util_filling_work_done();
+    loaded_ids.insert(loaded_ids.end(), ids.begin(), ids.end());
+  }
+
+  write_rows(*db, loaded_ids, kLoadedValue);
+
+  db->arm();
+  get_rows(*db, id_range(next_id, kBatch));
+  EXPECT_TRUE(db->wait_until_parked()) << "queued fill never evicted";
+
+  const ssd::SnapshotHandle* post_load = nullptr;
+  if (install_post_load_snapshot) {
+    post_load = db->create_snapshot();
+    db->set_active_snapshot(post_load);
+  } else {
+    db->clear_active_snapshot();
+  }
+  db->release_snapshot(pre_load);
+  db->release();
+  db->wait_util_filling_work_done();
+
+  db->clear_active_snapshot();
+  if (post_load != nullptr) {
+    db->release_snapshot(post_load);
+  }
+  return read_rows(*db, loaded_ids);
+}
+
+} // namespace
+
+TEST(
+    SSDTableBatchedEmbeddingsTest,
+    TestPostLoadSnapshotKeepsQueuedEvictionOffLoadedRows) {
+  const auto rows = loaded_rows_after_switch_with_queued_eviction(
+      "queuedEvictionPostLoadSnapshot", /*install_post_load_snapshot=*/true);
+  ASSERT_TRUE(rows.defined());
+
+  EXPECT_TRUE(at::equal(rows, at::full_like(rows, kLoadedValue)));
+}
+
+TEST(
+    SSDTableBatchedEmbeddingsTest,
+    TestSwitchToLiveLetsQueuedEvictionOverwriteLoadedRows) {
+  // Guards the test above against passing vacuously: with the same queued
+  // eviction, switching straight back to the live DB re-enables write-back
+  // and the stale pre-load rows land on top of the loaded ones.
+  const auto rows = loaded_rows_after_switch_with_queued_eviction(
+      "queuedEvictionSwitchToLive", /*install_post_load_snapshot=*/false);
+  ASSERT_TRUE(rows.defined());
+
+  // The overwritten rows hold whatever L2 had cached from the pre-load view.
+  EXPECT_TRUE(rows.ne(kLoadedValue).any().item<bool>());
 }
