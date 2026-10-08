@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.18.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>fbgemm_gpu: Class Members</title>
+<title>fbgemm_gpu: SnapshotReadGuard Class Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="codefolding.js"></script>
 <script type="text/javascript" src="clipboard.js"></script>
@@ -71,8 +71,6 @@ document.addEventListener('DOMContentLoaded', codefold.init);
     </li>
   </ul>
 </div><!-- main-nav -->
-</div><!-- top -->
-<div id="doc-content">
 <!-- window showing the filter options -->
 <div id="MSearchSelectWindow">
 </div>
@@ -91,17 +89,35 @@ document.addEventListener('DOMContentLoaded', codefold.init);
 </div>
 </div>
 
+<div id="nav-path" class="navpath">
+  <ul>
+<li class="navelem"><b>ssd</b></li><li class="navelem"><a href="classssd_1_1_snapshot_read_guard.html">SnapshotReadGuard</a></li>  </ul>
+</div>
+</div><!-- top -->
+<div id="doc-content">
+<div class="header">
+  <div class="summary">
+<a href="classssd_1_1_snapshot_read_guard-members.html">List of all members</a>  </div>
+  <div class="headertitle"><div class="title">SnapshotReadGuard Class Reference<div class="ingroups"><a class="el" href="group__embedding-ssd.html">Embedding SSD Operators</a></div></div></div>
+</div><!--header-->
 <div class="contents">
-<div class="textblock">Here is a list of all documented class members with links to the class documentation for each member:</div><br/>
-<div class="qindex"><a class="qindex" href="functions.html#index_a">A</a><div class="alphasepar"></div><a class="qindex" href="functions_b.html#index_b">B</a><div class="alphasepar"></div><a class="qindex" href="functions_c.html#index_c">C</a><div class="alphasepar"></div><a class="qindex" href="functions_d.html#index_d">D</a><div class="alphasepar"></div><a class="qindex" href="functions_e.html#index_e">E</a><div class="alphasepar"></div><a class="qindex" href="functions_f.html#index_f">F</a><div class="alphasepar"></div><a class="qindex" href="functions_g.html#index_g">G</a><div class="alphasepar"></div><a class="qindex" href="functions_h.html#index_h">H</a><div class="alphasepar"></div><a class="qindex" href="functions_i.html#index_i">I</a><div class="alphasepar"></div><a class="qindex" href="functions_k.html#index_k">K</a><div class="alphasepar"></div><a class="qindex" href="functions_l.html#index_l">L</a><div class="alphasepar"></div><a class="qindex" href="functions_m.html#index_m">M</a><div class="alphasepar"></div><a class="qindex" href="functions_n.html#index_n">N</a><div class="alphasepar"></div><a class="qindex" href="functions_o.html#index_o">O</a><div class="alphasepar"></div><a class="qindex" href="functions_p.html#index_p">P</a><div class="alphasepar"></div><a class="qindex" href="functions_r.html#index_r">R</a><div class="alphasepar"></div><a class="qindex" href="functions_s.html#index_s">S</a><div class="alphasepar"></div><a class="qindex" href="functions_t.html#index_t">T</a><div class="alphasepar"></div><a class="qindex" href="functions_u.html#index_u">U</a><div class="alphasepar"></div><a class="qindex" href="functions_w.html#index_w">W</a></div>
 
-
-<h3 class="doxsection"><a id="index_a" name="index_a"></a>- a -</h3><ul>
-<li>AccessPatternEntry()&#160;:&#160;<a class="el" href="structfbgemm_1_1_embedding_stats_tracker_1_1_access_pattern_entry.html#a14b97478365a5f2bd2fceff6f1005e01">EmbeddingStatsTracker::AccessPatternEntry</a></li>
-<li>acquire_read_guard()&#160;:&#160;<a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#acdafe1b671fd430a85347dc5250c70b3">EmbeddingKVDB</a></li>
-<li>addr()&#160;:&#160;<a class="el" href="classfbgemm_1_1_pack_a_matrix.html#a04b923ddb781752fe65992543729422c">PackAMatrix&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_quant_row_offset.html#a04b923ddb781752fe65992543729422c">PackAWithQuantRowOffset&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_a_with_row_offset.html#a04b923ddb781752fe65992543729422c">PackAWithRowOffset&lt; T, accT &gt;</a>, <a class="el" href="classfbgemm_1_1_pack_b_matrix.html#a04b923ddb781752fe65992543729422c">PackBMatrix&lt; T, accT &gt;</a></li>
-<li>alpha&#160;:&#160;<a class="el" href="structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html#a9d3e28bcd79d22eacaa7134ed1e99219">LinearCombinationOnDevice&lt; ElementOutput_, Count, ElementAccumulator_, ElementCompute_, Scale, Round &gt;::Params</a></li>
-<li>alpha_ptr&#160;:&#160;<a class="el" href="structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html#a9435df535a1645bbb0d0920854b87dba">LinearCombinationOnDevice&lt; ElementOutput_, Count, ElementAccumulator_, ElementCompute_, Scale, Round &gt;::Params</a></li>
+<p><code>#include &lt;ssd_table_batched_embeddings.h&gt;</code></p>
+<div class="dynheader">
+Inheritance diagram for SnapshotReadGuard:</div>
+<div class="dyncontent">
+ <div class="center">
+  <img src="classssd_1_1_snapshot_read_guard.png" usemap="#SnapshotReadGuard_map" alt=""/>
+  <map id="SnapshotReadGuard_map" name="SnapshotReadGuard_map">
+<area href="classkv__db_1_1_read_guard.html" title="Registration that pins the version of storage one logical read is served from." alt="ReadGuard" shape="rect" coords="0,0,128,24"/>
+  </map>
+</div></div>
+<a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
+<div class="textblock"><p>Readers copy the raw <span class="tt">rocksdb::Snapshot*</span> into their per-shard closures. What makes that safe is that a snapshot is never released while a read registered against it is still running.</p>
+<p>One guard per logical read, taken at the top of <span class="tt">EmbeddingKVDB::get()</span> before the read decides which rows L2 can answer, so that decision and the fetch filling its misses are pinned to the same snapshot. A <span class="tt">shared_ptr</span> is held by the <span class="tt">get()</span> frame and captured by each per-shard task, so the count drops only when the last is destroyed &ndash; no error path can skip the decrement and strand a switch. </p>
+</div><hr/>The documentation for this class was generated from the following files:<ul>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/ssd_split_embeddings_cache/<b>ssd_table_batched_embeddings.h</b></li>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/ssd_split_embeddings_cache/<b>ssd_split_table_batched_embeddings.cpp</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->

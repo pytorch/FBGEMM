@@ -762,6 +762,16 @@
 </dd></dl>
 
 <dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N5kv_db9ReadGuardE">
+<span id="_CPPv3N5kv_db9ReadGuardE"></span><span id="_CPPv2N5kv_db9ReadGuardE"></span><span id="kv_db::ReadGuard"></span><span class="target" id="classkv__db_1_1_read_guard"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">ReadGuard</span></span></span><a class="headerlink" href="#_CPPv4N5kv_db9ReadGuardE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;kv_db_table_batched_embeddings.h&gt;</em></div>
+<p>Registration that pins the version of storage one logical read is served from. </p>
+<p>A backend whose read view can change underneath a running read returns one of these from acquire_read_guard(); EmbeddingKVDB::get() holds it for the whole lookup, so the L2 hit/miss split and the fetch filling those misses cannot land on opposite sides of a view switch. Backends with a single, unswitchable view return null. </p>
+<p>Subclassed by <a class="reference internal" href="#classssd_1_1_snapshot_read_guard"><span class="std std-ref">SnapshotReadGuard</span></a></p>
+</dd></dl>
+
+<dl class="cpp class">
 <dt class="sig sig-object cpp" id="_CPPv4N5kv_db12CacheContextE">
 <span id="_CPPv3N5kv_db12CacheContextE"></span><span id="_CPPv2N5kv_db12CacheContextE"></span><span id="kv_db::CacheContext"></span><span class="target" id="classkv__db_1_1_cache_context"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">CacheContext</span></span></span><a class="headerlink" href="#_CPPv4N5kv_db12CacheContextE" title="Permalink to this definition">¶</a><br /></dt>
 <dd><div class="docutils container">
@@ -792,12 +802,29 @@
 </dd></dl>
 
 <dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N3ssd17SnapshotReadGuardE">
+<span id="_CPPv3N3ssd17SnapshotReadGuardE"></span><span id="_CPPv2N3ssd17SnapshotReadGuardE"></span><span id="ssd::SnapshotReadGuard"></span><span class="target" id="classssd_1_1_snapshot_read_guard"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">SnapshotReadGuard</span></span></span><span class="w"> </span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="k"><span class="pre">public</span></span><span class="w"> </span><span class="n"><span class="pre">ReadGuard</span></span><a class="headerlink" href="#_CPPv4N3ssd17SnapshotReadGuardE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;ssd_table_batched_embeddings.h&gt;</em></div>
+<p>RAII registration of one in-flight read issued against a snapshot. </p>
+<p>Readers copy the raw <code class="docutils literal notranslate"><span class="pre">rocksdb::Snapshot*</span></code> into their per-shard closures. What makes that safe is that a snapshot is never released while a read registered against it is still running.</p>
+<p>One guard per logical read, taken at the top of <code class="docutils literal notranslate"><span class="pre">EmbeddingKVDB::get()</span></code> before the read decides which rows L2 can answer, so that decision and the fetch filling its misses are pinned to the same snapshot. A <code class="docutils literal notranslate"><span class="pre">shared_ptr</span></code> is held by the <code class="docutils literal notranslate"><span class="pre">get()</span></code> frame and captured by each per-shard task, so the count drops only when the last is destroyed &amp;#8212; no error path can skip the decrement and strand a switch. </p>
+</dd></dl>
+
+<dl class="cpp class">
 <dt class="sig sig-object cpp" id="_CPPv4N3ssd16EmbeddingRocksDBE">
 <span id="_CPPv3N3ssd16EmbeddingRocksDBE"></span><span id="_CPPv2N3ssd16EmbeddingRocksDBE"></span><span id="ssd::EmbeddingRocksDB"></span><span class="target" id="classssd_1_1_embedding_rocks_d_b"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">EmbeddingRocksDB</span></span></span><span class="w"> </span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="k"><span class="pre">public</span></span><span class="w"> </span><span class="n"><span class="pre">EmbeddingKVDB</span></span><a class="headerlink" href="#_CPPv4N3ssd16EmbeddingRocksDBE" title="Permalink to this definition">¶</a><br /></dt>
 <dd><div class="docutils container">
 <em>#include &lt;ssd_table_batched_embeddings.h&gt;</em></div>
 <p>An implementation of EmbeddingKVDB for RocksDB. </p>
 <p>Subclassed by MockEmbeddingRocksDB</p>
+<div class="breathe-sectiondef docutils container">
+<p class="breathe-sectiondef-title rubric" id="breathe-section-title-active-read-snapshot">Active read snapshot</p>
+<p>The read view <code class="docutils literal notranslate"><span class="pre">EmbeddingKVDB::get</span></code> serves from. Null by default, meaning “read the live DB”. Async checkpoint load for eval installs a snapshot before streaming rows into the live DB, so a concurrent evaluator keeps a consistent pre-load view, then switches once the load lands.</p>
+<p>It belongs on the store and not on <code class="docutils literal notranslate"><span class="pre">KVTensorWrapper</span></code>, which the serving read path never touches: <code class="docutils literal notranslate"><span class="pre">_prefetch</span></code> calls <code class="docutils literal notranslate"><span class="pre">ssd_db.get_cuda()</span></code> directly, and every <code class="docutils literal notranslate"><span class="pre">KVTensorWrapper</span></code> use in the TBE is state-dict extraction. A snapshot on the KVTensor would isolate the save path and leave forwards reading live data, silently.</p>
+<p>Lifetime is handled by draining, not by refcounting the handle: a read registers against the generation it was issued against, and a switch installs the new handle then blocks until the retiring generation’s count reaches zero. Reads issued during a drain register against the NEW generation, so the retiring count only decreases &amp;#8212; which is what makes this terminate under the continuous load of an online evaluator.</p>
+<p>Lock ordering: a read registers before taking <code class="docutils literal notranslate"><span class="pre">l2_cache_mtx_</span></code> and deregisters after releasing it, so a lookup never holds the L2 lock while touching <code class="docutils literal notranslate"><span class="pre">active_snapshot_mutex_</span></code>. The other half of the invariant is that no code may hold <code class="docutils literal notranslate"><span class="pre">l2_cache_mtx_</span></code> while waiting for a drain &amp;#8212; <code class="docutils literal notranslate"><span class="pre">set_active_snapshot</span></code> does not take it, and <code class="docutils literal notranslate"><span class="pre">invalidate_l2_cache</span></code>, which does, never waits on a generation. </p>
+</div>
 </dd></dl>
 
 <dl class="cpp class">

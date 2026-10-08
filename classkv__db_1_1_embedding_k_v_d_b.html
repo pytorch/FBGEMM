@@ -120,6 +120,8 @@ Inheritance diagram for EmbeddingKVDB:</div>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
 <tr class="memitem:abd9970c497076f72cba47c2ac6a2c712" id="r_abd9970c497076f72cba47c2ac6a2c712"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t sleep_ms=0)</td></tr>
+<tr class="memitem:acdafe1b671fd430a85347dc5250c70b3" id="r_acdafe1b671fd430a85347dc5250c70b3"><td class="memItemLeft">virtual std::shared_ptr&lt; <a class="el" href="classkv__db_1_1_read_guard.html">ReadGuard</a> &gt;&#160;</td><td class="memItemRight"><a class="el" href="#acdafe1b671fd430a85347dc5250c70b3">acquire_read_guard</a> ()</td></tr>
+<tr class="memitem:ae8b2f3eb052878276da373e6acc3f1f5" id="r_ae8b2f3eb052878276da373e6acc3f1f5"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ae8b2f3eb052878276da373e6acc3f1f5">get_kv_db_async_with_guard</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const std::shared_ptr&lt; <a class="el" href="classkv__db_1_1_read_guard.html">ReadGuard</a> &gt; &amp;)</td></tr>
 <tr class="memitem:af92863de35d4f1785d5843b665139eec" id="r_af92863de35d4f1785d5843b665139eec"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#af92863de35d4f1785d5843b665139eec">get_kv_db_weights_only_async</a> (const at::Tensor &amp;, const at::Tensor &amp;, const at::Tensor &amp;)</td></tr>
 <tr class="memitem:a4d3c2b2de499c727ea34cfd3348fba1a" id="r_a4d3c2b2de499c727ea34cfd3348fba1a"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a4d3c2b2de499c727ea34cfd3348fba1a">get_kv_db_metadata_only_async</a> (const at::Tensor &amp;, const at::Tensor &amp;, const at::Tensor &amp;)</td></tr>
 <tr class="memitem:ac7915f47cef0152710d8e819974ae66e" id="r_ac7915f47cef0152710d8e819974ae66e"><td class="memItemLeft">virtual std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ac7915f47cef0152710d8e819974ae66e">fetch_sids_sync</a> (at::Tensor, at::Tensor, at::Tensor)</td></tr>
@@ -127,12 +129,41 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a15046e704688bd9fc930567ec176e866" id="r_a15046e704688bd9fc930567ec176e866"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a15046e704688bd9fc930567ec176e866">maybe_evict</a> ()</td></tr>
 <tr class="memitem:a9ef4e4f1a94c7994e58011a3c276c9cf" id="r_a9ef4e4f1a94c7994e58011a3c276c9cf"><td class="memItemLeft">virtual size_t&#160;</td><td class="memItemRight"><a class="el" href="#a9ef4e4f1a94c7994e58011a3c276c9cf">get_map_used_memsize_in_bytes</a> () const</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft">std::vector&lt; double &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
+<tr class="memitem:aa7d2bd75a8b0a0026b041075e9cab46b" id="r_aa7d2bd75a8b0a0026b041075e9cab46b"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#aa7d2bd75a8b0a0026b041075e9cab46b">get_unique_id</a> () const</td></tr>
 <tr class="memitem:a7018d9315165cf036f89adbcfb5a3e4b" id="r_a7018d9315165cf036f89adbcfb5a3e4b"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a7018d9315165cf036f89adbcfb5a3e4b">get_estimated_num_keys</a> ()</td></tr>
 <tr class="memitem:a4c05590f980ab14c02331f1323b62091" id="r_a4c05590f980ab14c02331f1323b62091"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a4c05590f980ab14c02331f1323b62091">get_total_rows_written</a> () const</td></tr>
 </table>
 <a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Currently it is used by TBE to offload Key(Embedding Index) Value(Embeddings) to DRAM, SSD or remote storage, to provide better scalability without blowing up HBM resources </p>
 </div><a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="acdafe1b671fd430a85347dc5250c70b3" name="acdafe1b671fd430a85347dc5250c70b3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acdafe1b671fd430a85347dc5250c70b3">&#9670;&#160;</a></span>acquire_read_guard()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual std::shared_ptr&lt; <a class="el" href="classkv__db_1_1_read_guard.html">ReadGuard</a> &gt; acquire_read_guard </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Pin the version of storage this lookup is served from.</p>
+<p>Called by <a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get()</a> as its first action and held until <a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get()</a> returns, so the L2 lookup and the fetch filling its misses are one read of one version. Without it, a view switch between the two returns a batch whose rows come from both.</p>
+<p>Only EmbeddingRocksDB can switch its read view mid-run, so only it overrides this. </p>
+
+</div>
+</div>
 <a id="ac7915f47cef0152710d8e819974ae66e" name="ac7915f47cef0152710d8e819974ae66e"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ac7915f47cef0152710d8e819974ae66e">&#9670;&#160;</a></span>fetch_sids_sync()</h2>
 
@@ -261,6 +292,47 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 </table>
 </div><div class="memdoc">
 <p>Get estimated number of keys stored in the backend. Override in subclasses that support this (e.g. RocksDB). </p>
+
+</div>
+</div>
+<a id="ae8b2f3eb052878276da373e6acc3f1f5" name="ae8b2f3eb052878276da373e6acc3f1f5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae8b2f3eb052878276da373e6acc3f1f5">&#9670;&#160;</a></span>get_kv_db_async_with_guard()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt; get_kv_db_async_with_guard </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::shared_ptr&lt; <a class="el" href="classkv__db_1_1_read_guard.html">ReadGuard</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em></em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Same as <a class="el" href="#ac346e4fb361109aa7b64c7ee70582704" title="storage tier counterpart of function get()">get_kv_db_async()</a>, for a read that is already registered.</p>
+<p><a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get()</a> calls this so the fetch joins the registration <a class="el" href="#acdafe1b671fd430a85347dc5250c70b3">acquire_read_guard()</a> already took, rather than taking a second one and counting one logical read twice in flight. A null guard falls through to the unguarded call. </p>
 
 </div>
 </div>
@@ -417,6 +489,33 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 </table>
 </div><div class="memdoc">
 <p>Get cumulative total rows actually written to the backend. Override in subclasses that track this (e.g. RocksDB). </p>
+
+</div>
+</div>
+<a id="aa7d2bd75a8b0a0026b041075e9cab46b" name="aa7d2bd75a8b0a0026b041075e9cab46b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa7d2bd75a8b0a0026b041075e9cab46b">&#9670;&#160;</a></span>get_unique_id()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t get_unique_id </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>The TBE's numeric id, the same value Python knows as <span class="tt">tbe_unique_id</span>.</p>
+<p>Exposed so subclasses can key log lines on the one identifier shared with Python; <span class="tt">unique_id_</span> itself is private. </p>
 
 </div>
 </div>
