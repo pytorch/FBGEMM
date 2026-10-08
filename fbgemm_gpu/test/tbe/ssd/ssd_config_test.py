@@ -42,6 +42,11 @@ class SsdConfigImportTest(unittest.TestCase):
         self.assertIsNotNone(KVZCHParams)
         self.assertIsNotNone(KVZCHTBEConfig)
 
+    def test_opentab_id_list_type_matches_native_api(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentType
+
+        self.assertEqual(EnrichmentType.ONEFLOW_OPENTAB_ID_LIST.value, 6)
+
 
 class EvictionPolicyValidateTest(unittest.TestCase):
     """Test EvictionPolicy.validate() logic."""
