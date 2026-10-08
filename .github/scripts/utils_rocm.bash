@@ -10,6 +10,8 @@
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_system.bash"
+# shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_pip.bash"
 
 ################################################################################
 # ROCm Setup Functions
@@ -33,14 +35,18 @@ rocm_install_dir () {
 }
 
 install_rocm_pip () {
-  # Install ROCm into the Conda env from the AMD wheel index.  The version is
-  # the CI matrix value (for example 7.14 or 10.0), not a fixed release.
+  # Install ROCm into the Conda env from the same PyTorch wheel index used for
+  # the torch install. nightly + rocm/7.14 resolves to
+  # https://download.pytorch.org/whl/nightly/rocm7.14/, which publishes
+  # rocm[devel]. The version is the CI matrix value (for example 7.14 or 10.0).
   local env_name="$1"
   local rocm_version="$2"
+  local pytorch_channel_version="${3:-nightly}"
   if [ "$rocm_version" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME ROCM_VERSION"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME ROCM_VERSION [PYTORCH_CHANNEL[/VERSION]]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env 10.0"
+    echo "    ${FUNCNAME[0]} build_env 7.14 nightly"
+    echo "    ${FUNCNAME[0]} build_env 10.0 nightly"
     return 1
   else
     echo "################################################################################"
@@ -56,19 +62,19 @@ install_rocm_pip () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  # 7.14 is published on the multi-arch index. 10.x is published on whl-next.
-  # The version itself still comes from the CI matrix.
-  local rocm_index="https://stable.repo.amd.com/rocm/core/whl-next/"
-  case "${rocm_version}" in
-    7.14*)
-      rocm_index="https://repo.amd.com/rocm/whl-multi-arch/"
-      ;;
-  esac
+  # Same index construction as install_pytorch_pip. Do not use the resulting
+  # pip_package: that omits the [devel] extra and would append +rocm<version>.
+  __prepare_pip_arguments "rocm" "${pytorch_channel_version}" "rocm/${rocm_version}" || return 1
+  local pip_pre=""
+  if [ "${package_channel}" != "release" ]; then
+    pip_pre="--pre"
+  fi
 
-  echo "[INSTALL] Installing ROCm ${rocm_version} from ${rocm_index} ..."
+  echo "[INSTALL] Installing ROCm ${rocm_version} from ${pip_channel} ..."
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda run ${env_prefix} python -m pip install \
-    --index-url "${rocm_index}" \
+    ${pip_pre} \
+    --index-url "${pip_channel}" \
     "rocm[devel]==${rocm_version}") || return 1
 
   # Headers and lib/cmake are packed in rocm-sdk-devel and only appear after
