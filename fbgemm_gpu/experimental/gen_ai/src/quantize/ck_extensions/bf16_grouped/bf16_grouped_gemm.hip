@@ -289,20 +289,19 @@ __global__ void set_kernel_args_m_sizes_kernel(
     BDataType* B,
     CDataType* output,
     int64_t* M_sizes,
-    [[maybe_unused]] int64_t M,
+    int64_t* M_offsets,
     int64_t N,
     int64_t K,
     int64_t group_count) {
-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each thread is responsible for setting up the arguments for one group.
-  if (thread_idx < group_count) {
+  const int64_t first_group =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t group_stride =
+      static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t thread_idx = first_group; thread_idx < group_count;
+       thread_idx += group_stride) {
     // Get M information for this group.
     int64_t kernel_M = M_sizes[thread_idx];
-    int64_t offset_M = 0;
-    // Offset is computed by finding the sum of previous group Ms.
-    for (int i = 0; i < thread_idx; i++) {
-      offset_M += M_sizes[i];
-    }
+    int64_t offset_M = M_offsets[thread_idx];
     KernelArguments kernel_group_args = {
         A + (offset_M * K),
         B + (thread_idx * N * K),
@@ -373,17 +372,19 @@ at::Tensor get_stacked_kernel_args(
       {static_cast<long>(group_count * sizeof(KernelArguments))},
       A.options().dtype(at::kByte));
 
-  int64_t M = A.size(A.dim() - 2);
   int64_t K = B.size(2);
   int64_t N = B.size(1);
+  TORCH_CHECK(M_sizes.dtype() == at::kLong, "M_sizes must be int64.");
+  TORCH_CHECK(M_sizes.is_contiguous(), "M_sizes must be contiguous.");
+  at::Tensor M_offsets = at::cumsum(M_sizes, 0) - M_sizes;
 
-  set_kernel_args_m_sizes_kernel<<<1, group_count, 0, stream>>>(
+  set_kernel_args_m_sizes_kernel<<<1, kGroupSetupThreads, 0, stream>>>(
       reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
       reinterpret_cast<ADataType*>(A.data_ptr()),
       reinterpret_cast<BDataType*>(B.data_ptr()),
       reinterpret_cast<CDataType*>(Y.data_ptr()),
       reinterpret_cast<int64_t*>(M_sizes.data_ptr()),
-      M,
+      reinterpret_cast<int64_t*>(M_offsets.data_ptr()),
       N,
       K,
       group_count);
