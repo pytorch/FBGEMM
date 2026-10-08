@@ -30,6 +30,7 @@
 #endif
 #include <cstring>
 #include <exception>
+#include <optional>
 #include <ATen/ThreadLocalState.h>
 
 using namespace fbgemm_gpu;
@@ -42,7 +43,14 @@ C10_NOINLINE void check_fp8_params(int64_t fp8_exponent_bits, int64_t fp8_expone
   TORCH_CHECK(fp8_exponent_bits > 0 && fp8_exponent_bias > 0, "FP8 requires fp8_exponent_bits > 0 (got ", fp8_exponent_bits, ") and fp8_exponent_bias > 0 (got ", fp8_exponent_bias, ")");
 }
 
-template <typename F>
+// kPropagateTls: raw OpenMP does not carry the caller's ThreadLocalState
+// (dispatch keys, grad/inference mode, autocast, ...) to worker threads the way
+// at::parallel_for does, so when `f` makes ATen calls (e.g. at::arange in the
+// nobag path) it is captured here and restored on each worker. Restoring it is
+// not free: the guard's ctor and dtor both snapshot the RecordFunction
+// callbacks under one process-global mutex, which serializes every worker of
+// every region. Callers whose `f` makes no ATen calls pass false.
+template <bool kPropagateTls = true, typename F>
 inline void parallel_for_table_threads(
     int begin,
     int end,
@@ -56,12 +64,10 @@ inline void parallel_for_table_threads(
     return;
   }
 
-  // Raw OpenMP does not carry the caller's ThreadLocalState (dispatch keys,
-  // grad/inference mode, autocast, ...) to worker threads the way
-  // at::parallel_for does. Capture it here and restore it on each worker,
-  // otherwise ATen calls inside `f` (e.g. at::arange in the nobag path) run
-  // with the wrong thread-local context.
-  const at::ThreadLocalState tls;
+  std::optional<at::ThreadLocalState> tls;
+  if constexpr (kPropagateTls) {
+    tls.emplace();
+  }
 
   bool have_err = false;
   std::exception_ptr eptr;
@@ -71,7 +77,10 @@ inline void parallel_for_table_threads(
   #endif
   {
     try {
-        const at::ThreadLocalStateGuard tls_guard(tls);
+        std::optional<at::ThreadLocalStateGuard> tls_guard;
+        if constexpr (kPropagateTls) {
+          tls_guard.emplace(*tls);
+        }
         #ifdef _OPENMP
         #pragma omp for schedule(dynamic) nowait
         #endif
@@ -112,8 +121,9 @@ inline void parallel_for_table_threads(
 // Same contract as parallel_for_table_threads, but the unit of work is a
 // (table, row-range) chunk instead of a whole table. Used by the NOBAG path,
 // where splitting a table's rows is safe because each output row is an
-// independent gather writing a disjoint output slice.
-template <typename F>
+// independent gather writing a disjoint output slice. See
+// parallel_for_table_threads for kPropagateTls.
+template <bool kPropagateTls = true, typename F>
 inline void parallel_for_row_chunks(
     const std::vector<fbgemm_gpu::RowChunk>& chunks,
     int num_threads,
@@ -125,10 +135,10 @@ inline void parallel_for_row_chunks(
     return;
   }
 
-  // Raw OpenMP does not carry the caller's ThreadLocalState (dispatch keys,
-  // grad/inference mode, autocast, ...) to worker threads the way
-  // at::parallel_for does. See parallel_for_table_threads.
-  const at::ThreadLocalState tls;
+  std::optional<at::ThreadLocalState> tls;
+  if constexpr (kPropagateTls) {
+    tls.emplace();
+  }
 
   bool have_err = false;
   std::exception_ptr eptr;
@@ -139,7 +149,10 @@ inline void parallel_for_row_chunks(
   #endif
   {
     try {
-        const at::ThreadLocalStateGuard tls_guard(tls);
+        std::optional<at::ThreadLocalStateGuard> tls_guard;
+        if constexpr (kPropagateTls) {
+          tls_guard.emplace(*tls);
+        }
         #ifdef _OPENMP
         #pragma omp for schedule(dynamic) nowait
         #endif
@@ -347,17 +360,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT4);
     bool output_is_int8 = o_dtype == SparseType::INT8;
     bool output_is_int4 = o_dtype == SparseType::INT4;
-    {% if not nobag %}
-    constexpr int kINT8QparamsBytes = 8;
-    int64_t total_adjusted_D = total_D;
-    if (o_dtype == SparseType::INT8) {
-      total_adjusted_D += T * kINT8QparamsBytes;
-    }
-    output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
-    if (!output_is_int8 && !output_is_int4) {
-      output.fill_(0);
-    }
-    {% else %}
+    {% if nobag %}
     constexpr int kINT8QparamsBytes = 4; // no bag int8 output aligns with fbgemm weights storage size and layout
     constexpr int kINT4QparamsElems = 8; // scale + bias takes 4 bytes which are 8 int4 elements
     int64_t adjusted_D = D;
@@ -375,6 +378,40 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
       output.fill_(0);
     }
 
+    {% else %}
+    constexpr int kINT8QparamsBytes = 8;
+    int64_t total_adjusted_D = total_D;
+    if (o_dtype == SparseType::INT8) {
+      total_adjusted_D += T * kINT8QparamsBytes;
+    }
+    // Flattened (table x bag) threading is decided before allocation: only that
+    // path zeroes per chunk; every other path keeps the up-front fill. Stats
+    // keep the whole-table path, as on NOBAG (chunking would split a table-level
+    // sample). See calculate_bag_threads for the serial cases.
+    // Log a mistyped enable once; the gate stays off.
+    static const bool bag_parallelism_env_checked = [] {
+      if (const char* v =
+              fbgemm_gpu::take_unrecognized_bag_parallelism_value()) {
+        LOG(WARNING) << "FBGEMM_TBE_BAG_PARALLELISM=" << v
+                     << " is not a recognised boolean (1/0, true/false, "
+                        "on/off, yes/no); bag parallelism stays off.";
+      }
+      return true;
+    }();
+    (void)bag_parallelism_env_checked;
+    const bool bag_parallelism_on =
+        fbgemm_gpu::tbe_bag_parallelism_enabled() && !fbgemm::is_stats_enabled();
+    const int bag_threads =
+        bag_parallelism_on ? fbgemm_gpu::choose_bag_threads(T, B) : 1;
+    // Per-chunk zeroing covers the output only if D_offsets spans
+    // [0, total_D); otherwise keep the up-front fill.
+    const auto* D_offsets_ptr = D_offsets.const_data_ptr<int32_t>();
+    const bool zero_per_chunk = bag_threads > 1 && D_offsets_ptr[0] == 0 &&
+        D_offsets_ptr[T] == total_D;
+    output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    if (!zero_per_chunk && !output_is_int8 && !output_is_int4) {
+      output.fill_(0);
+    }
     {% endif %}
 
 
@@ -435,19 +472,19 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 {% endif %}
             };
 
-            // Processes rows [r0, r1) of table t. Only NOBAG ever passes a
-            // partial range; the pooled path always gets the whole table.
+            // Processes rows [r0, r1) of table t -- indices in NOBAG, bags in
+            // the pooled path. The whole-table call is the special case r0=0,
+            // r1=rows_of(t), which is all the pooled path ever passes unless
+            // the call takes the flattened path.
             const auto run_chunk = [&](int t, int64_t r0, int64_t r1) {
-                {% if not nobag %}
-                (void)r0;
-                (void)r1;
+                {% if nobag %}
+                // int64: a large batch can push the output byte offset past 2^31.
+                const int64_t elems_D = (o_dtype == SparseType::INT4) ? adjusted_D / 2 : adjusted_D;
+                {% else %}
                 const auto* D_offsets_acc = D_offsets.const_data_ptr<int32_t>();
                 const int32_t D_start = D_offsets_acc[t];
                 const int32_t D_end = D_offsets_acc[t + 1];
                 const int32_t D = D_end - D_start;
-                {% else %}
-                // int64: a large batch can push the output byte offset past 2^31.
-                const int64_t elems_D = (o_dtype == SparseType::INT4) ? adjusted_D / 2 : adjusted_D;
                 {% endif %}
 
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
@@ -476,7 +513,15 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     ? *it : weight_tensor.numel();
                 const size_t num_rows =
                     (next_offset - weights_offsets_acc[t]) / D_bytes;
+                {% if nobag %}
                 const index_t* offsets_begin_ptr = offsets_acc + t * B;
+                {% else %}
+                // Rebased to bag r0, so a chunk sees exactly what a whole-table
+                // call would, shifted: offsets, indices, per-sample weights and
+                // the output row all key off this pointer. r0 is 0 unless bag
+                // parallelism is on, which makes this the existing expression.
+                const index_t* offsets_begin_ptr = offsets_acc + t * B + r0;
+                {% endif %}
 
                 bool success = true;
                 constexpr bool has_weight = {{ "true" if weighted else "false" }};
@@ -491,9 +536,28 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const index_t index_size = static_cast<index_t>(r1 - r0);
                 const int64_t D_start = static_cast<int64_t>(chunk_first_row) * elems_D;
                 {% else %}
-                const index_t index_size = offsets_acc[(t + 1) * B] - *offsets_begin_ptr;
+                const int64_t n_bags = r1 - r0;
+                const index_t index_size = offsets_begin_ptr[n_bags] - offsets_begin_ptr[0];
                 {% endif %}
                 const int32_t output_stride = {{ "total_D" if not nobag else "elems_D" }};
+
+                {% if nobag %}
+                output_t* const chunk_out = output_acc + D_start;
+                {% else %}
+                // Row r0, column D_start. int64 product: r0 * total_D can pass
+                // 2^31. output_stride is int32, so total_D is capped there.
+                output_t* const chunk_out =
+                    output_acc + D_start + r0 * static_cast<int64_t>(output_stride);
+                // On the flattened path, zero this chunk's slice (rows [r0, r1),
+                // columns [D_start, D_start + D)) instead of the whole output up
+                // front: that fill runs single-threaded before the parallel
+                // region and dominated the calling thread at large B.
+                if (zero_per_chunk && !output_is_int8 && !output_is_int4) {
+                    for (int64_t b = 0; b < n_bags; ++b) {
+                        std::memset(chunk_out + b * output_stride, 0, D * sizeof(output_t));
+                    }
+                }
+                {% endif %}
 
                 {% if nobag %}
                 TORCH_CHECK(index_size >= 0, "offsets must be non-decreasing, got index_size ", index_size, " for table ", t);
@@ -588,14 +652,14 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     {% endif %}
                 );
                 success = kernel(
-                    {{ "B" if not nobag else "index_size"}},
+                    {{ "static_cast<int>(n_bags)" if not nobag else "index_size"}},
                     index_size,
                     num_rows,
                     reinterpret_cast<const {{ weight_type }}*>(weights),
                     {{ "indices_acc + chunk_first_row" if nobag else "indices_acc + *offsets_begin_ptr" }},
                     offset_ptr,
                     indice_weights_ptr,
-                    reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                    reinterpret_cast<fbgemm_out_t*>(chunk_out));
                 {% endmacro %}
 
                 if (weight_ty == SparseType::FP32) {
@@ -626,11 +690,15 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                         "Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
                 }
                 if (!success) {
+                    // Scan only the bags this chunk owns. Reporting [0, B) from
+                    // a chunked call would walk bags another thread is handling
+                    // and point at the wrong index. Equals [0, B) except on the
+                    // flattened path.
                     fbgemm_gpu::report_embedding_error(
                         t,
                         B,
-                        0,
-                        B,
+                        {{ "static_cast<int>(r0)" if not nobag else "0" }},
+                        {{ "static_cast<int>(r1)" if not nobag else "B" }},
                         offsets_acc,
                         indices_acc,
                         num_rows,
@@ -682,11 +750,28 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
               }
             }
             {% else %}
-            parallel_for_table_threads(0, T, [&](int begin, int end) {
-              for (int t = begin; t < end; ++t) {
+            // Paths decided at allocation (see bag_threads). Gate off keeps TLS
+            // propagation. The flattened path skips it: pooled run_chunk makes
+            // no dispatched ATen calls (raw pointers, fbgemm kernels,
+            // TORCH_CHECK). Restore it if one is added.
+            if (!bag_parallelism_on) {
+              parallel_for_table_threads(0, T, [&](int begin, int end) {
+                for (int t = begin; t < end; ++t) {
+                  run_chunk(t, 0, rows_of(t));
+                }
+              });
+            } else if (bag_threads <= 1) {
+              for (int t = 0; t < T; ++t) {
                 run_chunk(t, 0, rows_of(t));
               }
-            });
+            } else {
+              // rows_of(t) == B here, so the work space is T*B bags.
+              const auto chunks = fbgemm_gpu::build_row_chunks(
+                  T, static_cast<int64_t>(T) * B, bag_threads, rows_of,
+                  fbgemm_gpu::MIN_CHUNK_BAGS);
+              parallel_for_row_chunks</*kPropagateTls=*/false>(
+                  chunks, bag_threads, run_chunk);
+            }
             {% endif %}
             return;
         });

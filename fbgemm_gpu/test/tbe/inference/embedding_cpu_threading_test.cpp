@@ -8,6 +8,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <optional>
+
 #include "fbgemm_gpu/utils/embedding_cpu_threading.h"
 
 using fbgemm_gpu::calculate_num_threads;
@@ -176,4 +179,92 @@ TEST(EmbeddingRowChunkTest, GrainHasAFloor) {
 TEST(EmbeddingRowChunkTest, ThreadCountComesFromRowsNotTables) {
   // cap=1 (the default) is always serial, whatever the row count.
   EXPECT_EQ(fbgemm_gpu::choose_num_threads_for_rows(1'000'000), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Pooled bag-parallel routing (calculate_bag_threads). Every path produces the
+// same bits, so the bitwise worker tests cannot tell which one ran; these pin
+// the decision itself. Arguments: (tables, batch, cap, bags/thread, min_b).
+// ---------------------------------------------------------------------------
+
+namespace {
+constexpr int64_t kMinBags = fbgemm_gpu::DEFAULT_MIN_BAGS_PER_THREAD; // 64
+constexpr int64_t kMinB = 2; // FBGEMM_TBE_BAG_PARALLELISM_MIN_B default
+} // namespace
+
+using fbgemm_gpu::calculate_bag_threads;
+
+// cap=1 (FBGEMM_TBE_MAX_NUM_THREADS unset) is serial whatever the work.
+TEST(EmbeddingBagThreadsTest, DefaultCapIsAlwaysSerial) {
+  for (int64_t b : {1, 2, 980, 100000}) {
+    EXPECT_EQ(calculate_bag_threads(130, b, 1, kMinBags, kMinB), 1)
+        << "cap=1 must stay serial for B=" << b;
+  }
+}
+
+// B below min_b runs serially however many tables there are -- the B=1
+// read-only lookups that regressed when they were table-threaded instead.
+TEST(EmbeddingBagThreadsTest, BelowMinBIsSerialRegardlessOfTables) {
+  EXPECT_EQ(calculate_bag_threads(772, 1, 64, kMinBags, kMinB), 1);
+  EXPECT_EQ(calculate_bag_threads(772, 1, 64, 780, kMinB), 1);
+  // Enough tables that the work threshold alone would thread it.
+  EXPECT_EQ(calculate_bag_threads(2240, 1, 64, kMinBags, kMinB), 1);
+  // min_b=1 disables the guard (A/B): 2240 bags / 64 = 35 threads.
+  EXPECT_EQ(calculate_bag_threads(2240, 1, 64, kMinBags, 1), 35);
+}
+
+// Too little work for two threads stays serial even above min_b.
+TEST(EmbeddingBagThreadsTest, TooLittleWorkIsSerial) {
+  EXPECT_EQ(calculate_bag_threads(4, 8, 64, kMinBags, kMinB), 1); // 32 bags
+  EXPECT_EQ(calculate_bag_threads(0, 980, 64, kMinBags, kMinB), 1);
+}
+
+// One thread per min_bags_per_thread bags, clamped to the cap.
+TEST(EmbeddingBagThreadsTest, GradesUpToCap) {
+  // EPO on-host shard of the heavyweight ads model: 130 tables, B~980.
+  EXPECT_EQ(calculate_bag_threads(130, 980, 64, 780, kMinB), 64); // 163 -> 64
+  EXPECT_EQ(
+      calculate_bag_threads(130, 980, 156, 780, kMinB), 156); // 163 -> 156
+  EXPECT_EQ(calculate_bag_threads(130, 980, 64, kMinBags, kMinB), 64);
+  // Below the cap the count follows the work.
+  EXPECT_EQ(calculate_bag_threads(4, 1024, 8, 1024, kMinB), 4);
+  EXPECT_EQ(calculate_bag_threads(4, 1024, 64, kMinBags, kMinB), 64);
+}
+
+// Boolean env gates: unrecognised values keep the default.
+
+using fbgemm_gpu::get_env_bool;
+using fbgemm_gpu::parse_bool_flag;
+using fbgemm_gpu::take_unrecognized_bag_parallelism_value;
+
+TEST(EmbeddingEnvBoolTest, ParsesCommonSpellingsInAnyCase) {
+  for (const char* s :
+       {"1", "true", "TRUE", "True", "on", "ON", "yes", "Yes"}) {
+    EXPECT_EQ(parse_bool_flag(s), std::optional<bool>(true)) << s;
+  }
+  for (const char* s : {"0", "false", "FALSE", "off", "Off", "no", "NO"}) {
+    EXPECT_EQ(parse_bool_flag(s), std::optional<bool>(false)) << s;
+  }
+  for (const char* s : {"2", "enable", "y", " on", ""}) {
+    EXPECT_EQ(parse_bool_flag(s), std::nullopt) << "'" << s << "'";
+  }
+}
+
+TEST(EmbeddingEnvBoolTest, UnrecognisedValueKeepsDefault) {
+  constexpr const char* kVar = "FBGEMM_TEST_EMBEDDING_ENV_BOOL";
+  setenv(kVar, "On", /*overwrite=*/1);
+  EXPECT_TRUE(get_env_bool(kVar, false));
+  setenv(kVar, "bogus", /*overwrite=*/1);
+  EXPECT_TRUE(get_env_bool(kVar, true));
+  EXPECT_FALSE(get_env_bool(kVar, false));
+  unsetenv(kVar);
+  EXPECT_TRUE(get_env_bool(kVar, true));
+}
+
+// First caller only. The sole test touching this once-per-process state.
+TEST(EmbeddingEnvBoolTest, UnrecognisedBagParallelismValueIsTakenOnce) {
+  setenv("FBGEMM_TBE_BAG_PARALLELISM", "enable", /*overwrite=*/1);
+  EXPECT_STREQ(take_unrecognized_bag_parallelism_value(), "enable");
+  EXPECT_EQ(take_unrecognized_bag_parallelism_value(), nullptr);
+  unsetenv("FBGEMM_TBE_BAG_PARALLELISM");
 }
