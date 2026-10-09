@@ -46,6 +46,9 @@ set(BUILD_VARIANT_ROCM    "rocm")
 set(BUILD_VARIANT_VALUES
   "${BUILD_VARIANT_CPU};${BUILD_VARIANT_CUDA};${BUILD_VARIANT_ROCM}")
 
+# Used to detect ROCm when it is not installed under /opt/rocm
+find_program(FBGEMM_HIPCONFIG_EXECUTABLE hipconfig)
+
 if (DEFINED FBGEMM_BUILD_VARIANT)
   # If FBGEMM_BUILD_VARIANT is set, validate it
   if(NOT FBGEMM_BUILD_VARIANT IN_LIST BUILD_VARIANT_VALUES)
@@ -54,7 +57,8 @@ if (DEFINED FBGEMM_BUILD_VARIANT)
       Allowed values: ${BUILD_VARIANT_VALUES}")
   endif()
 
-elseif(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
+elseif(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH}) OR
+    FBGEMM_HIPCONFIG_EXECUTABLE) AND
   (NOT EXISTS "/bin/nvcc"))
   message(
     "AMD GPU has been detected; will default to ROCm build"

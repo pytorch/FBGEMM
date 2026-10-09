@@ -159,12 +159,8 @@ __configure_fbgemm_gpu_test_rocm () {
   print_exec conda env config vars set ${env_prefix} HIP_VISIBLE_DEVICES="${gpu_indices}"
 
   # Starting from MI250 AMD GPUs support per process XNACK mode change
-  # shellcheck disable=SC2155
-  local rocm_version=$(awk -F'[.-]' '{print $1 * 10000 + $2 * 100 + $3}' /opt/rocm/.info/version-dev)
-  if [ "$rocm_version" -ge 50700 ]; then
-    # shellcheck disable=SC2086
-    print_exec conda env config vars set ${env_prefix} HSA_XNACK=1
-  fi
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} HSA_XNACK=1
 
   # https://github.com/pytorch/FBGEMM/issues/1559
   export ignored_tests=(
