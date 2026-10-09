@@ -1191,6 +1191,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
 
+        self._maybe_enable_resume_eviction_after_get()
+
         # pyre-fixme[20]: Argument `self` expected.
         low_priority, high_priority = torch.cuda.Stream.priority_range()
         # GPU stream for SSD cache eviction
@@ -5955,6 +5957,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         logging.info(
             f"[FREE_MEM Eviction] eviction config, trigger model: FREE_MEM, {self.eviction_free_mem_check_interval_batch=}, {self.eviction_free_mem_threshold_gb=}"
         )
+
+    def _maybe_enable_resume_eviction_after_get(self) -> None:
+        # Cache mode skips the backward write-back, the only other point where
+        # training resumes a paused eviction round.
+        if self._embedding_cache_mode and self.backend_type in (
+            BackendType.DRAM,
+            BackendType.DRAM_SSD,
+        ):
+            self._ssd_db.set_resume_eviction_after_get(True)
 
     def may_trigger_eviction(self) -> None:
         def is_first_tbe() -> bool:

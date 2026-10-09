@@ -12,8 +12,10 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <thread>
 #include <vector>
 
 namespace kv_mem {
@@ -348,6 +350,67 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
         cache.set_kv_zch_eviction_metadata_async(indices, count, engage_rates));
   }
 
+  // pause/resume are no-ops unless is_training, and a MANUAL trigger lets the
+  // test decide when a round starts. A triggered round starts paused.
+  std::shared_ptr<DramKVEmbeddingCache<float>>
+  makeTrainingCacheWithManualEvict() {
+    auto feature_evict_config = c10::make_intrusive<FeatureEvictConfig>(
+        /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MANUAL),
+        /*trigger_strategy=*/
+        static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+        /*trigger_step_interval=*/std::nullopt,
+        /*mem_util_threshold_in_GB=*/std::nullopt,
+        /*ttls_in_mins=*/std::vector<int64_t>{60},
+        /*counter_thresholds=*/std::nullopt,
+        /*counter_decay_rates=*/std::nullopt,
+        /*feature_score_counter_decay_rates=*/std::nullopt,
+        /*training_id_eviction_trigger_count=*/std::nullopt,
+        /*training_id_keep_count=*/std::nullopt,
+        /*enable_eviction_for_feature_score_eviction_policy=*/std::nullopt,
+        /*l2_weight_thresholds=*/std::nullopt,
+        /*embedding_dims=*/std::nullopt);
+    auto hash_size_cumsum = at::tensor({0, 100000}, at::kLong);
+    return std::make_shared<DramKVEmbeddingCache<float>>(
+        EMBEDDING_DIM,
+        /*uniform_init_lower=*/-0.1,
+        /*uniform_init_upper=*/0.1,
+        feature_evict_config,
+        NUM_SHARDS,
+        /*num_threads=*/4,
+        /*row_storage_bitwidth=*/32,
+        /*backend_return_whole_row=*/false,
+        /*enable_async_update=*/false,
+        /*table_dims=*/std::nullopt,
+        hash_size_cumsum,
+        /*is_training=*/true,
+        /*disable_random_init=*/true);
+  }
+
+  // Thin wrapper over EmbeddingKVDB::get, the host callback behind get_cuda.
+  void get(
+      DramKVEmbeddingCache<float>& cache,
+      const std::vector<int64_t>& ids) {
+    auto num = static_cast<int64_t>(ids.size());
+    auto weights =
+        at::zeros({num, EMBEDDING_DIM}, at::TensorOptions().dtype(at::kFloat));
+    cache.get(
+        at::tensor(ids, at::kLong), weights, at::tensor({num}, at::kLong));
+  }
+
+  // Returns false if the eviction round is still ongoing after `timeout`.
+  bool waitForEvictionIdle(
+      DramKVEmbeddingCache<float>& cache,
+      std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (cache.is_evicting()) {
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return false;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return true;
+  }
+
   std::shared_ptr<DramKVEmbeddingCache<float>> dram_cache_;
 };
 
@@ -484,6 +547,53 @@ TEST_F(DramKVEmbeddingCacheTest, HalfPrecisionMetadataDim) {
   int64_t decoded_key = 0;
   std::memcpy(&decoded_key, metadata.data_ptr<at::Half>(), sizeof(int64_t));
   EXPECT_EQ(decoded_key, 5);
+}
+
+// Test: by default get() leaves a triggered eviction round paused; only the
+// backward write-back resumes it.
+TEST_F(DramKVEmbeddingCacheTest, GetLeavesTriggeredEvictionPausedByDefault) {
+  auto cache = makeTrainingCacheWithManualEvict();
+  const std::vector<int64_t> ids{1, 2, 3, 4, 5, 6, 7, 8};
+  set_kv_db_async(*cache, ids);
+  cache->trigger_feature_evict();
+  ASSERT_TRUE(cache->is_evicting());
+
+  get(*cache, ids);
+
+  EXPECT_FALSE(waitForEvictionIdle(*cache, std::chrono::milliseconds(500)));
+  // FeatureEvict destruction blocks on a round that is still paused.
+  cache->wait_until_eviction_done();
+}
+
+// Test: with resume-after-get enabled, get() resumes a triggered eviction
+// round, which then runs to completion.
+TEST_F(DramKVEmbeddingCacheTest, GetResumesTriggeredEvictionWhenEnabled) {
+  auto cache = makeTrainingCacheWithManualEvict();
+  cache->set_resume_eviction_after_get(true);
+  const std::vector<int64_t> ids{1, 2, 3, 4, 5, 6, 7, 8};
+  set_kv_db_async(*cache, ids);
+  cache->trigger_feature_evict();
+  ASSERT_TRUE(cache->is_evicting());
+
+  get(*cache, ids);
+
+  EXPECT_TRUE(waitForEvictionIdle(*cache, std::chrono::seconds(10)));
+  cache->wait_until_eviction_done();
+}
+
+// Test: a get() with zero lookups returns early but still resumes eviction when
+// resume-after-get is enabled.
+TEST_F(DramKVEmbeddingCacheTest, EmptyGetResumesTriggeredEvictionWhenEnabled) {
+  auto cache = makeTrainingCacheWithManualEvict();
+  cache->set_resume_eviction_after_get(true);
+  set_kv_db_async(*cache, std::vector<int64_t>{1, 2, 3, 4, 5, 6, 7, 8});
+  cache->trigger_feature_evict();
+  ASSERT_TRUE(cache->is_evicting());
+
+  get(*cache, std::vector<int64_t>{});
+
+  EXPECT_TRUE(waitForEvictionIdle(*cache, std::chrono::seconds(10)));
+  cache->wait_until_eviction_done();
 }
 
 // Shared fixture for all enable_ssd_backend-parameterized dirty-bit tests, so a

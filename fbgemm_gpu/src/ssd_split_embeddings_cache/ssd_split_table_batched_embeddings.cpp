@@ -1215,6 +1215,13 @@ static auto dram_kv_embedding_cache_wrapper =
             "trigger_feature_evict",
             &DramKVEmbeddingCacheWrapper::trigger_feature_evict)
         .def("is_evicting", &DramKVEmbeddingCacheWrapper::is_evicting)
+        .def(
+            "set_resume_eviction_after_get",
+            &DramKVEmbeddingCacheWrapper::set_resume_eviction_after_get,
+            "",
+            {
+                torch::arg("enable"),
+            })
         .def("set", &DramKVEmbeddingCacheWrapper::set)
         .def(
             "set_range_to_storage",
@@ -1394,6 +1401,13 @@ auto dram_ssd_kv_embedding_cache_wrapper =
             "trigger_feature_evict",
             &DramSsdKVEmbeddingCacheWrapper::trigger_feature_evict)
         .def("is_evicting", &DramSsdKVEmbeddingCacheWrapper::is_evicting)
+        .def(
+            "set_resume_eviction_after_get",
+            &DramSsdKVEmbeddingCacheWrapper::set_resume_eviction_after_get,
+            "",
+            {
+                torch::arg("enable"),
+            })
         .def("set", &DramSsdKVEmbeddingCacheWrapper::set)
         .def(
             "set_range_to_storage",

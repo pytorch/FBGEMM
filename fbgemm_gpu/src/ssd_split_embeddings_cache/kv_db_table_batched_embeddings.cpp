@@ -478,6 +478,7 @@ void EmbeddingKVDB::get(
     XLOG_EVERY_MS(INFO, 60000)
         << "[TBE_ID" << unique_id_ << "]skip get_cuda since number lookups is "
         << num_lookups;
+    maybe_resume_eviction_after_get();
     return;
   }
   auto rec = torch::autograd::profiler::record_function_enter_new(
@@ -558,9 +559,16 @@ void EmbeddingKVDB::get(
     //  prefetch: get() -> set()
     //  forward:
     // backward: set()
+    maybe_resume_eviction_after_get();
   }
   get_total_duration_ += facebook::WallClockUtil::NowInUsecFast() - start_ts;
   rec->record.end();
+}
+
+void EmbeddingKVDB::maybe_resume_eviction_after_get() {
+  if (resume_eviction_after_get_.load()) {
+    resume_ongoing_eviction();
+  }
 }
 
 std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(

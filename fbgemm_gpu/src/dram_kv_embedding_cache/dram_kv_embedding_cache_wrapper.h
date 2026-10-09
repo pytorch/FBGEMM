@@ -207,6 +207,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->is_evicting();
   }
 
+  void set_resume_eviction_after_get(bool enable) {
+    impl_->set_resume_eviction_after_get(enable);
+  }
+
   void set_feature_score_metadata_cuda(
       at::Tensor indices,
       at::Tensor count,
