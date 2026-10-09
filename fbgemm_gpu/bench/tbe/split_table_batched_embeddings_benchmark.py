@@ -2109,7 +2109,10 @@ def device_from_files(  # noqa C901
             batch_size_per_feature_per_rank_file, weights_only=True
         ).tolist()
         assert (
-            len(batch_size_per_feature_per_rank) == T
+            # pyrefly: ignore [bad-argument-type]
+            len(batch_size_per_feature_per_rank)
+            == T
+            # pyrefly: ignore [bad-argument-type]
         ), f"Number of features mismatched, found {len(batch_size_per_feature_per_rank)} from batch_size_per_feature_per_rank but T = {T}"
     else:
         assert (
