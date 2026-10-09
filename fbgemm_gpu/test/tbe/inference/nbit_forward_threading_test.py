@@ -28,6 +28,8 @@ def _run(
     rows_per_thread: Optional[int] = None,
     mode: str = "pooled",
     row_parallelism: Optional[bool] = None,
+    bag_parallelism: Optional[bool] = None,
+    bags_per_thread: Optional[int] = None,
 ) -> torch.Tensor:
     """Run the worker in a fresh process with the given threading env and load
     its forward output. The thread count is read once (cached) at the first
@@ -40,6 +42,9 @@ def _run(
     env.pop("FBGEMM_TBE_MIN_ROWS_PER_THREAD", None)
     env.pop("FBGEMM_NO_JK", None)
     env.pop("FBGEMM_TBE_NOBAG_ROW_PARALLELISM", None)
+    env.pop("FBGEMM_TBE_BAG_PARALLELISM", None)
+    env.pop("FBGEMM_TBE_MIN_BAGS_PER_THREAD", None)
+    env.pop("FBGEMM_TBE_BAG_PARALLELISM_MIN_B", None)
     # Stats collection forces the whole-table path, so it must not leak in from
     # the ambient environment and silently skip the scheduler under test.
     env.pop("FBGEMM_STATS_ENABLE", None)
@@ -57,8 +62,20 @@ def _run(
         # the worker asserts that it took effect.
         env["FBGEMM_NO_JK"] = "1"
         env["FBGEMM_TBE_NOBAG_ROW_PARALLELISM"] = "1" if row_parallelism else "0"
+    if bag_parallelism is not None:
+        # Plain env var (no JK), read once per process like the thread count.
+        env["FBGEMM_TBE_BAG_PARALLELISM"] = "1" if bag_parallelism else "0"
+    if bags_per_thread is not None:
+        env["FBGEMM_TBE_MIN_BAGS_PER_THREAD"] = str(bags_per_thread)
     subprocess.run([worker, out_path, mode], env=env, check=True)
     return torch.load(out_path)
+
+
+def _ran_up_front_fill(out_path: str) -> bool:
+    """Whether that pooled run did the up-front fill (skipped only when
+    flattened)."""
+    with open(out_path + ".fill") as f:
+        return f.read() == "1"
 
 
 @unittest.skipUnless(
@@ -86,12 +103,122 @@ class NBitForwardThreadingTest(unittest.TestCase):
             }
             base = outputs["single_thread"]
             self.assertTrue(torch.isfinite(base).all(), "reference output not finite")
+            self.assertGreater(
+                int(torch.count_nonzero(base)), 0, "reference output is all zeros"
+            )
             for name, out in outputs.items():
                 self.assertEqual(out.shape, base.shape, f"{name}: shape mismatch")
                 self.assertTrue(
                     torch.equal(out, base),
                     f"{name} output differs from single_thread (threading changed the result)",
                 )
+
+    def _assert_bag_chunking_is_bitwise_identical(
+        self, mode: str, flattened: bool = True
+    ) -> None:
+        # The POOLED path splits a table's BAG RANGE across threads and draws
+        # (table, bag-range) pairs from one flat work list, so tables and bags
+        # are balanced by a single dynamic schedule instead of a nested region
+        # per table. The pooled_bags workloads have only 4 tables against 1023
+        # bags, so table parallelism alone cannot use more than 4 threads and
+        # the higher-thread arms are genuinely exercising the bag chunker.
+        #
+        # Every path gives the same bits, so each arm also asserts which path
+        # ran. `flattened=False` (B=1, padded total_D): no arm may take it.
+        #
+        # Outputs must be BITWISE identical. A bag is never split -- its whole
+        # pooling reduction happens inside one kernel call -- and chunks write
+        # disjoint output rows, so no partial sums cross threads and there is no
+        # floating-point reordering however the bags are partitioned.
+        #
+        # Config is (MAX_NUM_THREADS, MIN_BAGS_PER_THREAD, BAG_PARALLELISM,
+        # expects flattened). `gate_off_8T` is the old whole-table path.
+        configs = {
+            "single_thread": (1, None, True, False),
+            "default_no_env": (None, None, True, False),  # serial: cap is 1
+            "gate_off_8T": (8, None, False, False),
+            "2T_bags": (2, 1, True, True),
+            "4T_bags": (4, 1, True, True),
+            "8T_bags": (8, 1, True, True),
+            # Grain small enough to split each table many ways.
+            "8T_fine": (8, 8, True, True),
+            # Bags-per-thread above the total bag count -> serial fallback even
+            # though a thread cap is set.
+            "8T_below_onset": (8, 10_000_000, True, False),
+        }
+        with tempfile.TemporaryDirectory() as d:
+            outputs = {
+                name: _run(
+                    os.path.join(d, f"{mode}_{name}.pt"),
+                    thr,
+                    None,
+                    mode=mode,
+                    bag_parallelism=gate,
+                    bags_per_thread=bpt,
+                )
+                for name, (thr, bpt, gate, _) in configs.items()
+            }
+            for name, (_, _, _, flat) in configs.items():
+                self.assertEqual(
+                    not _ran_up_front_fill(os.path.join(d, f"{mode}_{name}.pt")),
+                    flat and flattened,
+                    f"{mode}/{name}: expected the "
+                    f"{'flattened' if flat and flattened else 'up-front-fill'} "
+                    "path",
+                )
+            base = outputs["single_thread"]
+            self.assertGreater(base.numel(), 0, f"{mode}: reference output is empty")
+            self.assertGreater(
+                int(torch.count_nonzero(base)),
+                0,
+                f"{mode}: reference output is all zeros",
+            )
+            self.assertTrue(
+                torch.isfinite(base).all(), f"{mode}: reference output not finite"
+            )
+            for name, out in outputs.items():
+                self.assertEqual(
+                    out.shape, base.shape, f"{mode}/{name}: shape mismatch"
+                )
+                self.assertTrue(
+                    torch.equal(out, base),
+                    f"{mode}/{name} output differs from single_thread "
+                    "(bag chunking changed the result)",
+                )
+
+    def test_bag_chunking_does_not_change_result(self) -> None:
+        self._assert_bag_chunking_is_bitwise_identical("pooled_bags")
+
+    def test_bag_chunking_mean_pooling_does_not_change_result(self) -> None:
+        # MEAN normalises by each bag's own length, so a chunk given the wrong
+        # bag count divides by the wrong divisor rather than just misplacing a row.
+        self._assert_bag_chunking_is_bitwise_identical("pooled_bags_mean")
+
+    def test_bag_chunking_weighted_does_not_change_result(self) -> None:
+        # Per-sample weights are read from each chunk's rebased offset, so a
+        # wrong offset multiplies the right rows by the wrong weights.
+        self._assert_bag_chunking_is_bitwise_identical("pooled_bags_weighted")
+
+    def test_bag_parallelism_b1_does_not_change_result(self) -> None:
+        # B=1 is below FBGEMM_TBE_BAG_PARALLELISM_MIN_B (default 2), so with
+        # bag parallelism on these lookups run serially rather than falling
+        # back to table threading; every arm must still match serial.
+        self._assert_bag_chunking_is_bitwise_identical("pooled_b1", flattened=False)
+
+    def test_bag_chunking_padded_total_d_keeps_zero_fill(self) -> None:
+        # total_D past D_offsets[T]: every arm must run the up-front fill. The
+        # profiler assertion catches a skipped fill, whatever the allocator.
+        self._assert_bag_chunking_is_bitwise_identical(
+            "pooled_bags_padded_total_d", flattened=False
+        )
+
+    def test_bag_chunking_int64_offsets_does_not_change_result(self) -> None:
+        # int64 indices/offsets hit the other generated kernel instantiation.
+        self._assert_bag_chunking_is_bitwise_identical("pooled_bags_int64")
+
+    def test_bag_chunking_fp32_output_does_not_change_result(self) -> None:
+        # 4-byte output_t for the per-chunk memset.
+        self._assert_bag_chunking_is_bitwise_identical("pooled_bags_fp32")
 
     def _assert_row_chunking_is_bitwise_identical(self, mode: str) -> None:
         # NOBAG splits a table's ROW RANGE across threads, not just whole
@@ -136,6 +263,11 @@ class NBitForwardThreadingTest(unittest.TestCase):
             }
             base = outputs["single_thread"]
             self.assertGreater(base.numel(), 0, f"{mode}: reference output is empty")
+            self.assertGreater(
+                int(torch.count_nonzero(base)),
+                0,
+                f"{mode}: reference output is all zeros",
+            )
             for name, out in outputs.items():
                 self.assertEqual(
                     out.shape, base.shape, f"{mode}/{name}: shape mismatch"
