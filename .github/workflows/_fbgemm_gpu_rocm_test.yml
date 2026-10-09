@@ -128,8 +128,11 @@ jobs:
       # NOTE: Need to install build tools to set up libtbb
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
-    # The container is plain Ubuntu. Install the matrix ROCm version from the
-    # same PyTorch wheel index as the torch install below.
+    # Torch pulls the ROCm runtime for this channel. The devel install below
+    # pins rocm[devel] to that same patch.
+    - name: Install PyTorch-ROCm (${{ inputs.pytorch-channel-version }})
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ inputs.pytorch-channel-version }} rocm/${{ matrix.rocm-version }}
+
     - name: Install ROCm (${{ matrix.rocm-version }})
       run: . $PRELUDE; install_rocm_pip $BUILD_ENV ${{ matrix.rocm-version }} ${{ inputs.pytorch-channel-version }}
 
@@ -140,9 +143,6 @@ jobs:
     # the job when that binary is missing, so this cannot run any earlier.
     - name: Display GPU Info
       run: . $PRELUDE; print_gpu_info
-
-    - name: Install PyTorch-ROCm (${{ inputs.pytorch-channel-version }})
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ inputs.pytorch-channel-version }} rocm/${{ matrix.rocm-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
