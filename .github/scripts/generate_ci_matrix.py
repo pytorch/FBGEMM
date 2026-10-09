@@ -41,6 +41,15 @@ REFS_MAIN = "refs/heads/main"
 
 EVENT_NAME_PUSH = "push"
 
+# The ROCm versions used in CI, oldest to newest, and the container image that
+# provides each version.  This is the only place where ROCm versions and images
+# need to be updated.  The images are listed explicitly because their tags do
+# not follow a fixed pattern across ROCm releases.
+ROCM_CONTAINER_IMAGES = {
+    "7.14": "rocm/dev-ubuntu-22.04:7.14.1-full",
+    "10.0": "rocm/dev-ubuntu-22.04:10.0.0-full",
+}
+
 
 class GitRepo:
     @classmethod
@@ -281,7 +290,7 @@ class BuildConfigScheme:
         if self.target == TARGET_HSTU:
             # FBGEMM HSTU is expensive, so conserve CI resources
             return ["3.14"]
-        if self.variant == VARIANT_ROCM:
+        if self.variant == VARIANT_ROCM and self.jobtype != JOBTYPE_INSTALL:
             return ["3.14"]
         return ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
@@ -310,10 +319,13 @@ class BuildConfigScheme:
             return ["12.6.3", "12.8.1", "13.0.2"]
 
     def rocm_versions(self) -> list[str]:
+        versions = list(ROCM_CONTAINER_IMAGES)
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
-            return ["7.1"]
-        else:
-            return ["7.0", "7.1"]
+            return versions[-1:]
+        if self.jobtype != JOBTYPE_BUILD:
+            # ROCm machines are limited, so run GPU jobs on the latest ROCm only
+            return versions[-1:]
+        return versions
 
     def host_machines(self) -> list[dict[str, str]]:
         # For the list of available instance types:
@@ -355,7 +367,10 @@ class BuildConfigScheme:
                 return [{"arch": "x86", "instance": "mt-l-x86aavx2-11-41-a10g"}]
 
         elif self.variant == VARIANT_ROCM:
-            return [{"arch": "x86", "instance": "linux.rocm.gpu.2"}]
+            if self.jobtype == JOBTYPE_BUILD:
+                return [{"arch": "x86", "instance": "mt-l-x86iavx512-94-192"}]
+            else:
+                return [{"arch": "x86", "instance": "linux.rocm.gpu.ecosystem.mi350.1"}]
 
         else:
             return []

@@ -210,6 +210,9 @@ __configure_fbgemm_gpu_build_rocm () {
   # shellcheck disable=SC2206
   local rocm_version_arr=(${BUILD_ROCM_VERSION//./ })
 
+  local rocm_dir
+  rocm_dir=$(rocm_install_dir) || return 1
+
   # By default, we build for a limited number of target architectures to save on
   # build time.  This list needs to be updated if the CI ROCm machines have
   # different hardware.
@@ -251,13 +254,19 @@ __configure_fbgemm_gpu_build_rocm () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} HIPCC_VERBOSE=1
 
+  # Hip.cmake reads ROCM_PATH, so set it to make CMake use the same ROCm as
+  # HIP_ROOT_DIR below
+  echo "[BUILD] Setting ROCM_PATH ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} ROCM_PATH="${rocm_dir}"
+
   # For more info on rocmcc flags:
   #   https://rocm.docs.amd.com/en/docs-6.1.1/reference/rocmcc.html
   echo "[BUILD] Setting ROCm build args ..."
   build_args+=(
     --build-variant=rocm
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
-    -DHIP_ROOT_DIR=/opt/rocm
+    -DHIP_ROOT_DIR="${rocm_dir}"
     # ROCm CMake complains about missing AMDGPU_TARGETS, so we explicitly set this
     -DAMDGPU_TARGETS="${arch_list}"
   )
@@ -421,7 +430,7 @@ __configure_fbgemm_gpu_build () {
 
   elif [ "$fbgemm_build_variant" == "rocm" ]; then
     echo "[BUILD] Configuring build as ROCm variant ..."
-    __configure_fbgemm_gpu_build_rocm "${fbgemm_variant_targets}"
+    __configure_fbgemm_gpu_build_rocm "${fbgemm_variant_targets}" || return 1
 
   else
     echo "[BUILD] Configuring build as CUDA variant (this is the default behavior) ..."
