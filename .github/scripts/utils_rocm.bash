@@ -71,23 +71,12 @@ install_rocm_pip () {
     pip_pre="--pre"
   fi
 
-  # ==7.14 matches only 7.14.0. Torch depends on rocm==7.14.*, which is the
-  # newest patch on the channel. Read that installed version and pin devel to it.
-  echo "[INSTALL] Reading the ROCm version installed with PyTorch ..."
-  local rocm_installed
-  # shellcheck disable=SC2086
-  rocm_installed=$(conda run ${env_prefix} python -m pip show rocm | awk '/^Version:/ {print $2; exit}')
-  if [ -z "${rocm_installed}" ]; then
-    echo "[INSTALL] rocm is not installed. Install PyTorch before this step so the devel tree matches torch's runtime." >&2
-    return 1
-  fi
-
   echo "[INSTALL] Installing ROCm ${rocm_installed} devel from ${pip_channel} ..."
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda run ${env_prefix} python -m pip install \
     ${pip_pre} \
     --index-url "${pip_channel}" \
-    "rocm[devel]==${rocm_installed}") || return 1
+    "rocm[devel]") || return 1
 
   # Headers and lib/cmake are packed in rocm-sdk-devel and only appear after
   # that tree is expanded. rocm-sdk path --root expands it and prints the root
