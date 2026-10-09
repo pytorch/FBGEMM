@@ -411,7 +411,6 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             lxu_cache_state_cpu = emb.lxu_cache_state.cpu()
 
             NOT_FOUND = np.iinfo(np.int32).max
-            ASSOC = 32
 
             for loc, linear_idx in zip(
                 lxu_cache_locations.cpu().numpy().tolist(),
@@ -468,7 +467,6 @@ class SSDInferenceCacheLockingTest(unittest.TestCase):
         E = int(1e4)
         D = 128
         cache_sets = 64
-        ASSOC = 32  # hardcoded in FBGEMM
 
         emb = SSDIntNBitTableBatchedEmbeddingBags(
             embedding_specs=[("", E, D, SparseType.FP32)],
@@ -1690,11 +1688,11 @@ class SSDInferenceAMDSupportTest(unittest.TestCase):
     # ─── ASSOC constant tests ────────────────────────────────────────────
 
     def test_assoc_value_matches_platform(self) -> None:
-        """ASSOC should be 64 on ROCm, 32 on CUDA."""
-        if self.IS_ROCM:
-            self.assertEqual(ASSOC, 64, "ASSOC must be 64 on ROCm (64-wide wavefronts)")
-        else:
-            self.assertEqual(ASSOC, 32, "ASSOC must be 32 on CUDA (32-wide warps)")
+        """ASSOC should match the active device's warp/wavefront width."""
+        self.assertEqual(
+            ASSOC,
+            torch.cuda.get_device_properties(torch.cuda.current_device()).warp_size,
+        )
 
     def test_assoc_is_power_of_two(self) -> None:
         """ASSOC must be a power of 2 for set-associative cache indexing."""

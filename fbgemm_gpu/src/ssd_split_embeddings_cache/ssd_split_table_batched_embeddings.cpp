@@ -602,8 +602,8 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
 
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
         // backend returns whole row, so we need to replace the first 8 bytes
-        // with the sliced_ids
-        replace_weights_id(weights, sliced_ids);
+        // with the globally linearized IDs stored by the backend.
+        replace_weights_id(weights, sliced_ids + row_offset_);
       }
       return weights;
     }
@@ -686,6 +686,22 @@ void KVTensorWrapper::set_weights_and_ids(
       << "ids and weights must have same # rows";
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
   auto linearized_ids = ids + row_offset_;
+  if (db_->get_backend_return_whole_row()) {
+    const int64_t metaheader_width = db_->get_metaheader_width_in_front();
+    const int64_t storage_width = db_->get_max_D() + metaheader_width;
+    TORCH_CHECK(
+        weights.size(1) <= db_->get_max_D(),
+        "weights exceed the payload width for whole-row KV storage");
+    auto weights_with_metaheader =
+        at::zeros({weights.size(0), storage_width}, weights.options());
+    weights_with_metaheader
+        .slice(1, metaheader_width, metaheader_width + weights.size(1))
+        .copy_(weights);
+    replace_weights_id(weights_with_metaheader, linearized_ids);
+    db_->set_kv_to_storage(linearized_ids, weights_with_metaheader);
+    return;
+  }
+
   int pad_right =
       db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {

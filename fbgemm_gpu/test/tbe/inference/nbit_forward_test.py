@@ -140,6 +140,42 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
             "Operator outputs int4 tensors which do not support opcheck tests"
         ),
     },
+    "test_autograd_registration__test_nbit_forward_cpu_seq_int4_unaligned_row": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
+    "test_faketensor__test_nbit_forward_cpu_seq_int4_unaligned_row": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
+    "test_schema__test_nbit_forward_cpu_seq_int4_unaligned_row": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
+    "test_autograd_registration__test_nbit_forward_cpu_seq_ragged_matches_flat": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
+    "test_faketensor__test_nbit_forward_cpu_seq_ragged_matches_flat": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
+    "test_schema__test_nbit_forward_cpu_seq_ragged_matches_flat": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
+    "test_faketensor__test_nbit_forward_cpu_seq_no_indices": [
+        unittest.skip("Operator outputs quantized tensors unsupported by FakeTensor"),
+    ],
+    "test_faketensor__test_nbit_forward_cpu_seq_rejects_index_at_row_count": [
+        unittest.skip("Operator outputs quantized tensors unsupported by FakeTensor"),
+    ],
     "test_pt2_compliant_tag_fbgemm_int_nbit_split_embedding_codegen_lookup_function": [
         unittest.skip(
             "Operator outputs int4 tensors which do not support opcheck tests"

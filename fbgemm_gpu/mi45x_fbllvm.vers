@@ -1,0 +1,6 @@
+# Version fbcode's LLVM definitions so they cannot satisfy versioned references
+# from the newer LLVM bundled with TheRock's COMGR runtime on MI45x.
+FBLLVM_21 {
+  global:
+    *;
+};
