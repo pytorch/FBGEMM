@@ -1284,6 +1284,20 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return has_active_snapshot_.load(std::memory_order_acquire);
   }
 
+  /// While reads are served from a snapshot, everything L2 holds is at most
+  /// as new as that snapshot, and the live DB may already be ahead of it
+  /// because a checkpoint load is streaming into it. Writing an L2 eviction
+  /// down in that state would overwrite a newly loaded row with a stale one,
+  /// so suppress the write-back until the read path goes back to the live DB.
+  ///
+  /// The background fill thread reads this when it processes a queued fill,
+  /// not when the fill was queued. Going back to the live DB right after a
+  /// load therefore lets a fill queued against the old snapshot write a stale
+  /// row down; after a load, install a post-load snapshot instead.
+  bool l2_eviction_write_back_enabled() const override {
+    return !has_active_snapshot();
+  }
+
   /// Reads currently registered against the active snapshot. 0 when no
   /// snapshot is installed. For tests and diagnostics; inherently racy under
   /// concurrent lookups.

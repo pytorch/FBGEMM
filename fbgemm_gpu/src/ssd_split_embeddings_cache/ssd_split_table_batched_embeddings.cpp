@@ -1081,6 +1081,9 @@ static auto embedding_rocks_db_wrapper =
             "get_active_snapshot_read_count",
             &EmbeddingRocksDBWrapper::get_active_snapshot_read_count)
         .def(
+            "invalidate_l2_cache",
+            &EmbeddingRocksDBWrapper::invalidate_l2_cache)
+        .def(
             "delete_rocksdb_checkpoint_dir",
             &EmbeddingRocksDBWrapper::delete_rocksdb_checkpoint_dir)
         .def("get_snapshot_count", &EmbeddingRocksDBWrapper::get_snapshot_count)

@@ -10,6 +10,7 @@
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
 #include <algorithm>
+#include <chrono>
 #include "common/time/Time.h"
 #include "kv_db_cuda_utils.h"
 #include "torch/csrc/autograd/record_function_ops.h"
@@ -112,9 +113,11 @@ EmbeddingKVDB::EmbeddingKVDB(
     cache_config.num_shards = num_shards_;
     cache_config.item_size_bytes = max_D_ * ele_size_bytes;
     cache_config.max_D_ = max_D_;
+    l2_cache_config_ = cache_config;
     l2_cache_ =
         std::make_unique<l2_cache::CacheLibCache>(cache_config, unique_id);
   } else {
+    l2_cache_config_ = std::nullopt;
     l2_cache_ = nullptr;
   }
   XLOG(INFO) << "[TBE_ID" << unique_id_ << "] L2 created with " << num_shards_
@@ -191,8 +194,20 @@ void EmbeddingKVDB::update_cache_and_storage(
       const auto& [evicted_indices, evicted_weights, evicted_count] =
           evicted_tuples_opt.value();
 
-      set_kv_db_async(evicted_indices, evicted_weights, evicted_count, mode)
-          .wait();
+      if (l2_eviction_write_back_enabled()) {
+        set_kv_db_async(evicted_indices, evicted_weights, evicted_count, mode)
+            .wait();
+      } else {
+        // Snapshot-isolated reads: the rows in L2 came from the snapshot, so
+        // they are older than what the backend now holds. Writing them down
+        // would overwrite rows a concurrent checkpoint load has already
+        // landed, so drop them instead. Nothing is lost because the read path
+        // never produces a value the backend does not already have.
+        XLOG_EVERY_MS(INFO, 60000)
+            << "[TBE_ID" << unique_id_
+            << "]dropping L2-evicted rows instead of writing them down, "
+               "the read path is snapshot isolated";
+      }
       // no need to resume eviction given it is only applicable to dram kv
       // solution
     }
@@ -414,6 +429,52 @@ double EmbeddingKVDB::get_l2_cache_hit_rate() const {
 
 void EmbeddingKVDB::reset_l2_cache() {
   l2_cache_ = nullptr;
+  l2_cache_config_ = std::nullopt;
+}
+
+void EmbeddingKVDB::invalidate_l2_cache() {
+  if (!l2_cache_config_.has_value()) {
+    // DBG3: the caller reports this case positively as `l2=disabled` on its
+    // one-line switch record, read from the Python-side l2_cache_size, so at
+    // INFO this said nothing the reader did not already have. Kept because
+    // when the suspicion is that L2 is shadowing a switched read view, this
+    // is the line that proves the rebuild was asked for and declined.
+    XLOG(DBG3) << "[SSD_COMMIT] l2_invalidate_noop tbe=" << unique_id_
+               << " reason=l2_disabled";
+    return;
+  }
+  const auto invalidateStart = std::chrono::steady_clock::now();
+  // Drain the background filling thread first. Anything still queued would be
+  // inserted into the cache we are about to throw away, and those inserts also
+  // write down L2 evictions to the backend, which must not race the rebuild.
+  wait_util_filling_work_done();
+  std::unique_lock<std::mutex> lock(l2_cache_mtx_);
+  // Cachelib exposes no bulk erase, so drop the allocator and build a fresh
+  // one with the same geometry. Cached rows are discarded, not written down.
+  // Freed before the rebuild so the host never holds two caches at once.
+  l2_cache_ = nullptr;
+  l2_cache_ =
+      std::make_unique<l2_cache::CacheLibCache>(*l2_cache_config_, unique_id_);
+  // DBG3, not INFO: the caller times this same call at the Python boundary
+  // and reports it as `l2=<n>s` on its one-line switch record, so at INFO
+  // this was the same fact twice in two different units. What survives here
+  // is what that line cannot carry -- the cache geometry and microsecond
+  // resolution -- for when the rebuild itself is the suspect. The timing
+  // covers the fill-queue drain above, which is the part that can block.
+  XLOG(DBG3) << "[SSD_COMMIT] l2_invalidated tbe=" << unique_id_
+             << " shards=" << num_shards_ << " max_D=" << max_D_
+             << " elapsed_us="
+             << std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - invalidateStart)
+                    .count();
+}
+
+void EmbeddingKVDB::resize_l2_cache_for_testing(size_t cache_size_bytes) {
+  if (!l2_cache_config_.has_value()) {
+    return;
+  }
+  l2_cache_config_->cache_size_bytes = cache_size_bytes;
+  invalidate_l2_cache();
 }
 
 void EmbeddingKVDB::set_backend_return_whole_row(
