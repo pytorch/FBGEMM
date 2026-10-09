@@ -164,7 +164,7 @@ def benchmark_cpu_requests_mp(
         torch.multiprocessing.set_sharing_strategy(strategy)
 
     cpu_bm_barrier.create_barrier(num_copies)
-    worker_pool = torch.multiprocessing.Pool(num_copies)
+    worker_pool = torch.multiprocessing.get_context("spawn").Pool(num_copies)
 
     if num_warmups > 0:
         asyncres = []
