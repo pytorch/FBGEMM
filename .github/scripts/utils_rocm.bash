@@ -35,10 +35,11 @@ rocm_install_dir () {
 }
 
 install_rocm_pip () {
-  # Install ROCm into the Conda env from the same PyTorch wheel index used for
-  # the torch install. nightly + rocm/7.14 resolves to
-  # https://download.pytorch.org/whl/nightly/rocm7.14/, which publishes
-  # rocm[devel]. The version is the CI matrix value (for example 7.14 or 10.0).
+  # Install the ROCm devel extra from the same PyTorch wheel index as torch.
+  # nightly + rocm/7.14 resolves to
+  # https://download.pytorch.org/whl/nightly/rocm7.14/. The matrix version
+  # selects that index. The package pin is the rocm version torch already
+  # installed, so the devel tree matches torch's runtime patch.
   local env_name="$1"
   local rocm_version="$2"
   local pytorch_channel_version="${3:-nightly}"
@@ -70,12 +71,23 @@ install_rocm_pip () {
     pip_pre="--pre"
   fi
 
-  echo "[INSTALL] Installing ROCm ${rocm_version} from ${pip_channel} ..."
+  # ==7.14 matches only 7.14.0. Torch depends on rocm==7.14.*, which is the
+  # newest patch on the channel. Read that installed version and pin devel to it.
+  echo "[INSTALL] Reading the ROCm version installed with PyTorch ..."
+  local rocm_installed
+  # shellcheck disable=SC2086
+  rocm_installed=$(conda run ${env_prefix} python -m pip show rocm | awk '/^Version:/ {print $2; exit}')
+  if [ -z "${rocm_installed}" ]; then
+    echo "[INSTALL] rocm is not installed. Install PyTorch before this step so the devel tree matches torch's runtime." >&2
+    return 1
+  fi
+
+  echo "[INSTALL] Installing ROCm ${rocm_installed} devel from ${pip_channel} ..."
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda run ${env_prefix} python -m pip install \
     ${pip_pre} \
     --index-url "${pip_channel}" \
-    "rocm[devel]==${rocm_version}") || return 1
+    "rocm[devel]==${rocm_installed}") || return 1
 
   # Headers and lib/cmake are packed in rocm-sdk-devel and only appear after
   # that tree is expanded. rocm-sdk path --root expands it and prints the root
@@ -106,7 +118,7 @@ install_rocm_pip () {
   publish_rocm_library_path "${env_name}" "${rocm_dir}" || return 1
   publish_rocm_bin_path "${rocm_dir}" || return 1
 
-  echo "[INSTALL] Successfully installed ROCm ${rocm_version}"
+  echo "[INSTALL] Successfully installed ROCm ${rocm_installed}"
 }
 
 ensure_libamd_smi_soname () {
