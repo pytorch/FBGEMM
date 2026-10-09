@@ -129,6 +129,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a15046e704688bd9fc930567ec176e866" id="r_a15046e704688bd9fc930567ec176e866"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a15046e704688bd9fc930567ec176e866">maybe_evict</a> ()</td></tr>
 <tr class="memitem:a9ef4e4f1a94c7994e58011a3c276c9cf" id="r_a9ef4e4f1a94c7994e58011a3c276c9cf"><td class="memItemLeft">virtual size_t&#160;</td><td class="memItemRight"><a class="el" href="#a9ef4e4f1a94c7994e58011a3c276c9cf">get_map_used_memsize_in_bytes</a> () const</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft">std::vector&lt; double &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
+<tr class="memitem:a0496498b933dbcb6cfa7a6623df15bc0" id="r_a0496498b933dbcb6cfa7a6623df15bc0"><td class="memItemLeft">virtual bool&#160;</td><td class="memItemRight"><a class="el" href="#a0496498b933dbcb6cfa7a6623df15bc0">l2_eviction_write_back_enabled</a> () const</td></tr>
+<tr class="memitem:aaebbc42c26c398bec2abb2614bfaeffa" id="r_aaebbc42c26c398bec2abb2614bfaeffa"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aaebbc42c26c398bec2abb2614bfaeffa">invalidate_l2_cache</a> ()</td></tr>
+<tr class="memitem:aa3aa254d79fa50d50e96756c84c24023" id="r_aa3aa254d79fa50d50e96756c84c24023"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aa3aa254d79fa50d50e96756c84c24023">resize_l2_cache_for_testing</a> (size_t cache_size_bytes)</td></tr>
 <tr class="memitem:aa7d2bd75a8b0a0026b041075e9cab46b" id="r_aa7d2bd75a8b0a0026b041075e9cab46b"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#aa7d2bd75a8b0a0026b041075e9cab46b">get_unique_id</a> () const</td></tr>
 <tr class="memitem:a7018d9315165cf036f89adbcfb5a3e4b" id="r_a7018d9315165cf036f89adbcfb5a3e4b"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a7018d9315165cf036f89adbcfb5a3e4b">get_estimated_num_keys</a> ()</td></tr>
 <tr class="memitem:a4c05590f980ab14c02331f1323b62091" id="r_a4c05590f980ab14c02331f1323b62091"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a4c05590f980ab14c02331f1323b62091">get_total_rows_written</a> () const</td></tr>
@@ -519,6 +522,55 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 
 </div>
 </div>
+<a id="aaebbc42c26c398bec2abb2614bfaeffa" name="aaebbc42c26c398bec2abb2614bfaeffa"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaebbc42c26c398bec2abb2614bfaeffa">&#9670;&#160;</a></span>invalidate_l2_cache()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void invalidate_l2_cache </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Empty the L2 (host) cache while keeping it enabled.</p>
+<p>Cachelib has no bulk erase, so the cache is emptied by destroying the allocator and rebuilding from the original config. Unlike reset_l2_cache(), L2 is left empty and immediately usable.</p>
+<p>Needed after a read-snapshot switch: L2 sits in front of the backend, so a cached row is returned without the read reaching rocksdb and the switch would not affect it.</p>
+<p>Contents are dropped, not written down. That is safe only when the cache holds nothing newer than what the backend already has, which is the case in eval because every write-down path is gated on training mode. Do not call this on a training TBE with a dirty cache.</p>
+<p>Waits for the background fill queue to drain and takes the same l2_cache_mtx_ that <a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get()</a>/set() hold, so it is safe against concurrent lookups. No-op when L2 is disabled. </p>
+
+</div>
+</div>
+<a id="a0496498b933dbcb6cfa7a6623df15bc0" name="a0496498b933dbcb6cfa7a6623df15bc0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0496498b933dbcb6cfa7a6623df15bc0">&#9670;&#160;</a></span>l2_eviction_write_back_enabled()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual bool l2_eviction_write_back_enabled </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Whether rows evicted out of L2 have to be written down to the backend.</p>
+<p>Normally yes: L2 is write-back and an evicted row may be the only copy of the newest value. Must be false while the read path is served from a snapshot, when L2 holds pre-load values that would clobber rows a concurrent load has already written. Defaults to the legacy behaviour. </p>
+
+</div>
+</div>
 <a id="a15046e704688bd9fc930567ec176e866" name="a15046e704688bd9fc930567ec176e866"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a15046e704688bd9fc930567ec176e866">&#9670;&#160;</a></span>maybe_evict()</h2>
 
@@ -546,6 +598,25 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 <p>This method is called in between get and set to check if feature eviction should be triggered based on the configured eviction strategy. </p>
 
 <p>Reimplemented in <a class="el" href="classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#a089b321f90b6319a7c99cf01406cbd76">DramSsdKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a089b321f90b6319a7c99cf01406cbd76">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
+
+</div>
+</div>
+<a id="aa3aa254d79fa50d50e96756c84c24023" name="aa3aa254d79fa50d50e96756c84c24023"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa3aa254d79fa50d50e96756c84c24023">&#9670;&#160;</a></span>resize_l2_cache_for_testing()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void resize_l2_cache_for_testing </td>
+          <td>(</td>
+          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>cache_size_bytes</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>TEST ONLY. Rebuild L2 empty with a capacity of &lt;cache_size_bytes&gt;.</p>
+<p>The constructor sizes L2 in whole GB, so forcing an eviction in a unit test would otherwise mean writing gigabytes of rows. No-op when L2 is disabled. </p>
 
 </div>
 </div>
