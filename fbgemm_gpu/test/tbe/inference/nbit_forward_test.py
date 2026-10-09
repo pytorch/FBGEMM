@@ -764,6 +764,140 @@ class NBitFowardTest(NBitFowardTestCommon):
         self.assertEqual(tuple(output.shape), (2, sum(Ds)))
         self.assertTrue(torch.isfinite(output.float()).all().item())
 
+    def _execute_cpu_pooled_zero_fill(
+        self,
+        weights_ty: SparseType,
+        D: int,
+        output_dtype: SparseType,
+        Ls: list[int],
+        prune_positions: set[int],
+        weighted: bool,
+    ) -> None:
+        """Run a single-table CPU SUM-pooled nbit forward with every embedding row
+        set to 1.0; empty and fully-pruned bags must come back exactly 0."""
+        E = 100
+        D_alignment = (
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
+        )
+        D = round_up(D, D_alignment)
+
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[("", E, D, weights_ty, EmbeddingLocation.HOST)],
+            output_dtype=output_dtype,
+            pooling_mode=PoolingMode.SUM,
+            device="cpu",
+        )
+        op.fill_random_weights()
+
+        quant_weights, quant_scale_shift = quantize_embs(torch.ones(E, D), weights_ty)
+        weights, scale_shift = op.split_embedding_weights()[0]
+        weights.copy_(quant_weights)
+        if quant_scale_shift is not None:
+            self.assertIsNotNone(scale_shift)
+            scale_shift.copy_(quant_scale_shift)
+
+        B = len(Ls)
+        total = sum(Ls)
+        offsets = torch.tensor([0, *np.cumsum(Ls)], dtype=torch.int)
+        indices = torch.randint(0, E, (total,), dtype=torch.int)
+        per_sample_weights = (
+            torch.arange(total, dtype=torch.float) if weighted else None
+        )
+
+        prune_mask = torch.zeros(total, dtype=torch.bool)
+        for p in prune_positions:
+            prune_mask[p] = True
+        pruned_indices = indices.clone()
+        pruned_indices[prune_mask] = -1
+
+        kept = (~prune_mask).float()
+        if weighted:
+            assert per_sample_weights is not None
+            contrib = per_sample_weights * kept
+        else:
+            contrib = kept
+        expected = torch.zeros(B, D, dtype=torch.float)
+        for b in range(B):
+            start, end = int(offsets[b]), int(offsets[b + 1])
+            expected[b, :] = contrib[start:end].sum()
+
+        output = op(
+            indices=pruned_indices,
+            offsets=offsets,
+            per_sample_weights=per_sample_weights,
+        )
+
+        actual = output.float().cpu()
+        zero_rows = (expected == 0).all(dim=1)
+        torch.testing.assert_close(
+            actual[zero_rows],
+            expected[zero_rows],
+            atol=0.0,
+            rtol=0.0,
+            equal_nan=False,
+        )
+        torch.testing.assert_close(
+            actual[~zero_rows],
+            expected[~zero_rows],
+            atol=1.0e-2,
+            rtol=1.0e-2,
+            equal_nan=False,
+        )
+
+    # Only the quantized (int8/int4) SpMDM kernels honor the -1 prune
+    # sentinel; the full-precision kernel aborts on any negative index.
+    _PRUNE_SENTINEL_SUPPORTED: frozenset[SparseType] = frozenset(
+        {SparseType.INT8, SparseType.INT4}
+    )
+
+    def test_nbit_forward_cpu_empty_and_pruned_bags_zero_fill(self) -> None:
+        """Empty and fully-pruned bags must come back exactly 0.
+
+        Empty bags (L == 0) at the start, middle, and end for every weight
+        type; int8/int4 additionally get ~1/3 of indices pruned to -1.
+        """
+        Ls = [0, 1, 0, 3, 4, 0, 7, 8]
+        total = sum(Ls)
+        all_prune_positions = {i for i in range(total) if i % 3 == 0}
+        cases = [
+            (SparseType.INT8, 24, SparseType.FP32),
+            (SparseType.INT4, 24, SparseType.FP16),
+            (SparseType.FP16, 32, SparseType.BF16),
+        ]
+        for weights_ty, D, output_dtype in cases:
+            prune_positions = (
+                all_prune_positions
+                if weights_ty in self._PRUNE_SENTINEL_SUPPORTED
+                else set()
+            )
+            for weighted in (False, True):
+                with self.subTest(
+                    weights_ty=weights_ty,
+                    output_dtype=output_dtype,
+                    weighted=weighted,
+                ):
+                    self._execute_cpu_pooled_zero_fill(
+                        weights_ty, D, output_dtype, Ls, prune_positions, weighted
+                    )
+
+    def test_nbit_forward_cpu_out_of_bounds_index_stays_defined(self) -> None:
+        """An out-of-bounds index is clamped to row 0, so output stays finite."""
+        E, D = 100, 16
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[("", E, D, SparseType.INT8, EmbeddingLocation.HOST)],
+            output_dtype=SparseType.FP16,
+            pooling_mode=PoolingMode.SUM,
+            device="cpu",
+        )
+        op.fill_random_weights()
+
+        offsets = torch.tensor([0, 1, 2], dtype=torch.int)
+        indices = torch.tensor([0, E + 5], dtype=torch.int)
+        output = op(indices=indices, offsets=offsets)
+
+        self.assertEqual(tuple(output.shape), (2, D))
+        self.assertTrue(torch.isfinite(output.float()).all().item())
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),
