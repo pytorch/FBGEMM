@@ -306,6 +306,10 @@ snapshot_ptr_t SnapshotHandle::get_snapshot_for_shard(size_t shard) const {
   return shard_snapshots_[shard];
 }
 
+SnapshotReadGuard::~SnapshotReadGuard() {
+  db_->end_read_snapshot(handle_);
+}
+
 CheckpointHandle::CheckpointHandle(
     EmbeddingRocksDB* db,
     const std::string& tbe_uuid,
@@ -1060,6 +1064,22 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::wait_util_filling_work_done)
         .def("create_snapshot", &EmbeddingRocksDBWrapper::create_snapshot)
         .def("release_snapshot", &EmbeddingRocksDBWrapper::release_snapshot)
+        .def("get_snapshot_id", &EmbeddingRocksDBWrapper::get_snapshot_id)
+        .def(
+            "is_valid_snapshot_id",
+            &EmbeddingRocksDBWrapper::is_valid_snapshot_id)
+        .def(
+            "set_active_snapshot",
+            &EmbeddingRocksDBWrapper::set_active_snapshot)
+        .def(
+            "clear_active_snapshot",
+            &EmbeddingRocksDBWrapper::clear_active_snapshot)
+        .def(
+            "has_active_snapshot",
+            &EmbeddingRocksDBWrapper::has_active_snapshot)
+        .def(
+            "get_active_snapshot_read_count",
+            &EmbeddingRocksDBWrapper::get_active_snapshot_read_count)
         .def(
             "delete_rocksdb_checkpoint_dir",
             &EmbeddingRocksDBWrapper::delete_rocksdb_checkpoint_dir)
@@ -1195,6 +1215,13 @@ static auto dram_kv_embedding_cache_wrapper =
             "trigger_feature_evict",
             &DramKVEmbeddingCacheWrapper::trigger_feature_evict)
         .def("is_evicting", &DramKVEmbeddingCacheWrapper::is_evicting)
+        .def(
+            "set_resume_eviction_after_get",
+            &DramKVEmbeddingCacheWrapper::set_resume_eviction_after_get,
+            "",
+            {
+                torch::arg("enable"),
+            })
         .def("set", &DramKVEmbeddingCacheWrapper::set)
         .def(
             "set_range_to_storage",
@@ -1374,6 +1401,13 @@ auto dram_ssd_kv_embedding_cache_wrapper =
             "trigger_feature_evict",
             &DramSsdKVEmbeddingCacheWrapper::trigger_feature_evict)
         .def("is_evicting", &DramSsdKVEmbeddingCacheWrapper::is_evicting)
+        .def(
+            "set_resume_eviction_after_get",
+            &DramSsdKVEmbeddingCacheWrapper::set_resume_eviction_after_get,
+            "",
+            {
+                torch::arg("enable"),
+            })
         .def("set", &DramSsdKVEmbeddingCacheWrapper::set)
         .def(
             "set_range_to_storage",

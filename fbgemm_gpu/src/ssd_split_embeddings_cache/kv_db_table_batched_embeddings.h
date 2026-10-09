@@ -53,6 +53,21 @@ namespace kv_db {
 
 /// @ingroup embedding-ssd
 ///
+/// @brief Registration that pins the version of storage one logical read is
+/// served from.
+///
+/// A backend whose read view can change underneath a running read returns one
+/// of these from acquire_read_guard(); EmbeddingKVDB::get() holds it for the
+/// whole lookup, so the L2 hit/miss split and the fetch filling those misses
+/// cannot land on opposite sides of a view switch. Backends with a single,
+/// unswitchable view return null.
+class ReadGuard {
+ public:
+  virtual ~ReadGuard() = default;
+};
+
+/// @ingroup embedding-ssd
+///
 /// @brief It holds l2cache lookup results
 ///
 /// num_misses is the number of misses in the l2 cache lookup
@@ -203,11 +218,39 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& count,
       int64_t sleep_ms = 0);
 
+  /// Pin the version of storage this lookup is served from.
+  ///
+  /// Called by get() as its first action and held until get() returns, so the
+  /// L2 lookup and the fetch filling its misses are one read of one version.
+  /// Without it, a view switch between the two returns a batch whose rows
+  /// come from both.
+  ///
+  /// Only EmbeddingRocksDB can switch its read view mid-run, so only it
+  /// overrides this.
+  virtual std::shared_ptr<ReadGuard> acquire_read_guard() {
+    return nullptr;
+  }
+
   /// storage tier counterpart of function get()
   virtual folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) = 0;
+
+  /// Same as get_kv_db_async(), for a read that is already registered.
+  ///
+  /// get() calls this so the fetch joins the registration
+  /// acquire_read_guard() already took, rather than taking a second one and
+  /// counting one logical read twice in flight. A null guard falls through to
+  /// the unguarded call.
+  virtual folly::SemiFuture<std::vector<folly::Unit>>
+  get_kv_db_async_with_guard(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      const std::shared_ptr<ReadGuard>& /*read_guard*/) {
+    return get_kv_db_async(indices, weights, count);
+  }
 
   /// Read only the weight portion from storage, skipping the first
   /// width_offset elements of each stored row. Output weights has shape
@@ -344,6 +387,15 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
+  /**
+   * @brief resume ongoing eviction after every get() completes, for frontends
+   * that never issue backward write-backs (e.g. embedding cache mode), which
+   * are otherwise the only point where training resumes eviction
+   */
+  void set_resume_eviction_after_get(bool enable) {
+    resume_eviction_after_get_.store(enable);
+  }
+
   virtual std::optional<kv_mem::FeatureEvictMetricTensors>
   get_feature_evict_metric() const {
     FBEXCEPTION("Not implemented");
@@ -385,6 +437,14 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // Returns the L2 cache hit rate as a percentage (0-100).
   // Reads counters without resetting them, unlike get_l2cache_perf().
   double get_l2_cache_hit_rate() const;
+
+  /// The TBE's numeric id, the same value Python knows as `tbe_unique_id`.
+  ///
+  /// Exposed so subclasses can key log lines on the one identifier shared
+  /// with Python; `unique_id_` itself is private.
+  int64_t get_unique_id() const {
+    return unique_id_;
+  }
 
   virtual at::Tensor get_keys_in_range_impl(
       int64_t /* start */,
@@ -467,6 +527,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   }
 
  private:
+  void maybe_resume_eviction_after_get();
+
   /// Find non-negative embedding indices in <indices> and shard them into
   /// #cachelib_pools pieces to be lookedup in parallel
   ///
@@ -560,6 +622,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   bool enable_async_update_;
   std::unique_ptr<std::thread> cache_filling_thread_;
   std::atomic<bool> stop_{false};
+  std::atomic<bool> resume_eviction_after_get_{false};
   // Condition variable for signaling between fill queue
   // producer/consumer/waiter. Replaces the previous spin-wait polling pattern
   // with proper CV notification.

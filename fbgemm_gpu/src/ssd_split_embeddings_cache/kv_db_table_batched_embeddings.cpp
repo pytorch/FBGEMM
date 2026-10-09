@@ -478,6 +478,7 @@ void EmbeddingKVDB::get(
     XLOG_EVERY_MS(INFO, 60000)
         << "[TBE_ID" << unique_id_ << "]skip get_cuda since number lookups is "
         << num_lookups;
+    maybe_resume_eviction_after_get();
     return;
   }
   auto rec = torch::autograd::profiler::record_function_enter_new(
@@ -485,6 +486,16 @@ void EmbeddingKVDB::get(
   CHECK_GE(max_D_, weights.size(1));
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   wait_util_filling_work_done();
+  // Pins the version of storage this lookup is served from, for the whole
+  // lookup: the L2 hit/miss split below and the fetch that fills the misses
+  // have to resolve against the same one, or the batch comes back part
+  // pre-switch and part post-switch.
+  //
+  // Declared before the L2 lock and so released after it, which keeps this
+  // thread from ever holding l2_cache_mtx_ while the guard touches the
+  // backend's read-view state. The other half of that ordering is that
+  // nothing may hold l2_cache_mtx_ while waiting for reads to drain.
+  auto read_guard = acquire_read_guard();
   std::unique_lock<std::mutex> lock(l2_cache_mtx_);
   get_cache_lock_wait_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - start_ts;
@@ -499,7 +510,8 @@ void EmbeddingKVDB::get(
   if (cache_context != nullptr) {
     if (cache_context->num_misses > 0) {
       auto weight_fillup_start_ts = facebook::WallClockUtil::NowInUsecFast();
-      auto rocksdb_fut_vec = get_kv_db_async(indices, weights, count);
+      auto rocksdb_fut_vec =
+          get_kv_db_async_with_guard(indices, weights, count, read_guard);
       // no need to resume eviction as it is only applicable to dram kv solution
       auto l2_fut_vec = cache_memcpy(weights, cache_context->cached_addr_list);
       rocksdb_fut_vec.wait();
@@ -539,7 +551,7 @@ void EmbeddingKVDB::get(
           facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
     }
   } else { // no l2 cache
-    get_kv_db_async(indices, weights, count).wait();
+    get_kv_db_async_with_guard(indices, weights, count, read_guard).wait();
     // only resume eviction on the set instead of get
     // because here is the calling order in training, there isn't too much room
     // between get and set to conduct eviction, so just don't result on get
@@ -547,9 +559,16 @@ void EmbeddingKVDB::get(
     //  prefetch: get() -> set()
     //  forward:
     // backward: set()
+    maybe_resume_eviction_after_get();
   }
   get_total_duration_ += facebook::WallClockUtil::NowInUsecFast() - start_ts;
   rec->record.end();
+}
+
+void EmbeddingKVDB::maybe_resume_eviction_after_get() {
+  if (resume_eviction_after_get_.load()) {
+    resume_ongoing_eviction();
+  }
 }
 
 std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(

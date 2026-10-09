@@ -233,6 +233,59 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     impl_->release_snapshot(handle);
   }
 
+  /// Install <snapshot_handle> as the read view for the embedding lookup
+  /// path and wait until no lookup issued against the previous view is still
+  /// running. Used by async checkpoint load in eval so that a concurrent
+  /// evaluator keeps serving a consistent pre-load view while checkpoint rows
+  /// stream into the live DB. Passing nullopt reverts to reading the live DB,
+  /// which is the default and what training uses.
+  ///
+  /// BLOCKS until the previous view has drained. On return the previous
+  /// snapshot has no readers and is safe to release.
+  void set_active_snapshot(
+      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+          snapshot_handle) {
+    impl_->set_active_snapshot(
+        snapshot_handle.has_value() ? snapshot_handle.value()->handle
+                                    : nullptr);
+  }
+
+  void clear_active_snapshot() {
+    impl_->clear_active_snapshot();
+  }
+
+  bool has_active_snapshot() const {
+    return impl_->has_active_snapshot();
+  }
+
+  /// Identity of <snapshot_handle> as a plain integer.
+  ///
+  /// A number and not the object, because holding the handle is what keeps a
+  /// snapshot alive: anything remembering which snapshot it created, so it
+  /// can check later that it went away, must hold something that cannot
+  /// itself prevent the release.
+  int64_t get_snapshot_id(
+      c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle) {
+    return snapshot_handle->handle->id();
+  }
+
+  /// Whether the snapshot identified by <snapshot_id> is still registered
+  /// with this db.
+  ///
+  /// Safe to call with the id of an already-released snapshot: ids come from
+  /// a per-store counter and are never reused, so a stale value reports
+  /// false. Answers "did MY snapshot go away", which the store-wide count
+  /// cannot -- several holders coexist normally.
+  bool is_valid_snapshot_id(int64_t snapshot_id) {
+    return impl_->is_valid_snapshot_id(snapshot_id);
+  }
+
+  /// Lookups currently registered against the active snapshot. 0 when no
+  /// snapshot is installed. For tests and diagnostics only.
+  int64_t get_active_snapshot_read_count() const {
+    return impl_->get_active_snapshot_read_count();
+  }
+
   void delete_rocksdb_checkpoint_dir() {
     impl_->delete_rocksdb_checkpoint_dir();
   }
