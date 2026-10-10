@@ -8,10 +8,13 @@
 #undef __HIP_NO_HALF_CONVERSIONS__
 #include <cmath>
 #include <cstdlib>
+#include <mutex>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 
 #include <ATen/core/Tensor.h>
+#include <c10/hip/HIPException.h>
 #include <c10/hip/HIPStream.h>
 
 #ifdef HIPIFY_V2
@@ -54,6 +57,38 @@ using D0DataType = float;
 using D1DataType = float;
 using DsDataType = ck::Tuple<D0DataType, D1DataType>;
 using EDataType = ck::bhalf_t;
+template <typename Kernel>
+void check_single_cta_group_count(
+    int64_t group_count,
+    Kernel kernel,
+    const char* operation) {
+  TORCH_CHECK(group_count > 0, operation, " requires at least one group.");
+  static std::mutex cache_mutex;
+  static std::unordered_map<int, int> max_threads_per_device;
+  const int device = at::cuda::current_device();
+  int max_threads_per_block;
+  {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    const auto cached = max_threads_per_device.find(device);
+    if (cached == max_threads_per_device.end()) {
+      hipFuncAttributes attributes;
+      C10_CUDA_CHECK(hipFuncGetAttributes(
+          &attributes, reinterpret_cast<const void*>(kernel)));
+      max_threads_per_block = attributes.maxThreadsPerBlock;
+      max_threads_per_device.emplace(device, max_threads_per_block);
+    } else {
+      max_threads_per_block = cached->second;
+    }
+  }
+  TORCH_CHECK(
+      group_count <= max_threads_per_block,
+      operation,
+      " requires one thread per group in a single CTA, but G (",
+      group_count,
+      ") exceeds the setup kernel's maxThreadsPerBlock (",
+      max_threads_per_block,
+      ").");
+}
 
 TuningCache& getTuningCache() {
   // This kernel has multiple APIs templated based on InputType, so we use this
@@ -423,6 +458,8 @@ void set_dynamic_kernel_args(
 
   // Depending on the mode, use appropriate setup kernel.
   if (M_sizes.has_value()) {
+    check_single_cta_group_count(
+        group_count, set_kernel_args, "set_dynamic_kernel_args");
     set_kernel_args<<<1, group_count, 0, stream>>>(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
@@ -463,6 +500,10 @@ void set_dynamic_kernel_args(
         K,
         group_count);
   } else {
+    check_single_cta_group_count(
+        group_count,
+        set_kernel_args_fixed_nk_kernel,
+        "set_dynamic_kernel_args");
     set_kernel_args_fixed_nk_kernel<<<1, group_count, 0, stream>>>(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
@@ -818,6 +859,8 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
       XQ.options().dtype(at::kByte));
 
   auto stream = at::cuda::getCurrentHIPStream().stream();
+  check_single_cta_group_count(
+      G, set_kernel_args, "f8f8bf16_rowwise_grouped_mm");
   set_kernel_args<<<1, G, 0, stream>>>(
       reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
       reinterpret_cast<ADataType*>(XQ.data_ptr()),
