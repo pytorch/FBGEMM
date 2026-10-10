@@ -354,9 +354,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
       total_adjusted_D += T * kINT8QparamsBytes;
     }
     output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
-    if (!output_is_int8 && !output_is_int4) {
-      output.fill_(0);
-    }
+    // No pre-zero: D_offsets fully partitions [0, total_D), so the kernel
+    // overwrites every element (empty bags via fillZero); the !success path
+    // below zeroes before throwing. int8/int4 were never pre-zeroed.
     {% else %}
     constexpr int kINT8QparamsBytes = 4; // no bag int8 output aligns with fbgemm weights storage size and layout
     constexpr int kINT4QparamsElems = 8; // scale + bias takes 4 bytes which are 8 int4 elements
@@ -626,6 +626,21 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                         "Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
                 }
                 if (!success) {
+                    {% if not nobag %}
+                    // Zero only this table's slice: the whole output would race with
+                    // other tables writing their disjoint slices in this OpenMP
+                    // region. This also covers corrupt offsets, which
+                    // report_embedding_error may not throw on. Skipped for int8/int4,
+                    // whose inline qparam bytes a raw zero-fill can't represent.
+                    if (!output_is_int8 && !output_is_int4) {
+                      for (const auto b : c10::irange(B)) {
+                        std::memset(
+                            output_acc + static_cast<int64_t>(b) * output_stride + D_start,
+                            0,
+                            static_cast<size_t>(D) * sizeof(output_t));
+                      }
+                    }
+                    {% endif %}
                     fbgemm_gpu::report_embedding_error(
                         t,
                         B,
