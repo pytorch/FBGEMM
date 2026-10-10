@@ -8,6 +8,7 @@
 # pyre-ignore-all-errors[3,6,56]
 
 
+import tempfile
 import unittest
 
 import hypothesis.strategies as st
@@ -30,6 +31,36 @@ from .training_common import (
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
+    def test_vbe_v2_bounds_check_metadata(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        storage_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(storage_directory.cleanup)
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(8, 8), (8, 8)],
+            feature_table_map=None,
+            cache_sets=1,
+            ssd_storage_directory=storage_directory.name,
+            ssd_rocksdb_shards=1,
+            backend_type=BackendType.DRAM,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+        )
+        emb.bounds_check_version = 2
+        indices = torch.tensor([1, 2, 3], device=device)
+        offsets = torch.tensor([0, 1, 2, 3], device=device)
+        prepared_indices, prepared_offsets, _, metadata = emb.prepare_inputs(
+            indices,
+            offsets,
+            batch_size_per_feature_per_rank=[[2], [1]],
+            vbe_output_offsets=None,
+        )
+        torch.accelerator.synchronize()
+        torch.testing.assert_close(prepared_indices, indices)
+        torch.testing.assert_close(prepared_offsets, offsets)
+        torch.testing.assert_close(
+            metadata.B_offsets,
+            torch.tensor([0, 2, 3], device=device, dtype=torch.int32),
+        )
+
     @given(
         **default_strategies,
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
