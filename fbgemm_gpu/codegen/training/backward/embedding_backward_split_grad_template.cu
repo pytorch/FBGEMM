@@ -21,7 +21,6 @@ namespace index_select {
 namespace embedding_ops {
 {% endif %}
 
-
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_find_long_segments(
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
@@ -137,7 +136,6 @@ void split_embedding_backward_count_unique_indices_kernel
     const int info_B_num_bits
 );
 {% endfor %}
-
 {% for vbe in [True, False] %}
 {% set vdesc = "_vbe" if vbe else "" %}
 template <typename grad_t, typename offset_t>
