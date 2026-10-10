@@ -520,7 +520,7 @@ def make_pta_acc_format(pta_str_list: list[str], func_name: str) -> list[str]:
     for pta_str in pta_str_list:
         if "packed_accessor" in pta_str:
             match = re.search(
-                r"([a-zA-z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
+                r"([a-zA-Z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
             )
             assert match is not None and len(match.groups()) == 3
             tensor, acc_nbits, args = match.groups()
@@ -546,7 +546,7 @@ def make_pta_acc_builder_format(pta_str_list: list[str]) -> list[str]:
     for pta_str in pta_str_list:
         if "packed_accessor" in pta_str:
             match = re.search(
-                r"([a-zA-z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
+                r"([a-zA-Z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
             )
             assert match is not None and len(match.groups()) == 3
             tensor, acc_nbits, args = match.groups()

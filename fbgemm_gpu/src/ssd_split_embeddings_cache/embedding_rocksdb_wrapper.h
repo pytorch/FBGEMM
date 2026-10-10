@@ -286,6 +286,12 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->get_active_snapshot_read_count();
   }
 
+  /// Empty the host-side (L2) cache so that subsequent lookups miss through
+  /// to rocksdb and observe the currently installed read snapshot.
+  void invalidate_l2_cache() {
+    impl_->invalidate_l2_cache();
+  }
+
   void delete_rocksdb_checkpoint_dir() {
     impl_->delete_rocksdb_checkpoint_dir();
   }

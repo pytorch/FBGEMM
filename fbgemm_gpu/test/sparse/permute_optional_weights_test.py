@@ -99,6 +99,10 @@ class PermuteOptionalWeightsTest(unittest.TestCase):
         env = os.environ.copy()
         env["FBGEMM_FLAT_PERMUTE_1D"] = str(int(flat))
         env["FBGEMM_FLAT_PERMUTE_2D"] = str(int(flat))
+        # A Buck Python test runs from a generated link tree, while
+        # sys.executable points at the host interpreter.  Preserve that link
+        # tree for this intentionally fresh child process.
+        env["PYTHONPATH"] = os.pathsep.join(sys.path)
         script = """
 import json
 import runpy

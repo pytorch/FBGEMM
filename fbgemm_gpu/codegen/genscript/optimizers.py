@@ -848,10 +848,13 @@ def rowwise_rmsprop_ar() -> dict[str, Any]:
         lambda  = min(1, learning_rate · ar_alpha · I)
         v[idx]  = ema_beta · v[idx] + (1 − ema_beta) · mean(g²)
         mult    = learning_rate / (sqrt(v[idx]) + eps)
-        weight  = max(min_shrinkage, 1 − lambda) · weight − mult · grad
+        row_counter[idx] = ema_beta · row_counter[idx] + (1 − ema_beta) · max(1, I)
+        phi     = clamp(falr_ref_gap / row_counter[idx], falr_floor, 1)  # 1 when falr is off
+        weight  = max(min_shrinkage, 1 − lambda) · weight − phi · mult · grad
         prev_iter[idx] = step                                   # only on touched rows
 
-    Per-row state: momentum1 (EMA of g²) + prev_iter. 2 floats/row.
+    Per-row state: momentum1 (EMA of g²) + prev_iter, plus row_counter when
+    falr is enabled. 2 floats/row, 3 with falr.
 
     User-facing knobs:
       ar_alpha      — adaptive decay coefficient. 0 disables AR (plain RMSprop).
@@ -860,6 +863,11 @@ def rowwise_rmsprop_ar() -> dict[str, Any]:
       ema_beta      — EMA decay for momentum1 (typical 0.9–0.999).
       min_shrinkage — Floor on the decay multiplier. Default 0.1; set to 0.0
                       for a full soft-reset of cold rows.
+      falr_ref_gap  — Access period, in steps, at or below which a row keeps
+                      full speed. 0 (default) disables falr entirely and
+                      allocates no row_counter.
+      falr_floor    — Smallest step scale for the rarest rows, so they slow
+                      down rather than stop.
 
     Sparse adaptations:
       1. Scale lambda by learning_rate so tail rows don't collapse at moderate ar_alpha.
@@ -903,6 +911,29 @@ def rowwise_rmsprop_ar() -> dict[str, Any]:
             fmaxf(0.0f, fminf(1.0f, learning_rate * ar_alpha * step_gap));
         exp_reg_correction = fmaxf(min_shrinkage, 1.0f - lambda);
 
+        if (falr_ref_gap > 0.0) {
+            // Optional tensors get no auto-declared pointer.
+            at::acc_type<cache_t, true>* __restrict__ row_counter;
+            const int64_t row_counter_offset = row_counter_offsets[t];
+            if (static_cast<PlacementType>(row_counter_placements[t]) ==
+                PlacementType::DEVICE) {
+                row_counter = &row_counter_dev[row_counter_offset];
+            } else {
+                row_counter = &row_counter_uvm[row_counter_offset];
+            }
+
+            // Gaps are >= 1, so 0 means unseeded. The clamp also absorbs a
+            // rewound `iter`, which would feed the EMA a negative gap.
+            const auto falr_gap = fmax(1.0, step_gap);
+            const auto new_row_counter = row_counter[idx] == 0
+                ? falr_gap
+                : ema_beta * row_counter[idx]
+                      + ((at::acc_type<cache_t, true>)1.0 - ema_beta) * falr_gap;
+            row_counter[idx] = new_row_counter;
+            multiplier *= fmaxf(
+                falr_floor, fminf(1.0f, (float)(falr_ref_gap / new_row_counter)));
+        }
+
         // Lazy update on touched rows only.
         prev_iter[idx] = iter * 1.0;
     }
@@ -922,14 +953,29 @@ def rowwise_rmsprop_ar() -> dict[str, Any]:
             + ((at::acc_type<grad_t, true>)1.0
                - (at::acc_type<grad_t, true>)ema_beta) * g_avg_square;
         momentum1[idx] = new_sum_square_grads;
-        const auto multiplier =
-            learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        auto multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
 
         const auto step_gap = prev_iter[idx] == 0 ? 1.0
                                                   : (iter * 1.0 - prev_iter[idx]);
         const auto lambda = fmaxf(
             0.0f, fminf(1.0f, (float)(learning_rate * ar_alpha * step_gap)));
         const auto exp_reg_correction = fmaxf((float)min_shrinkage, 1.0f - lambda);
+
+        if (falr_ref_gap > 0.0) {
+            // Optional tensors get no auto-declared pointer.
+            auto* row_counter = &row_counter_host[row_counter_offsets[feature_begin]];
+
+            const auto falr_gap = fmax(1.0, step_gap);
+            const auto new_row_counter = row_counter[idx] == 0
+                ? (at::acc_type<grad_t, true>)falr_gap
+                : (at::acc_type<grad_t, true>)ema_beta * row_counter[idx]
+                      + ((at::acc_type<grad_t, true>)1.0
+                         - (at::acc_type<grad_t, true>)ema_beta) * falr_gap;
+            row_counter[idx] = new_row_counter;
+            multiplier *= fmaxf(
+                (float)falr_floor, fminf(1.0f, (float)(falr_ref_gap / new_row_counter)));
+        }
+
         prev_iter[idx] = iter * 1.0;
 
         for (int64_t d = 0; d < D; ++d) {
@@ -953,6 +999,12 @@ def rowwise_rmsprop_ar() -> dict[str, Any]:
                 OptimItem(ArgType.FLOAT, "ema_beta", 0.99),
                 # Floor on the decay multiplier; 0.0 = full soft-reset of cold rows.
                 OptimItem(ArgType.FLOAT, "min_shrinkage", 0.1),
+                # Frequency-adaptive learning rate; ref_gap of 0 disables it.
+                OptimItem(ArgType.FLOAT, "falr_ref_gap", 0.0),
+                OptimItem(ArgType.FLOAT, "falr_floor", 0.1),
+                # Optional and appended: opt-in state, and the other args
+                # keep their existing positions in the generated op.
+                OptimItem(ArgType.TENSOR, "row_counter", is_optional=True),
             ],
         ),
         "split_precomputation": split_precomputation,

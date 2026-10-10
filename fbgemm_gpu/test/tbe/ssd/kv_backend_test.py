@@ -27,6 +27,7 @@ from fbgemm_gpu.tbe.ssd.ssd_config import EvictionPolicy
 from fbgemm_gpu.tbe.ssd.training import BackendType, KVZCHParams
 from fbgemm_gpu.tbe.utils import round_up
 from hypothesis import given, settings, Verbosity
+from torch.overrides import TorchFunctionMode
 
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, open_source, running_in_oss
@@ -52,6 +53,25 @@ default_settings: dict[str, Any] = {
     "max_examples": MAX_EXAMPLES,
     "deadline": None,
 }
+
+# Long enough (about a second on current GPUs) that work on another stream
+# reliably runs while the held stream is still busy.
+_STREAM_HOLD_CYCLES = 2_000_000_000
+
+
+class _HoldStreamBeforeFill(TorchFunctionMode):
+    """Keeps the current stream busy just before ``target.fill_`` runs, so the
+    fill is still pending when the caller returns unless the caller waits."""
+
+    def __init__(self, target: torch.Tensor) -> None:
+        super().__init__()
+        self.target = target
+
+    # pyre-ignore[2, 3]
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        if func is torch.Tensor.fill_ and args and args[0] is self.target:
+            torch.cuda._sleep(_STREAM_HOLD_CYCLES)
+        return func(*args, **(kwargs or {}))
 
 
 @unittest.skipIf(*running_in_oss)
@@ -423,6 +443,83 @@ class SSDCheckpointTest(unittest.TestCase):
             emb.flush()
             self.assertEqual(mock_calls.call_count, 2)
 
+    def test_active_snapshot_isolates_lookup_reads(self) -> None:
+        """
+        Read isolation for async checkpoint load, end to end through the
+        pybind layer, plus the reason emptying L2 is not optional.
+
+        The writes here use set_kv_to_storage, which is what the checkpoint
+        loader reaches through KVTensorWrapper.set_range -> set_range_to_storage:
+        it calls set_kv_db_async directly and so lands in rocksdb without
+        touching L2. That matters. EmbeddingKVDB.set(), the training eviction
+        path, writes through L2 instead, and using it here would populate the
+        cache with the new rows and defeat the snapshot before rocksdb is ever
+        consulted.
+        """
+        max_D = 16
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            backend = self.generate_fbgemm_kv_backend(
+                max_D,
+                SparseType.FP32,
+                enable_l2=True,
+                ssd_directory=ssd_directory,
+            )
+            indices = torch.arange(0, 32, dtype=torch.int64)
+            count = torch.as_tensor([indices.numel()])
+            pre_load = torch.full((32, max_D), 1.0, dtype=torch.float32)
+            post_load = torch.full((32, max_D), 2.0, dtype=torch.float32)
+
+            backend.set_kv_to_storage(indices, pre_load)  # pyre-ignore
+
+            self.assertFalse(backend.has_active_snapshot())  # pyre-ignore
+            snapshot = backend.create_snapshot()  # pyre-ignore
+            backend.set_active_snapshot(snapshot)  # pyre-ignore
+            self.assertTrue(backend.has_active_snapshot())
+
+            # Checkpoint B streams into the live DB underneath the reader,
+            # exactly as the loader does it.
+            backend.set_kv_to_storage(indices, post_load)
+
+            # Empty L2 first so this read has to reach rocksdb: that isolates
+            # what is being tested here to the snapshot itself.
+            backend.invalidate_l2_cache()  # pyre-ignore
+            out = torch.empty_like(pre_load)
+            backend.get(indices.clone(), out, count)  # pyre-ignore
+            self.assertTrue(
+                torch.equal(out, pre_load),
+                "lookups must keep serving the pre-load view while the "
+                "snapshot is installed",
+            )
+
+            # That read refilled L2 with pre-load rows. Switching the read
+            # view alone is now not enough, which is the whole point of
+            # item 8: L2 answers before the read reaches rocksdb.
+            backend.clear_active_snapshot()  # pyre-ignore
+            self.assertFalse(backend.has_active_snapshot())
+            out = torch.empty_like(pre_load)
+            backend.get(indices.clone(), out, count)
+            self.assertTrue(
+                torch.equal(out, pre_load),
+                "stale L2 is expected to shadow the switch until invalidated",
+            )
+
+            backend.invalidate_l2_cache()
+            out = torch.empty_like(pre_load)
+            backend.get(indices.clone(), out, count)
+            self.assertTrue(torch.equal(out, post_load))
+
+            # L2 has to still be usable, not disabled, after the invalidate.
+            out = torch.empty_like(pre_load)
+            backend.get(indices.clone(), out, count)
+            self.assertTrue(torch.equal(out, post_load))
+
+            # Drop the handle rather than calling release_snapshot(): the
+            # wrapper's destructor releases too, so an explicit call plus the
+            # destructor is a double release and CHECK-fails.
+            del snapshot
+            gc.collect()
+            self.assertEqual(backend.get_snapshot_count(), 0)  # pyre-ignore
+
     def test_release_active_snapshot_reverts_to_live_db(self) -> None:
         """
         Releasing the snapshot that is still installed must not leave the read
@@ -461,6 +558,88 @@ class SSDCheckpointTest(unittest.TestCase):
             out = torch.empty_like(pre_load)
             backend.get(indices.clone(), out, count)
             self.assertTrue(torch.equal(out, post_load))
+
+    def _build_tbe_for_read_snapshot_switch(
+        self, ssd_directory: str
+    ) -> SSDTableBatchedEmbeddingBags:
+        return SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(64, 16)],
+            feature_table_map=[0],
+            ssd_storage_directory=ssd_directory,
+            cache_sets=4,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            weights_precision=SparseType.FP32,
+            l2_cache_size=0,
+            use_passed_in_path=True,
+        ).cuda()
+
+    def test_switch_returns_after_l1_invalidation_finishes(self) -> None:
+        """
+        The L1 resets are queued on the current stream, but the next lookup
+        can run on another one (the prefetch stream). Once the switch returns,
+        a read on another stream must see every slot empty, not old keys.
+        """
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = self._build_tbe_for_read_snapshot_switch(ssd_directory)
+            pre_load = emb.ssd_db.create_snapshot()
+            emb.switch_read_snapshot(pre_load)
+            # Stand in for rows cached from the pre-load view.
+            emb.lxu_cache_state[:, 0] = torch.arange(
+                emb.lxu_cache_state.size(0), device=emb.lxu_cache_state.device
+            )
+            torch.cuda.synchronize()
+            post_load = emb.ssd_db.create_snapshot()
+
+            with _HoldStreamBeforeFill(emb.lxu_cache_state):
+                emb.switch_read_snapshot(post_load, backend_rewritten=True)
+
+            other_stream = torch.cuda.Stream()
+            with torch.cuda.stream(other_stream):
+                keys = emb.lxu_cache_state.clone()
+            other_stream.synchronize()
+            self.assertTrue(
+                torch.equal(keys, torch.full_like(keys, -1)),
+                "a lookup on another stream right after the switch saw L1 "
+                "keys that were not yet cleared",
+            )
+
+            del pre_load, post_load
+            gc.collect()
+            self.assertEqual(emb.ssd_db.get_snapshot_count(), 0)
+
+    def test_lookup_queued_before_switch_reads_old_view(self) -> None:
+        """
+        A lookup's backend read is a host callback that runs when its stream
+        reaches it. One queued before the switch belongs to the old view and
+        must not read the new one just because the stream was slow.
+        """
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = self._build_tbe_for_read_snapshot_switch(ssd_directory)
+            ids = torch.arange(0, 8, dtype=torch.int64)
+            pre_rows = torch.full((8, emb.cache_row_dim), 1.0)
+            post_rows = torch.full((8, emb.cache_row_dim), 2.0)
+
+            emb.ssd_db.set_kv_to_storage(ids, pre_rows)
+            pre_load = emb.ssd_db.create_snapshot()
+            emb.switch_read_snapshot(pre_load)
+            emb.ssd_db.set_kv_to_storage(ids, post_rows)
+            post_load = emb.ssd_db.create_snapshot()
+
+            out = torch.zeros_like(pre_rows)
+            torch.cuda._sleep(_STREAM_HOLD_CYCLES)
+            emb.ssd_db.get_cuda(ids, out, torch.as_tensor([ids.numel()]))
+            emb.switch_read_snapshot(post_load, backend_rewritten=True)
+            torch.cuda.synchronize()
+
+            self.assertTrue(
+                torch.equal(out, pre_rows),
+                "a lookup queued before the switch read the post-load view",
+            )
+
+            del pre_load, post_load
+            gc.collect()
+            self.assertEqual(emb.ssd_db.get_snapshot_count(), 0)
 
     @given(**default_st)
     @settings(**default_settings)
