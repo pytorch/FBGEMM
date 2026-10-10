@@ -36,13 +36,13 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import additional_decorators, gradcheck, optests, use_cpu_strategy
+    from test_utils import additional_decorators, gpu_unavailable, gradcheck, optests
 else:
     from fbgemm_gpu.test.test_utils import (
         additional_decorators,
+        gpu_unavailable,
         gradcheck,
         optests,
-        use_cpu_strategy,
     )
 
 
@@ -69,7 +69,6 @@ class BackwardDenseTest(unittest.TestCase):
                 PoolingMode.NONE,
             ]
         ),
-        use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
         ),
@@ -79,7 +78,97 @@ class BackwardDenseTest(unittest.TestCase):
         max_examples=10,
         deadline=None,
     )
-    def test_backward_dense(  # noqa C901
+    def test_backward_dense_cpu(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        output_dtype: SparseType,
+    ) -> None:
+        self._test_backward_dense(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B,
+            long_segments,
+            pooling_mode,
+            True,
+            output_dtype,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=32),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=10),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=10,
+        deadline=None,
+    )
+    def test_backward_dense_gpu(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        output_dtype: SparseType,
+    ) -> None:
+        self._test_backward_dense(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B,
+            long_segments,
+            pooling_mode,
+            False,
+            output_dtype,
+        )
+
+    def _test_backward_dense(  # noqa C901
         self,
         T: int,
         D: int,
