@@ -308,11 +308,18 @@ class BackwardSplitGenerator:
     @staticmethod
     def generate_backward_grad() -> None:
         # Generate the common grad functions
-        CodeTemplate.load(
+        template = CodeTemplate.load(
             "training/backward/embedding_backward_split_grad_template.cu"
-        ).write(
-            "gen_embedding_backward_split_grad_embedding_ops.cu", is_index_select=False
         )
+        template.write(
+            "gen_embedding_backward_split_grad_embedding_ops.cu",
+            is_index_select=False,
+        )
+        for owner in ["dense", "gwd", "vbe"]:
+            template.write(
+                f"gen_embedding_backward_split_helpers_{owner}.cu",
+                is_index_select=False,
+            )
 
     @staticmethod
     def generate_backward_indices() -> None:
