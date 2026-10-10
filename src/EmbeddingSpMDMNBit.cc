@@ -1272,7 +1272,7 @@ GenerateEmbeddingSpMDMNBit(
       use_offsets);
 }
 
-template <typename indxType, typename offsetType>
+template <typename indxType, typename offsetType, bool THREAD_LOCAL>
 typename EmbeddingSpMDMRowWiseSparseKernelSignature<
     uint8_t,
     indxType,
@@ -1300,7 +1300,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         offsetType,
         /*outType=*/float,
         inst_set_t::avx512,
-        /*rowwise_sparse=*/true>
+        /*rowwise_sparse=*/true,
+        THREAD_LOCAL>
         kernel_generator;
     const auto original_func = kernel_generator.getOrCreate(
         bit_rate,
@@ -1341,7 +1342,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         offsetType,
         /*outType=*/float,
         inst_set_t::avx2,
-        /*rowwise_sparse=*/true>
+        /*rowwise_sparse=*/true,
+        THREAD_LOCAL>
         kernel_generator;
     const auto original_func = kernel_generator.getOrCreate(
         bit_rate,
@@ -1471,16 +1473,16 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       bool is_weight_positional,                                          \
       bool use_offsets);
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                   \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)           \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float16)         \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, bfloat16)        \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)         \
+#define INSTANTIATE_SPMDM_ROWWISE_SPARSE(                                  \
+    INDEX_TYPE, OFFSET_TYPE, THREAD_LOCAL)                                 \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
       uint8_t,                                                             \
       INDEX_TYPE,                                                          \
       OFFSET_TYPE>::Type                                                   \
-  GenerateEmbeddingSpMDMNBitRowWiseSparse<INDEX_TYPE, OFFSET_TYPE>(        \
+  GenerateEmbeddingSpMDMNBitRowWiseSparse<                                 \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE,                                                         \
+      THREAD_LOCAL>(                                                       \
       int bit_rate,                                                        \
       const int64_t block_size,                                            \
       bool has_weight,                                                     \
@@ -1488,6 +1490,14 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       int prefetch,                                                        \
       bool is_weight_positional,                                           \
       bool use_offsets);
+
+#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)            \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)    \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float16)  \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, bfloat16) \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)  \
+  INSTANTIATE_SPMDM_ROWWISE_SPARSE(INDEX_TYPE, OFFSET_TYPE, false)  \
+  INSTANTIATE_SPMDM_ROWWISE_SPARSE(INDEX_TYPE, OFFSET_TYPE, true)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
   INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int32_t) \
@@ -1498,6 +1508,7 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T
+#undef INSTANTIATE_SPMDM_ROWWISE_SPARSE
 #undef INSTANTIATE_SPMDM_THREAD_LOCAL
 #undef INSTANTIATE_SPMDM_BASE
 

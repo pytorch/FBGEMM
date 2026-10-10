@@ -247,12 +247,21 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     bool is_weight_positional = false,
     bool use_offsets = true);
 
+// Lets callers that may be compiled against an older FBGEMM detect whether
+// GenerateEmbeddingSpMDMNBitRowWiseSparse takes the THREAD_LOCAL parameter.
+#define FBGEMM_HAS_SPMDM_NBIT_ROWWISE_SPARSE_THREAD_LOCAL 1
+
 /**
  * @tparam IndexType can be int32_t or int64_t
  * @tparam OffsetType can be int32_t or int64_t
+ * @tparam THREAD_LOCAL if true, the generated kernel is cached in a lock-free
+ *         thread local cache instead of the mutex guarded global one
  * @param bit_rate can be 2 or 4
  */
-template <typename IndexType, typename OffsetType = std::int32_t>
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    bool THREAD_LOCAL = false>
 FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature<
     std::uint8_t,
     IndexType,
