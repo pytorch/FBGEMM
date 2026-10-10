@@ -1,0 +1,47 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#pragma once
+
+#include <cstdint>
+
+#include "fbgemm/Utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
+
+namespace internal {
+// A compressed sparse column but each sparse matrix is hyper sparse
+// meaning there can be many columns without any non-zeros.
+struct HyperCompressedSparseColumn {
+  int num_non_zero_columns;
+  // pointers to the beginning of each column segment in row_indices
+  // (length num_non_zero_columns + 1)
+  // For a shared table, a column can have multiple segments, each for a
+  // feature sharing the table. In this case, the segments will have the
+  // same column_segment_indices but different column_segment_ids.
+  fbgemm::aligned_unique_ptr<int> column_segment_ptr;
+  fbgemm::aligned_unique_ptr<int>
+      column_segment_indices; // length num_non_zero_columns
+  fbgemm::aligned_unique_ptr<int>
+      column_segment_ids; // length num_non_zero_columns
+  fbgemm::aligned_unique_ptr<int>
+      row_indices; // length column_ptr[num_non_zero_columns]
+  fbgemm::aligned_unique_ptr<float>
+      weights; // length column_ptr[num_non_zero_columns]
+};
+
+template <typename index_t, typename scalar_t>
+void csr2csc(
+    HyperCompressedSparseColumn& csc,
+    int B,
+    const pta::TensorAccessor<index_t, 1>& csr_offsets,
+    const pta::TensorAccessor<index_t, 1>& csr_indices,
+    const pta::TensorAccessor<scalar_t, 1>& csr_weights,
+    int64_t pooling_mode,
+    const int* table_to_feature_offset,
+    int64_t num_embeddings);
+} // namespace internal

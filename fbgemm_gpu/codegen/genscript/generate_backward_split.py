@@ -311,7 +311,14 @@ class BackwardSplitGenerator:
         CodeTemplate.load(
             "training/backward/embedding_backward_split_grad_template.cu"
         ).write(
-            "gen_embedding_backward_split_grad_embedding_ops.cu", is_index_select=False
+            "gen_embedding_backward_split_grad_embedding_ops.cu",
+            is_index_select=False,
+        )
+        CodeTemplate.load(
+            "training/backward/embedding_backward_split_grad_template.cu"
+        ).write(
+            "gen_embedding_backward_split_helpers_dense.cu",
+            is_index_select=False,
         )
 
     @staticmethod
