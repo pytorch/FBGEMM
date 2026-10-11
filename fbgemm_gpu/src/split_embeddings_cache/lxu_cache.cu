@@ -362,6 +362,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lxu_cache_lookup_kernel(
 
     const int64_t idx = linear_cache_indices[n];
     if (idx == invalid_index) {
+      lxu_cache_locations[n] = kCacheLocationMissing;
       continue;
     }
 

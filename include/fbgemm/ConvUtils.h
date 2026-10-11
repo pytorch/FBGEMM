@@ -61,7 +61,7 @@ struct conv_param_t {
       std::array<int, SPATIAL_DIM * 2> pd,
       std::array<int, SPATIAL_DIM> dilations = array_of_ones<SPATIAL_DIM>(),
       std::array<int, SPATIAL_DIM> otpt_pd = {},
-      bool transposed = false)
+      bool is_transposed = false)
       : MB(mb),
         IC(ic),
         OC(oc),
@@ -72,7 +72,7 @@ struct conv_param_t {
         pad(pd),
         dilation(dilations),
         output_pad(otpt_pd),
-        transposed(transposed) {
+        transposed(is_transposed) {
     if (ic % g != 0) {
       throw std::runtime_error(
           "groups = " + std::to_string(g) +
@@ -85,7 +85,7 @@ struct conv_param_t {
     }
 
     for (int d = 0; d < SPATIAL_DIM; ++d) {
-      if (transposed) {
+      if (is_transposed) {
         this->IN_DIMP[d] = this->IN_DIM[d] +
             (this->dilation[d] * (this->K[d] - 1) - this->pad[d]) +
             (this->dilation[d] * (this->K[d] - 1) - this->pad[SPATIAL_DIM + d]);

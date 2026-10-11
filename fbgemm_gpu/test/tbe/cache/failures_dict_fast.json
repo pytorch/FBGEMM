@@ -22,12 +22,7 @@
       }
     },
     "fbgemm::emb_inplace_update": {},
-    "fbgemm::get_unique_indices": {
-      "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::get_unique_indices": {},
     "fbgemm::int_nbit_split_embedding_codegen_lookup_function": {
       "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
         "comment": "",

@@ -8,11 +8,15 @@
     "fbgemm::bounds_check_indices": {},
     "fbgemm::check_feature_gate_key": {},
     "fbgemm::dense_embedding_codegen_lookup_function": {
-      "BackwardDenseTest.test_autograd_registration__test_backward_dense": {
+      "BackwardDenseTest.test_autograd_registration__test_backward_dense_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "BackwardDenseTest.test_faketensor__test_backward_dense": {
+      "BackwardDenseTest.test_faketensor__test_backward_dense_cpu": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BackwardDenseTest.test_faketensor__test_backward_dense_gpu": {
         "comment": "",
         "status": "xfail"
       }

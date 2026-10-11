@@ -107,8 +107,8 @@ class EmbeddingStatsTracker {
      *
      * @param r Number of rows in the embedding table
      * @param d Embedding dimension
-     * @param batch_size Number of embeddings being looked up in a batch
-     * @param bag_size Number of embeddings pooled together (pooling factor)
+     * @param batch_sz Number of embeddings being looked up in a batch
+     * @param bag_sz Number of embeddings pooled together (pooling factor)
      * @param dt Data type used for storing the embedding values
      *
      * This constructor creates a unique entry that identifies an embedding
@@ -117,14 +117,14 @@ class EmbeddingStatsTracker {
     AccessPatternEntry(
         int64_t r,
         int64_t d,
-        int64_t batch_size,
-        int64_t bag_size,
+        int64_t batch_sz,
+        int64_t bag_sz,
         DataType input_dt,
         DataType output_dt)
         : rows(r),
           dims(d),
-          batch_size{batch_size},
-          bag_size(bag_size),
+          batch_size{batch_sz},
+          bag_size(bag_sz),
           input_data_type(input_dt),
           output_data_type(output_dt) {}
 

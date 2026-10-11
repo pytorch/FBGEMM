@@ -38,6 +38,31 @@ else:
     WARP_SIZE = DEFAULT_ASSOC
 
 
+class DirectMappedCacheLookupTest(unittest.TestCase):
+    @unittest.skipIf(*gpu_unavailable)
+    def test_direct_mapped_lxu_cache_lookup_invalid_indices(self) -> None:
+        invalid_index = 8000
+        cache_state = torch.tensor(
+            [[3]], device=torch.accelerator.current_accelerator(), dtype=torch.int64
+        )
+        for dtype in (torch.int32, torch.int64):
+            with self.subTest(dtype=dtype):
+                indices = torch.tensor(
+                    [invalid_index, 3, 4, invalid_index],
+                    device=cache_state.device,
+                    dtype=dtype,
+                )
+                locations = torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
+                    indices, cache_state, invalid_index
+                )
+                torch.testing.assert_close(
+                    locations,
+                    torch.tensor(
+                        [-1, 0, -1, -1], device=cache_state.device, dtype=torch.int32
+                    ),
+                )
+
+
 @optests.generate_opcheck_tests(fast=True)
 class LXUCacheTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
