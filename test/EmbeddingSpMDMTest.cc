@@ -64,12 +64,12 @@ class IndexRemapTest
     : public testing::TestWithParam<tuple<int, int, int, bool, bool>> {};
 } // namespace
 
-TEST(EmbeddingSpMDMLegacyTest, Uint16DispatchesByRuntimeFlags) {
+TEST(EmbeddingSpMDMTest, TypedHalfInputsAndOutputs) {
   constexpr int64_t block_size = 2;
   const vector<int32_t> indices{0, 1};
   const vector<int32_t> offsets{0, 2};
 
-  auto verify = [&]<typename HalfType>(bool is_bf16) {
+  auto verify = [&]<typename HalfType>() {
     const vector<HalfType> input{
         from_float<HalfType>(1.5f),
         from_float<HalfType>(-2.0f),
@@ -88,26 +88,26 @@ TEST(EmbeddingSpMDMLegacyTest, Uint16DispatchesByRuntimeFlags) {
         false,
         expected.data())));
 
-    auto kernel = GenerateEmbeddingSpMDM<uint16_t, int32_t, int32_t, uint16_t>(
-        block_size, false, false, 16, false, true, is_bf16, is_bf16);
+    auto kernel = GenerateEmbeddingSpMDM<HalfType, int32_t, int32_t, HalfType>(
+        block_size, false, false, 16, false, true);
     vector<HalfType> actual(block_size);
     ASSERT_TRUE(kernel(
         1,
         indices.size(),
         2,
-        reinterpret_cast<const uint16_t*>(input.data()),
+        input.data(),
         indices.data(),
         offsets.data(),
         nullptr,
-        reinterpret_cast<uint16_t*>(actual.data())));
+        actual.data()));
 
     EXPECT_EQ(actual, expected);
   };
 
-  verify.template operator()<float16>(false);
-  verify.template operator()<bfloat16>(true);
+  verify.template operator()<float16>();
+  verify.template operator()<bfloat16>();
 
-  auto verify_strided_to_float = [&]<typename HalfType>(bool is_bf16) {
+  auto verify_strided_to_float = [&]<typename HalfType>() {
     constexpr int64_t input_stride = 3;
     constexpr int64_t output_stride = 3;
     const vector<int64_t> indices64{0, 1};
@@ -138,7 +138,7 @@ TEST(EmbeddingSpMDMLegacyTest, Uint16DispatchesByRuntimeFlags) {
         false)));
 
     auto kernel = GenerateEmbeddingSpMDMWithStrides<
-        uint16_t,
+        HalfType,
         int64_t,
         int32_t,
         float,
@@ -152,15 +152,13 @@ TEST(EmbeddingSpMDMLegacyTest, Uint16DispatchesByRuntimeFlags) {
         output_stride,
         input_stride,
         true,
-        false,
-        false,
-        is_bf16);
+        false);
     vector<float> actual(output_stride);
     ASSERT_TRUE(kernel(
         1,
         indices64.size(),
         2,
-        reinterpret_cast<const uint16_t*>(input.data()),
+        input.data(),
         indices64.data(),
         offsets.data(),
         nullptr,
@@ -169,8 +167,8 @@ TEST(EmbeddingSpMDMLegacyTest, Uint16DispatchesByRuntimeFlags) {
     EXPECT_EQ(actual, expected);
   };
 
-  verify_strided_to_float.template operator()<float16>(false);
-  verify_strided_to_float.template operator()<bfloat16>(true);
+  verify_strided_to_float.template operator()<float16>();
+  verify_strided_to_float.template operator()<bfloat16>();
 }
 
 static vector<int> prefetch_distances = {0, 16, 1000000};

@@ -1012,7 +1012,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         int64_t output_stride /*=-1*/,
         int64_t input_stride /*=-1*/,
         bool scale_bias_last /*=true*/,
-        [[maybe_unused]] const bool is_bf16_out_unused /*=false*/,
         const bool no_bag /*=false*/,
         int output_bit_rate /*=-1*/) {
   [[maybe_unused]] constexpr bool is_bf16_out =
@@ -1207,7 +1206,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         /*output_stride=*/output_stride,
         /*input_stride=*/input_stride,
         /*scale_bias_last=*/scale_bias_last,
-        /*is_bf16_out=*/is_bf16_out,
         /*no_bag=*/no_bag,
         /*output_bit_rate=*/output_bit_rate);
   }
@@ -1242,7 +1240,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         output_stride,
         input_stride,
         scale_bias_last,
-        is_bf16_out,
         no_bag,
         output_bit_rate);
   };
@@ -1450,7 +1447,6 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       int64_t output_stride,                                  \
       int64_t input_stride,                                   \
       bool scale_bias_last,                                   \
-      const bool is_bf16_out,                                 \
       const bool no_bag,                                      \
       int output_bit_rate);
 
