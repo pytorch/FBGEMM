@@ -26,6 +26,7 @@ import weakref
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+from fbgemm_gpu.config import FeatureGateName
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     apply_split_helper,
@@ -1656,7 +1657,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "eviction.feature_table.exec_div_full_duration_rate"
             )
 
-        self.bounds_check_version: int = get_bounds_check_version_for_platform()
+        self.bounds_check_version: int = (
+            2
+            if FeatureGateName.BOUNDS_CHECK_INDICES_V2.is_enabled()
+            else get_bounds_check_version_for_platform()
+        )
 
         self._pg = pg
 
@@ -3051,6 +3056,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         feature_requires_grad: Tensor | None = None,
         batch_size_per_feature_per_rank: list[list[int]] | None = None,
         vbe_output: Tensor | None = None,
+        # Reused below when generating metadata for VBE bounds-check version 2.
         vbe_output_offsets: Tensor | None = None,
         # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
     ) -> Tensor:
@@ -4904,6 +4910,34 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             per_sample_weights = per_sample_weights.float()
 
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            vbe = vbe_metadata.B_offsets is not None
+            if vbe and self.bounds_check_version == 2:
+                B_offsets = vbe_metadata.B_offsets
+                B_offsets_rank_per_feature = vbe_metadata.B_offsets_rank_per_feature
+                output_offsets_feature_rank = vbe_metadata.output_offsets_feature_rank
+                assert isinstance(B_offsets, Tensor), "B_offsets must be tensor"
+                assert isinstance(
+                    B_offsets_rank_per_feature, Tensor
+                ), "B_offsets_rank_per_feature must be tensor"
+                assert isinstance(
+                    output_offsets_feature_rank, Tensor
+                ), "output_offsets_feature_rank must be tensor"
+
+                _, b_t_map = torch.ops.fbgemm.generate_vbe_metadata(
+                    B_offsets,
+                    B_offsets_rank_per_feature,
+                    output_offsets_feature_rank,
+                    self.D_offsets,
+                    self.max_D,
+                    False,  # SSD TBE is always pooled.
+                    vbe_metadata.max_B_feature_rank,
+                    self.info_B_num_bits,
+                    offsets.numel() - 1,  # total_B
+                    vbe_output_offsets,
+                )
+            else:
+                b_t_map = None
+
             torch.ops.fbgemm.bounds_check_indices(
                 self.rows_per_table,
                 indices,
@@ -4913,6 +4947,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 per_sample_weights,
                 B_offsets=vbe_metadata.B_offsets,
                 max_B=vbe_metadata.max_B,
+                b_t_map=b_t_map,
+                info_B_num_bits=self.info_B_num_bits,
+                info_B_mask=self.info_B_mask,
                 bounds_check_version=self.bounds_check_version,
             )
 
