@@ -390,8 +390,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         const float* indice_weights_acc = indice_weights.const_data_ptr<float>();
         {% endif %}
 
-        constexpr bool output_is_bf16 = std::is_same_v<output_t, at::BFloat16>;
-
         using float16 = fbgemm::float16;
         using bfloat16 = fbgemm::bfloat16;
         using int8 = uint8_t;
@@ -570,19 +568,17 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     /*is_weight_positional=*/false,
                     /*use_offsets=*/true,
                     /*output_stride=*/output_stride,
-                    /*input_stride=*/D_bytes / sizeof({{ weight_type }}),
+                    /*input_stride=*/D_bytes / sizeof({{ weight_type }})
                     {% if use_fp8 %}
-                    /*exponent_bits=*/fp8_exponent_bits,
-                    /*exponent_bias=*/fp8_exponent_bias,
+                    ,/*exponent_bits=*/fp8_exponent_bits,
+                    /*exponent_bias=*/fp8_exponent_bias
                     {% endif %}
                     {% if has_asmjit %}
-                    /*scale_bias_last=*/scale_bias_last,
+                    ,/*scale_bias_last=*/scale_bias_last
                     {% endif %}
                     {% if use_base %}
-                    /*no_bag=*/nobag_op,
-                    {% endif %}
-                    /*is_bf16_out=*/output_is_bf16
-                    {% if use_nbit %}
+                    ,/*no_bag=*/nobag_op
+                    {% elif use_nbit %}
                     ,/*no_bag=*/nobag_op,
                     /*output_bit_rate=*/output_bit_rate
                     {% endif %}

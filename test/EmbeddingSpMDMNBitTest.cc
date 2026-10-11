@@ -1207,7 +1207,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagTest) {
               -1,
               -1,
               scale_bias_last,
-              false,
               /*no_bag=*/true);
 
       auto kernel_bag =
@@ -1222,7 +1221,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagTest) {
               -1,
               -1,
               scale_bias_last,
-              false,
               /*no_bag=*/false);
 
       vector<int64_t> offsets(output_size + 1);
@@ -1321,7 +1319,6 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagNegativeIndexTest) {
           -1,
           -1,
           true,
-          false,
           /*no_bag=*/true);
 
   bool success = kernel(
@@ -1410,8 +1407,7 @@ TEST(
               true /* use_offsets */,
               -1 /* output_stride */,
               -1 /* input_stride */,
-              scale_bias_last,
-              false /* is_bf16_out */);
+              scale_bias_last);
 
       vector<float> output(
           2 * num_sentries + output_size * embedding_dim, sentry_value);
@@ -1486,7 +1482,6 @@ TEST(
             /*output_stride=*/-1,
             /*input_stride=*/-1,
             /*scale_bias_last=*/true,
-            /*is_bf16_out=*/false,
             /*no_bag=*/true,
             /*output_bit_rate=*/kBitRate);
 
@@ -1563,7 +1558,6 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4DropsInputRowPadding) {
               /*output_stride=*/requested_output_stride,
               /*input_stride=*/kInputStride,
               /*scale_bias_last=*/true,
-              /*is_bf16_out=*/false,
               /*no_bag=*/true,
               /*output_bit_rate=*/kBitRate);
 
@@ -1647,7 +1641,6 @@ TEST(
             /*output_stride=*/-1,
             kInt4NoBagInputStride,
             /*scale_bias_last=*/true,
-            /*is_bf16_out=*/false,
             /*no_bag=*/true,
             /*output_bit_rate=*/4);
       },
@@ -1665,7 +1658,6 @@ TEST(
           /*output_stride=*/-1,
           kInt4NoBagInputStride,
           /*scale_bias_last=*/true,
-          /*is_bf16_out=*/false,
           /*no_bag=*/true,
           /*output_bit_rate=*/4);
   verify(
@@ -1708,7 +1700,6 @@ TEST(
       /*output_stride=*/kInt4NoBagPackedRowSize,
       /*input_stride=*/kInt4NoBagInputStride,
       /*scale_bias_last=*/true,
-      /*is_bf16_out=*/false,
       /*no_bag=*/true,
       /*output_bit_rate=*/4)));
 
@@ -1724,7 +1715,6 @@ TEST(
           /*output_stride=*/kInt4NoBagPackedRowSize,
           /*input_stride=*/kInt4NoBagInputStride,
           /*scale_bias_last=*/true,
-          /*is_bf16_out=*/false,
           /*no_bag=*/true,
           /*output_bit_rate=*/4);
   EXPECT_FALSE(autovec(
@@ -1762,7 +1752,6 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagRejectsNonInt4FloatOutput) {
         /*output_stride=*/kInt4NoBagBlockSize,
         /*input_stride=*/kInt4NoBagInputStride,
         /*scale_bias_last=*/true,
-        /*is_bf16_out=*/false,
         /*no_bag=*/true,
         /*output_bit_rate=*/8 * sizeof(float));
   };
@@ -1780,7 +1769,6 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagRejectsNonInt4FloatOutput) {
           /*output_stride=*/kInt4NoBagBlockSize,
           /*input_stride=*/kInt4NoBagInputStride,
           /*scale_bias_last=*/true,
-          /*is_bf16_out=*/false,
           /*no_bag=*/true,
           /*output_bit_rate=*/8 * sizeof(float));
   EXPECT_THROW(
@@ -1825,7 +1813,6 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4ZerosOutputPadding) {
             /*output_stride=*/kOutputStride,
             /*input_stride=*/kInputStride,
             /*scale_bias_last=*/true,
-            /*is_bf16_out=*/false,
             /*no_bag=*/true,
             /*output_bit_rate=*/kBitRate);
 
@@ -1877,7 +1864,6 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4RejectsShortRowStrides) {
               /*output_stride=*/strides.output_stride,
               /*input_stride=*/strides.input_stride,
               /*scale_bias_last=*/true,
-              /*is_bf16_out=*/false,
               /*no_bag=*/true,
               /*output_bit_rate=*/kBitRate);
 

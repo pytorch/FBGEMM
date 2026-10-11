@@ -54,7 +54,6 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int64_t output_stride,
     int64_t input_stride,
     bool scale_bias_last,
-    bool is_bf16_out,
     bool no_bag,
     int output_bit_rate);
 
