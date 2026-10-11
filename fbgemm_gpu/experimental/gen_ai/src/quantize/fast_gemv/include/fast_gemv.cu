@@ -150,6 +150,9 @@ __global__ void gemv_bf16(
     if (tid == 0) {
       res[row + col * n] = __float2bfloat16(sum[col]);
     }
+    if (col + 1 < m) {
+      __syncthreads();
+    }
   }
 }
 
@@ -266,6 +269,9 @@ __global__ void gemv_quantized_bf16_fp8(
       sum[col] = warpReduceSum(sum[col], blockDim.x / WARP_SIZE);
     if (tid == 0) {
       res[row + col * n] = __float2bfloat16(sum[col]);
+    }
+    if (col + 1 < m) {
+      __syncthreads();
     }
   }
 }
