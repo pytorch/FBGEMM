@@ -13,9 +13,11 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/Parallel.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
+#include "fbgemm_gpu/embedding_backward_split_cpu.h"
 #include "fbgemm_gpu/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"

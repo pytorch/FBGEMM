@@ -12,12 +12,14 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/Parallel.h>
 
 #include "fbgemm_gpu/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 #if FBGEMM_GPU_MEMCHECK
 #define FBGEMM_MEM_CHECK_ONLY

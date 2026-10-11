@@ -314,6 +314,7 @@ static_gpu_files_index_select = [
 ################################################################################
 
 static_cpu_files_training = [
+    "codegen/training/backward/embedding_backward_split_cpu.cpp",
     "codegen/training/backward/embedding_backward_dense_host_cpu.cpp",
 ]
 
