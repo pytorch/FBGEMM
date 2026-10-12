@@ -277,7 +277,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     }
   }
 
-  const int64_t scale_bias_size = 2 * sizeof(float16);
+  constexpr int64_t scale_bias_size = 2 * sizeof(float16);
   const int64_t scale_bias_offset = scale_bias_last ? block_size : 0;
   const int64_t input_offset = scale_bias_last ? 0 : scale_bias_size;
 
@@ -494,7 +494,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
   constexpr int num_elem_per_byte = 8 / InputBitRate;
   const int64_t scale_bias_offset =
       scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0;
-  const size_t scale_bias_size = 2 * sizeof(float16);
+  constexpr size_t scale_bias_size = 2 * sizeof(float16);
   const int64_t input_row_offset = scale_bias_last ? 0 : scale_bias_size;
 
   for (int64_t pf_idx = 0; pf_idx < l1_prefetch_distance; ++pf_idx) {
@@ -748,7 +748,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
   // block_size is the number of elements and fused_block_size is the size in
   // bytes of an entire row, including scale and bias.
   constexpr int num_elem_per_byte = 8 / BitRate;
-  const int64_t scale_bias_size = 2 * sizeof(float16);
+  constexpr uint8_t quantized_mask = (1 << BitRate) - 1;
+  constexpr int64_t scale_bias_size = 2 * sizeof(float16);
   const uint64_t scale_bias_offset = div_up(block_size, num_elem_per_byte);
   const int64_t fused_block_size = scale_bias_offset + scale_bias_size;
 
@@ -819,7 +820,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
         for (; j < block_size; ++j) {
           uint8_t quantized = input_row_base[j / num_elem_per_byte] >>
               ((j % num_elem_per_byte) * BitRate);
-          quantized &= (1 << BitRate) - 1;
+          quantized &= quantized_mask;
           buf[j] = std::fma(scale, float(quantized), buf[j] + bias);
         }
       } else if constexpr (BitRate == 2) {
@@ -852,7 +853,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
         for (; j < block_size; ++j) {
           uint8_t quantized = input_row_base[j / num_elem_per_byte] >>
               ((j % num_elem_per_byte) * BitRate);
-          quantized &= (1 << BitRate) - 1;
+          quantized &= quantized_mask;
           buf[j] = std::fma(scale, float(quantized), buf[j] + bias);
         }
       }
@@ -1797,7 +1798,7 @@ static constexpr int64_t stride_SpMDMNBitWith(
     int input_bit_rate,
     int64_t block_size) {
   const int num_elem_per_byte = 8 / input_bit_rate;
-  const size_t scale_bias_size = 2 * sizeof(float16);
+  constexpr size_t scale_bias_size = 2 * sizeof(float16);
   return div_up(block_size, num_elem_per_byte) + scale_bias_size;
 }
 
