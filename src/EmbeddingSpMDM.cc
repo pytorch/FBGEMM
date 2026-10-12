@@ -406,14 +406,17 @@ GenEmbeddingSpMDMLookup<
           w_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (remainder && instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           // AVX512 doesn't need to use vector register for masking
-          --unroll_factor;
-          mask_vreg = x86::ymm(unroll_factor);
-          if (remainder > 1 &&
-              (FbgemmHalfType<inType> || FbgemmHalfType<outType>)) {
+          if (remainder) {
             --unroll_factor;
-            mask_fp16_vreg = x86::xmm(unroll_factor);
+            mask_vreg = x86::ymm(unroll_factor);
+            if constexpr (FbgemmHalfType<inType> || FbgemmHalfType<outType>) {
+              if (remainder > 1) {
+                --unroll_factor;
+                mask_fp16_vreg = x86::xmm(unroll_factor);
+              }
+            }
           }
         }
 
@@ -428,7 +431,7 @@ GenEmbeddingSpMDMLookup<
                 mask_vreg,
                 x86::ymmword_ptr(
                     scratchReg1_, (vlen - remainder) % vlen * sizeof(int32_t)));
-            if (FbgemmHalfType<inType> || FbgemmHalfType<outType>) {
+            if constexpr (FbgemmHalfType<inType> || FbgemmHalfType<outType>) {
               if (remainder > 1) {
                 a->vmovups(
                     mask_fp16_vreg,
@@ -671,11 +674,11 @@ GenEmbeddingSpMDMLookup<
                       0,
                       fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
             }
-          }
 
-          if (has_weight && is_8bit_in) {
-            a->vmulps(scale_vreg, scale_vreg, w_vreg);
-            a->vmulps(bias_vreg, bias_vreg, w_vreg);
+            if (has_weight) {
+              a->vmulps(scale_vreg, scale_vreg, w_vreg);
+              a->vmulps(bias_vreg, bias_vreg, w_vreg);
+            }
           }
 
           // The main computation
@@ -932,9 +935,12 @@ GenEmbeddingSpMDMLookup<
         a->mov(x86::eax, false);
         a->bind(exit);
 
-        if (remainder && instSet == inst_set_t::avx2 &&
+        if constexpr (
+            instSet == inst_set_t::avx2 &&
             (FbgemmHalfType<inType> || FbgemmHalfType<outType>)) {
-          a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+          if (remainder) {
+            a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+          }
         }
 
         a->emitEpilog(frame);
