@@ -484,7 +484,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           -1, // output_stride
           -1, // input_stride
           true, // scale_bias_last
-          false); // is_bf16_out
+          false); // no_bag
 
       auto kernel =
           GenerateEmbeddingSpMDMWithStrides<uint8_t, int64_t, int64_t, float16>(
@@ -497,7 +497,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
               -1, // output_stride
               -1, // input_stride
               true, // scale_bias_last
-              false); // is_bf16_out
+              false); // no_bag
 
       bool success = kernel(
           batch_size,
@@ -700,7 +700,6 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           -1,
           -1,
           true,
-          false,
           false);
 
       auto kernel =

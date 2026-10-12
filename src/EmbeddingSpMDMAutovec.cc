@@ -1985,7 +1985,6 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int64_t output_stride,
     int64_t input_stride,
     bool scale_bias_last,
-    [[maybe_unused]] bool is_bf16_out,
     bool no_bag,
     int output_bit_rate) {
   if (output_bit_rate == -1) {
@@ -2211,7 +2210,6 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
       int64_t output_stride,                                                   \
       int64_t input_stride,                                                    \
       bool scale_bias_last,                                                    \
-      bool is_bf16_out,                                                        \
       bool no_bag,                                                             \
       int output_bit_rate);
 

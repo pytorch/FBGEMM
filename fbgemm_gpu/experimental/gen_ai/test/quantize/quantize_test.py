@@ -2238,10 +2238,6 @@ class FastGemvTests(unittest.TestCase):
         self, test_cases, gemv_op, atol, rtol, quantize_w=False, quantize_x=False
     ):
         for M, N, K in test_cases:
-            # Seed per case for determinism (mirrors the other tests in this
-            # file). Combined with the dequantized reference below, this removes
-            # the run-to-run flakiness these tests previously had at the
-            # tolerance boundary.
             torch.manual_seed(hash((M, N, K)))
             x = (
                 torch.randn(
@@ -2317,6 +2313,18 @@ class FastGemvTests(unittest.TestCase):
             )
             torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
 
+    def test_gemv_shared_reduction_batches(self) -> None:
+        cases = [(2, 7168, 8192), (4, 8192, 3584)]
+        for _ in range(10):
+            self.run_gemv(cases, torch.ops.fbgemm.bf16_fast_gemv, 1.0e-3, 1.0e-2)
+            self.run_gemv(
+                cases,
+                torch.ops.fbgemm.bf16fp8bf16_fast_gemv,
+                1.0e-3,
+                1.0e-2,
+                quantize_w=True,
+            )
+
     def test_bf16_gemv(self) -> None:
         test_cases = [
             (1, 128, 256),
@@ -2338,9 +2346,6 @@ class FastGemvTests(unittest.TestCase):
             (4, 7168, 8192),
             (4, 8192, 3584),
         ]
-        # The fast_gemv reduction is non-deterministic and outputs include
-        # near-zero elements, so atol (not rtol) must absorb the run-to-run
-        # reduction noise on those elements. Inputs are seeded for reproducibility.
         self.run_gemv(test_cases, torch.ops.fbgemm.bf16_fast_gemv, 1.0e-1, 1.0e-1)
 
     def test_bf16_fp8_gemv(self) -> None:
@@ -2361,10 +2366,6 @@ class FastGemvTests(unittest.TestCase):
         self.run_gemv(
             test_cases,
             torch.ops.fbgemm.bf16fp8bf16_fast_gemv,
-            # atol absorbs fp8 quantization noise on near-zero outputs; the
-            # reference is already dequantized so this is not hiding kernel error.
-            # The fast_gemv reduction is non-deterministic, so give margin over
-            # the observed near-zero-element noise.
             3.0e-1,
             3.0e-1,
             quantize_w=True,
