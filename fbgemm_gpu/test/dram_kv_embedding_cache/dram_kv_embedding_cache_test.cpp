@@ -101,6 +101,40 @@ struct MetaHeader {
   bool used : 1;
 };
 
+template <typename WeightType>
+void expectMissingWholeRowZeroed(at::ScalarType scalarType) {
+  constexpr int64_t kEmbeddingDim = 16;
+  const auto hashSizeCumsum = at::tensor({0, 100000}, at::kLong);
+  DramKVEmbeddingCache<WeightType> cache(
+      kEmbeddingDim,
+      /*uniform_init_lower=*/-0.1,
+      /*uniform_init_upper=*/0.1,
+      /*feature_evict_config=*/std::nullopt,
+      /*num_shards=*/4,
+      /*num_threads=*/4,
+      /*row_storage_bitwidth=*/sizeof(WeightType) * 8,
+      /*backend_return_whole_row=*/true,
+      /*enable_async_update=*/false,
+      /*table_dims=*/std::nullopt,
+      hashSizeCumsum,
+      /*is_training=*/false,
+      /*disable_random_init=*/true);
+  auto output = at::ones({1, kEmbeddingDim}, scalarType);
+
+  cache.get_range_from_snapshot(
+      output, /*start=*/0, /*length=*/1, /*snapshot_handle=*/nullptr);
+
+  EXPECT_TRUE(at::equal(output, at::zeros_like(output))) << output;
+}
+
+TEST(DramKVEmbeddingCacheMissingRowTest, ZeroesCompleteFloatRow) {
+  expectMissingWholeRowZeroed<float>(at::kFloat);
+}
+
+TEST(DramKVEmbeddingCacheMissingRowTest, ZeroesCompleteHalfRow) {
+  expectMissingWholeRowZeroed<at::Half>(at::kHalf);
+}
+
 class DramKVEmbeddingCacheTest : public ::testing::Test {
  protected:
   static constexpr int EMBEDDING_DIM = 16;
