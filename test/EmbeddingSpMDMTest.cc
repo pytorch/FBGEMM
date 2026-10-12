@@ -69,14 +69,14 @@ TEST(EmbeddingSpMDMTest, TypedHalfInputsAndOutputs) {
   const vector<int32_t> indices{0, 1};
   const vector<int32_t> offsets{0, 2};
 
-  auto verify = [&]<typename HalfType>() {
-    const vector<HalfType> input{
-        from_float<HalfType>(1.5f),
-        from_float<HalfType>(-2.0f),
-        from_float<HalfType>(3.0f),
-        from_float<HalfType>(4.0f)};
-    vector<HalfType> expected(block_size);
-    ASSERT_TRUE((EmbeddingSpMDM_ref<HalfType, int32_t, int32_t, HalfType>(
+  auto verify_half_to_half = [&]<typename InType, typename OutType>() {
+    const vector<InType> input{
+        from_float<InType>(1.5f),
+        from_float<InType>(-2.0f),
+        from_float<InType>(3.0f),
+        from_float<InType>(4.0f)};
+    vector<OutType> expected(block_size);
+    ASSERT_TRUE((EmbeddingSpMDM_ref<InType, int32_t, int32_t, OutType>(
         block_size,
         1,
         indices.size(),
@@ -88,9 +88,9 @@ TEST(EmbeddingSpMDMTest, TypedHalfInputsAndOutputs) {
         false,
         expected.data())));
 
-    auto kernel = GenerateEmbeddingSpMDM<HalfType, int32_t, int32_t, HalfType>(
+    auto kernel = GenerateEmbeddingSpMDM<InType, int32_t, int32_t, OutType>(
         block_size, false, false, 16, false, true);
-    vector<HalfType> actual(block_size);
+    vector<OutType> actual(block_size);
     ASSERT_TRUE(kernel(
         1,
         indices.size(),
@@ -104,8 +104,10 @@ TEST(EmbeddingSpMDMTest, TypedHalfInputsAndOutputs) {
     EXPECT_EQ(actual, expected);
   };
 
-  verify.template operator()<float16>();
-  verify.template operator()<bfloat16>();
+  verify_half_to_half.template operator()<float16, float16>();
+  verify_half_to_half.template operator()<float16, bfloat16>();
+  verify_half_to_half.template operator()<bfloat16, float16>();
+  verify_half_to_half.template operator()<bfloat16, bfloat16>();
 
   auto verify_strided_to_float = [&]<typename HalfType>() {
     constexpr int64_t input_stride = 3;
@@ -169,6 +171,66 @@ TEST(EmbeddingSpMDMTest, TypedHalfInputsAndOutputs) {
 
   verify_strided_to_float.template operator()<float16>();
   verify_strided_to_float.template operator()<bfloat16>();
+}
+
+TEST(EmbeddingSpMDMTest, TypedHalfOutputsForFP8Input) {
+  constexpr int64_t block_size = 2;
+  constexpr int exponent_bits = 4;
+  constexpr int exponent_bias = 7;
+  const vector<float> input_float{1.5f, -2.0f, 3.0f, 4.0f};
+  vector<uint8_t> input(input_float.size());
+  for (size_t i = 0; i < input.size(); ++i) {
+    FloatToFloat8_ref(input_float[i], &input[i], exponent_bits, exponent_bias);
+  }
+  const vector<int32_t> indices{0, 1};
+  const vector<int32_t> offsets{0, 2};
+
+  auto verify = [&]<typename OutType>() {
+    vector<OutType> expected(block_size);
+    ASSERT_TRUE((EmbeddingSpMDMFP8_ref<int32_t, int32_t, OutType>(
+        block_size,
+        1,
+        indices.size(),
+        2,
+        input.data(),
+        indices.data(),
+        offsets.data(),
+        nullptr,
+        false,
+        expected.data(),
+        false,
+        true,
+        -1,
+        -1,
+        exponent_bits,
+        exponent_bias)));
+
+    auto kernel =
+        GenerateEmbeddingSpMDMFP8WithStrides<int32_t, int32_t, OutType>(
+            block_size,
+            false,
+            false,
+            true,
+            -1,
+            -1,
+            exponent_bits,
+            exponent_bias);
+    vector<OutType> actual(block_size);
+    ASSERT_TRUE(kernel(
+        1,
+        indices.size(),
+        2,
+        input.data(),
+        indices.data(),
+        offsets.data(),
+        nullptr,
+        actual.data()));
+
+    EXPECT_EQ(actual, expected);
+  };
+
+  verify.template operator()<float16>();
+  verify.template operator()<bfloat16>();
 }
 
 static vector<int> prefetch_distances = {0, 16, 1000000};
