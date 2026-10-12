@@ -20,6 +20,7 @@
 #include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/binary_search_range.h"
+#include "fbgemm_gpu/utils/count_true.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -1026,8 +1027,8 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
         FBGEMM_DISPATCH_ALL_TYPES(
             values.scalar_type(), "mask_select_jagged_1d_kernel2", [&] {
               const auto mask_ptr = mask_contiguous->const_data_ptr<bool>();
-              const int64_t num_outputs =
-                  std::count(mask_ptr, mask_ptr + mask.numel(), true);
+              const int64_t num_outputs = utils::count_true(
+                  {mask_ptr, static_cast<size_t>(mask.numel())});
               masked_values = at::empty({num_outputs}, values.options());
 
               const auto values_ptr =

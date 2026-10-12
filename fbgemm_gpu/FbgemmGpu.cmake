@@ -24,6 +24,7 @@ set(tbe_eeg_cpu_sources
   src/tbe/eeg/indices_generator.cpp)
 
 set(fbgemm_gpu_sources_cpu_static
+    src/count_true.cpp
     src/faster_hash_ops/faster_hash.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_cpu.cpp
     src/memory_utils/memory_utils.cpp
