@@ -382,6 +382,18 @@ gen_gpu_files_training_dense = [
     "gen_embedding_backward_split_dense.cpp",
 ]
 
+gen_gpu_files_training_dense_helpers = [
+    "gen_embedding_backward_split_helpers_dense.cu",
+]
+
+gen_gpu_files_training_gwd_helpers = [
+    "gen_embedding_backward_split_helpers_gwd.cu",
+]
+
+gen_gpu_files_training_vbe_helpers = [
+    "gen_embedding_backward_split_helpers_vbe.cu",
+]
+
 gen_gpu_files_training_split_host = (
     [
         "gen_embedding_backward_split_{}.cpp".format(optimizer)
