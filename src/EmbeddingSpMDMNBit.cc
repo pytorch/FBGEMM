@@ -1014,8 +1014,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         bool scale_bias_last /*=true*/,
         const bool no_bag /*=false*/,
         int output_bit_rate /*=-1*/) {
-  [[maybe_unused]] constexpr bool is_bf16_out =
-      std::is_same_v<outType, bfloat16>;
   if (output_bit_rate == -1) {
     output_bit_rate = sizeof(outType) * 8;
   }
@@ -1125,7 +1123,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     // FP16 accumulation (eps ~= 9.77e-4) trades precision for
     // throughput: ~0.5-1% relative error vs FP32 at typical bag
     // sizes (L=100), worst-case O(L * eps_fp16) ~= 10%.
-    if (is_sve_fp16_enabled() && !is_bf16_out) {
+    if (is_sve_fp16_enabled()) {
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
