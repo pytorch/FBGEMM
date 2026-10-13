@@ -139,10 +139,10 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
 
     {%- if not nobag %}
-    const int kINT8QparamsBytes = 8;
+    const int output_qparams_bytes = 8;
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
-        total_adjusted_D += T * kINT8QparamsBytes;
+        total_adjusted_D += T * output_qparams_bytes;
     }
 
     if (indices.numel() == 0) {
@@ -153,10 +153,10 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
 
     {%- else %}
     // TODO: Change to use half to match CPU/Meta implementation
-    const int kINT8QparamsBytes = 8; // using float for scale and bias
+    const int output_qparams_bytes = 8; // using float for scale and bias
     int64_t adjusted_D = D;
     if (o_dtype == SparseType::INT8) {
-        adjusted_D += kINT8QparamsBytes;
+        adjusted_D += output_qparams_bytes;
     }
 
     if (total_L == 0) {

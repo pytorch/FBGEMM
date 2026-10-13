@@ -220,7 +220,8 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
       fd.DivMod(invalid_b_t, &t, &b);
     }
 
-    int32_t B = vbe ? (B_offsets[t + 1] - B_offsets[t]) : (total_B / T);
+    const int32_t batch_size =
+        vbe ? (B_offsets[t + 1] - B_offsets[t]) : (total_B / T);
 
     printf(
         "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
@@ -236,7 +237,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
         static_cast<int64_t>(offsets[invalid_b_t]),
         static_cast<int64_t>(offsets[invalid_b_t + 1]),
         T,
-        B,
+        batch_size,
         invalid_b_t);
   }
 #endif
