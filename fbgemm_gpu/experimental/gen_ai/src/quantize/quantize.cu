@@ -518,23 +518,27 @@ __global__ void scaleMatrix2(
   auto input_scal = static_cast<float>(input_scale[0]);
 
   auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
-  auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
-  for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
-       d += (size_t)blockDim.x * gridDim.x) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
+  for (int64_t d = threadIdx.x + blockIdx.x * blockDim.x; d < numel / 4;
+       d += stride) {
     const auto random_bits = stoc_rounding_state.rand4();
-    bfx4 v_in = vec_input[d];
+    const int64_t input_offset = d * 4;
     float4 v_float;
     v_float.x = stochastic_rounding_scalar_fp8(
-        scale<QUANTIZE>(static_cast<float>(v_in.vals[0].x), input_scal),
+        scale<QUANTIZE>(
+            static_cast<float>(input[input_offset + 0]), input_scal),
         random_bits.x);
     v_float.y = stochastic_rounding_scalar_fp8(
-        scale<QUANTIZE>(static_cast<float>(v_in.vals[0].y), input_scal),
+        scale<QUANTIZE>(
+            static_cast<float>(input[input_offset + 1]), input_scal),
         random_bits.y);
     v_float.z = stochastic_rounding_scalar_fp8(
-        scale<QUANTIZE>(static_cast<float>(v_in.vals[1].x), input_scal),
+        scale<QUANTIZE>(
+            static_cast<float>(input[input_offset + 2]), input_scal),
         random_bits.z);
     v_float.w = stochastic_rounding_scalar_fp8(
-        scale<QUANTIZE>(static_cast<float>(v_in.vals[1].y), input_scal),
+        scale<QUANTIZE>(
+            static_cast<float>(input[input_offset + 3]), input_scal),
         random_bits.w);
     vec_output[d] = __nv_fp8x4_e4m3(v_float);
   }
@@ -900,6 +904,9 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
+  TORCH_CHECK(
+      !stochastic_rounding || input.size(-1) % 4 == 0,
+      "input row dimension must be a multiple of 4 when stochastic_rounding is true");
   auto _st = input.scalar_type();
   TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
 
@@ -939,8 +946,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
-    bool stochastic_rounding) // stochastic rounding
-{
+    bool stochastic_rounding) {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(
       input.dim() >= 2,
@@ -951,7 +957,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
       "Invalid datatype. input must be BF16 or FP32");
   TORCH_CHECK(
       !stochastic_rounding || input.size(-1) % 4 == 0,
-      "input row dim must be 4's multiple when stochastic_rounding is True");
+      "input row dimension must be a multiple of 4 when stochastic_rounding is true");
   std::vector<long int> quantized_input_shape;
   quantized_input_shape.reserve(input.dim());
   for (int i = 0; i < input.dim(); i++) {
@@ -976,75 +982,32 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
   auto* const quantized_input_ptr =
       reinterpret_cast<__nv_fp8_e4m3*>(quantized_input.data_ptr());
   const auto stream = at::cuda::getCurrentCUDAStream();
-  if (bs.has_value()) {
-    int64_t total_elements_per_slice = quantized_input_shape[0];
-    for (int i = 1; i < input.dim() - 1; i++) {
-      total_elements_per_slice =
-          total_elements_per_slice * quantized_input_shape[i];
-    }
-    invokeComputeScale(
-        reinterpret_cast<float*>(scales.data_ptr()),
-        reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
-        input.numel(),
-        input.size(-1),
-        total_elements_per_slice,
-        reinterpret_cast<int64_t*>(bs.value().data_ptr()),
-        scale_ub.has_value()
-            ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
-            : nullptr,
-        stream);
-    if (input.scalar_type() == torch::kBFloat16) {
-      invokeQuantizeMatrix(
-          quantized_input_ptr,
-          reinterpret_cast<float*>(scales.data_ptr()),
-          reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
-          input.numel(),
-          input.size(-1),
-          stochastic_rounding,
-          stream);
-    } else {
-      invokeQuantizeMatrix(
-          quantized_input_ptr,
-          reinterpret_cast<float*>(scales.data_ptr()),
-          reinterpret_cast<const float*>(input.const_data_ptr()),
-          input.numel(),
-          input.size(-1),
-          stochastic_rounding,
-          stream);
-    }
-  } else {
-    invokeComputeScale(
-        reinterpret_cast<float*>(scales.data_ptr()),
-        reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
-        input.numel(),
-        input.size(-1),
-        -1,
-        nullptr,
-        scale_ub.has_value()
-            ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
-            : nullptr,
-        stream);
-    if (input.scalar_type() == torch::kBFloat16) {
-      invokeQuantizeMatrix(
-          quantized_input_ptr,
-          reinterpret_cast<float*>(scales.data_ptr()),
-          reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
-          input.numel(),
-          input.size(-1),
-          stochastic_rounding,
-          stream);
-    } else {
-      invokeQuantizeMatrix(
-          quantized_input_ptr,
-          reinterpret_cast<float*>(scales.data_ptr()),
-          reinterpret_cast<const float*>(input.const_data_ptr()),
-          input.numel(),
-          input.size(-1),
-          stochastic_rounding,
-          stream);
-    }
+  int64_t total_elements_per_slice = -1;
+  if (bs) {
+    total_elements_per_slice = input.numel() / input.size(-1);
   }
-  return std::vector<at::Tensor>{quantized_input, scales};
+  AT_DISPATCH_FLOATING_TYPES_AND(
+      at::kBFloat16, input.scalar_type(), "quantize_fp8_per_tensor", [&] {
+        invokeComputeScale(
+            scales.data_ptr<float>(),
+            input.const_data_ptr<scalar_t>(),
+            input.numel(),
+            input.size(-1),
+            total_elements_per_slice,
+            bs ? bs->data_ptr<int64_t>() : nullptr,
+            scale_ub ? scale_ub->data_ptr<float>() : nullptr,
+            stream);
+        invokeQuantizeMatrix(
+            quantized_input_ptr,
+            scales.data_ptr<float>(),
+            input.const_data_ptr<scalar_t>(),
+            input.numel(),
+            input.size(-1),
+            stochastic_rounding,
+            stream);
+      });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {quantized_input, scales};
 }
 
 template <typename T>

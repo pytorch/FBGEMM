@@ -119,19 +119,19 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 def fp8_row_quantize_ref(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     # Quantize an input tensor and return the fp8 tensor and its inverse scale.
-    x_row_max = torch.max(torch.abs(x), dim=1).values
+    x_row_max = torch.max(torch.abs(x.float()), dim=1).values
     max_scaling_factor = E4M3_MAX_POS * 512.0  # Match kernel logics
     scale = torch.Tensor(E4M3_MAX_POS / x_row_max).clamp(max=max_scaling_factor)
-    xq = (x * scale.unsqueeze(1)).to(fp8_e4m3)
+    xq = (x.float() * scale.unsqueeze(1)).to(fp8_e4m3)
     return xq, scale.reciprocal().to(torch.float32)
 
 
 def fp8_col_quantize_ref(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     # Quantize an input tensor and return the fp8 tensor and its inverse scale.
-    x_col_max = torch.max(torch.abs(x), dim=0).values
+    x_col_max = torch.max(torch.abs(x.float()), dim=0).values
     max_scaling_factor = E4M3_MAX_POS * 512.0  # Match kernel logics
     scale = torch.Tensor(E4M3_MAX_POS / x_col_max).clamp(max=max_scaling_factor)
-    xq = (x * scale.unsqueeze(0)).to(fp8_e4m3)
+    xq = (x.float() * scale.unsqueeze(0)).to(fp8_e4m3)
     return xq, scale.reciprocal().to(torch.float32)
 
 
@@ -745,9 +745,9 @@ class FP8Tests(unittest.TestCase):
                 x,
                 stochastic_rounding=stochastic_rounding,
             )
-            x_max = x.abs().max()
+            x_max = x.float().abs().max()
             x_scale_ref = (x_max / fp8_max).float()
-            xq_ref = (x * fp8_max / x_max).to(fp8_e4m3)
+            xq_ref = (x.float() * fp8_max / x_max).to(fp8_e4m3)
         elif Mode == "rowwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
             x = (xq.float() / x_scale.unsqueeze(1)).to(dtype)  # Fake quantization
@@ -769,7 +769,53 @@ class FP8Tests(unittest.TestCase):
         # For stochastic_rounding, |(fl(x) - x)/x| < \epsilon. (2.4a in https://epubs.siam.org/doi/epdf/10.1137/20M1334796).
         # Machine epsilon for E4M3 should be 2^{-3} and for E5M2 is 2^{-2}.
         tol = 0.125 if stochastic_rounding else 5.0e-2
+        self.assertEqual(xq.dtype, fp8_e4m3)
+        torch.testing.assert_close(x_scale, x_scale_ref, atol=1e-7, rtol=1e-5)
         torch.testing.assert_close(xq.float(), xq_ref.float(), atol=tol, rtol=tol)
+
+    def test_quantize_fp8_per_tensor_input_dtypes(self) -> None:
+        for dtype in (torch.bfloat16, torch.float32):
+            x = torch.linspace(-1, 1, 4 * 128, device=self.device, dtype=dtype).reshape(
+                4, 128
+            )
+            expected_scale = x.float().abs().max() / E4M3_MAX_POS
+            expected = (x.float() / expected_scale).to(fp8_e4m3)
+            for stochastic in (False, True):
+                with self.subTest(dtype=dtype, stochastic=stochastic):
+                    quantized, scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
+                        x, stochastic_rounding=stochastic
+                    )
+                    self.assertEqual(quantized.dtype, fp8_e4m3)
+                    torch.testing.assert_close(scale, expected_scale, atol=0, rtol=0)
+                    tolerance = 0.125 if stochastic else 0
+                    torch.testing.assert_close(
+                        quantized.float(),
+                        expected.float(),
+                        atol=tolerance,
+                        rtol=tolerance,
+                    )
+
+        bf16_input = x.to(torch.bfloat16)
+        scale = torch.ops.fbgemm.get_fp8_per_tensor_scale(bf16_input)
+        expected, expected_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(bf16_input)
+        fixed = torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(bf16_input, scale)
+        torch.testing.assert_close(scale[0], expected_scale, atol=0, rtol=0)
+        torch.testing.assert_close(fixed.float(), expected.float(), atol=0, rtol=0)
+        self.assertEqual(fixed.dtype, fp8_e4m3)
+
+        stochastic_fixed = torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+            bf16_input, scale, None, True
+        )
+        torch.testing.assert_close(
+            stochastic_fixed.float() * scale,
+            bf16_input.float(),
+            atol=0.125 / E4M3_MAX_POS,
+            rtol=0.125,
+        )
+        with self.assertRaisesRegex(RuntimeError, "multiple of 4"):
+            torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+                bf16_input[:, :3].contiguous(), scale, None, True
+            )
 
     def test_quantize_fp8_per_row_stochastic_rounding(self) -> None:
         fp8_max = torch.finfo(fp8_e4m3).max
@@ -1015,7 +1061,7 @@ class FP8Tests(unittest.TestCase):
             * 0.01
         )
 
-        UB_t = torch.tensor(UB, dtype=torch.int64, device=self.device)
+        UB_t = torch.tensor(UB, dtype=torch.float, device=self.device)
 
         if Mode == "tensorwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x, None, UB_t)
