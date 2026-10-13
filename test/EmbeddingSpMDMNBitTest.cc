@@ -168,7 +168,107 @@ void expectThreadLocalKernelsMatchGlobal(int bit_rate) {
 }
 #endif
 
+void expectDirectAutovecNBitKernelsMatchReference(int bit_rate) {
+  constexpr int64_t kBlockSize = 8;
+  constexpr int64_t kRows = 2;
+  const int64_t packed_row_size =
+      kBlockSize / (8 / bit_rate) + 2 * sizeof(float16);
+  vector<uint8_t> table(kRows * packed_row_size, 0xE4);
+  for (int64_t row = 0; row < kRows; ++row) {
+    auto* scale_bias = reinterpret_cast<float16*>(
+        table.data() + (row + 1) * packed_row_size - 2 * sizeof(float16));
+    const float scale = 1.0f;
+    const float bias = static_cast<float>(row);
+    FloatToFloat16_ref(&scale, scale_bias, 1, true);
+    FloatToFloat16_ref(&bias, scale_bias + 1, 1, true);
+  }
+
+  const vector<int32_t> indices{0, 1};
+  const vector<int32_t> offsets{0, 2};
+  vector<float> expected(kBlockSize);
+  vector<float> actual(kBlockSize);
+  ASSERT_TRUE((EmbeddingSpMDMNBit_ref<int32_t, int32_t, float>(
+      bit_rate,
+      kBlockSize,
+      1,
+      indices.size(),
+      kRows,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      nullptr,
+      false,
+      expected.data(),
+      false,
+      true,
+      -1,
+      -1,
+      true)));
+  auto dense_kernel =
+      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int32_t, int32_t, float>(
+          bit_rate,
+          kBlockSize,
+          false,
+          false,
+          0,
+          false,
+          true,
+          -1,
+          -1,
+          true,
+          false,
+          -1);
+  ASSERT_TRUE(dense_kernel(
+      1,
+      indices.size(),
+      kRows,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      nullptr,
+      actual.data()));
+  EXPECT_EQ(actual, expected);
+
+  const vector<int32_t> mapping{1, 0};
+  ASSERT_TRUE(
+      EmbeddingSpMDMNBitRowWiseSparse_ref<int32_t>(
+          bit_rate,
+          kBlockSize,
+          1,
+          indices.size(),
+          kRows,
+          table.data(),
+          indices.data(),
+          mapping.data(),
+          offsets.data(),
+          nullptr,
+          false,
+          expected.data(),
+          false,
+          true));
+  auto sparse_kernel =
+      GenerateEmbeddingSpMDMNBitRowWiseSparse_autovec<int32_t, int32_t>(
+          bit_rate, kBlockSize, false, false, 0, false, true);
+  ASSERT_TRUE(sparse_kernel(
+      1,
+      indices.size(),
+      kRows,
+      table.data(),
+      indices.data(),
+      offsets.data(),
+      nullptr,
+      actual.data(),
+      mapping.data()));
+  EXPECT_EQ(actual, expected);
+}
+
 }; // namespace
+
+TEST(FusedNBitRowwiseEmbeddingLookupTest, DirectAutovecSpecializations) {
+  for (const int bit_rate : {2, 4}) {
+    expectDirectAutovecNBitKernelsMatchReference(bit_rate);
+  }
+}
 
 #ifdef FBGEMM_HAS_SPMDM_NBIT_ROWWISE_SPARSE_THREAD_LOCAL
 TEST(FusedNBitRowwiseEmbeddingLookupTest, ThreadLocalKernelsMatchGlobal) {
