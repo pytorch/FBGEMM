@@ -271,9 +271,9 @@ __noinline__ __device__ void process_all_indices_small_Ls(
       const uint32_t num_offsets = smem[params_offset + SAVED_PARAMS::P_num_offsets];
       const uint32_t total_load_D = smem[params_offset + SAVED_PARAMS::P_total_load_D];
       // Write zeros to the sample that L = 0
-      Vec4StepT<1, emb_t> accumulator;
+      Vec4StepT<1, emb_t> zero_accumulator;
       for (uint32_t i = 0; i < num_offsets; ++i) {
-        accumulator.store(output + i * total_load_D);
+        zero_accumulator.store(output + i * total_load_D);
       }
     }
     return;
@@ -331,8 +331,8 @@ __noinline__ __device__ void process_all_indices_small_Ls(
     auto * __restrict__ const output = *reinterpret_cast<output_vec_t**>(&smem[params_offset + SAVED_PARAMS::P_outputs]);
     const auto total_load_D = static_cast<uint32_t>(smem[params_offset + SAVED_PARAMS::P_total_load_D]);
     if (process_d) {
-      Vec4StepT<1, emb_t> accumulator;
-      accumulator.store(output + write_idx + threadIdx.x);
+      Vec4StepT<1, emb_t> zero_accumulator;
+      zero_accumulator.store(output + write_idx + threadIdx.x);
     }
     write_idx += total_load_D;
 

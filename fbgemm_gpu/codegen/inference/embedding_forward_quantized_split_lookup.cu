@@ -187,9 +187,9 @@ Tensor pruned_hashmap_lookup_cuda(
   const int32_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(B > 0);
   TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
-  constexpr size_t kForwardMaxThreads = 256;
+  constexpr size_t kLookupMaxThreads = 256;
   const auto warp_size = kWarpSizeHost();
-  const auto warps_per_block = kForwardMaxThreads / warp_size;
+  const auto warps_per_block = kLookupMaxThreads / warp_size;
 
   AT_DISPATCH_INDEX_TYPES(
       hash_table.scalar_type(), "pruned_hashmap_lookup_cuda_0", [&] {
@@ -203,7 +203,7 @@ Tensor pruned_hashmap_lookup_cuda(
                       hash_t>),
                   utils::cuda::cap_grid_dim_x(
                       nbit::div_round_up(B * T + 1, warps_per_block),
-                      kForwardMaxThreads,
+                      kLookupMaxThreads,
                       at::cuda::getCurrentCUDAStream()),
                   dim3(warp_size, warps_per_block),
                   0,
@@ -253,9 +253,9 @@ Tensor pruned_array_lookup_cuda(
       "Tensor dim: ",
       index_remappings_offsets.dim());
   TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
-  constexpr size_t kForwardMaxThreads = 256;
+  constexpr size_t kLookupMaxThreads = 256;
   const auto warp_size = kWarpSizeHost();
-  const auto warps_per_block = kForwardMaxThreads / warp_size;
+  const auto warps_per_block = kLookupMaxThreads / warp_size;
 
   AT_DISPATCH_INDEX_TYPES(
       index_remappings.scalar_type(), "pruned_array_lookup_cuda_0", [&] {
@@ -269,7 +269,7 @@ Tensor pruned_array_lookup_cuda(
                       remap_t>),
                   utils::cuda::cap_grid_dim_x(
                       nbit::div_round_up(offsets.size(0), warps_per_block),
-                      kForwardMaxThreads,
+                      kLookupMaxThreads,
                       at::cuda::getCurrentCUDAStream()),
                   dim3(warp_size, warps_per_block),
                   0,

@@ -101,12 +101,12 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       if (insert_current_lfu_cost != -1) {
         // ensure that threadIdx.x is the only thread reading/writing to
         // lxu_cache_state
-        int64_t current_idx =
+        int64_t existing_idx =
             threadIdx.x == 0 ? lxu_cache_state[cache_set][insert_slot] : 0;
-        current_idx = shfl_sync(current_idx, 0);
-        const int32_t t_current = cache_index_table_map[current_idx];
+        existing_idx = shfl_sync(existing_idx, 0);
+        const int32_t t_current = cache_index_table_map[existing_idx];
         const int64_t idx_current =
-            current_idx - cache_hash_size_cumsum[t_current];
+            existing_idx - cache_hash_size_cumsum[t_current];
         const int64_t weights_offset_current = weights_offsets[t_current];
         const int32_t D_start_current = D_offsets[t_current];
         const int32_t D_end_current = D_offsets[t_current + 1];
