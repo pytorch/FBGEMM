@@ -75,7 +75,7 @@ __global__ void dequantize_int4_cache_kernel(
         cache_V_dq // [B][MAX_T][N_KVH][D_H]
 ) {
   auto N_KVH = cache_K.size(2);
-  auto D_H = cache_K_dq.size(3);
+  auto head_dim = cache_K_dq.size(3);
 
   auto b = blockIdx.x;
   // only need to dequantize this far.
@@ -97,7 +97,7 @@ __global__ void dequantize_int4_cache_kernel(
           *reinterpret_cast<uint*>(&row_k[0]);
       *reinterpret_cast<uint*>(&v_shift_scale) =
           *reinterpret_cast<uint*>(&row_v[0]);
-      if (4 * threadIdx.x >= D_H) {
+      if (4 * threadIdx.x >= head_dim) {
         continue;
       }
       uint32_t kq = *reinterpret_cast<uint16_t*>(&row_k[threadIdx.x * 2 + 4]);
@@ -109,7 +109,7 @@ __global__ void dequantize_int4_cache_kernel(
     } else {
       __half2 k_shift_scale;
       __half2 v_shift_scale;
-      auto group_size = D_H / KVQuantNumGroups;
+      auto group_size = head_dim / KVQuantNumGroups;
       auto group_idx = threadIdx.x * 4 / group_size;
 
       *reinterpret_cast<uint*>(&k_shift_scale) =
@@ -119,7 +119,7 @@ __global__ void dequantize_int4_cache_kernel(
 
       int32_t int4_qparam_offset = 4 * KVQuantNumGroups;
 
-      if (4 * threadIdx.x >= D_H) {
+      if (4 * threadIdx.x >= head_dim) {
         continue;
       }
 
@@ -176,21 +176,21 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
   auto B = cache_K.size(0);
   auto MAX_T = cache_K.size(1);
   auto N_KVH = cache_K.size(2);
-  auto D_HQ = cache_K.size(3);
+  auto quantized_row_dim = cache_K.size(3);
   // D_HQ == D_H // 2 + 8 (int4 + 4xhalf qparams)
   auto num_groups_ = num_groups ? num_groups.value() : 1;
   auto int4_qparam_offset = 4 * num_groups_;
-  auto D_H = (D_HQ - int4_qparam_offset) * 2;
+  auto head_dim = (quantized_row_dim - int4_qparam_offset) * 2;
 
   constexpr int32_t kMaxBlocks = 256;
   const int32_t launch_grid_y = B > 0
       ? check_dequantize_grid_y("dequantize_int4_cache launch", B, kMaxBlocks)
       : 0;
 
-  auto cache_K_dq =
-      at::zeros({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
-  auto cache_V_dq =
-      at::zeros({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
+  auto cache_K_dq = at::zeros(
+      {B, MAX_T, N_KVH, head_dim}, cache_K.options().dtype(at::kBFloat16));
+  auto cache_V_dq = at::zeros(
+      {B, MAX_T, N_KVH, head_dim}, cache_K.options().dtype(at::kBFloat16));
 
   if (B == 0) {
     return {cache_K_dq, cache_V_dq};
@@ -225,12 +225,16 @@ __global__ void dequantize_fp8_cache_kernel(
     int32_t* qparam_v_ptr) {
   auto N_KVH = cache_K.size(2);
   auto MAX_T = cache_K.size(1);
-  auto D_H = cache_K_dq.size(3);
-  auto D_H_q = cache_K.size(3);
+  auto head_dim = cache_K_dq.size(3);
+  auto quantized_row_dim = cache_K.size(3);
   // TODO: support D_H < 128 for small model used in testing.
-  CUDA_KERNEL_ASSERT(D_H == 128);
+  CUDA_KERNEL_ASSERT(
+      head_dim == 128 &&
+      "FP8 cache dequantization requires head dimension 128");
   const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
-  CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
+  CUDA_KERNEL_ASSERT(
+      quantized_row_dim - head_dim == offset_bytes &&
+      "FP8 cache row width does not match its qparam layout");
 
   auto b = blockIdx.x;
   // only need to dequantize this far.
@@ -340,12 +344,16 @@ __global__ void dequantize_fp8_cache_kernel(
     int32_t* qparam_v_ptr) {
   auto N_KVH = cache_K.size(2);
   auto MAX_T = cache_K.size(1);
-  auto D_H = cache_K_dq.size(3);
-  auto D_H_q = cache_K.size(3);
+  auto head_dim = cache_K_dq.size(3);
+  auto quantized_row_dim = cache_K.size(3);
   // TODO: support D_H < 128 for small model used in testing.
-  CUDA_KERNEL_ASSERT(D_H == 128);
+  CUDA_KERNEL_ASSERT(
+      head_dim == 128 &&
+      "FP8 cache dequantization requires head dimension 128");
   const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
-  CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
+  CUDA_KERNEL_ASSERT(
+      quantized_row_dim - head_dim == offset_bytes &&
+      "FP8 cache row width does not match its qparam layout");
 
   auto b = blockIdx.x;
   // only need to dequantize this far.
@@ -434,9 +442,11 @@ __global__ void dequantize_fp8_cache_kernel_paged(
     int32_t block_tables_b_stride,
     int32_t page_size) {
   auto N_KVH = cache_K.size(2);
-  auto D_H = cache_K_dq.size(3);
-  auto D_H_q = cache_K.size(3);
-  CUDA_KERNEL_ASSERT(D_H == 128);
+  auto head_dim = cache_K_dq.size(3);
+  auto quantized_row_dim = cache_K.size(3);
+  CUDA_KERNEL_ASSERT(
+      head_dim == 128 &&
+      "FP8 cache dequantization requires head dimension 128");
 
   auto b = blockIdx.x;
   // only need to dequantize this far.
@@ -474,8 +484,10 @@ __global__ void dequantize_fp8_cache_kernel_paged(
       qparam_v_src = reinterpret_cast<__half2*>(&row_v[0]);
     }
     // Assert the quantized row dim is as expected
-    CUDA_KERNEL_ASSERT(D_H_q - D_H == qparam_offset_bytes);
-    if (4 * threadIdx.x >= D_H) {
+    CUDA_KERNEL_ASSERT(
+        quantized_row_dim - head_dim == qparam_offset_bytes &&
+        "FP8 cache row width does not match its qparam layout");
+    if (4 * threadIdx.x >= head_dim) {
       continue;
     }
     // each thread reads 4 x 8 bits
@@ -503,7 +515,7 @@ __global__ void dequantize_fp8_cache_kernel_paged(
   // NaN values beyond the sequence length.
   max_t = (max_t + page_size - 1) / page_size * page_size;
   for (; t_h < max_t * N_KVH; t_h += blockDim.y * gridDim.y) {
-    if (4 * threadIdx.x >= D_H) {
+    if (4 * threadIdx.x >= head_dim) {
       continue;
     }
     auto h = t_h % N_KVH;
@@ -541,7 +553,7 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   // vanilla: MAX_T = MAX_T, paged: MAX_T = MAX_PAGE * PAGE_SIZE
   auto MAX_T = cache_K.size(1);
   auto N_KVH = cache_K.size(2);
-  auto D_HQ = cache_K.size(3);
+  auto quantized_row_dim = cache_K.size(3);
   auto fp8_qparam_offset = 4;
   int32_t* qparam_k_ptr = nullptr;
   int32_t* qparam_v_ptr = nullptr;
@@ -550,7 +562,7 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     qparam_v_ptr = static_cast<int32_t*>(qparam_v.value().data_ptr());
     fp8_qparam_offset = 0;
   }
-  auto D_H = (D_HQ - fp8_qparam_offset);
+  auto head_dim = quantized_row_dim - fp8_qparam_offset;
 
   constexpr int32_t kMaxBlocks = 512;
   const int32_t launch_grid_y = B > 0
@@ -574,9 +586,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   // this function at every layer to reuse it and prevent allocation.
 
   auto cache_K_dq = at::empty(
-      {B_KV, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
+      {B_KV, MAX_T, N_KVH, head_dim}, cache_K.options().dtype(at::kBFloat16));
   auto cache_V_dq = at::empty(
-      {B_KV, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
+      {B_KV, MAX_T, N_KVH, head_dim}, cache_K.options().dtype(at::kBFloat16));
 
   if (B == 0) {
     return {cache_K_dq, cache_V_dq};

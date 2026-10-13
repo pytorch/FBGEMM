@@ -59,8 +59,9 @@ __global__ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel(
     pta::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_V) {
   auto N_KVH = cache_K.size(3);
   auto MAX_T = cache_K.size(2);
-  auto D_H = cache_K.size(4);
-  CUDA_KERNEL_ASSERT(D_H == 128);
+  auto head_dim = cache_K.size(4);
+  CUDA_KERNEL_ASSERT(
+      head_dim == 128 && "FP8 cache conversion requires head dimension 128");
 
   auto l = blockIdx.x;
   auto b = blockIdx.y;
