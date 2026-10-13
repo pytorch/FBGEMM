@@ -1495,32 +1495,33 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
   // Output smem: max(kMaxHeads, F_M) * D_H floats
   const int32_t smem_staging_size = kSplitKWarpsPerBlock *
       max(F_N * SMEM_K_STRIDE, F_K * SMEM_V_STRIDE) * sizeof(at::BFloat16);
-  int32_t smem = max(kMaxHeads, F_M) *
+  int32_t dynamic_smem_bytes = max(kMaxHeads, F_M) *
           (t_per_block_round_up + kSplitKWarpsPerBlock + D_H) * sizeof(float) +
       smem_staging_size;
 
-#define CALL_GQA_ATTN_SPLITK_WMMA(                                    \
-    CACHE_TYPE, NUM_GROUPS, KV_LOAD_T, KV_DATA_TYPE)                  \
-  auto gqa_fn = gqa_attn_splitk_wmma_kernel<                          \
-      CACHE_TYPE,                                                     \
-      NUM_GROUPS,                                                     \
-      KV_LOAD_T,                                                      \
-      KV_DATA_TYPE>;                                                  \
-  if (smem > SMEM_ADJUST_THRESHOLD) {                                 \
-    set_gpu_max_dynamic_shared_memory(gqa_fn, smem, XQ.get_device()); \
-  }                                                                   \
-  FBGEMM_LAUNCH_KERNEL(                                               \
-      (gqa_fn),                                                       \
-      blocks,                                                         \
-      threads,                                                        \
-      smem,                                                           \
-      at::cuda::getCurrentCUDAStream(),                               \
-      PTA_B(XQ, at::BFloat16, 4, 32),                                 \
-      PTA_B(cache_K, CACHE_TYPE, 4, 64),                              \
-      PTA_B(cache_V, CACHE_TYPE, 4, 64),                              \
-      PTA_B(out_splitK, float, 4, 32),                                \
-      PTA_B(seq_positions, int32_t, 1, 32),                           \
-      PTA_B(metadata, float, 4, 32),                                  \
+#define CALL_GQA_ATTN_SPLITK_WMMA(                    \
+    CACHE_TYPE, NUM_GROUPS, KV_LOAD_T, KV_DATA_TYPE)  \
+  auto gqa_fn = gqa_attn_splitk_wmma_kernel<          \
+      CACHE_TYPE,                                     \
+      NUM_GROUPS,                                     \
+      KV_LOAD_T,                                      \
+      KV_DATA_TYPE>;                                  \
+  if (dynamic_smem_bytes > SMEM_ADJUST_THRESHOLD) {   \
+    set_gpu_max_dynamic_shared_memory(                \
+        gqa_fn, dynamic_smem_bytes, XQ.get_device()); \
+  }                                                   \
+  FBGEMM_LAUNCH_KERNEL(                               \
+      (gqa_fn),                                       \
+      blocks,                                         \
+      threads,                                        \
+      dynamic_smem_bytes,                             \
+      at::cuda::getCurrentCUDAStream(),               \
+      PTA_B(XQ, at::BFloat16, 4, 32),                 \
+      PTA_B(cache_K, CACHE_TYPE, 4, 64),              \
+      PTA_B(cache_V, CACHE_TYPE, 4, 64),              \
+      PTA_B(out_splitK, float, 4, 32),                \
+      PTA_B(seq_positions, int32_t, 1, 32),           \
+      PTA_B(metadata, float, 4, 32),                  \
       qk_scale);
 
   if (cache_K.dtype() == at::kBFloat16) {
@@ -1648,18 +1649,18 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_impl(
 
     int32_t smem_softmax =
         MAX_T * sizeof(float) + kWarpsPerBlock * sizeof(float);
-    int32_t smem = smem_softmax;
+    int32_t softmax_smem_bytes = smem_softmax;
 
-    if (smem > SMEM_ADJUST_THRESHOLD) {
+    if (softmax_smem_bytes > SMEM_ADJUST_THRESHOLD) {
       set_gpu_max_dynamic_shared_memory(
-          gqa_attn_splitk_attn_kernel, smem, device);
+          gqa_attn_splitk_attn_kernel, softmax_smem_bytes, device);
     }
 
     FBGEMM_LAUNCH_KERNEL(
         (gqa_attn_splitk_attn_kernel),
         blocks,
         threads,
-        smem,
+        softmax_smem_bytes,
         at::cuda::getCurrentCUDAStream(),
         PTA_B(QK_out, float, 3, 32),
         PTA_B(attn_out, float, 3, 32),
@@ -1672,39 +1673,39 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_impl(
     dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
 
     int32_t smem_output = D_H * sizeof(float) * kWarpsPerBlock;
-    int32_t smem = smem_output;
-    const bool set_max_dynamic_smem = smem > SMEM_ADJUST_THRESHOLD;
+    int32_t output_smem_bytes = smem_output;
+    const bool set_max_dynamic_smem = output_smem_bytes > SMEM_ADJUST_THRESHOLD;
 
     if (cache_K.dtype() == at::kBFloat16) {
       if (set_max_dynamic_smem) {
         set_gpu_max_dynamic_shared_memory(
-            gqa_attn_splitk_v_kernel, smem, device);
+            gqa_attn_splitk_v_kernel, output_smem_bytes, device);
       }
       FBGEMM_LAUNCH_KERNEL(
           (gqa_attn_splitk_v_kernel),
           blocks,
           threads,
-          smem,
+          output_smem_bytes,
           at::cuda::getCurrentCUDAStream(),
           PTA_B(attn_out, float, 3, 32),
           PTA_B(cache_V, at::BFloat16, 4, 64),
           PTA_B(O, float, 5, 32),
           PTA_B(seq_positions, int32_t, 1, 32));
     } else {
-#define CALL_MQA_ATTN_SPLITKV_INT4_GROUPWISE_KERNEL(NUM_GROUPS, ...) \
-  if (set_max_dynamic_smem) {                                        \
-    set_gpu_max_dynamic_shared_memory(                               \
-        gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>, smem, device);    \
-  }                                                                  \
-  FBGEMM_LAUNCH_KERNEL(                                              \
-      (gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>),                   \
-      blocks,                                                        \
-      threads,                                                       \
-      smem,                                                          \
-      at::cuda::getCurrentCUDAStream(),                              \
-      PTA_B(attn_out, float, 3, 32),                                 \
-      PTA_B(cache_V, uint8_t, 4, 64),                                \
-      PTA_B(O, float, 5, 32),                                        \
+#define CALL_MQA_ATTN_SPLITKV_INT4_GROUPWISE_KERNEL(NUM_GROUPS, ...)           \
+  if (set_max_dynamic_smem) {                                                  \
+    set_gpu_max_dynamic_shared_memory(                                         \
+        gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>, output_smem_bytes, device); \
+  }                                                                            \
+  FBGEMM_LAUNCH_KERNEL(                                                        \
+      (gqa_attn_splitk_v_int4_kernel<NUM_GROUPS>),                             \
+      blocks,                                                                  \
+      threads,                                                                 \
+      output_smem_bytes,                                                       \
+      at::cuda::getCurrentCUDAStream(),                                        \
+      PTA_B(attn_out, float, 3, 32),                                           \
+      PTA_B(cache_V, uint8_t, 4, 64),                                          \
+      PTA_B(O, float, 5, 32),                                                  \
       PTA_B(seq_positions, int32_t, 1, 32));
 
       auto num_groups_ = num_groups ? num_groups.value() : 1;
