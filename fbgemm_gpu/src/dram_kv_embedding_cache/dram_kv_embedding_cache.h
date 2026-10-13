@@ -914,16 +914,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           auto payloads = co_await fetchFn(unhashed_ids);
           auto latency_ms =
               (facebook::WallClockUtil::NowInUsecFast() - start_time) / 1000;
+          const size_t non_empty_payloads =
+              oneflow_enrichment::countNonEmptyPayloads(payloads);
           XLOG_EVERY_MS(INFO, 60000)
-              << "[EmbeddingCacheEnrich] " << log_prefix << payloads.size()
+              << "[EmbeddingCacheEnrich] " << log_prefix << non_empty_payloads
               << "/" << unhashed_ids.size() << ", latency_ms: " << latency_ms;
           enrichment_query_count_.fetch_add(unhashed_ids.size());
-          if (unhashed_ids.size() >= payloads.size()) {
+          if (unhashed_ids.size() >= non_empty_payloads) {
             enrichment_empty_count_.fetch_add(
-                unhashed_ids.size() - payloads.size());
+                unhashed_ids.size() - non_empty_payloads);
           } else {
             XLOG(WARN) << "[EmbeddingCacheEnrich] " << log_prefix
-                       << "payloads.size() (" << payloads.size()
+                       << "payloads.size() (" << non_empty_payloads
                        << ") > unhashed_ids.size() (" << unhashed_ids.size()
                        << ")";
           }
