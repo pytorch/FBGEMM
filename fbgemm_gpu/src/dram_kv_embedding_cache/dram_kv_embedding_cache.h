@@ -2408,7 +2408,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 &(weights_data_ptr
                                       [weights_row_index * row_width]),
                                 0,
-                                row_width);
+                                row_width * sizeof(weight_type));
                             continue;
                           }
 
