@@ -2110,6 +2110,15 @@ class FP8Tests(unittest.TestCase):
                 dtype=torch.bfloat16,
             )
             torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X, W_bf16)
+            gemv_output = torch.compile(torch.ops.fbgemm.fp8fp8bf16_fast_gemv)(
+                XQ[:1],
+                WQ,
+                row_scale[:1],
+                col_scale,
+                False,
+            )
+            self.assertEqual(gemv_output.shape, (1, N))
+            self.assertEqual(gemv_output.dtype, torch.bfloat16)
 
     @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet supported."
