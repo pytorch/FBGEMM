@@ -214,10 +214,11 @@ if(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_GENAI
 endif()
 
 set(fbgemm_thirdparty_include_directories
+  # Prefer FBGEMM's bundled AsmJit headers over the copy shipped by PyTorch.
+  ${THIRDPARTY}/asmjit/src
   # PyTorch
   ${TORCH_INCLUDE_DIRS}
   # Third-party
-  ${THIRDPARTY}/asmjit/src
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
