@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -94,12 +95,140 @@ TEST(OneFlowEnrichmentTest, RejectsRowNarrowerThanOneId) {
           .has_value());
 }
 
+TEST(OneFlowEnrichmentTest, WritesNegativeRowForEmptyListAndSkipsAbsentId) {
+  // 1001 answered with no IDs (negative cache entry), 2002 never answered.
+  const std::vector<int64_t> hashedIds{101, 202};
+  const std::vector<int64_t> unhashedIds{1001, 2002};
+  const oneflow_enrichment::OpenTabBackend::IdListPayloadMap payloads{
+      {1001, {}},
+  };
+  constexpr int64_t kCacheDim = 8 * oneflow_enrichment::kDibitsPerInt64;
+
+  const auto result = oneflow_enrichment::prepareInt64ListPayloadTensors<float>(
+      hashedIds, unhashedIds, payloads, kCacheDim);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->indices.item<int64_t>(), 101);
+  const auto weights = result->weights.contiguous();
+  const float* values = weights.const_data_ptr<float>();
+  // Every slot holds the no-payload marker, which encodes to non-zero weights
+  // so the cache does not re-fetch the row (is_weights_all_zero is false).
+  for (int64_t slot = 0; slot < 8; ++slot) {
+    EXPECT_EQ(
+        decodeInt64(values + slot * 32),
+        oneflow_enrichment::kIdListNoPayloadId);
+  }
+  EXPECT_TRUE(std::all_of(values, values + kCacheDim, [](float value) {
+    return value == 2.0f;
+  }));
+}
+
+TEST(OneFlowEnrichmentTest, DropsReservedIdsFromPayloadAndPadsWithZero) {
+  const std::vector<int64_t> hashedIds{101};
+  const std::vector<int64_t> unhashedIds{1001};
+  const oneflow_enrichment::OpenTabBackend::IdListPayloadMap payloads{
+      {1001,
+       {oneflow_enrichment::kIdListNoPayloadId,
+        11,
+        oneflow_enrichment::kIdListPaddingId,
+        22}},
+  };
+  constexpr int64_t kCacheDim = 3 * oneflow_enrichment::kDibitsPerInt64;
+
+  const auto result = oneflow_enrichment::prepareInt64ListPayloadTensors<float>(
+      hashedIds, unhashedIds, payloads, kCacheDim);
+
+  ASSERT_TRUE(result.has_value());
+  const auto weights = result->weights.contiguous();
+  const float* values = weights.const_data_ptr<float>();
+  const std::vector<int64_t> expected{
+      11, 22, oneflow_enrichment::kIdListPaddingId};
+  std::vector<int64_t> decoded;
+  decoded.reserve(expected.size());
+  for (int64_t slot = 0; slot < 3; ++slot) {
+    decoded.push_back(decodeInt64(values + slot * 32));
+  }
+  EXPECT_EQ(decoded, expected);
+}
+
+TEST(OneFlowEnrichmentTest, WritesNegativeRowForAllReservedPayload) {
+  // A payload holding only reserved values carries no real IDs: it must become
+  // a negative-cache row, not an all-zero row that is re-fetched every step.
+  const std::vector<int64_t> hashedIds{101};
+  const std::vector<int64_t> unhashedIds{1001};
+  const oneflow_enrichment::OpenTabBackend::IdListPayloadMap payloads{
+      {1001,
+       {oneflow_enrichment::kIdListPaddingId,
+        oneflow_enrichment::kIdListNoPayloadId}},
+  };
+  constexpr int64_t kCacheDim = 3 * oneflow_enrichment::kDibitsPerInt64;
+
+  const auto result = oneflow_enrichment::prepareInt64ListPayloadTensors<float>(
+      hashedIds, unhashedIds, payloads, kCacheDim);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->indices.item<int64_t>(), 101);
+  const auto weights = result->weights.contiguous();
+  const float* values = weights.const_data_ptr<float>();
+  const std::vector<int64_t> expected(
+      3, oneflow_enrichment::kIdListNoPayloadId);
+  std::vector<int64_t> decoded;
+  decoded.reserve(expected.size());
+  for (int64_t slot = 0; slot < 3; ++slot) {
+    decoded.push_back(decodeInt64(values + slot * 32));
+  }
+  EXPECT_EQ(decoded, expected);
+}
+
+TEST(OneFlowEnrichmentTest, CountsOnlyNonEmptyIdListPayloads) {
+  const oneflow_enrichment::OpenTabBackend::IdListPayloadMap payloads{
+      {1001, {11, 22}},
+      {2002, {}},
+      {3003, {33}},
+  };
+  EXPECT_EQ(oneflow_enrichment::countNonEmptyPayloads(payloads), 2);
+}
+
 struct MetaHeader {
   int64_t key;
   uint32_t timestamp;
   uint32_t count : 31;
   bool used : 1;
 };
+
+template <typename WeightType>
+void expectMissingWholeRowZeroed(at::ScalarType scalarType) {
+  constexpr int64_t kEmbeddingDim = 16;
+  const auto hashSizeCumsum = at::tensor({0, 100000}, at::kLong);
+  DramKVEmbeddingCache<WeightType> cache(
+      kEmbeddingDim,
+      /*uniform_init_lower=*/-0.1,
+      /*uniform_init_upper=*/0.1,
+      /*feature_evict_config=*/std::nullopt,
+      /*num_shards=*/4,
+      /*num_threads=*/4,
+      /*row_storage_bitwidth=*/sizeof(WeightType) * 8,
+      /*backend_return_whole_row=*/true,
+      /*enable_async_update=*/false,
+      /*table_dims=*/std::nullopt,
+      hashSizeCumsum,
+      /*is_training=*/false,
+      /*disable_random_init=*/true);
+  auto output = at::ones({1, kEmbeddingDim}, scalarType);
+
+  cache.get_range_from_snapshot(
+      output, /*start=*/0, /*length=*/1, /*snapshot_handle=*/nullptr);
+
+  EXPECT_TRUE(at::equal(output, at::zeros_like(output))) << output;
+}
+
+TEST(DramKVEmbeddingCacheMissingRowTest, ZeroesCompleteFloatRow) {
+  expectMissingWholeRowZeroed<float>(at::kFloat);
+}
+
+TEST(DramKVEmbeddingCacheMissingRowTest, ZeroesCompleteHalfRow) {
+  expectMissingWholeRowZeroed<at::Half>(at::kHalf);
+}
 
 class DramKVEmbeddingCacheTest : public ::testing::Test {
  protected:
