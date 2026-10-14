@@ -617,6 +617,17 @@ class TestFp8Matmul(unittest.TestCase):
             (3, 4, 5), torch.device("cuda"), use_bias=False
         )
 
+    def test_matmul_fp8_row_cpu_preserves_batch_dimensions(self) -> None:
+        a = torch.randn(2, 3, 5, dtype=torch.bfloat16)
+        b = torch.randn(4, 5, dtype=torch.bfloat16)
+        a_fp8, a_scale = quantize_fp8_row(a)
+        b_fp8, b_scale = quantize_fp8_row(b)
+
+        result = matmul_fp8_row(a_fp8, b_fp8, a_scale, b_scale)
+
+        self.assertEqual(result.shape, torch.Size((2, 3, 4)))
+        self.assertTrue(torch.allclose(result, a @ b.T, atol=2e-1, rtol=5e-2))
+
     def test_quantize_fp8_group(self) -> None:
         def _test_quantize_fp8_group(
             shape: tuple[int, int],
