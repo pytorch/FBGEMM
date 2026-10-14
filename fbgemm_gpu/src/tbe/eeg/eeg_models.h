@@ -35,7 +35,7 @@ struct ZipfParameters {
     assert((q > 0) && "q must be > 0 in Zipf!");
   }
 
-  ZipfParameters(double q, double s) : q{q}, s{s} {
+  ZipfParameters(double q_value, double s_value) : q{q_value}, s{s_value} {
     assert((q > 0) && "q must be > 0 in Zipf!");
   }
 

@@ -313,9 +313,17 @@ transpose_embedding_input(
         FixedDivisor(total_B / T));                                        \
   }
 
-  AT_DISPATCH_INDEX_TYPES(
+#define FBGEMM_DISPATCH_INFO_TYPES(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                               \
+      TYPE,                                         \
+      NAME,                                         \
+      AT_PRIVATE_CASE_TYPE_USING_HINT(              \
+          at::ScalarType::Int, info_t, __VA_ARGS__) \
+          AT_PRIVATE_CASE_TYPE_USING_HINT(          \
+              at::ScalarType::Long, info_t, __VA_ARGS__))
+
+  FBGEMM_DISPATCH_INFO_TYPES(
       infos.scalar_type(), "transpose_embedding_input_1", [&] {
-        using info_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
             indices.scalar_type(), "transpose_embedding_input_2", [&] {
               if (!is_index_select) {
@@ -456,6 +464,7 @@ transpose_embedding_input(
       asynchronous_complete_cumsum(sorted_linear_indices_run_lengths);
 
 #undef INVOKE_LINEARIZE_INDEX_KERNEL
+#undef FBGEMM_DISPATCH_INFO_TYPES
 
   return {
       linear_indices,

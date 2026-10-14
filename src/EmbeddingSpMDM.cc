@@ -188,8 +188,7 @@ GenEmbeddingSpMDMLookup<
                 ROWWISE_SPARSE>::jit_embedding_kernel {
         constexpr bool is_8bit_in = std::is_same_v<inType, uint8_t>;
         constexpr bool is_bf16_in = std::is_same_v<inType, bfloat16>;
-        constexpr bool is_16bit_in =
-            std::is_same_v<inType, float16> || is_bf16_in;
+        constexpr bool is_16bit_in = FbgemmHalfType<inType>;
         constexpr bool is_bf16_out = std::is_same_v<outType, bfloat16>;
         constexpr bool is_fp16_in = std::is_same_v<inType, float16>;
         constexpr bool is_fp16_out = std::is_same_v<outType, float16>;
@@ -407,14 +406,17 @@ GenEmbeddingSpMDMLookup<
           w_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (remainder && instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           // AVX512 doesn't need to use vector register for masking
-          --unroll_factor;
-          mask_vreg = x86::ymm(unroll_factor);
-          if (remainder > 1 &&
-              (FbgemmHalfType<inType> || FbgemmHalfType<outType>)) {
+          if (remainder) {
             --unroll_factor;
-            mask_fp16_vreg = x86::xmm(unroll_factor);
+            mask_vreg = x86::ymm(unroll_factor);
+            if constexpr (FbgemmHalfType<inType> || FbgemmHalfType<outType>) {
+              if (remainder > 1) {
+                --unroll_factor;
+                mask_fp16_vreg = x86::xmm(unroll_factor);
+              }
+            }
           }
         }
 
@@ -429,7 +431,7 @@ GenEmbeddingSpMDMLookup<
                 mask_vreg,
                 x86::ymmword_ptr(
                     scratchReg1_, (vlen - remainder) % vlen * sizeof(int32_t)));
-            if (FbgemmHalfType<inType> || FbgemmHalfType<outType>) {
+            if constexpr (FbgemmHalfType<inType> || FbgemmHalfType<outType>) {
               if (remainder > 1) {
                 a->vmovups(
                     mask_fp16_vreg,
@@ -672,11 +674,11 @@ GenEmbeddingSpMDMLookup<
                       0,
                       fused_block_size / CACHE_LINE_LEN * CACHE_LINE_LEN));
             }
-          }
 
-          if (has_weight && is_8bit_in) {
-            a->vmulps(scale_vreg, scale_vreg, w_vreg);
-            a->vmulps(bias_vreg, bias_vreg, w_vreg);
+            if (has_weight) {
+              a->vmulps(scale_vreg, scale_vreg, w_vreg);
+              a->vmulps(bias_vreg, bias_vreg, w_vreg);
+            }
           }
 
           // The main computation
@@ -933,9 +935,13 @@ GenEmbeddingSpMDMLookup<
         a->mov(x86::eax, false);
         a->bind(exit);
 
-        if (remainder && instSet == inst_set_t::avx2 &&
+        if constexpr (
+            instSet == inst_set_t::avx2 &&
             (FbgemmHalfType<inType> || FbgemmHalfType<outType>)) {
-          a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+          if (remainder) {
+            a->lea(
+                x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+          }
         }
 
         a->emitEpilog(frame);
@@ -1008,11 +1014,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         int64_t input_stride /*=-1*/,
         bool scale_bias_last /*=true*/,
         bool no_bag /*=false*/) {
-  bool use_avx [[maybe_unused]] = true;
-  if constexpr (
-      std::is_same_v<inType, bfloat16> && std::is_same_v<outType, float>) {
-    use_avx = false;
-  }
+  [[maybe_unused]] constexpr bool use_avx =
+      !(std::is_same_v<inType, bfloat16> && std::is_same_v<outType, float>);
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1032,33 +1035,34 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
     const inst_set_t isa = fbgemmInstructionSet();
-    if ((std::is_same_v<inType, float> || std::is_same_v<inType, float16> ||
-         std::is_same_v<inType, bfloat16>) &&
-        block_size == 1 && isYmm(isa) && output_stride == block_size &&
-        input_stride == block_size && std::is_same_v<outType, float> &&
-        !is_asmjit_disabled()) {
-      return [=](int64_t output_size,
-                 int64_t index_size,
-                 int64_t data_size,
-                 const inType* input,
-                 const indxType* indices,
-                 const offsetType* offsets_or_lengths,
-                 const float*
-                     weights, // optional, can be null for non-weighted sum
-                 outType* out) {
-        return internal::EmbeddingSpMDMBlockSize1_(
-            output_size,
-            index_size,
-            data_size,
-            input,
-            indices,
-            offsets_or_lengths,
-            weights,
-            normalize_by_lengths,
-            reinterpret_cast<float*>(out),
-            is_weight_positional,
-            use_offsets);
-      };
+    if constexpr (
+        (std::is_same_v<inType, float> || FbgemmHalfType<inType>) &&
+        std::is_same_v<outType, float>) {
+      if (block_size == 1 && isYmm(isa) && output_stride == block_size &&
+          input_stride == block_size && !is_asmjit_disabled()) {
+        return [=](int64_t output_size,
+                   int64_t index_size,
+                   int64_t data_size,
+                   const inType* input,
+                   const indxType* indices,
+                   const offsetType* offsets_or_lengths,
+                   const float*
+                       weights, // optional, can be null for non-weighted sum
+                   outType* out) {
+          return internal::EmbeddingSpMDMBlockSize1_(
+              output_size,
+              index_size,
+              data_size,
+              input,
+              indices,
+              offsets_or_lengths,
+              weights,
+              normalize_by_lengths,
+              out,
+              is_weight_positional,
+              use_offsets);
+        };
+      }
     }
     if (isZmm(isa) && !is_asmjit_disabled()) {
       static GenEmbeddingSpMDMLookup<

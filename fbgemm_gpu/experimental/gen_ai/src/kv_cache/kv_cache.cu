@@ -221,7 +221,7 @@ __global__ void nope_qkv_varseq_prefill_kernel(
     N_KVH = XK.size(1);
   }
   auto N_H = XQ.size(1);
-  auto D_H = XQ.size(2);
+  auto head_dim = XQ.size(2);
   const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
   auto hh = b_t_hh % HH;
@@ -277,11 +277,11 @@ __global__ void nope_qkv_varseq_prefill_kernel(
         block_tables_b_stride);
   }
 
-  for (auto head_id = 4 * threadIdx.x; head_id < D_H;
+  for (auto head_id = 4 * threadIdx.x; head_id < head_dim;
        head_id += kThreadsPerWarp * 4) {
     // assert D_H % 4 == 0;
     // load 4 elements per thread in a warp.
-    if (head_id >= D_H) {
+    if (head_id >= head_dim) {
       return;
     }
     bfx4 src;
@@ -352,7 +352,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
     assert(!write_k_back);
   }
   auto N_H = XQ.size(1);
-  auto D_H = XQ.size(2);
+  auto head_dim = XQ.size(2);
   const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
   auto hh = b_t_hh % HH;
@@ -409,11 +409,11 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
     qkv = QKV::V;
   }
 
-  for (auto head_id = 4 * threadIdx.x; head_id < D_H;
+  for (auto head_id = 4 * threadIdx.x; head_id < head_dim;
        head_id += kThreadsPerWarp * 4) {
     // assert D_H % 4 == 0;
     // load 4 elements per thread in a warp.
-    if (head_id >= D_H) {
+    if (head_id >= head_dim) {
       return;
     }
 
@@ -433,8 +433,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
         double powers_0 = offset_0 * 2;
         double powers_1 = offset_1 * 2;
 
-        double freqs_0 = pow(theta, powers_0 / -static_cast<double>(D_H));
-        double freqs_1 = pow(theta, powers_1 / -static_cast<double>(D_H));
+        double freqs_0 = pow(theta, powers_0 / -static_cast<double>(head_dim));
+        double freqs_1 = pow(theta, powers_1 / -static_cast<double>(head_dim));
         if (rope_scaling) {
           double lo_freq_wavelen = old_context_len / lo_freq_factor;
           double hi_freq_wavelen = old_context_len / hi_freq_factor;
@@ -480,8 +480,10 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
             static_cast<double>(src_1.x) * sin_1;
 
         if (Mode == PositionEmbeddingMode::XPOS) {
-          double gamma_0 = (powers_0 + gamma * D_H) / (D_H + gamma * D_H);
-          double gamma_1 = (powers_1 + gamma * D_H) / (D_H + gamma * D_H);
+          double gamma_0 =
+              (powers_0 + gamma * head_dim) / (head_dim + gamma * head_dim);
+          double gamma_1 =
+              (powers_1 + gamma * head_dim) / (head_dim + gamma * head_dim);
           double scale_base_ = (qkv == QKV::Q) ? scale_base : -scale_base;
           double factor_0 = pow(
               gamma_0,
@@ -801,7 +803,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
   auto B_T = XQ.size(0);
   auto N_KVH = XK.size(1);
   auto N_H = XQ.size(1);
-  auto D_H = XQ.size(2);
+  auto head_dim = XQ.size(2);
 
   const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
@@ -862,8 +864,10 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
   // load 4 elements per thread in a warp.
 
   // Each thread should handle D_H//32 = 4 elements.
-  CUDA_KERNEL_ASSERT(D_H <= 4 * kThreadsPerWarp);
-  if (4 * threadIdx.x >= D_H) {
+  CUDA_KERNEL_ASSERT(
+      head_dim <= 4 * kThreadsPerWarp &&
+      "head dimension exceeds the kernel warp capacity");
+  if (4 * threadIdx.x >= head_dim) {
     return;
   }
   bfx4 src;
@@ -902,12 +906,13 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
         *reinterpret_cast<uint2*>(&dst_bf16);
   } else {
     // quantize and write to dst_row
-    auto D_H = XQ.size(2);
-    auto D_H_q = cache_K.size(3);
+    auto quantized_row_dim = cache_K.size(3);
     __half2* qparam_row = nullptr;
     if (kCacheDtype == CacheLogicalDtype::FP8) {
       if (qparam_k_ptr == nullptr) {
-        CUDA_KERNEL_ASSERT(D_H_q - D_H == 4);
+        CUDA_KERNEL_ASSERT(
+            quantized_row_dim - head_dim == 4 &&
+            "FP8 cache rows must reserve four qparam bytes");
       } else {
         auto T = cache_K.size(1);
         size_t idx = 0;
@@ -931,7 +936,9 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
       }
       quantize_fp8_kv(dst, dst_row_q, qparam_row);
     } else if (kCacheDtype == CacheLogicalDtype::INT4) {
-      CUDA_KERNEL_ASSERT(D_H_q - D_H / 2 == 4 * KVQuantNumGroups);
+      CUDA_KERNEL_ASSERT(
+          quantized_row_dim - head_dim / 2 == 4 * KVQuantNumGroups &&
+          "INT4 cache rows must reserve four qparam bytes per group");
       quantize_int4_kv<KVQuantNumGroups>(dst, dst_row_q);
     }
   }
@@ -995,7 +1002,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_fp8(
   auto B_T = XQ.size(0);
   auto N_KVH = XK.size(1);
   auto N_H = XQ.size(1);
-  auto D_H = XQ.size(2);
+  auto head_dim = XQ.size(2);
 
   const int64_t HH = 2 * static_cast<int64_t>(N_KVH) + N_H;
 
@@ -1055,8 +1062,10 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_fp8(
   // load 4 elements per thread in a warp.
 
   // Each thread should handle D_H//32 = 4 elements.
-  CUDA_KERNEL_ASSERT(D_H <= 4 * kThreadsPerWarp);
-  if (4 * threadIdx.x >= D_H) {
+  CUDA_KERNEL_ASSERT(
+      head_dim <= 4 * kThreadsPerWarp &&
+      "head dimension exceeds the kernel warp capacity");
+  if (4 * threadIdx.x >= head_dim) {
     return;
   }
   bfx4 src;

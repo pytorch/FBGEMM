@@ -366,11 +366,11 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
   // that size).
   auto output_dims = input_sizes.vec();
 
-  constexpr int threads_per_block = 256;
+  constexpr int padding_threads_per_block = 256;
   const auto num_blocks = utils::cuda::cap_grid_dim_x(
       cuda_calc_xblock_count(
-          (nrows == 1) ? num_buckets : nrows, threads_per_block),
-      threads_per_block,
+          (nrows == 1) ? num_buckets : nrows, padding_threads_per_block),
+      padding_threads_per_block,
       at::cuda::getCurrentCUDAStream());
   Tensor offsets = at::empty(
       (nrows == 1) ? num_buckets : 0, input.options().dtype(at::kInt));
@@ -379,7 +379,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
     FBGEMM_LAUNCH_KERNEL(
         (_get_padding_value_kernel),
         num_blocks,
-        threads_per_block,
+        padding_threads_per_block,
         0,
         at::cuda::getCurrentCUDAStream(),
         ncols,
@@ -429,20 +429,20 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
     // Use one thread block to work on 1 row for nrows == 1
     const int ebit = forward ? 4 : 5;
     const int bias = forward ? 15 : 31;
-    constexpr int kMaxThreads = 1024;
-    const auto threads_per_block =
-        kMaxThreads < row_dim ? kMaxThreads : row_dim;
+    constexpr int max_threads_per_block = 1024;
+    const auto row_threads_per_block =
+        max_threads_per_block < row_dim ? max_threads_per_block : row_dim;
     TORCH_CHECK(
         num_buckets > 0,
         "num_buckets must be positive for the 1D dequantization launch");
     const auto blocks = utils::cuda::cap_grid_dim_x(
-        num_buckets, threads_per_block, at::cuda::getCurrentCUDAStream());
+        num_buckets, row_threads_per_block, at::cuda::getCurrentCUDAStream());
     FBGEMM_DISPATCH_FLOATING_TYPES(
         output.scalar_type(), "PaddedFP8rowwise_to_float_1d_cuda_kernel", [&] {
           FBGEMM_LAUNCH_KERNEL(
               (_PaddedFP8rowwise_to_float_1d_cuda_kernel<scalar_t>),
               blocks,
-              threads_per_block,
+              row_threads_per_block,
               0,
               at::cuda::getCurrentCUDAStream(),
               output.mutable_data_ptr<scalar_t>(),
@@ -464,7 +464,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
           FBGEMM_LAUNCH_KERNEL(
               (_PaddedFP8rowwise_to_float_2d_cuda_kernel<scalar_t>),
               num_blocks,
-              threads_per_block,
+              padding_threads_per_block,
               0,
               at::cuda::getCurrentCUDAStream(),
               input.data_ptr<std::uint8_t>(),

@@ -112,7 +112,7 @@ static inline void fillZero(float* ptr, int64_t count) {
 #ifdef __ARM_NEON
 namespace {
 // Internal constant table for AArch64 vectorized table lookup
-static constexpr uint8x16_t idx[] = {
+static constexpr uint8x16_t table_indices[] = {
     // Precompute table indices for packing 4 uint8 per uint32x4 (zeros in
     // between lanes)
     // idx0: select bytes 0-3 → positions 0,4,8,12
@@ -202,11 +202,11 @@ static ALWAYS_INLINE void Dequant4bitToF32_neon(
 
       // Table lookup -> u32 view -> f32 convert (low/high)
       for (int i = 0; i < 4; i++) {
-        tbl_low_res[i] = vqtbl1q_u8(low_nibs, idx[i]);
+        tbl_low_res[i] = vqtbl1q_u8(low_nibs, table_indices[i]);
         q_u32[i] = vreinterpretq_u32_u8(tbl_low_res[i]);
         q_f32[i] = vcvtq_f32_u32(q_u32[i]);
 
-        tbl_high_res[i] = vqtbl1q_u8(high_nibs, idx[i]);
+        tbl_high_res[i] = vqtbl1q_u8(high_nibs, table_indices[i]);
         q_u32[i + 4] = vreinterpretq_u32_u8(tbl_high_res[i]);
         q_f32[i + 4] = vcvtq_f32_u32(q_u32[i + 4]);
       }
@@ -277,7 +277,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     }
   }
 
-  const int64_t scale_bias_size = 2 * sizeof(float16);
+  constexpr int64_t scale_bias_size = 2 * sizeof(float16);
   const int64_t scale_bias_offset = scale_bias_last ? block_size : 0;
   const int64_t input_offset = scale_bias_last ? 0 : scale_bias_size;
 
@@ -443,9 +443,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
   return current == index_size;
 }
 
-template <typename IndexType, typename OffsetType, typename OutType>
+template <
+    int InputBitRate,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType>
 static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
-    const int input_bit_rate,
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -463,7 +466,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     const bool scale_bias_last,
     const bool no_bag,
     int output_bit_rate) {
-  nbit_embedding_sanity_check<OutType>(input_bit_rate, output_bit_rate, no_bag);
+  static_assert(InputBitRate == 2 || InputBitRate == 4);
+  nbit_embedding_sanity_check<OutType>(InputBitRate, output_bit_rate, no_bag);
   if (data_size < 0) {
     return false;
   }
@@ -487,10 +491,10 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
   const int64_t l2_prefetch_distance = std::min(l2_distance, index_size);
   const int64_t last_index = std::max<int64_t>(index_size - 1, 0);
 
-  const int num_elem_per_byte = 8 / input_bit_rate;
+  constexpr int num_elem_per_byte = 8 / InputBitRate;
   const int64_t scale_bias_offset =
       scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0;
-  const size_t scale_bias_size = 2 * sizeof(float16);
+  constexpr size_t scale_bias_size = 2 * sizeof(float16);
   const int64_t input_row_offset = scale_bias_last ? 0 : scale_bias_size;
 
   for (int64_t pf_idx = 0; pf_idx < l1_prefetch_distance; ++pf_idx) {
@@ -585,8 +589,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     EmbeddingStatsTracker::getInstance().recordPattern(
         data_size,
         block_size,
-        input_bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
-                            : EmbeddingStatsTracker::DataType::INT2,
+        InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                          : EmbeddingStatsTracker::DataType::INT2,
         get_output_type<OutType>(),
         output_size,
         len);
@@ -624,7 +628,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         bias *= weight;
       }
 
-      if (input_bit_rate == 4) {
+      if constexpr (InputBitRate == 4) {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % (FBGEMM_VECTOR_WIDTH * 2));
@@ -647,7 +651,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
           buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
         }
 #endif
-      } else if (input_bit_rate == 2) {
+      } else if constexpr (InputBitRate == 2) {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % (FBGEMM_VECTOR_WIDTH * 4));
@@ -721,9 +725,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
   return current == index_size;
 }
 
-template <typename IndexType, typename OffsetType>
+template <int BitRate, typename IndexType, typename OffsetType>
 static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
-    const int bit_rate,
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -737,14 +740,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
     float* out,
     const bool is_weight_positional,
     const bool use_offsets) {
+  static_assert(BitRate == 2 || BitRate == 4);
   if (uncompressed_data_size < 0) {
     return false;
   }
 
   // block_size is the number of elements and fused_block_size is the size in
   // bytes of an entire row, including scale and bias.
-  const int num_elem_per_byte = 8 / bit_rate;
-  const int64_t scale_bias_size = 2 * sizeof(float16);
+  constexpr int num_elem_per_byte = 8 / BitRate;
+  constexpr uint8_t quantized_mask = (1 << BitRate) - 1;
+  constexpr int64_t scale_bias_size = 2 * sizeof(float16);
   const uint64_t scale_bias_offset = div_up(block_size, num_elem_per_byte);
   const int64_t fused_block_size = scale_bias_offset + scale_bias_size;
 
@@ -793,7 +798,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
       }
 
       const uint8_t* input_row = input_row_base;
-      if (bit_rate == 4) {
+      if constexpr (BitRate == 4) {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % (FBGEMM_VECTOR_WIDTH * 2));
@@ -814,11 +819,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
         }
         for (; j < block_size; ++j) {
           uint8_t quantized = input_row_base[j / num_elem_per_byte] >>
-              ((j % num_elem_per_byte) * bit_rate);
-          quantized &= (1 << bit_rate) - 1;
+              ((j % num_elem_per_byte) * BitRate);
+          quantized &= quantized_mask;
           buf[j] = std::fma(scale, float(quantized), buf[j] + bias);
         }
-      } else if (bit_rate == 2) {
+      } else if constexpr (BitRate == 2) {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % (FBGEMM_VECTOR_WIDTH * 4));
@@ -847,8 +852,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
         }
         for (; j < block_size; ++j) {
           uint8_t quantized = input_row_base[j / num_elem_per_byte] >>
-              ((j % num_elem_per_byte) * bit_rate);
-          quantized &= (1 << bit_rate) - 1;
+              ((j % num_elem_per_byte) * BitRate);
+          quantized &= quantized_mask;
           buf[j] = std::fma(scale, float(quantized), buf[j] + bias);
         }
       }
@@ -1793,7 +1798,7 @@ static constexpr int64_t stride_SpMDMNBitWith(
     int input_bit_rate,
     int64_t block_size) {
   const int num_elem_per_byte = 8 / input_bit_rate;
-  const size_t scale_bias_size = 2 * sizeof(float16);
+  constexpr size_t scale_bias_size = 2 * sizeof(float16);
   return div_up(block_size, num_elem_per_byte) + scale_bias_size;
 }
 
@@ -1834,8 +1839,7 @@ make_nbit_generic(
     if (!has_weight) {
       weights = nullptr;
     }
-    return EmbeddingSpMDMNBit_autovec(
-        InputBitRate,
+    return EmbeddingSpMDMNBit_autovec<InputBitRate>(
         block_size,
         output_size,
         index_size,
@@ -1892,8 +1896,7 @@ make_nbit_fixed_block_size(int64_t output_stride) {
     if constexpr (!HasWeight) {
       weights = nullptr;
     }
-    return EmbeddingSpMDMNBit_autovec(
-        InputBitRate,
+    return EmbeddingSpMDMNBit_autovec<InputBitRate>(
         BlockSize,
         output_size,
         index_size,
@@ -2342,8 +2345,7 @@ make_nbit_rowwise_sparse_generic(
     if (!has_weight) {
       weights = nullptr;
     }
-    return EmbeddingSpMDMNBitRowWiseSparse_autovec(
-        BitRate,
+    return EmbeddingSpMDMNBitRowWiseSparse_autovec<BitRate>(
         block_size,
         output_size,
         index_size,

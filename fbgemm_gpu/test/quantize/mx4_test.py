@@ -39,9 +39,9 @@ from .mx.common import (
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, MI350_ARCH, skipIfRocmArch
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, MI350_ARCH, skipIfRocmArch
 
 
 FP32_EXPONENT_BIAS: int = 127
@@ -149,6 +149,10 @@ def fake_quantize_mx(
 class TestMXQuantizationConversion(unittest.TestCase):
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocmArch(
+        MI350_ARCH,
+        "Native MX4 quantization intermittently disagrees with the reference on MI350",
+    )
     # pyre-fixme[56]:
     @given(
         power=st.integers(min_value=5, max_value=8),

@@ -579,7 +579,7 @@ at::Tensor fp8fp8bf16_fast_gemv_meta(
   } else {
     const at::SymInt M = X.sym_size(0);
     const at::SymInt N = W.sym_size(0);
-    auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+    Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
   }
   return Y;
 }

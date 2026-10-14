@@ -402,21 +402,24 @@ GenEmbeddingSpMDMNBitLookup<
           w_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (remainder && instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           // AVX512 doesn't need to use vector register for masking
-          --unroll_factor;
-          mask_vreg = x86::ymm(unroll_factor);
-          if (remainder > 1 && FbgemmHalfType<outType>) {
+          if (remainder) {
             --unroll_factor;
-            mask_fp16_vreg = x86::xmm(unroll_factor);
+            mask_vreg = x86::ymm(unroll_factor);
+            if constexpr (FbgemmHalfType<outType>) {
+              if (remainder > 1) {
+                --unroll_factor;
+                mask_fp16_vreg = x86::xmm(unroll_factor);
+              }
+            }
           }
-        }
 
-        // Creating a mask for vector load
-        if (remainder_32bit_granularity && instSet == inst_set_t::avx2) {
-          // AVX512 doesn't need to use vector register for masking
-          --unroll_factor;
-          mask2_vreg = x86::xmm(unroll_factor);
+          // Creating a mask for vector load
+          if (remainder_32bit_granularity) {
+            --unroll_factor;
+            mask2_vreg = x86::xmm(unroll_factor);
+          }
         }
 
         if (normalize_by_lengths) {
@@ -938,9 +941,11 @@ GenEmbeddingSpMDMNBitLookup<
         a->mov(x86::eax, false);
         a->bind(exit);
 
-        if (remainder && instSet == inst_set_t::avx2 &&
-            FbgemmHalfType<outType>) {
-          a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+        if constexpr (instSet == inst_set_t::avx2 && FbgemmHalfType<outType>) {
+          if (remainder) {
+            a->lea(
+                x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
+          }
         }
 
         a->emitEpilog(frame);
@@ -1014,8 +1019,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         bool scale_bias_last /*=true*/,
         const bool no_bag /*=false*/,
         int output_bit_rate /*=-1*/) {
-  [[maybe_unused]] constexpr bool is_bf16_out =
-      std::is_same_v<outType, bfloat16>;
   if (output_bit_rate == -1) {
     output_bit_rate = sizeof(outType) * 8;
   }
@@ -1125,7 +1128,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     // FP16 accumulation (eps ~= 9.77e-4) trades precision for
     // throughput: ~0.5-1% relative error vs FP32 at typical bag
     // sizes (L=100), worst-case O(L * eps_fp16) ~= 10%.
-    if (is_sve_fp16_enabled() && !is_bf16_out) {
+    if (is_sve_fp16_enabled()) {
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
@@ -1269,7 +1272,7 @@ GenerateEmbeddingSpMDMNBit(
       use_offsets);
 }
 
-template <typename indxType, typename offsetType>
+template <typename indxType, typename offsetType, bool THREAD_LOCAL>
 typename EmbeddingSpMDMRowWiseSparseKernelSignature<
     uint8_t,
     indxType,
@@ -1297,7 +1300,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         offsetType,
         /*outType=*/float,
         inst_set_t::avx512,
-        /*rowwise_sparse=*/true>
+        /*rowwise_sparse=*/true,
+        THREAD_LOCAL>
         kernel_generator;
     const auto original_func = kernel_generator.getOrCreate(
         bit_rate,
@@ -1338,7 +1342,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         offsetType,
         /*outType=*/float,
         inst_set_t::avx2,
-        /*rowwise_sparse=*/true>
+        /*rowwise_sparse=*/true,
+        THREAD_LOCAL>
         kernel_generator;
     const auto original_func = kernel_generator.getOrCreate(
         bit_rate,
@@ -1425,6 +1430,29 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
   };
 }
 
+template <typename indxType, typename offsetType>
+typename EmbeddingSpMDMRowWiseSparseKernelSignature<
+    uint8_t,
+    indxType,
+    offsetType>::Type
+GenerateEmbeddingSpMDMNBitRowWiseSparse(
+    int bit_rate,
+    const int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets) {
+  return GenerateEmbeddingSpMDMNBitRowWiseSparse<indxType, offsetType, false>(
+      bit_rate,
+      block_size,
+      has_weight,
+      normalize_by_lengths,
+      prefetch,
+      is_weight_positional,
+      use_offsets);
+}
+
 #define INSTANTIATE_SPMDM_BASE(                               \
     INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL)          \
   template FBGEMM_API typename EmbeddingSpMDMKernelSignature< \
@@ -1467,11 +1495,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       bool is_weight_positional,                                          \
       bool use_offsets);
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                   \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)           \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float16)         \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, bfloat16)        \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)         \
+#define INSTANTIATE_SPMDM_ROWWISE_SPARSE_LEGACY(INDEX_TYPE, OFFSET_TYPE)   \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
       uint8_t,                                                             \
       INDEX_TYPE,                                                          \
@@ -1485,6 +1509,33 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       bool is_weight_positional,                                           \
       bool use_offsets);
 
+#define INSTANTIATE_SPMDM_ROWWISE_SPARSE_STRATEGY(                         \
+    INDEX_TYPE, OFFSET_TYPE, THREAD_LOCAL)                                 \
+  template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
+      uint8_t,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE>::Type                                                   \
+  GenerateEmbeddingSpMDMNBitRowWiseSparse<                                 \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE,                                                         \
+      THREAD_LOCAL>(                                                       \
+      int bit_rate,                                                        \
+      const int64_t block_size,                                            \
+      bool has_weight,                                                     \
+      bool normalize_by_lengths,                                           \
+      int prefetch,                                                        \
+      bool is_weight_positional,                                           \
+      bool use_offsets);
+
+#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                    \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)            \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float16)          \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, bfloat16)         \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)          \
+  INSTANTIATE_SPMDM_ROWWISE_SPARSE_LEGACY(INDEX_TYPE, OFFSET_TYPE)          \
+  INSTANTIATE_SPMDM_ROWWISE_SPARSE_STRATEGY(INDEX_TYPE, OFFSET_TYPE, false) \
+  INSTANTIATE_SPMDM_ROWWISE_SPARSE_STRATEGY(INDEX_TYPE, OFFSET_TYPE, true)
+
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
   INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int32_t) \
   INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int64_t)
@@ -1494,6 +1545,8 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T
+#undef INSTANTIATE_SPMDM_ROWWISE_SPARSE_STRATEGY
+#undef INSTANTIATE_SPMDM_ROWWISE_SPARSE_LEGACY
 #undef INSTANTIATE_SPMDM_THREAD_LOCAL
 #undef INSTANTIATE_SPMDM_BASE
 
