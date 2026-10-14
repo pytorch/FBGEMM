@@ -201,6 +201,8 @@ Functions</h2></td></tr>
 <tr class="memitem:a6d6fe14c3ad83011adb500625ecbff01 template"><td class="memItemLeft">EmbeddingSpMDMRowWiseSparseKernelSignature&lt; InType, IndexType, OffsetType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#a6d6fe14c3ad83011adb500625ecbff01">GenerateEmbeddingSpMDMRowWiseSparse</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="memitem:aa7d2220ddfc7d5c9820fd03b73101d37" id="r_aa7d2220ddfc7d5c9820fd03b73101d37"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t&gt; </td></tr>
 <tr class="memitem:aa7d2220ddfc7d5c9820fd03b73101d37 template"><td class="memItemLeft">EmbeddingSpMDMRowWiseSparseKernelSignature&lt; std::uint8_t, IndexType, OffsetType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#aa7d2220ddfc7d5c9820fd03b73101d37">GenerateEmbeddingSpMDMNBitRowWiseSparse</a> (int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
+<tr class="memitem:a827891b4766aab905fe1c8eab498d50b" id="r_a827891b4766aab905fe1c8eab498d50b"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType, bool THREAD_LOCAL&gt; </td></tr>
+<tr class="memitem:a827891b4766aab905fe1c8eab498d50b template"><td class="memItemLeft">EmbeddingSpMDMRowWiseSparseKernelSignature&lt; std::uint8_t, IndexType, OffsetType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#a827891b4766aab905fe1c8eab498d50b">GenerateEmbeddingSpMDMNBitRowWiseSparse</a> (int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="memitem:a90ceef30c1643dd1a87b1a0753b52e87" id="r_a90ceef30c1643dd1a87b1a0753b52e87"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename DataType = float&gt; </td></tr>
 <tr class="memitem:a90ceef30c1643dd1a87b1a0753b52e87 template"><td class="memItemLeft">RowWiseSparseAdaGradFusedSignature&lt; IndexType, OffsetType, DataType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#a90ceef30c1643dd1a87b1a0753b52e87">GenerateRowWiseSparseAdaGradFused</a> (int block_size, int prefetch=16, bool use_offsets=true, bool use_stochastic_rounding=true, int grad_stride=-1)</td></tr>
 <tr class="memitem:a28c69d65ed666a9f46dc4763be70cdf6" id="r_a28c69d65ed666a9f46dc4763be70cdf6"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a28c69d65ed666a9f46dc4763be70cdf6">PackA</a> (int nrow, int ncol, const float *from, int ldim, float *to)</td></tr>
@@ -1968,8 +1970,62 @@ template&lt;typename IndexType, typename OffsetType = std::int32_t, typename Out
 
 </div>
 </div>
+<a id="a827891b4766aab905fe1c8eab498d50b" name="a827891b4766aab905fe1c8eab498d50b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a827891b4766aab905fe1c8eab498d50b">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMNBitRowWiseSparse() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename IndexType, typename OffsetType, bool THREAD_LOCAL&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">EmbeddingSpMDMRowWiseSparseKernelSignature&lt; std::uint8_t, IndexType, OffsetType &gt;::Type GenerateEmbeddingSpMDMNBitRowWiseSparse </td>
+          <td>(</td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::int64_t</td>          <td class="paramname"><span class="paramname"><em>block_size</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>has_weight</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>normalize_by_lengths</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>prefetch</em></span><span class="paramdefsep"> = </span><span class="paramdefval">16</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_weight_positional</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>use_offsets</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<dl class="tparams"><dt>Template Parameters</dt><dd>
+  <table class="tparams">
+    <tr><td class="paramname">THREAD_LOCAL</td><td>if true, the generated kernel is cached in a lock-free thread local cache instead of the mutex guarded global one </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
 <a id="aa7d2220ddfc7d5c9820fd03b73101d37" name="aa7d2220ddfc7d5c9820fd03b73101d37"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa7d2220ddfc7d5c9820fd03b73101d37">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMNBitRowWiseSparse()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#aa7d2220ddfc7d5c9820fd03b73101d37">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMNBitRowWiseSparse() <span class="overload">[2/2]</span></h2>
 
 <div class="memitem">
 <div class="memproto">

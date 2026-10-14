@@ -6,7 +6,7 @@ var searchData=
   ['generateembeddingspmdm_3',['GenerateEmbeddingSpMDM',['../namespacefbgemm.html#a0ec1ab9494500537621b1f44878b2a24',1,'fbgemm']]],
   ['generateembeddingspmdmfp8withstrides_4',['GenerateEmbeddingSpMDMFP8WithStrides',['../namespacefbgemm.html#ad45d2e5fde9419e748eb26c7603ae9a1',1,'fbgemm']]],
   ['generateembeddingspmdmnbit_5',['GenerateEmbeddingSpMDMNBit',['../namespacefbgemm.html#aa4e2948ec5f9097f552de8a0458d49e1',1,'fbgemm']]],
-  ['generateembeddingspmdmnbitrowwisesparse_6',['GenerateEmbeddingSpMDMNBitRowWiseSparse',['../namespacefbgemm.html#aa7d2220ddfc7d5c9820fd03b73101d37',1,'fbgemm']]],
+  ['generateembeddingspmdmnbitrowwisesparse_6',['GenerateEmbeddingSpMDMNBitRowWiseSparse',['../namespacefbgemm.html#aa7d2220ddfc7d5c9820fd03b73101d37',1,'fbgemm::GenerateEmbeddingSpMDMNBitRowWiseSparse(int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)'],['../namespacefbgemm.html#a827891b4766aab905fe1c8eab498d50b',1,'fbgemm::GenerateEmbeddingSpMDMNBitRowWiseSparse(int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)']]],
   ['generateembeddingspmdmnbitwithstrides_7',['GenerateEmbeddingSpMDMNBitWithStrides',['../namespacefbgemm.html#a07b7b11c69215f11045cc7f602190ac2',1,'fbgemm']]],
   ['generateembeddingspmdmrowwisesparse_8',['GenerateEmbeddingSpMDMRowWiseSparse',['../namespacefbgemm.html#a6d6fe14c3ad83011adb500625ecbff01',1,'fbgemm']]],
   ['generateembeddingspmdmwithstrides_9',['GenerateEmbeddingSpMDMWithStrides',['../namespacefbgemm.html#a497a84e1ac884e3cfa6497f6a5a6abb0',1,'fbgemm']]],
