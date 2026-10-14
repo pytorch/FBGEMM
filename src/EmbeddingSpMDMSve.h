@@ -1785,11 +1785,11 @@ static inline float16x8_t unpack_2bit_to_fp16_neon(const uint8_t* ptr) {
   // raw = [b0, b1, b0, b1, b0, b1, b0, b1]
 
   // Replicate: [b0, b0, b0, b0, b1, b1, b1, b1]
-  static const uint8_t tbl_idx[8] = {0, 0, 0, 0, 1, 1, 1, 1};
+  static constexpr uint8_t tbl_idx[8] = {0, 0, 0, 0, 1, 1, 1, 1};
   uint8x8_t replicated = vtbl1_u8(raw, vld1_u8(tbl_idx));
 
   // Shift each position to place the target 2-bit field in the low 2 bits
-  static const int8_t shifts[8] = {0, -2, -4, -6, 0, -2, -4, -6};
+  static constexpr int8_t shifts[8] = {0, -2, -4, -6, 0, -2, -4, -6};
   uint8x8_t shifted = vshl_u8(replicated, vld1_s8(shifts));
 
   uint8x8_t masked = vand_u8(shifted, vdup_n_u8(0x03));
@@ -1797,13 +1797,13 @@ static inline float16x8_t unpack_2bit_to_fp16_neon(const uint8_t* ptr) {
 }
 
 template <
+    int InputBitRate,
     typename IndexType,
     typename OffsetType,
     typename OutType,
     bool NoBag,
     bool EnablePrefetching>
 bool EmbeddingSpMDMNBit_Sve_Fp16(
-    int bit_rate,
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -1819,6 +1819,8 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last) {
+  static_assert(InputBitRate == 2 || InputBitRate == 4);
+
   // This kernel is only dispatched for fp16 output (OutType == float16).
   // All paths produce fp16 directly — no fp32 widening.
   if constexpr (!std::is_same_v<OutType, float16>) {
@@ -1878,7 +1880,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
   }
 
   // for 4bit, 2 elements per byte; for 2bit, 4 elements per byte
-  const int num_elem_per_byte = 8 / bit_rate;
+  constexpr int num_elem_per_byte = 8 / InputBitRate;
 
   constexpr int64_t scale_bias_fp16_size =
       2 * sizeof(float16_t); // only used when scale and bias is at the
@@ -1895,9 +1897,9 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
   // mask for procesing the remainning elements
   svbool_t lastPred16 = svwhilelt_b16_u64(0, block_size_mod);
 
-  const int bytes_per_8elem = (bit_rate == 4) ? 4 : 2;
-  const int tail_packed_bytes =
-      (bit_rate == 4) ? (block_size_mod + 1) / 2 : (block_size_mod + 3) / 4;
+  constexpr int bytes_per_8elem = (InputBitRate == 4) ? 4 : 2;
+  const uint64_t tail_packed_bytes =
+      (InputBitRate == 4) ? (block_size_mod + 1) / 2 : (block_size_mod + 3) / 4;
 
   if constexpr (NoBag) {
     for (int64_t m = 0; m < output_size; ++m) {
@@ -1923,7 +1925,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
       float16_t* outPtr = reinterpret_cast<float16_t*>(out);
 
       for (uint64_t i = 0; i < iters; ++i) {
-        const float16x8_t in_f16 = (bit_rate == 4)
+        const float16x8_t in_f16 = (InputBitRate == 4)
             ? unpack_4bit_to_fp16_neon(input_row + i * bytes_per_8elem)
             : unpack_2bit_to_fp16_neon(input_row + i * bytes_per_8elem);
         vst1q_f16(outPtr, vfmaq_f16(bias_neon, in_f16, scale_neon));
@@ -1934,7 +1936,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
         alignas(4) uint8_t tail_buf[4] = {0};
         memcpy(
             tail_buf, input_row + iters * bytes_per_8elem, tail_packed_bytes);
-        float16x8_t v = (bit_rate == 4) ? unpack_4bit_to_fp16_neon(tail_buf)
+        float16x8_t v = (InputBitRate == 4) ? unpack_4bit_to_fp16_neon(tail_buf)
                                         : unpack_2bit_to_fp16_neon(tail_buf);
         svfloat16_t in_v_f = svset_neonq_f16(svundef_f16(), v);
         svfloat16_t scale_sv = svdup_n_f16(scale_val);
@@ -1948,7 +1950,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     EmbeddingStatsTracker::getInstance().recordPattern(
         data_size,
         block_size,
-        bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
+        InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
                       : EmbeddingStatsTracker::DataType::INT2,
         EmbeddingStatsTracker::DataType::FP16,
         output_size,
@@ -1966,7 +1968,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     auto unpack_tail_nbit = [&](const uint8_t* row) -> svfloat16_t {
       alignas(4) uint8_t buf[4] = {0};
       memcpy(buf, row + iters * bytes_per_8elem, tail_packed_bytes);
-      float16x8_t v = (bit_rate == 4) ? unpack_4bit_to_fp16_neon(buf)
+      float16x8_t v = (InputBitRate == 4) ? unpack_4bit_to_fp16_neon(buf)
                                       : unpack_2bit_to_fp16_neon(buf);
       return svset_neonq_f16(svundef_f16(), v);
     };
@@ -1990,7 +1992,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
       EmbeddingStatsTracker::getInstance().recordPattern(
           data_size,
           block_size,
-          bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
+          InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
                         : EmbeddingStatsTracker::DataType::INT2,
           EmbeddingStatsTracker::DataType::FP16,
           output_size,
@@ -2090,7 +2092,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
 
             for (uint64_t j = 0; j < tile_iters; ++j) {
               acc[j] = vld1q_f16(outPtr + j * 8);
-              const float16x8_t in_f16 = (bit_rate == 4)
+              const float16x8_t in_f16 = (InputBitRate == 4)
                   ? unpack_4bit_to_fp16_neon(
                         input_row + tile_offset + j * bytes_per_8elem)
                   : unpack_2bit_to_fp16_neon(
@@ -2174,7 +2176,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
               const float16x8_t bs = vdupq_n_f16(b);
               const uint8_t* row = row_base + input_offset;
               for (uint64_t j = 0; j < ITERS; ++j) {
-                const float16x8_t in_f16 = (bit_rate == 4)
+                const float16x8_t in_f16 = (InputBitRate == 4)
                     ? unpack_4bit_to_fp16_neon(row + j * bytes_per_8elem)
                     : unpack_2bit_to_fp16_neon(row + j * bytes_per_8elem);
                 acc[j] = vaddq_f16(acc[j], vfmaq_f16(bs, in_f16, sc));
@@ -2264,10 +2266,10 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
           const uint8_t* row_b = row_base_b + input_offset;
 
           for (uint64_t j = 0; j < ITERS; ++j) {
-            const float16x8_t in_a = (bit_rate == 4)
+            const float16x8_t in_a = (InputBitRate == 4)
                 ? unpack_4bit_to_fp16_neon(row_a + j * bytes_per_8elem)
                 : unpack_2bit_to_fp16_neon(row_a + j * bytes_per_8elem);
-            const float16x8_t in_b = (bit_rate == 4)
+            const float16x8_t in_b = (InputBitRate == 4)
                 ? unpack_4bit_to_fp16_neon(row_b + j * bytes_per_8elem)
                 : unpack_2bit_to_fp16_neon(row_b + j * bytes_per_8elem);
             acc[j] =
@@ -2335,7 +2337,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
               const float16x8_t bs = vdupq_n_f16(b);
               const uint8_t* row = row_base + input_offset;
               for (uint64_t j = 0; j < ITERS; ++j) {
-                const float16x8_t in_f16 = (bit_rate == 4)
+                const float16x8_t in_f16 = (InputBitRate == 4)
                     ? unpack_4bit_to_fp16_neon(row + j * bytes_per_8elem)
                     : unpack_2bit_to_fp16_neon(row + j * bytes_per_8elem);
                 acc[j] = vaddq_f16(acc[j], vfmaq_f16(bs, in_f16, sc));
@@ -2429,14 +2431,14 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
           memcpy(row_buf_b, row_b, row_bytes);
 
           for (uint64_t j = 0; j < ITERS; ++j) {
-            const float16x8_t in_a = (bit_rate == 4)
+            const float16x8_t in_a = (InputBitRate == 4)
                 ? unpack_4bit_to_fp16_neon(row_buf_a + j * bytes_per_8elem)
                 : unpack_2bit_to_fp16_neon(row_buf_a + j * bytes_per_8elem);
             acc[j] =
                 vaddq_f16(acc[j], vfmaq_f16(bias_a_neon, in_a, scale_a_neon));
           }
           for (uint64_t j = 0; j < ITERS; ++j) {
-            const float16x8_t in_b = (bit_rate == 4)
+            const float16x8_t in_b = (InputBitRate == 4)
                 ? unpack_4bit_to_fp16_neon(row_buf_b + j * bytes_per_8elem)
                 : unpack_2bit_to_fp16_neon(row_buf_b + j * bytes_per_8elem);
             acc[j] =
@@ -2533,7 +2535,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
         const uint8_t* input_row = input_row_base + input_offset;
 
         for (uint64_t j = 0; j < ITERS; ++j) {
-          const float16x8_t in_f16 = (bit_rate == 4)
+          const float16x8_t in_f16 = (InputBitRate == 4)
               ? unpack_4bit_to_fp16_neon(input_row + j * bytes_per_8elem)
               : unpack_2bit_to_fp16_neon(input_row + j * bytes_per_8elem);
           acc[j] = vaddq_f16(acc[j], vfmaq_f16(bias_neon, in_f16, scale_neon));
@@ -2718,7 +2720,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     EmbeddingStatsTracker::getInstance().recordPattern(
         data_size,
         block_size,
-        bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
+        InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
                       : EmbeddingStatsTracker::DataType::INT2,
         EmbeddingStatsTracker::DataType::FP16,
         output_size,
@@ -2799,7 +2801,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
       float16x8_t* bptr = buf;
 
       for (uint64_t i = 0; i < iters; ++i) {
-        float16x8_t values = (bit_rate == 4)
+        float16x8_t values = (InputBitRate == 4)
             ? unpack_4bit_to_fp16_neon(input_row + i * bytes_per_8elem)
             : unpack_2bit_to_fp16_neon(input_row + i * bytes_per_8elem);
         svfloat16_t in_v_f = svset_neonq_f16(svundef_f16(), values);
@@ -2822,7 +2824,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
         alignas(4) uint8_t tail_buf[4] = {0};
         memcpy(
             tail_buf, input_row + iters * bytes_per_8elem, tail_packed_bytes);
-        float16x8_t v = (bit_rate == 4) ? unpack_4bit_to_fp16_neon(tail_buf)
+        float16x8_t v = (InputBitRate == 4) ? unpack_4bit_to_fp16_neon(tail_buf)
                                         : unpack_2bit_to_fp16_neon(tail_buf);
         svfloat16_t in_v_f = svset_neonq_f16(svundef_f16(), v);
 
