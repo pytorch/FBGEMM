@@ -20,13 +20,22 @@ from .common import additional_decorators, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_memory_lt_gb, gpu_unavailable, optests, running_in_oss
+    from test_utils import (
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        MI350_ARCH,
+        optests,
+        running_in_oss,
+        skipIfRocmArch,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_memory_lt_gb,
         gpu_unavailable,
+        MI350_ARCH,
         optests,
         running_in_oss,
+        skipIfRocmArch,
     )
 
 
@@ -227,6 +236,10 @@ class KeyedJaggedIndexSelectTest(unittest.TestCase):
     @optests.dontGenerateOpCheckTests(
         "int32-overflow GPU-memory-gated stress repro; opcheck variants only skip "
         "on CPU samples and add no op coverage (T191384137)"
+    )
+    @skipIfRocmArch(
+        MI350_ARCH,
+        "The int32-overflow stress scale causes an HSA memory-access fault on MI350",
     )
     @given(
         index_dtype=st.sampled_from([torch.int, torch.long]),
