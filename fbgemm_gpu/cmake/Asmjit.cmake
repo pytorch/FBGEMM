@@ -27,6 +27,10 @@ gpu_cpp_library(
     ${fbgemm_thirdparty_include_directories}
   OTHER_SRCS
     ${asmjit_sources}
+  CC_FLAGS
+    -Wno-error=shadow
+  HIPCC_FLAGS
+    -Wno-error=shadow
   # asmjit is third-party code, so do not apply this warning to its sources.
   EXCLUDED_WARNING_FLAGS
     -Wunused-const-variable
