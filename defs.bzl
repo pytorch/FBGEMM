@@ -273,21 +273,14 @@ def get_fbgemm_autovec_srcs():
 def get_fbgemm_tests(skip_tests = []):
     return native.glob(["test/*Test.cc"], exclude = skip_tests)
 
-def read_bool(section, field, default):
-    val = native.read_config(section, field)
-    if val != None:
-        if val in ["true", "True", "1"]:
-            return True
-        elif val in ["false", "False", "0"]:
-            return False
-        else:
-            fail(
-                "`{}:{}`: must be one of (0, 1, true, false, True, False), but was {}".format(section, field, val),
-            )
-    elif default != None:
-        return default
-    else:
-        fail("`{}:{}`: no value set".format(section, field))
-
-def get_fbgemm_codegen_inference_mode():
-    return read_bool("fbcode", "fbgemm_codegen_inference_mode", False)
+def select_fbgemm_codegen_mode(inference, training):
+    return select({
+        "//deeplearning/fbgemm/constraints:codegen_mode[inference]": inference,
+        "//deeplearning/fbgemm/constraints:codegen_mode[training]": training,
+        "DEFAULT": select({
+            "//deeplearning/fbgemm/constraints:fbgemm_codegen_inference_mode_enabled": inference,
+            "//deeplearning/fbgemm/constraints:fbgemm_codegen_inference_mode_enabled_capitalized": inference,
+            "//deeplearning/fbgemm/constraints:fbgemm_codegen_inference_mode_enabled_numeric": inference,
+            "DEFAULT": training,
+        }),
+    })
