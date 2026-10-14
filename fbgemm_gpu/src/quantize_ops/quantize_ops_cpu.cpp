@@ -226,7 +226,7 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
       output.mutable_data_ptr()); // output.mutable_data_ptr<output_t>(); ->
                                   // Yields unresolved data_ptr symbol.
 
-  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<output_ty>(
+  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<output_ty>(
       bit_rate,
       input.const_data_ptr<uint8_t>(),
       nrows,
