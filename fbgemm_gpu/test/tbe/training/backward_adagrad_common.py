@@ -52,7 +52,6 @@ if open_source:
         nfp8_supported_on_current_device,
         optests,
         skipIfNotRocm,
-        skipIfRocm,
         TEST_WITH_ROCM,
         use_cpu_strategy,
     )
@@ -66,7 +65,6 @@ else:
         nfp8_supported_on_current_device,
         optests,
         skipIfNotRocm,
-        skipIfRocm,
         TEST_WITH_ROCM,
         use_cpu_strategy,
     )
