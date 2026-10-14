@@ -39,6 +39,7 @@ settings.load_profile("derandomize")
 TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1" or (
     torch.version.hip is not None and torch.cuda.is_available()
 )
+MI350_ARCH: str = "gfx950"
 
 # Skip pt2 compliant tag test for certain operators
 # TODO: remove this once the operators are pt2 compliant
@@ -311,6 +312,33 @@ def skipIfRocm(
         return wrapper
 
     return decorator
+
+
+def skipIfRocmArch(
+    arch: str,
+    reason: str,
+) -> Callable[[Callable[..., None]], Callable[..., None]]:
+    def decorator(fn: Callable[..., None]) -> Callable[..., None]:
+        @wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> None:
+            if running_on_rocm_arch(arch):
+                raise unittest.SkipTest(reason)
+            fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def running_on_rocm_arch(arch: str) -> bool:
+    return (
+        TEST_WITH_ROCM
+        and torch.cuda.is_available()
+        and torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).gcnArchName.split(":")[0]
+        == arch
+    )
 
 
 def skipIfNotRocm(

@@ -23,14 +23,18 @@ if open_source:
     from test_utils import (
         cpu_and_maybe_gpu,
         gpu_unavailable,
+        MI350_ARCH,
         optests,
+        running_on_rocm_arch,
         symint_vector_unsupported,
     )
 else:
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
         gpu_unavailable,
+        MI350_ARCH,
         optests,
+        running_on_rocm_arch,
         symint_vector_unsupported,
     )
 
@@ -215,6 +219,11 @@ class Jagged1DToDenseTest(unittest.TestCase):
         padding_value: int,
         device: torch.device,
     ) -> None:
+        if device.type == "cuda" and running_on_rocm_arch(MI350_ARCH):
+            raise unittest.SkipTest(
+                "Stacked jagged output can intermittently contain unwritten values on MI350"
+            )
+
         def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
             return torch.repeat_interleave(
                 torch._dim_arange(lengths, 0).long(),
