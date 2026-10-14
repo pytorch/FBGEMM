@@ -112,7 +112,7 @@ static inline void fillZero(float* ptr, int64_t count) {
 #ifdef __ARM_NEON
 namespace {
 // Internal constant table for AArch64 vectorized table lookup
-static constexpr uint8x16_t idx[] = {
+static constexpr uint8x16_t table_indices[] = {
     // Precompute table indices for packing 4 uint8 per uint32x4 (zeros in
     // between lanes)
     // idx0: select bytes 0-3 → positions 0,4,8,12
@@ -202,11 +202,11 @@ static ALWAYS_INLINE void Dequant4bitToF32_neon(
 
       // Table lookup -> u32 view -> f32 convert (low/high)
       for (int i = 0; i < 4; i++) {
-        tbl_low_res[i] = vqtbl1q_u8(low_nibs, idx[i]);
+        tbl_low_res[i] = vqtbl1q_u8(low_nibs, table_indices[i]);
         q_u32[i] = vreinterpretq_u32_u8(tbl_low_res[i]);
         q_f32[i] = vcvtq_f32_u32(q_u32[i]);
 
-        tbl_high_res[i] = vqtbl1q_u8(high_nibs, idx[i]);
+        tbl_high_res[i] = vqtbl1q_u8(high_nibs, table_indices[i]);
         q_u32[i + 4] = vreinterpretq_u32_u8(tbl_high_res[i]);
         q_f32[i + 4] = vcvtq_f32_u32(q_u32[i + 4]);
       }
