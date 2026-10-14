@@ -749,9 +749,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     OutputType* output,
     bool scale_bias_last) {
   static_assert(
-      std::is_same_v<OutputType, float> ||
-          std::is_same_v<OutputType, float16> ||
-          std::is_same_v<OutputType, bfloat16>,
+      std::is_same_v<OutputType, float> || FbgemmHalfType<OutputType>,
       "Only float, float16 or bfloat16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
   const int64_t output_columns =
@@ -923,8 +921,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
 #define DEQUANT_LAUNCH_AVX512_BF16(scale_bias_last, quant_padding_float_type) \
   Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512<                           \
       scale_bias_last,                                                        \
-      quant_padding_float_type>(                                              \
-      input, input_rows, input_columns, reinterpret_cast<bfloat16*>(output));
+      quant_padding_float_type>(input, input_rows, input_columns, output);
 
         if (scale_bias_last) {
           if (quant_padding_float_type) {
