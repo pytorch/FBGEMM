@@ -8,10 +8,14 @@
 #undef __HIP_NO_HALF_CONVERSIONS__
 #include <cmath>
 #include <cstdlib>
+#include <limits>
+#include <mutex>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 
 #include <ATen/core/Tensor.h>
+#include <c10/hip/HIPException.h>
 #include <c10/hip/HIPStream.h>
 
 #ifdef HIPIFY_V2
@@ -30,6 +34,7 @@
 #endif
 
 #include "fbgemm_gpu/quantize/utils.h"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 namespace fbgemm_gpu {
 namespace {
@@ -54,6 +59,54 @@ using D0DataType = float;
 using D1DataType = float;
 using DsDataType = ck::Tuple<D0DataType, D1DataType>;
 using EDataType = ck::bhalf_t;
+constexpr int kGroupSetupThreads = 256;
+constexpr int kZeroingThreads = 256;
+
+template <typename Kernel>
+void check_single_cta_group_count(
+    int64_t group_count,
+    Kernel kernel,
+    const char* operation) {
+  TORCH_CHECK(group_count > 0, operation, " requires at least one group.");
+  static std::mutex cache_mutex;
+  static std::unordered_map<int, std::unordered_map<const void*, int>>
+      max_threads_per_kernel_and_device;
+  const int device = at::cuda::current_device();
+  const auto* const kernel_key = reinterpret_cast<const void*>(kernel);
+  int max_threads_per_block;
+  {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    auto& max_threads_per_kernel = max_threads_per_kernel_and_device[device];
+    const auto cached = max_threads_per_kernel.find(kernel_key);
+    if (cached == max_threads_per_kernel.end()) {
+      hipFuncAttributes attributes;
+      C10_CUDA_CHECK(hipFuncGetAttributes(&attributes, kernel_key));
+      max_threads_per_block = attributes.maxThreadsPerBlock;
+      max_threads_per_kernel.emplace(kernel_key, max_threads_per_block);
+    } else {
+      max_threads_per_block = cached->second;
+    }
+  }
+  TORCH_CHECK(
+      group_count <= max_threads_per_block,
+      operation,
+      " requires one thread per group in a single CTA, but G (",
+      group_count,
+      ") exceeds the setup kernel's maxThreadsPerBlock (",
+      max_threads_per_block,
+      ").");
+}
+
+uint64_t check_product(
+    uint64_t lhs,
+    uint64_t rhs,
+    const char* expression) {
+  TORCH_CHECK(
+      rhs == 0 || lhs <= std::numeric_limits<uint64_t>::max() / rhs,
+      expression,
+      " overflows uint64_t");
+  return lhs * rhs;
+}
 
 TuningCache& getTuningCache() {
   // This kernel has multiple APIs templated based on InputType, so we use this
@@ -221,18 +274,25 @@ __global__ void set_kernel_args(
     // M_sizes API implies 2D-3D inputs
     if (M_sizes != nullptr) {
       M_group = M_sizes[thread_idx];
+      int64_t offset_M = 0;
+      CUDA_KERNEL_ASSERT_MSG(
+          M_group >= 0 && M_group <= std::numeric_limits<int>::max(),
+          "M_sizes values must be non-negative and fit in int32");
+      // Offset is computed by finding the sum of previous group Ms.
+      for (int i = 0; i < thread_idx; i++) {
+        offset_M += M_sizes[i];
+      }
       if (M_group > 0) {
-        // Offset is computed by finding the sum of previous group Ms.
-        int64_t offset_M = 0;
-        for (int i = 0; i < thread_idx; i++) {
-          offset_M += M_sizes[i];
-        }
-
         XQ_offset = offset_M * K;
         WQ_offset = thread_idx * N * K;
         x_scale_offset = offset_M;
         w_scale_offset = thread_idx * N;
         output_offset = offset_M * N;
+      }
+      if (thread_idx == group_count - 1) {
+        CUDA_KERNEL_ASSERT_MSG(
+            offset_M + M_group == M,
+            "M_sizes must sum to XQ.size(0) (total_M)");
       }
     } else {
       if (input_type == GroupedGemmInputType::_2D3D) {
@@ -309,11 +369,18 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     int64_t N,
     int64_t K,
     int64_t group_count) {
-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each thread is responsible for setting up the arguments for one group.
-  if (thread_idx < group_count) {
+  const int64_t first_group =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t group_stride =
+      static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t thread_idx = first_group; thread_idx < group_count;
+       thread_idx += group_stride) {
     // Compute offsets for this group.
     int64_t group_M = prepad_M[thread_idx];
+    CUDA_KERNEL_ASSERT_MSG(
+        group_M >= 0 && group_M <= M &&
+            group_M <= std::numeric_limits<int>::max(),
+        "zero_start_index_M values must be within [0, M] and fit in int32");
     KernelArguments kernel_group_args = {
         XQ + (thread_idx * M * K),
         WQ + (thread_idx * N * K),
@@ -331,7 +398,7 @@ __global__ void set_kernel_args_fixed_nk_kernel(
   }
 }
 
-__global__ void set_kernel_args_fixed_nk_kernel_zeroing(
+void launch_set_kernel_args_fixed_nk(
     KernelArguments* kernel_args,
     ADataType* XQ,
     BDataType* WQ,
@@ -342,39 +409,42 @@ __global__ void set_kernel_args_fixed_nk_kernel_zeroing(
     int64_t M,
     int64_t N,
     int64_t K,
-    int64_t group_count) {
-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each thread is responsible for setting up the arguments for one group.
-  if (thread_idx < group_count) {
-    // Compute offsets for this group.
-    int64_t group_M = prepad_M[thread_idx];
-    KernelArguments kernel_group_args = {
-        XQ + (thread_idx * M * K),
-        WQ + (thread_idx * N * K),
-        {w_scale + (thread_idx * N), x_scale + (thread_idx * M)},
-        output + (thread_idx * M * N),
-        int(group_M),
-        int(N),
-        int(K),
-        int(K),
-        int(K),
-        {0, 0},
-        int(N)};
-    // Write kernel args to memory.
-    kernel_args[thread_idx] = kernel_group_args;
-  }
+    int64_t group_count,
+    hipStream_t stream) {
+  set_kernel_args_fixed_nk_kernel<<<1, kGroupSetupThreads, 0, stream>>>(
+      kernel_args,
+      XQ,
+      WQ,
+      w_scale,
+      x_scale,
+      output,
+      prepad_M,
+      M,
+      N,
+      K,
+      group_count);
+}
 
-  // Figure out where in memory we are.
-  // Each thread sets one float 4 which corresponds to 8 bf16 values.
-  int output_offset = (thread_idx * 8);
-  int current_group = output_offset / (M * N);
-  // Skip if outside of valid groups.
-  if (current_group < group_count) {
-    int nonzeros = prepad_M[current_group];
-    int current_M = (output_offset % (M * N)) / N;
-    // Only write zeros if we're currently in a sparse row.
+template <typename IndexT>
+__global__ void zero_padded_output_kernel(
+    EDataType* output,
+    const int64_t* prepad_M,
+    IndexT chunks_per_group,
+    IndexT chunks_per_row,
+    IndexT zero_chunks) {
+  const uint64_t first_chunk =
+      static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const uint64_t chunk_stride =
+      static_cast<uint64_t>(gridDim.x) * blockDim.x;
+  for (uint64_t chunk_offset = first_chunk; chunk_offset < zero_chunks;
+       chunk_offset += chunk_stride) {
+    const IndexT chunk = static_cast<IndexT>(chunk_offset);
+    const auto current_group = chunk / chunks_per_group;
+    const int64_t nonzeros = prepad_M[current_group];
+    const int64_t current_M = static_cast<int64_t>(
+        (chunk % chunks_per_group) / chunks_per_row);
     if (current_M >= nonzeros) {
-      // Write out a block of 8 output values via vectorized float4.
+      const uint64_t output_offset = static_cast<uint64_t>(chunk) * 8;
       float4* output_block = reinterpret_cast<float4*>(output + output_offset);
       *output_block = {0, 0, 0, 0};
     }
@@ -392,27 +462,38 @@ void set_dynamic_kernel_args(
     std::optional<at::Tensor> M_sizes,
     bool zeroing_output_tensor) {
   // Get current cuda stream.
-  auto stream = at::cuda::getCurrentHIPStream().stream();
-  int64_t group_count;
+  const auto current_stream = at::cuda::getCurrentHIPStream();
+  auto stream = current_stream.stream();
+  const int64_t group_count = WQ.size(0);
+  TORCH_CHECK(group_count > 0, "Grouped GEMM requires at least one group.");
   // Check provided tensors are valid.
   TORCH_CHECK(
       zero_start_index_M.has_value() != M_sizes.has_value(),
       "One of zero_start_index_M or M_sizes must be provided.");
   if (zero_start_index_M.has_value()) {
-    group_count = zero_start_index_M.value().size(0);
+    const auto& group_sizes = zero_start_index_M.value();
     TORCH_CHECK(
-        XQ.device() == zero_start_index_M.value().device(),
+        XQ.device() == group_sizes.device(),
         "zero_start_index_M and inputs must be on the same device.");
     TORCH_CHECK(
-        zero_start_index_M.value().dtype() == at::kLong,
+        group_sizes.dtype() == at::kLong,
         "zero_start_index_M must be int64.");
+    TORCH_CHECK(
+        group_sizes.dim() == 1 && group_sizes.size(0) == group_count,
+        "zero_start_index_M must contain exactly one size per input group.");
+    TORCH_CHECK(
+        group_sizes.is_contiguous(), "zero_start_index_M must be contiguous.");
   }
   if (M_sizes.has_value()) {
-    group_count = M_sizes.value().size(0);
+    const auto& group_sizes = M_sizes.value();
     TORCH_CHECK(
-        XQ.device() == M_sizes.value().device(),
+        XQ.device() == group_sizes.device(),
         "M_sizes and inputs must be on the same device.");
-    TORCH_CHECK(M_sizes.value().dtype() == at::kLong, "M_sizes must be int64.");
+    TORCH_CHECK(group_sizes.dtype() == at::kLong, "M_sizes must be int64.");
+    TORCH_CHECK(
+        group_sizes.dim() == 1 && group_sizes.size(0) == group_count,
+        "M_sizes must contain exactly one size per input group.");
+    TORCH_CHECK(group_sizes.is_contiguous(), "M_sizes must be contiguous.");
   }
 
   // When m_sizes is used XQ is shape [tota_M, K]. When zero_start_index_M is
@@ -423,6 +504,8 @@ void set_dynamic_kernel_args(
 
   // Depending on the mode, use appropriate setup kernel.
   if (M_sizes.has_value()) {
+    check_single_cta_group_count(
+        group_count, set_kernel_args, "set_dynamic_kernel_args");
     set_kernel_args<<<1, group_count, 0, stream>>>(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
@@ -437,20 +520,21 @@ void set_dynamic_kernel_args(
         K,
         group_count);
   } else if (zeroing_output_tensor) {
-    // Launch a kernel that sets kernel argument memory and zeros the output.
-    // Each thread sets one float4 which corresponds to 8 bf16 values.
-    const int64_t BLOCK_SIZE = 8;
+    constexpr uint64_t kElementsPerChunk = 8;
     TORCH_CHECK(
-        N % BLOCK_SIZE == 0, "N must be divisible 8 for dynamic grouped gemm.");
-    int block_factor =
-        std::max(group_count, (group_count * M * N) / BLOCK_SIZE);
-    int blockSize = std::min(512, block_factor);
-    int numBlocks = (block_factor + blockSize - 1) / blockSize;
-    set_kernel_args_fixed_nk_kernel_zeroing<<<
-        numBlocks,
-        blockSize,
-        0,
-        stream>>>(
+        N % kElementsPerChunk == 0,
+        "N must be divisible 8 for dynamic grouped gemm.");
+    const auto elements_per_group = check_product(
+        static_cast<uint64_t>(M), static_cast<uint64_t>(N), "M * N");
+    const auto total_elements = check_product(
+        static_cast<uint64_t>(group_count),
+        elements_per_group,
+        "G * M * N");
+    const auto chunks_per_group = elements_per_group / kElementsPerChunk;
+    const auto chunks_per_row = static_cast<uint64_t>(N) / kElementsPerChunk;
+    const auto zero_chunks = total_elements / kElementsPerChunk;
+
+    launch_set_kernel_args_fixed_nk(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
         reinterpret_cast<BDataType*>(WQ.data_ptr()),
@@ -461,9 +545,36 @@ void set_dynamic_kernel_args(
         M,
         N,
         K,
-        group_count);
+        group_count,
+        stream);
+
+    const auto zeroing_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+        zero_chunks, kZeroingThreads, current_stream);
+    if (zero_chunks <= std::numeric_limits<uint32_t>::max()) {
+      zero_padded_output_kernel<uint32_t><<<
+          zeroing_blocks,
+          kZeroingThreads,
+          0,
+          stream>>>(
+          reinterpret_cast<EDataType*>(output.data_ptr()),
+          reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
+          static_cast<uint32_t>(chunks_per_group),
+          static_cast<uint32_t>(chunks_per_row),
+          static_cast<uint32_t>(zero_chunks));
+    } else {
+      zero_padded_output_kernel<uint64_t><<<
+          zeroing_blocks,
+          kZeroingThreads,
+          0,
+          stream>>>(
+          reinterpret_cast<EDataType*>(output.data_ptr()),
+          reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
+          chunks_per_group,
+          chunks_per_row,
+          zero_chunks);
+    }
   } else {
-    set_kernel_args_fixed_nk_kernel<<<1, group_count, 0, stream>>>(
+    launch_set_kernel_args_fixed_nk(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
         reinterpret_cast<BDataType*>(WQ.data_ptr()),
@@ -474,7 +585,8 @@ void set_dynamic_kernel_args(
         M,
         N,
         K,
-        group_count);
+        group_count,
+        stream);
   }
 }
 
@@ -626,6 +738,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int64_t group_count = M_sizes.size(0);
+  TORCH_CHECK(group_count > 0, "Grouped GEMM requires at least one group.");
   // XQ is expected to be shape [total_M, K].
   int64_t total_M = XQ.size(0);
   // WQ is expected to be shape [G, N, K].
@@ -677,6 +790,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int64_t group_count = XQ.size(0);
+  TORCH_CHECK(group_count > 0, "Grouped GEMM requires at least one group.");
   int64_t M = XQ.size(1);
   int64_t N = WQ.size(1);
   int64_t K = WQ.size(2);
@@ -818,6 +932,8 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
       XQ.options().dtype(at::kByte));
 
   auto stream = at::cuda::getCurrentHIPStream().stream();
+  check_single_cta_group_count(
+      G, set_kernel_args, "f8f8bf16_rowwise_grouped_mm");
   set_kernel_args<<<1, G, 0, stream>>>(
       reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
       reinterpret_cast<ADataType*>(XQ.data_ptr()),
