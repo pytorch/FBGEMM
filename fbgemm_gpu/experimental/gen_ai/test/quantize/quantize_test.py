@@ -51,7 +51,9 @@ running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 def evaluate_platform_supports_fp8():
     if torch.cuda.is_available():
         if torch.version.hip:
-            return supports_float8_fnuz(throw_on_hip_incompatibility=False)
+            return torch.cuda.get_device_properties(
+                torch.cuda.current_device()
+            ).gcnArchName.split(":")[0] in ("gfx942", "gfx950")
         else:
             # Only SM90 or later is supported
             return torch.cuda.get_device_capability() >= (9, 0)
@@ -99,7 +101,7 @@ SUPPORTS_FP8 = evaluate_platform_supports_fp8()
 SUPPORTS_MXFP8 = evaluate_platform_supports_mxfp8()
 
 if torch.cuda.is_available() and supports_float8_fnuz(
-    throw_on_hip_incompatibility=(not running_on_github)
+    throw_on_hip_incompatibility=False
 ):
     # Supported FP8 format is different on NV and AMD.
     fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
@@ -281,13 +283,14 @@ class FP8TorchExportTests(unittest.TestCase):
                 o = torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, row_scale, col_scale)
                 return o
 
-        model = TestModule().cuda()
+        device = torch.accelerator.current_accelerator()
+        model = TestModule().to(device)
         M, N, K = 256, 256, 256
-        fp8_dtype = torch.float8_e4m3fn
-        if torch.version.hip:
-            fp8_dtype = torch.float8_e4m3fnuz
-        xq = torch.randn(M, K).to(fp8_dtype).cuda()
-        wq = torch.randn(N, K).to(fp8_dtype).cuda()
+        # Citrine C3: create export inputs directly on the accelerator.
+        x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+        w = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+        xq, _ = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+        wq, _ = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
         _ = torch.export.export(model, (xq, wq), strict=True)
 
 
@@ -755,7 +758,9 @@ class FP8Tests(unittest.TestCase):
                 x, stochastic_rounding=stochastic_rounding
             )
             xq_ref, x_scale_ref = fp8_row_quantize_ref(x)
-        elif Mode == "colwise" and str(torch.version.cuda) >= "12.1":
+        elif Mode == "colwise" and (
+            torch.version.hip or str(torch.version.cuda) >= "12.1"
+        ):
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_col(x)
             x = (xq.float() / x_scale.unsqueeze(0)).to(dtype)  # Fake quantization
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_col(x)
@@ -817,6 +822,324 @@ class FP8Tests(unittest.TestCase):
                 bf16_input[:, :3].contiguous(), scale, None, True
             )
 
+        # Citrine C3: create test storage directly on the accelerator.
+        noncontiguous = torch.ones(4, 256, dtype=torch.bfloat16, device=self.device)[
+            :, ::2
+        ]
+        self.assertFalse(noncontiguous.is_contiguous())
+        with self.assertRaisesRegex(RuntimeError, "input must be contiguous"):
+            torch.ops.fbgemm.get_fp8_per_tensor_scale(noncontiguous)
+        with self.assertRaisesRegex(RuntimeError, "input must be contiguous"):
+            torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(noncontiguous, scale)
+        with self.assertRaisesRegex(RuntimeError, "input must be contiguous"):
+            torch.ops.fbgemm.quantize_fp8_per_tensor(noncontiguous)
+        if torch.version.hip or str(torch.version.cuda) >= "12.1":
+            with self.assertRaisesRegex(RuntimeError, "input must be contiguous"):
+                torch.ops.fbgemm.quantize_fp8_per_col(noncontiguous)
+
+    def test_quantize_fp8_per_col_rank_three(self) -> None:
+        if not torch.version.hip and str(torch.version.cuda) < "12.1":
+            self.skipTest("quantize_fp8_per_col requires CUDA 12.1 or later")
+
+        # Citrine C3: create test input directly on the accelerator.
+        x = torch.linspace(
+            -2.0,
+            1.0,
+            steps=2 * 3 * 128,
+            dtype=torch.bfloat16,
+            device=self.device,
+        ).reshape(2, 3, 128)
+        # Citrine C3: create the upper bound directly on the accelerator.
+        scale_ub = torch.tensor(0.5, dtype=torch.float32, device=self.device)
+        expected_scale = (
+            x.float().abs().amax(dim=0).clamp(max=scale_ub) / E4M3_MAX_POS
+        ).clamp(min=1 / (E4M3_MAX_POS * 512))
+
+        quantized, scale = torch.ops.fbgemm.quantize_fp8_per_col(x, scale_ub=scale_ub)
+        expected = (
+            (x.float() / scale.unsqueeze(0))
+            .clamp(min=-E4M3_MAX_POS, max=E4M3_MAX_POS)
+            .to(fp8_e4m3)
+        )
+
+        self.assertEqual(scale.shape, (3, 128))
+        torch.testing.assert_close(scale, expected_scale, atol=1e-7, rtol=1e-5)
+        torch.testing.assert_close(quantized.float(), expected.float(), atol=0, rtol=0)
+
+        invalid_scale_ubs = (
+            (torch.tensor(0.5, dtype=torch.float64, device=self.device), "float32"),
+            (torch.ones(2, dtype=torch.float32, device=self.device), "one element"),
+            (torch.tensor(0.5, dtype=torch.float32), "input device"),
+        )
+        for invalid_scale_ub, error in invalid_scale_ubs:
+            with self.subTest(error=error):
+                with self.assertRaisesRegex(RuntimeError, error):
+                    torch.ops.fbgemm.quantize_fp8_per_col(x, scale_ub=invalid_scale_ub)
+
+        cpu_quantized, cpu_scale = torch.ops.fbgemm.quantize_fp8_per_col(
+            x.cpu(), scale_ub=scale_ub.cpu()
+        )
+        self.assertEqual(cpu_quantized.device.type, "cpu")
+        self.assertEqual(cpu_scale.device.type, "cpu")
+        with self.assertRaisesRegex(RuntimeError, "input device"):
+            torch.ops.fbgemm.quantize_fp8_per_col(x.cpu(), scale_ub=scale_ub)
+
+    def test_quantize_fp8_rank_three_scale_shapes(self) -> None:
+        # Citrine C3: create test input directly on the accelerator.
+        x = torch.ones(2, 3, 128, dtype=torch.bfloat16, device=self.device)
+        for op, expected_shape in (
+            (torch.ops.fbgemm.quantize_fp8_per_tensor, ()),
+            (torch.ops.fbgemm.quantize_fp8_per_row, (6,)),
+        ):
+            eager = op(x)
+            compiled = torch.compile(op)(x)
+            with self.subTest(op=op):
+                self.assertEqual(eager[1].shape, expected_shape)
+                self.assertEqual(compiled[1].shape, expected_shape)
+
+    def test_quantize_fp8_per_row_empty_width(self) -> None:
+        # Citrine C3: create the empty input directly on the accelerator.
+        x = torch.empty(2, 0, dtype=torch.bfloat16, device=self.device)
+
+        quantized, scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+
+        self.assertEqual(quantized.shape, x.shape)
+        self.assertEqual(scale.shape, (2,))
+        torch.testing.assert_close(scale, torch.zeros_like(scale), atol=0, rtol=0)
+
+        tensor_quantized, tensor_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+        self.assertEqual(tensor_quantized.shape, x.shape)
+        torch.testing.assert_close(
+            tensor_scale, torch.zeros_like(tensor_scale), atol=0, rtol=0
+        )
+
+        if torch.version.hip or str(torch.version.cuda) >= "12.1":
+            # Citrine C3: create the empty columnwise input on the accelerator.
+            col_input = torch.empty(0, 128, dtype=torch.bfloat16, device=self.device)
+            col_quantized, col_scale = torch.ops.fbgemm.quantize_fp8_per_col(col_input)
+            self.assertEqual(col_quantized.shape, col_input.shape)
+            torch.testing.assert_close(
+                col_scale, torch.zeros_like(col_scale), atol=0, rtol=0
+            )
+
+    def test_quantize_fp8_meta_contract_validation(self) -> None:
+        # Citrine C3: create contract-test inputs directly on the accelerator.
+        rank_four = torch.ones(1, 2, 3, 128, dtype=torch.bfloat16, device=self.device)
+        noncontiguous = torch.ones(2, 256, dtype=torch.bfloat16, device=self.device)[
+            :, ::2
+        ]
+        invalid_dtype = torch.ones(2, 128, dtype=torch.int32, device=self.device)
+        stochastic_width = torch.ones(2, 127, dtype=torch.bfloat16, device=self.device)
+        ops = [
+            torch.ops.fbgemm.quantize_fp8_per_tensor,
+            torch.ops.fbgemm.quantize_fp8_per_row,
+        ]
+        if torch.version.hip or str(torch.version.cuda) >= "12.1":
+            ops.append(torch.ops.fbgemm.quantize_fp8_per_col)
+
+        for op in ops:
+            for candidate in (op, torch.compile(op)):
+                with self.subTest(op=op, candidate=candidate):
+                    with self.assertRaisesRegex(RuntimeError, "dim.*2 or 3"):
+                        candidate(rank_four)
+                    with self.assertRaisesRegex(
+                        RuntimeError, "input must be contiguous"
+                    ):
+                        candidate(noncontiguous)
+                    with self.assertRaisesRegex(RuntimeError, "input must be"):
+                        candidate(invalid_dtype)
+
+        for op in (
+            torch.ops.fbgemm.quantize_fp8_per_tensor,
+            torch.ops.fbgemm.quantize_fp8_per_row,
+        ):
+            for candidate in (op, torch.compile(op)):
+                with self.subTest(op=op, candidate=candidate):
+                    with self.assertRaisesRegex(RuntimeError, "multiple of 4"):
+                        candidate(stochastic_width, stochastic_rounding=True)
+
+    def test_quantize_fp8_optional_tensor_validation(self) -> None:
+        # Citrine C3: create option tensors directly on the accelerator.
+        x = torch.ones(2, 128, dtype=torch.bfloat16, device=self.device)
+        invalid_scale_ubs = (
+            (torch.tensor(1.0, dtype=torch.float64, device=self.device), "float32"),
+            (torch.ones(2, dtype=torch.float32, device=self.device), "one element"),
+            (torch.tensor(1.0, dtype=torch.float32), "input device"),
+        )
+        invalid_batch_sizes = (
+            (torch.tensor(1.0, dtype=torch.float32, device=self.device), "int64"),
+            (torch.ones(2, dtype=torch.int64, device=self.device), "one element"),
+            (torch.tensor(1, dtype=torch.int64), "input device"),
+        )
+        for op in (
+            torch.ops.fbgemm.quantize_fp8_per_tensor,
+            torch.ops.fbgemm.quantize_fp8_per_row,
+        ):
+            for scale_ub, error in invalid_scale_ubs:
+                with self.subTest(op=op, scale_ub_error=error):
+                    with self.assertRaisesRegex(RuntimeError, error):
+                        op(x, scale_ub=scale_ub)
+            for bs, error in invalid_batch_sizes:
+                with self.subTest(op=op, bs_error=error):
+                    with self.assertRaisesRegex(RuntimeError, error):
+                        op(x, bs=bs)
+
+        cpu_input = x.cpu()
+        cpu_bs = torch.tensor(2, dtype=torch.int64)
+        cpu_scale_ub = torch.tensor(0.5, dtype=torch.float32)
+        # Citrine C3: create mismatched option tensors directly on the GPU.
+        device_bs = torch.tensor(2, dtype=torch.int64, device=self.device)
+        device_scale_ub = torch.tensor(0.5, dtype=torch.float32, device=self.device)
+        for op in (
+            torch.ops.fbgemm.quantize_fp8_per_tensor,
+            torch.ops.fbgemm.quantize_fp8_per_row,
+        ):
+            quantized, scale = op(cpu_input, bs=cpu_bs, scale_ub=cpu_scale_ub)
+            with self.subTest(op=op):
+                self.assertEqual(quantized.device.type, "cpu")
+                self.assertEqual(scale.device.type, "cpu")
+                with self.assertRaisesRegex(RuntimeError, "input device"):
+                    op(cpu_input, bs=device_bs)
+                with self.assertRaisesRegex(RuntimeError, "input device"):
+                    op(cpu_input, scale_ub=device_scale_ub)
+
+        for scale_ub, error in invalid_scale_ubs:
+            with self.subTest(op="get_scale", scale_ub_error=error):
+                with self.assertRaisesRegex(RuntimeError, error):
+                    torch.ops.fbgemm.get_fp8_per_tensor_scale(x, scale_ub=scale_ub)
+        for bs, error in invalid_batch_sizes:
+            with self.subTest(op="get_scale", bs_error=error):
+                with self.assertRaisesRegex(RuntimeError, error):
+                    torch.ops.fbgemm.get_fp8_per_tensor_scale(x, bs=bs)
+
+        invalid_scales = (
+            (torch.tensor(1.0, dtype=torch.float64, device=self.device), "float32"),
+            (torch.ones(2, dtype=torch.float32, device=self.device), "one element"),
+            (torch.tensor(1.0, dtype=torch.float32), "input device"),
+        )
+        for scale, error in invalid_scales:
+            with self.subTest(op="fixed_scale", scale_error=error):
+                with self.assertRaisesRegex(RuntimeError, error):
+                    torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(x, scale)
+
+    def test_quantize_fp8_invalid_values_mark_outputs(self) -> None:
+        # Citrine C3: create inputs and option tensors directly on the accelerator.
+        x = torch.ones(2, 128, dtype=torch.bfloat16, device=self.device)
+        negative_bs = torch.tensor(-1, dtype=torch.int64, device=self.device)
+        negative_scale_ub = torch.tensor(-1.0, dtype=torch.float32, device=self.device)
+        invalid_scale = torch.tensor(0.0, dtype=torch.float32, device=self.device)
+
+        for op in (
+            torch.ops.fbgemm.quantize_fp8_per_tensor,
+            torch.ops.fbgemm.quantize_fp8_per_row,
+            torch.ops.fbgemm.get_fp8_per_tensor_scale,
+        ):
+            with self.subTest(op=op, optional="bs"):
+                output = op(x, bs=negative_bs)
+                output_scale = (
+                    output[1] if isinstance(output, (tuple, list)) else output
+                )
+                self.assertTrue(torch.isnan(output_scale).all())
+            with self.subTest(op=op, optional="scale_ub"):
+                output = op(x, scale_ub=negative_scale_ub)
+                output_scale = (
+                    output[1] if isinstance(output, (tuple, list)) else output
+                )
+                self.assertTrue(torch.isnan(output_scale).all())
+
+        fixed_quantized = torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+            x, invalid_scale
+        )
+        self.assertTrue(torch.isnan(fixed_quantized.float()).all())
+
+        # Citrine C3: create the follow-up input directly on the accelerator.
+        valid_input = torch.ones(1, 128, dtype=torch.bfloat16, device=self.device)
+        torch.ops.fbgemm.quantize_fp8_per_tensor(valid_input)
+        torch.cuda.synchronize()
+
+    def test_quantize_fp8_invalid_values_are_graph_safe(self) -> None:
+        # Citrine C3: create graph inputs directly on the accelerator.
+        x = torch.ones(2, 128, dtype=torch.bfloat16, device=self.device)
+        bs = torch.tensor(2, dtype=torch.int64, device=self.device)
+        scale = torch.tensor(1.0, dtype=torch.float32, device=self.device)
+
+        torch.ops.fbgemm.quantize_fp8_per_tensor(x, bs=bs)
+        torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(x, scale, bs=bs)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            _, tensor_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x, bs=bs)
+            fixed_quantized = torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+                x, scale, bs=bs
+            )
+        bs.fill_(-1)
+        scale.zero_()
+        graph.replay()
+
+        self.assertTrue(torch.isnan(tensor_scale).all())
+        self.assertTrue(torch.isnan(fixed_quantized.float()).all())
+
+    def test_quantize_fp8_empty_optionals_are_graph_safe(self) -> None:
+        # Citrine C3: create graph inputs directly on the accelerator.
+        x = torch.empty(0, 128, dtype=torch.bfloat16, device=self.device)
+        bs = torch.tensor(0, dtype=torch.int64, device=self.device)
+        scale_ub = torch.tensor(0.5, dtype=torch.float32, device=self.device)
+        scale = torch.tensor(1.0, dtype=torch.float32, device=self.device)
+
+        torch.ops.fbgemm.quantize_fp8_per_tensor(x, bs=bs, scale_ub=scale_ub)
+        torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(x, scale, bs=bs)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            quantized, tensor_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
+                x, bs=bs, scale_ub=scale_ub
+            )
+            fixed_quantized = torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+                x, scale, bs=bs
+            )
+        graph.replay()
+
+        self.assertEqual(quantized.shape, x.shape)
+        self.assertEqual(tensor_scale.shape, ())
+        self.assertEqual(fixed_quantized.shape, x.shape)
+
+    def test_quantize_fp8_per_row_large_bf16_width(self) -> None:
+        # Citrine C3: create the large row directly on the accelerator.
+        x = torch.ones(2, 32768, dtype=torch.bfloat16, device=self.device)
+
+        quantized, scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+
+        self.assertEqual(quantized.shape, x.shape)
+        torch.testing.assert_close(
+            scale,
+            torch.full_like(scale, 1 / E4M3_MAX_POS),
+            atol=0,
+            rtol=0,
+        )
+
+    def test_quantize_fp8_per_row_uses_input_device(self) -> None:
+        if torch.cuda.device_count() < 2:
+            self.skipTest("multiple accelerators are required")
+
+        current_device = torch.cuda.current_device()
+        input_device = (current_device + 1) % torch.cuda.device_count()
+        # Citrine C3: create test input directly on the non-current accelerator.
+        x = torch.linspace(
+            -1.0,
+            1.0,
+            steps=2 * 128,
+            dtype=torch.bfloat16,
+            device=torch.device(
+                torch.accelerator.current_accelerator().type, input_device
+            ),
+        ).reshape(2, 128)
+
+        with torch.cuda.device(current_device):
+            quantized, scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+
+        self.assertEqual(quantized.device.index, input_device)
+        self.assertEqual(scale.device.index, input_device)
+        expected_scale = x.float().abs().amax(dim=1) / E4M3_MAX_POS
+        torch.testing.assert_close(scale, expected_scale, atol=0, rtol=0)
+
     def test_quantize_fp8_per_row_stochastic_rounding(self) -> None:
         fp8_max = torch.finfo(fp8_e4m3).max
         for dtype in (torch.bfloat16, torch.float16, torch.float32):
@@ -873,6 +1196,61 @@ class FP8Tests(unittest.TestCase):
                         stochastic_rounding=True,
                     )
 
+    def test_quantize_fp8_per_row_stochastic_normal_boundary(self) -> None:
+        fp8_info = torch.finfo(fp8_e4m3)
+        normal_boundary = fp8_info.smallest_normal
+        midpoint = normal_boundary + normal_boundary / 16
+        # Citrine C3: create the stochastic sample directly on the accelerator.
+        x = torch.full(
+            (32, 4096),
+            midpoint / fp8_info.max,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        x[:, 0] = 1.0
+
+        quantized, _ = torch.ops.fbgemm.quantize_fp8_per_row(
+            x, stochastic_rounding=True
+        )
+
+        torch.testing.assert_close(
+            quantized[:, 1:].float().mean(),
+            torch.tensor(midpoint, device=self.device),
+            atol=normal_boundary / 128,
+            rtol=0,
+        )
+
+    def test_quantize_fp8_per_row_stochastic_subnormal_midpoint(self) -> None:
+        fp8_info = torch.finfo(fp8_e4m3)
+        smallest_subnormal = fp8_info.smallest_normal / 8
+        midpoint = smallest_subnormal / 2
+        # Citrine C3: create the stochastic sample directly on the accelerator.
+        x = torch.full(
+            (32, 4096),
+            midpoint / fp8_info.max,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        x[:, 0] = 1.0
+
+        quantized, _ = torch.ops.fbgemm.quantize_fp8_per_row(
+            x, stochastic_rounding=True
+        )
+        samples = quantized[:, 1:].float()
+
+        torch.testing.assert_close(
+            torch.unique(samples),
+            torch.tensor([0.0, smallest_subnormal], device=self.device),
+            atol=0,
+            rtol=0,
+        )
+        torch.testing.assert_close(
+            samples.mean(),
+            torch.tensor(midpoint, device=self.device),
+            atol=smallest_subnormal / 128,
+            rtol=0,
+        )
+
     def test_quantize_fp8_per_row_input_dtypes(self) -> None:
         for dtype in (torch.bfloat16, torch.float16, torch.float32):
             for output_dtype in (fp8_e4m3, fp8_e5m2):
@@ -903,6 +1281,16 @@ class FP8Tests(unittest.TestCase):
                             quantized.float(), quantized_ref.float(), atol=0, rtol=0
                         )
                         torch.testing.assert_close(scale, scale_ref)
+
+        invalid_dtype_input = torch.ones(
+            2, 128, dtype=torch.bfloat16, device=self.device
+        )
+        for op in (
+            torch.ops.fbgemm.quantize_fp8_per_row,
+            torch.compile(torch.ops.fbgemm.quantize_fp8_per_row),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "output must be e4m3 or e5m2"):
+                op(invalid_dtype_input, output_dtype=torch.bfloat16)
 
         storage = torch.ones(2 * 128 + 1, dtype=torch.bfloat16, device=self.device)
         unaligned = storage[1:].view(2, 128)
@@ -937,12 +1325,6 @@ class FP8Tests(unittest.TestCase):
     @unittest.skipIf(
         not torch.version.cuda and torch.version.hip < "6.2",
         "Skip on AMD with < RoCM 6.2",
-    )
-    @unittest.skipIf(
-        torch.version.hip and not SUPPORTS_FP8,
-        "Skip on AMD archs without FNUZ FP8: the host instantiates the stochastic "
-        "rounding kernel on the FNUZ type while the device compiles the OCP one, "
-        "so the symbol is missing at launch and the process aborts",
     )
     @settings(deadline=None)
     @given(
@@ -980,9 +1362,6 @@ class FP8Tests(unittest.TestCase):
         # verify the mean value of SR of is close to the original value
         torch.testing.assert_close(mean_val, x[0, -1].float(), atol=atol, rtol=rtol)
 
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
-    )
     @settings(deadline=None)
     @given(
         G_B=st.sampled_from([64, 32]),  # graph batch size
@@ -1021,6 +1400,13 @@ class FP8Tests(unittest.TestCase):
 
         wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
         xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x, B_t, None)
+        if torch.version.hip:
+            reference, reference_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x_ref)
+            torch.testing.assert_close(x_scale, reference_scale, atol=0, rtol=0)
+            torch.testing.assert_close(
+                xq[:B].float(), reference.float(), atol=0, rtol=0
+            )
+            return
         zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale)
 
         # Fake quant
@@ -1030,9 +1416,6 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq[:B, :], zq_ref, atol=2.0e-3, rtol=2.0e-3)
 
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
-    )
     @settings(deadline=None)
     @given(
         B_T=st.sampled_from([2048, 4096]),
@@ -1061,7 +1444,34 @@ class FP8Tests(unittest.TestCase):
             * 0.01
         )
 
-        UB_t = torch.tensor(UB, dtype=torch.float, device=self.device)
+        UB_t = torch.tensor(UB, dtype=torch.float32, device=self.device)
+
+        if torch.version.hip:
+            op = (
+                torch.ops.fbgemm.quantize_fp8_per_tensor
+                if Mode == "tensorwise"
+                else torch.ops.fbgemm.quantize_fp8_per_row
+            )
+            for cap in (UB_t, x.abs().max().float() / 2):
+                xq, x_scale = op(x, scale_ub=cap)
+                maximum = (
+                    x.float().abs().max()
+                    if Mode == "tensorwise"
+                    else x.float().abs().amax(dim=-1)
+                )
+                expected_scale = maximum.clamp(max=cap) / E4M3_MAX_POS
+                expected_scale = expected_scale.clamp(min=1 / (E4M3_MAX_POS * 512))
+                torch.testing.assert_close(
+                    x_scale, expected_scale, atol=1e-7, rtol=1e-5
+                )
+                divisor = x_scale if Mode == "tensorwise" else x_scale.unsqueeze(-1)
+                expected = (
+                    (x.float() / divisor)
+                    .clamp(-E4M3_MAX_POS, E4M3_MAX_POS)
+                    .to(fp8_e4m3)
+                )
+                torch.testing.assert_close(xq.float(), expected.float(), atol=0, rtol=0)
+            return
 
         if Mode == "tensorwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x, None, UB_t)
@@ -2075,15 +2485,12 @@ class FP8Tests(unittest.TestCase):
         # Test that quantize operators can be torch compiled.
         # Correctness is covered in other tests, we just want to make sure
         # compile doesnt fail.
-        if torch.version.hip:
-            fp8_dtype = torch.float8_e4m3fnuz
-        else:
-            fp8_dtype = torch.float8_e4m3fn
         # Initialize tensors for testing.
         M, N, K = 256, 256, 256
         X = torch.randn(M, K, device=self.device, dtype=torch.bfloat16)
-        XQ = torch.randn(M, K, device=self.device).to(fp8_dtype)
-        WQ = torch.randn(N, K, device=self.device).to(fp8_dtype)
+        W = torch.randn(N, K, device=self.device, dtype=torch.bfloat16)
+        XQ, _ = torch.ops.fbgemm.quantize_fp8_per_tensor(X)
+        WQ, _ = torch.ops.fbgemm.quantize_fp8_per_tensor(W)
         output = torch.empty(M, N, device=self.device, dtype=torch.bfloat16)
         row_scale = torch.randn(M, device=self.device)
         col_scale = torch.randn(N, device=self.device)
@@ -2091,10 +2498,21 @@ class FP8Tests(unittest.TestCase):
         tensor_scale = torch.tensor(1.0, device=self.device)
 
         # Run various compiled quantize ops.
-        # Quantize ops.
-        torch.compile(torch.ops.fbgemm.quantize_fp8_per_tensor)(X)
-        torch.compile(torch.ops.fbgemm.quantize_fp8_per_row)(X)
-        torch.compile(torch.ops.fbgemm.quantize_fp8_per_col)(X)
+        quantize_input = torch.randn(127, 128, device=self.device, dtype=torch.bfloat16)
+        for op in (
+            torch.ops.fbgemm.quantize_fp8_per_tensor,
+            torch.ops.fbgemm.quantize_fp8_per_row,
+            torch.ops.fbgemm.quantize_fp8_per_col,
+        ):
+            torch.library.opcheck(
+                op.default,
+                (quantize_input,),
+                test_utils=("test_faketensor",),
+            )
+            eager, _ = op(quantize_input)
+            compiled, _ = torch.compile(op)(quantize_input)
+            self.assertEqual(eager.dtype, fp8_e4m3)
+            self.assertEqual(compiled.dtype, eager.dtype)
 
         # GEMM ops.
         torch.compile(torch.ops.fbgemm.f8f8bf16_blockwise)(
@@ -2112,8 +2530,10 @@ class FP8Tests(unittest.TestCase):
         )
         # These ops are only supported on hip for now.
         if torch.version.hip:
+            legacy_XQ = X.to(torch.float8_e4m3fnuz)
+            legacy_WQ = W.to(torch.float8_e4m3fnuz)
             torch.compile(torch.ops.fbgemm.f8f8f16_rowwise)(
-                XQ, WQ, row_scale, col_scale
+                legacy_XQ, legacy_WQ, row_scale, col_scale
             )
 
         # These ops are only supported on cuda for now.
