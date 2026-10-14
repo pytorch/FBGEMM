@@ -111,20 +111,21 @@ __global__ void permute_multi_embs_kernel(
 
     // for reverse_permute (backward) with next
     while (reverse_permute && next > 0 && next < permute_size) {
-      int32_t* __restrict__ pp = permutes[next].data();
-      in_tensor = pp[PermuteParam::out_tensor];
-      in_offset = pp[PermuteParam::out_offset];
-      length = pp[PermuteParam::length];
-      next = -pp[PermuteParam::next];
+      int32_t* __restrict__ next_pp = permutes[next].data();
+      in_tensor = next_pp[PermuteParam::out_tensor];
+      in_offset = next_pp[PermuteParam::out_offset];
+      length = next_pp[PermuteParam::length];
+      next = -next_pp[PermuteParam::next];
 
-      const auto in_length = in_lengths[in_tensor];
-      const scalar_t* input_ptr =
+      const auto next_in_length = in_lengths[in_tensor];
+      const scalar_t* next_input_ptr =
           reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
-          static_cast<int64_t>(batch_id) * static_cast<int64_t>(in_length) +
+          static_cast<int64_t>(batch_id) *
+              static_cast<int64_t>(next_in_length) +
           in_offset;
 
       for (auto i = worker_id; i < length; i += blockDim.x) {
-        output_ptr[i] += input_ptr[i];
+        output_ptr[i] += next_input_ptr[i];
       }
     }
   }

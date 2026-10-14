@@ -383,13 +383,13 @@ __global__ void cleanup_address_lookups(
   // This placeholder will be never accessed
   int64_t INSERTED_ROW_PLACEHOLDER = rows;
 
-  for (int64_t idx = start; idx < end; idx++) {
-    if (address_lookup[idx] < 0) {
+  for (int64_t row_idx = start; row_idx < end; row_idx++) {
+    if (address_lookup[row_idx] < 0) {
       // If exists more space due to sampling difference, keep as it is
-      address_lookup[idx] = -address_lookup[idx];
-    } else if (address_lookup[idx] == INSERTED_ROW_PLACEHOLDER) {
+      address_lookup[row_idx] = -address_lookup[row_idx];
+    } else if (address_lookup[row_idx] == INSERTED_ROW_PLACEHOLDER) {
       // If lacks space due to sampling difference, keep them pruned.
-      address_lookup[idx] = PAST_PRUNED_ROW_PLACEHOLDER;
+      address_lookup[row_idx] = PAST_PRUNED_ROW_PLACEHOLDER;
     }
   }
 }

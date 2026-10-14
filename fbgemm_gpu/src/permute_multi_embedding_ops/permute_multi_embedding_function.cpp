@@ -158,15 +158,15 @@ kt_regroup_arguments_impl(
   }
 
   // lengths of each input tensor
-  int32_t* __restrict__ in_offset = in_lengths.data();
+  int32_t* __restrict__ in_offsets = in_lengths.data();
   // build a lookup dictionary: key => (in_tensor, length, in_offset)
   std::unordered_map<std::string, std::tuple<int32_t, int32_t, int32_t>> lookup;
   for (auto i : c10::irange(in_tensors)) {
     for (auto j : c10::irange(lengths[i].size())) {
       // key => (in_tensor, length, in_offset)
-      lookup.insert({keys[i][j], {i, lengths[i][j], in_offset[i]}});
+      lookup.insert({keys[i][j], {i, lengths[i][j], in_offsets[i]}});
       // add up the input tensor length, it's also the offset of the next
-      in_offset[i] += lengths[i][j];
+      in_offsets[i] += lengths[i][j];
     }
   }
 
