@@ -90,8 +90,14 @@ namespace fbgemm_gpu {
 // each warp compute sum(t_subset) P[t] * V[t_subset, d]
 // outputs are of size float[D]
 
+#if defined(__gfx950__) || (HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ)
+#define FBGEMM_GENAI_DEVICE_OCP_FP8 1
+#else
+#define FBGEMM_GENAI_DEVICE_OCP_FP8 0
+#endif
+
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-#if HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ
+#if FBGEMM_GENAI_DEVICE_OCP_FP8
 using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3;
 using __nv_fp8x2_e4m3 = __hip_fp8x2_e4m3;
 using __nv_fp8_e4m3 = __hip_fp8_e4m3;
@@ -429,7 +435,7 @@ class FP8_E4M3_MAX {
  public:
 #ifndef USE_ROCM
   static constexpr float value = 448.0;
-#elif HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ
+#elif FBGEMM_GENAI_DEVICE_OCP_FP8
   static constexpr float value = 448.0;
 #else
   static constexpr float value = 240.0;
@@ -440,6 +446,90 @@ class FP8_E5M2_MAX {
   static constexpr float value = 57344.0;
 };
 constexpr int CTA_SIZE = 256;
+
+__global__ void markInvalidQuantizeOutputs(
+    const int64_t* bs,
+    const int64_t max_bs,
+    const float* scale_ub,
+    const float* fixed_scale,
+    void* quantized,
+    const int64_t quantized_numel,
+    float* scales,
+    const int64_t scales_numel) {
+  const bool valid_bs = bs == nullptr || (*bs >= 0 && *bs <= max_bs);
+  const bool valid_scale_ub =
+      scale_ub == nullptr || (isfinite(*scale_ub) && *scale_ub >= 0.0f);
+  const bool valid_fixed_scale =
+      fixed_scale == nullptr || (isfinite(*fixed_scale) && *fixed_scale > 0.0f);
+  if (valid_bs && valid_scale_ub && valid_fixed_scale) {
+    return;
+  }
+  for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < scales_numel;
+       i += static_cast<int64_t>(blockDim.x) * gridDim.x) {
+    scales[i] = NAN;
+  }
+  if (scales == nullptr) {
+    auto* const typed_quantized = static_cast<__nv_fp8_e4m3*>(quantized);
+    for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < quantized_numel;
+         i += static_cast<int64_t>(blockDim.x) * gridDim.x) {
+      typed_quantized[i] = __nv_fp8_e4m3(NAN);
+    }
+  }
+}
+
+void invokeMarkInvalidQuantizeOutputs(
+    const int64_t* bs,
+    const int64_t max_bs,
+    const float* scale_ub,
+    const float* fixed_scale,
+    void* quantized,
+    const int64_t quantized_numel,
+    float* scales,
+    const int64_t scales_numel,
+    const c10::cuda::CUDAStream stream) {
+  if (bs == nullptr && scale_ub == nullptr && fixed_scale == nullptr) {
+    return;
+  }
+  constexpr int threads = 256;
+  const int64_t output_numel = std::max(quantized_numel, scales_numel);
+  const dim3 blocks(
+      std::max<int64_t>(1, (output_numel + threads - 1) / threads));
+  FBGEMM_LAUNCH_KERNEL(
+      markInvalidQuantizeOutputs,
+      blocks,
+      threads,
+      0,
+      stream,
+      bs,
+      max_bs,
+      scale_ub,
+      fixed_scale,
+      quantized,
+      quantized_numel,
+      scales,
+      scales_numel);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+void validateQuantizeOptionalMetadata(
+    const at::Tensor& input,
+    const std::optional<at::Tensor>& bs,
+    const std::optional<at::Tensor>& scale_ub) {
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
+  }
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
+}
 
 template <bool QUANTIZE>
 __inline__ __device__ float scale(float a, float b) {
@@ -455,19 +545,22 @@ DEVICE_INLINE float stochastic_rounding_scalar_fp8(
     uint32_t random_value) {
   uint32_t w_int = __float_as_uint(x);
 
-  // Adjust the subnormal values to normal values if x is subnormal (<pow(2,-6))
-  // if x_sign - 127 <= -6, then x_adjust = x + pow(2, -6)
+#if defined(USE_ROCM) && !FBGEMM_GENAI_DEVICE_OCP_FP8
+  constexpr int32_t min_normal_exp = -7;
+#else
+  constexpr int32_t min_normal_exp = -6;
+#endif
+  // Adjust subnormal values to normal values before assembling the mantissa.
   uint32_t x_exp = (w_int << 1) >> 24;
   int32_t x_exp_int = static_cast<int32_t>(x_exp);
   x_exp_int = x_exp_int - 127;
   uint32_t x_sign = w_int & 0x80000000;
-  constexpr uint32_t shift_bits_unsigned = ((127 - 6) << 23);
+  constexpr uint32_t shift_bits_unsigned = ((127 + min_normal_exp) << 23);
   uint32_t shift_bits = shift_bits_unsigned | x_sign;
   float shift_value = __uint_as_float(shift_bits);
-  // subnormal exp of FP8 E4M3
-  constexpr int32_t subnormal_exp = -6;
-  if (x_exp_int < subnormal_exp) {
+  if (x_exp_int < min_normal_exp) {
     x = x + shift_value;
+    w_int = __float_as_uint(x);
   }
 
   // 1-bit sign + 8-bit exponent
@@ -475,39 +568,39 @@ DEVICE_INLINE float stochastic_rounding_scalar_fp8(
   unsigned subtract = (w_int & sign_exp_mask);
   // FP32 has 23-bit mantissa, fp8 e4m3 has 3-bit mantissa
   // 12 = 32 - (23 - 3)
-  unsigned assmebles = subtract | (random_value >> 12);
-  float assemble_float = __uint_as_float(assmebles) - __uint_as_float(subtract);
+  unsigned assembled_bits = subtract | (random_value >> 12);
+  float assemble_float =
+      __uint_as_float(assembled_bits) - __uint_as_float(subtract);
   // truncate the last 20 bit (keep 3 bit mantissa) to simulate round to zero
   uint32_t ret_int = __float_as_uint(x + assemble_float);
   const uint32_t sign_exp_3bit_mantissa_mask = ((1U << 12) - 1) << (32 - 12);
   float ret = __uint_as_float(ret_int & sign_exp_3bit_mantissa_mask);
 
-  // Before the return, subtract pow(2,-6) from the SR'ed subnormal values
-  // SR(x) = SR(x + pow(2,-6)) - pow(2, -6)
-  if (x_exp_int < subnormal_exp) {
+  // Remove the normalizing shift from subnormal values before returning.
+  if (x_exp_int < min_normal_exp) {
     ret = ret - shift_value;
   }
   return ret;
 }
 
-template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
+template <bool QUANTIZE, typename T_S, typename T_IN>
 __global__ void scaleMatrix1(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
     [[maybe_unused]] const int64_t lda) {
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel;
        i += (size_t)blockDim.x * gridDim.x) {
-    output[i] = T_OUT(
+    reinterpret_cast<__nv_fp8_e4m3*>(output)[i] = __nv_fp8_e4m3(
         scale<QUANTIZE>(
             static_cast<float>(input[i]), static_cast<float>(input_scale[0])));
   }
 }
 
-template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
+template <bool QUANTIZE, typename T_S, typename T_IN>
 __global__ void scaleMatrix2(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
@@ -517,7 +610,7 @@ __global__ void scaleMatrix2(
       stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
   auto input_scal = static_cast<float>(input_scale[0]);
 
-  auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
+  auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(output);
   const int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
   for (int64_t d = threadIdx.x + blockIdx.x * blockDim.x; d < numel / 4;
        d += stride) {
@@ -544,9 +637,9 @@ __global__ void scaleMatrix2(
   }
 }
 
-template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
+template <bool QUANTIZE, typename T_S, typename T_IN>
 __global__ void scaleMatrixRowwise2(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
@@ -555,7 +648,7 @@ __global__ void scaleMatrixRowwise2(
   auto stoc_rounding_state = StochasticRoundingRNGState(
       stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
 
-  auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
+  auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(output);
   auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
   auto vec_scale = reinterpret_cast<const float4*>(&input_scale[0]);
   for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
@@ -584,41 +677,43 @@ __global__ void scaleMatrixRowwise2(
   }
 }
 
-template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
+template <bool QUANTIZE, bool E5M2, typename T_S, typename T_IN>
 __global__ void scaleMatrixRowwise1(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
     const int64_t lda) {
+  using T_OUT = std::conditional_t<E5M2, __nv_fp8_e5m2, __nv_fp8_e4m3>;
+  auto* const typed_output = static_cast<T_OUT*>(output);
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel;
        i += (size_t)blockDim.x * gridDim.x) {
-    output[i] = T_OUT(
+    typed_output[i] = T_OUT(
         scale<QUANTIZE>(
             static_cast<float>(input[i]),
             static_cast<float>(input_scale[i / lda])));
   }
 }
 
-template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
+template <bool QUANTIZE, typename T_S, typename T_IN>
 __global__ void scaleMatrixColwise(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
     const int64_t lda) {
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel;
        i += (size_t)blockDim.x * gridDim.x) {
-    output[i] = T_OUT(
+    reinterpret_cast<__nv_fp8_e4m3*>(output)[i] = __nv_fp8_e4m3(
         scale<QUANTIZE>(
             static_cast<float>(input[i]),
             static_cast<float>(input_scale[i % lda])));
   }
 }
 
-template <typename T_OUT, typename T_S, typename T_IN>
+template <typename T_S, typename T_IN>
 void invokeQuantizeMatrix(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
@@ -634,7 +729,7 @@ void invokeQuantizeMatrix(
     rng_engine_inputs =
         at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
     FBGEMM_LAUNCH_KERNEL(
-        (scaleMatrix2<true, T_OUT, T_S, T_IN>),
+        (scaleMatrix2<true, T_S, T_IN>),
         grid,
         block,
         0,
@@ -647,7 +742,7 @@ void invokeQuantizeMatrix(
         rng_engine_inputs);
   } else {
     FBGEMM_LAUNCH_KERNEL(
-        (scaleMatrix1<true, T_OUT, T_S, T_IN>),
+        (scaleMatrix1<true, T_S, T_IN>),
         grid,
         block,
         0,
@@ -660,9 +755,9 @@ void invokeQuantizeMatrix(
   }
 }
 
-template <typename T_OUT, typename T_S, typename T_IN>
+template <bool E5M2, typename T_S, typename T_IN>
 void invokeQuantizeMatrixRowwise(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
@@ -680,7 +775,7 @@ void invokeQuantizeMatrixRowwise(
         at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
 
     FBGEMM_LAUNCH_KERNEL(
-        (scaleMatrixRowwise2<true, T_OUT, T_S, T_IN>),
+        (scaleMatrixRowwise2<true, T_S, T_IN>),
         grid,
         block,
         0,
@@ -693,7 +788,7 @@ void invokeQuantizeMatrixRowwise(
         rng_engine_inputs);
   } else {
     FBGEMM_LAUNCH_KERNEL(
-        (scaleMatrixRowwise1<true, T_OUT, T_S, T_IN>),
+        (scaleMatrixRowwise1<true, E5M2, T_S, T_IN>),
         grid,
         block,
         0,
@@ -706,9 +801,9 @@ void invokeQuantizeMatrixRowwise(
   }
 }
 
-template <typename T_OUT, typename T_S, typename T_IN>
+template <typename T_S, typename T_IN>
 void invokeQuantizeMatrixColwise(
-    T_OUT* const output,
+    void* const output,
     T_S const* const input_scale,
     T_IN const* const input,
     const int64_t numel,
@@ -717,7 +812,7 @@ void invokeQuantizeMatrixColwise(
   constexpr dim3 grid(1024);
   const dim3 block(CTA_SIZE);
   FBGEMM_LAUNCH_KERNEL(
-      (scaleMatrixColwise<true, T_OUT, T_S, T_IN>),
+      (scaleMatrixColwise<true, T_S, T_IN>),
       grid,
       block,
       0,
@@ -771,7 +866,11 @@ __global__ void computeFP8QuantizeScale(
   float max = 0.f;
   int64_t numel_scale = size;
   if (total_elements_per_slice != -1 && bs != nullptr) {
-    numel_scale = size / total_elements_per_slice * (*bs);
+    const int64_t batch_size = *bs;
+    if (batch_size < 0 || batch_size > total_elements_per_slice) {
+      return;
+    }
+    numel_scale = size / total_elements_per_slice * batch_size;
   }
   constexpr float min_scaling_factor = 1.0f / (FP8_E4M3_MAX::value * 512.f);
   for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel_scale;
@@ -796,7 +895,8 @@ __global__ void computeFP8QuantizeScaleColwise(
     T_S* quant_ptr,
     const T_W* weights,
     const int64_t size,
-    const int64_t n) {
+    const int64_t n,
+    const float* scale_ub) {
   constexpr float min_scaling_factor = 1.0f / (FP8_E4M3_MAX::value * 512.f);
 
   for (int64_t col = threadIdx.x; col < n; col += blockDim.x) {
@@ -805,8 +905,10 @@ __global__ void computeFP8QuantizeScaleColwise(
       auto val = fabs(static_cast<float>(weights[i]));
       max = max > val ? max : val;
     }
+    const float bounded_max =
+        scale_ub == nullptr ? max : std::min(max, *scale_ub);
     auto const scale =
-        (T_S)std::max(max / FP8_E4M3_MAX::value, min_scaling_factor);
+        (T_S)std::max(bounded_max / FP8_E4M3_MAX::value, min_scaling_factor);
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)
     if constexpr (std::is_same_v<T_S, float>) {
       atomicMaxExtd(quant_ptr + col, scale);
@@ -858,12 +960,28 @@ at::Tensor get_fp8_per_tensor_scale(
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub) // scale upper bound
 {
+  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   auto _st = input.scalar_type();
   TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
+  }
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
 
   int out_size = input.numel() == 0 ? 0 : 1;
 
@@ -872,13 +990,13 @@ at::Tensor get_fp8_per_tensor_scale(
       torch::dtype(torch::kFloat32)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+  const auto stream = at::cuda::getCurrentCUDAStream();
 
   // Handle case where input is empty.
   if (input.numel() == 0) {
     return scale;
   }
 
-  const auto stream = at::cuda::getCurrentCUDAStream();
   invokeComputeScale(
       reinterpret_cast<float*>(scale.data_ptr()),
       reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
@@ -891,6 +1009,16 @@ at::Tensor get_fp8_per_tensor_scale(
           ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
           : nullptr,
       stream);
+  invokeMarkInvalidQuantizeOutputs(
+      bs.has_value() ? bs->const_data_ptr<int64_t>() : nullptr,
+      input.size(0),
+      scale_ub.has_value() ? scale_ub->const_data_ptr<float>() : nullptr,
+      nullptr,
+      nullptr,
+      0,
+      scale.data_ptr<float>(),
+      scale.numel(),
+      stream);
 
   return scale;
 }
@@ -898,17 +1026,29 @@ at::Tensor get_fp8_per_tensor_scale(
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
     at::Tensor scale,
-    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> bs, // batch size
     bool stochastic_rounding) {
+  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   TORCH_CHECK(
       !stochastic_rounding || input.size(-1) % 4 == 0,
       "input row dimension must be a multiple of 4 when stochastic_rounding is true");
   auto _st = input.scalar_type();
   TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
+  TORCH_CHECK(scale.scalar_type() == at::kFloat, "scale must be float32");
+  TORCH_CHECK(scale.numel() == 1, "scale must contain one element");
+  TORCH_CHECK(
+      scale.device() == input.device(), "scale must be on the input device");
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
+  }
 
   std::vector<long int> quantized_input_shape;
   quantized_input_shape.reserve(input.dim());
@@ -918,23 +1058,33 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
 
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
-      torch::dtype(torch_fp8_e4m3)
+      torch::dtype(getNFP8ScalarType(input.get_device()))
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+  const auto stream = at::cuda::getCurrentCUDAStream();
 
   // When input is empty, return empty scale as well.
   if (input.numel() == 0) {
     return quantized_input;
   }
 
-  const auto stream = at::cuda::getCurrentCUDAStream();
   invokeQuantizeMatrix(
-      reinterpret_cast<__nv_fp8_e4m3*>(quantized_input.data_ptr()),
+      quantized_input.data_ptr(),
       reinterpret_cast<float*>(scale.data_ptr()),
       reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
       input.numel(),
       input.size(-1),
       stochastic_rounding,
+      stream);
+  invokeMarkInvalidQuantizeOutputs(
+      bs.has_value() ? bs->const_data_ptr<int64_t>() : nullptr,
+      input.size(0),
+      nullptr,
+      scale.const_data_ptr<float>(),
+      quantized_input.data_ptr(),
+      quantized_input.numel(),
+      nullptr,
+      0,
       stream);
 
   return quantized_input;
@@ -947,10 +1097,10 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
     bool stochastic_rounding) {
-  CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(
-      input.dim() >= 2,
-      "Invalid dim. The dim of input should be greater than or equal to 2");
+      input.dim() == 2 || input.dim() == 3,
+      "Invalid dim. The dim of input should be 2 or 3");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   TORCH_CHECK(
       input.scalar_type() == torch::kBFloat16 ||
           input.scalar_type() == torch::kFloat,
@@ -958,6 +1108,36 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
   TORCH_CHECK(
       !stochastic_rounding || input.size(-1) % 4 == 0,
       "input row dimension must be a multiple of 4 when stochastic_rounding is true");
+  validateQuantizeOptionalMetadata(input, bs, scale_ub);
+  if (!input.is_cuda()) {
+    auto outputs = quantize_fp8_per_tensor(
+        input.cuda(),
+        bs.has_value() ? std::optional<at::Tensor>(bs->cuda()) : std::nullopt,
+        scale_ub.has_value() ? std::optional<at::Tensor>(scale_ub->cuda())
+                             : std::nullopt,
+        stochastic_rounding);
+    return {outputs[0].cpu(), outputs[1].cpu()};
+  }
+  CUDA_DEVICE_GUARD(input);
+  const auto native_dtype = getNFP8ScalarType(input.get_device());
+  int64_t rows = 1;
+  for (int64_t dim = 0; dim < input.dim() - 1; ++dim) {
+    rows *= input.size(dim);
+  }
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
+  }
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
   std::vector<long int> quantized_input_shape;
   quantized_input_shape.reserve(input.dim());
   for (int i = 0; i < input.dim(); i++) {
@@ -967,7 +1147,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
   input = input.cuda();
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
-      torch::dtype(torch_fp8_e4m3)
+      torch::dtype(native_dtype)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
   at::Tensor scales = torch::empty(
@@ -975,16 +1155,25 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
       torch::dtype(torch::kFloat32)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+  const auto stream = at::cuda::getCurrentCUDAStream();
   // When input is empty, return empty tensors.
   if (input.numel() == 0) {
+    scales.zero_();
+    invokeMarkInvalidQuantizeOutputs(
+        bs.has_value() ? bs->const_data_ptr<int64_t>() : nullptr,
+        rows,
+        scale_ub.has_value() ? scale_ub->const_data_ptr<float>() : nullptr,
+        nullptr,
+        quantized_input.data_ptr(),
+        quantized_input.numel(),
+        scales.data_ptr<float>(),
+        scales.numel(),
+        stream);
     return std::vector<at::Tensor>{quantized_input, scales};
   }
-  auto* const quantized_input_ptr =
-      reinterpret_cast<__nv_fp8_e4m3*>(quantized_input.data_ptr());
-  const auto stream = at::cuda::getCurrentCUDAStream();
   int64_t total_elements_per_slice = -1;
   if (bs) {
-    total_elements_per_slice = input.numel() / input.size(-1);
+    total_elements_per_slice = rows;
   }
   AT_DISPATCH_FLOATING_TYPES_AND(
       at::kBFloat16, input.scalar_type(), "quantize_fp8_per_tensor", [&] {
@@ -998,7 +1187,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
             scale_ub ? scale_ub->data_ptr<float>() : nullptr,
             stream);
         invokeQuantizeMatrix(
-            quantized_input_ptr,
+            quantized_input.data_ptr(),
             scales.data_ptr<float>(),
             input.const_data_ptr<scalar_t>(),
             input.numel(),
@@ -1007,6 +1196,16 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
             stream);
       });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
+  invokeMarkInvalidQuantizeOutputs(
+      bs.has_value() ? bs->const_data_ptr<int64_t>() : nullptr,
+      rows,
+      scale_ub.has_value() ? scale_ub->const_data_ptr<float>() : nullptr,
+      nullptr,
+      quantized_input.data_ptr(),
+      quantized_input.numel(),
+      scales.data_ptr<float>(),
+      scales.numel(),
+      stream);
   return {quantized_input, scales};
 }
 
@@ -1029,14 +1228,16 @@ __inline__ __device__ T blockAllReduceMax(T val) {
   return val;
 }
 
-template <typename SCALE, typename T_OUT, typename T_S, typename T_IN>
+template <typename SCALE, bool E5M2, typename T_S, typename T_IN>
 __global__ void dynamicQuantizeMatrixRowwise(
-    T_OUT* output,
+    void* output,
     T_S* quant_ptr,
     T_IN const* input,
     int64_t numel,
     int64_t lda,
     const float* scale_ub) {
+  using T_OUT = std::conditional_t<E5M2, __nv_fp8_e5m2, __nv_fp8_e4m3>;
+  auto* const typed_output = static_cast<T_OUT*>(output);
   extern __shared__ __align__(sizeof(float)) char _shmem[];
   T_IN* shmem = reinterpret_cast<T_IN*>(_shmem);
   constexpr float min_scaling_factor = 1.0f / (SCALE::value * 512.f);
@@ -1057,7 +1258,7 @@ __global__ void dynamicQuantizeMatrixRowwise(
     auto const s =
         (T_S)std::max(bounded_max / SCALE::value, min_scaling_factor);
     for (int64_t i = threadIdx.x; i < lda; i += blockDim.x) {
-      output[row * lda + i] = (T_OUT)scale<true>(
+      typed_output[row * lda + i] = (T_OUT)scale<true>(
           static_cast<float>(shmem[i]), static_cast<float>(s));
     }
     if (threadIdx.x == 0) {
@@ -1067,15 +1268,16 @@ __global__ void dynamicQuantizeMatrixRowwise(
   }
 }
 
-template <typename SCALE, typename T_OUT, typename T_S, typename T_IN>
+template <typename SCALE, typename T_S, typename T_IN>
 __global__ void dynamicQuantizeMatrixRowwiseStoc(
-    T_OUT* output,
+    void* output,
     T_S* quant_ptr,
     T_IN const* input,
     int64_t numel,
     int64_t lda,
     const float* scale_ub,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
+  auto* const typed_output = static_cast<__nv_fp8_e4m3*>(output);
   extern __shared__ __align__(sizeof(float)) char _shmem[];
   T_IN* shmem = reinterpret_cast<T_IN*>(_shmem);
   constexpr float min_scaling_factor = 1.0f / (SCALE::value * 512.f);
@@ -1102,9 +1304,10 @@ __global__ void dynamicQuantizeMatrixRowwiseStoc(
     auto const s =
         (T_S)std::max(bounded_max / SCALE::value, min_scaling_factor);
     for (int64_t i = threadIdx.x; i < lda; i += blockDim.x) {
-      output[row * lda + i] = (T_OUT)(stochastic_rounding_scalar_fp8(
-          scale<true>(static_cast<float>(shmem[i]), static_cast<float>(s)),
-          random_bits.x));
+      typed_output[row * lda + i] =
+          (__nv_fp8_e4m3)(stochastic_rounding_scalar_fp8(
+              scale<true>(static_cast<float>(shmem[i]), static_cast<float>(s)),
+              random_bits.x));
     }
     if (threadIdx.x == 0) {
       quant_ptr[row] = s;
@@ -1141,9 +1344,9 @@ __global__ void computeFP8QuantizeScaleRowwise(
   }
 }
 
-template <typename SCALE, typename T_OUT, typename T_S, typename T_IN>
+template <typename SCALE, bool E5M2, typename T_S, typename T_IN>
 void invokeComputeScalesAndQuantizeMatrix(
-    T_OUT* output,
+    void* output,
     T_S* quant_ptr,
     const T_IN* input,
     const int64_t numel,
@@ -1162,12 +1365,12 @@ void invokeComputeScalesAndQuantizeMatrix(
     cudaError_t ret;
     if (stochastic_rounding) {
       ret = cudaFuncSetAttribute(
-          dynamicQuantizeMatrixRowwiseStoc<SCALE, T_OUT, T_S, T_IN>,
+          dynamicQuantizeMatrixRowwiseStoc<SCALE, T_S, T_IN>,
           cudaFuncAttributeMaxDynamicSharedMemorySize,
           shmem_size);
     } else {
       ret = cudaFuncSetAttribute(
-          dynamicQuantizeMatrixRowwise<SCALE, T_OUT, T_S, T_IN>,
+          dynamicQuantizeMatrixRowwise<SCALE, E5M2, T_S, T_IN>,
           cudaFuncAttributeMaxDynamicSharedMemorySize,
           shmem_size);
     }
@@ -1196,7 +1399,7 @@ void invokeComputeScalesAndQuantizeMatrix(
           at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
 
       FBGEMM_LAUNCH_KERNEL(
-          (dynamicQuantizeMatrixRowwiseStoc<SCALE, T_OUT, T_S, T_IN>),
+          (dynamicQuantizeMatrixRowwiseStoc<SCALE, T_S, T_IN>),
           grid,
           block,
           shmem_size,
@@ -1210,7 +1413,7 @@ void invokeComputeScalesAndQuantizeMatrix(
           rng_engine_inputs);
     } else {
       FBGEMM_LAUNCH_KERNEL(
-          (dynamicQuantizeMatrixRowwise<SCALE, T_OUT, T_S, T_IN>),
+          (dynamicQuantizeMatrixRowwise<SCALE, E5M2, T_S, T_IN>),
           grid,
           block,
           shmem_size,
@@ -1236,18 +1439,19 @@ void invokeComputeScalesAndQuantizeMatrix(
         numel,
         lda,
         scale_ub);
-    invokeQuantizeMatrixRowwise(
+    invokeQuantizeMatrixRowwise<E5M2>(
         output, quant_ptr, input, numel, lda, stochastic_rounding, stream);
   }
 }
 
-template <typename T_OUT, typename T_S, typename T_IN>
+template <typename T_S, typename T_IN>
 void invokeComputeScalesAndQuantizeMatrixCol(
-    T_OUT* output,
+    void* output,
     T_S* quant_ptr,
     const T_IN* input,
     const int64_t numel,
     const int64_t lda,
+    const float* scale_ub,
     c10::cuda::CUDAStream stream) {
   dim3 block(CTA_SIZE);
   dim3 grid((lda + CTA_SIZE - 1) / CTA_SIZE);
@@ -1262,7 +1466,8 @@ void invokeComputeScalesAndQuantizeMatrixCol(
       quant_ptr,
       input,
       numel,
-      lda);
+      lda,
+      scale_ub);
   invokeQuantizeMatrixColwise(output, quant_ptr, input, numel, lda, stream);
 }
 
@@ -1523,25 +1728,31 @@ void invokeFusedQuantizeRowwiseStochastic(
 
 std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
-    [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
     std::optional<c10::ScalarType> output_dtype, // Quantization type
     bool stochastic_rounding) {
-  TORCH_CHECK(input.dim() >= 2, "Invalid dim. The dim of input should be >= 2");
+  TORCH_CHECK(
+      input.dim() == 2 || input.dim() == 3,
+      "Invalid dim. The dim of input should be 2 or 3");
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   TORCH_CHECK(
       input.scalar_type() == torch::kBFloat16 ||
           input.scalar_type() == torch::kFloat ||
           input.scalar_type() == torch::kHalf,
       "input must be BF16, FP16 or FP32");
+  validateQuantizeOptionalMetadata(input, bs, scale_ub);
   if (!input.is_cuda()) {
-    if (scale_ub.has_value()) {
-      scale_ub = scale_ub.value().cuda();
-    }
     auto outputs = quantize_fp8_per_row(
-        input.cuda(), bs, scale_ub, output_dtype, stochastic_rounding);
+        input.cuda(),
+        bs.has_value() ? std::optional<at::Tensor>(bs->cuda()) : std::nullopt,
+        scale_ub.has_value() ? std::optional<at::Tensor>(scale_ub->cuda())
+                             : std::nullopt,
+        output_dtype,
+        stochastic_rounding);
     return {outputs[0].cpu(), outputs[1].cpu()};
   }
+  CUDA_DEVICE_GUARD(input);
 #ifdef USE_ROCM
   const auto native_e4m3_type = getNFP8ScalarType(input.get_device());
   const bool use_ocp_fp8 = native_e4m3_type == at::kFloat8_e4m3fn;
@@ -1561,7 +1772,24 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     qtype = output_dtype.value();
   }
   const int64_t K = input.size(-1);
-  const int64_t rows = input.numel() / K;
+  int64_t rows = 1;
+  for (int64_t dim = 0; dim < input.dim() - 1; ++dim) {
+    rows *= input.size(dim);
+  }
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
+  }
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
   // allocate output tensors
   at::Tensor quantized = torch::empty(
       input.sizes(),
@@ -1571,16 +1799,64 @@ std::vector<at::Tensor> quantize_fp8_per_row(
       torch::dtype(torch::kFloat32)
           .device(input.device())
           .requires_grad(false));
+  const auto stream = at::cuda::getCurrentCUDAStream();
+  const auto mark_invalid_outputs = [&] {
+    invokeMarkInvalidQuantizeOutputs(
+        bs.has_value() ? bs->const_data_ptr<int64_t>() : nullptr,
+        rows,
+        scale_ub.has_value() ? scale_ub->const_data_ptr<float>() : nullptr,
+        nullptr,
+        quantized.data_ptr(),
+        quantized.numel(),
+        scales.data_ptr<float>(),
+        scales.numel(),
+        stream);
+  };
   if (input.numel() == 0) {
+    scales.zero_();
+    mark_invalid_outputs();
     return {quantized, scales};
   }
-  const auto stream = at::cuda::getCurrentCUDAStream();
   // optional upper‑bound pointer
   const float* scale_ub_ptr = nullptr;
   if (scale_ub.has_value()) {
-    scale_ub_ptr =
-        reinterpret_cast<const float*>(scale_ub.value().const_data_ptr());
+    scale_ub_ptr = scale_ub->const_data_ptr<float>();
   }
+#ifdef USE_ROCM
+  const size_t input_row_bytes = static_cast<size_t>(K) * input.element_size();
+  if (!stochastic_rounding && input_row_bytes >= (48 << 10)) {
+    if (qtype == native_e4m3_type) {
+      FBGEMM_DISPATCH_FLOATING_TYPES(
+          input.scalar_type(), "quantize_rowwise_large_e4m3", [&] {
+            invokeComputeScalesAndQuantizeMatrix<FP8_E4M3_MAX, false>(
+                quantized.data_ptr(),
+                scales.data_ptr<float>(),
+                input.const_data_ptr<scalar_t>(),
+                input.numel(),
+                K,
+                scale_ub_ptr,
+                false,
+                stream);
+          });
+    } else {
+      FBGEMM_DISPATCH_FLOATING_TYPES(
+          input.scalar_type(), "quantize_rowwise_large_e5m2", [&] {
+            invokeComputeScalesAndQuantizeMatrix<FP8_E5M2_MAX, true>(
+                quantized.data_ptr(),
+                scales.data_ptr<float>(),
+                input.const_data_ptr<scalar_t>(),
+                input.numel(),
+                K,
+                scale_ub_ptr,
+                false,
+                stream);
+          });
+    }
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    mark_invalid_outputs();
+    return {quantized, scales};
+  }
+#endif
   if (stochastic_rounding) {
     TORCH_CHECK(
         qtype == native_e4m3_type,
@@ -1601,6 +1877,7 @@ std::vector<at::Tensor> quantize_fp8_per_row(
               stream);
         });
     C10_CUDA_KERNEL_LAUNCH_CHECK();
+    mark_invalid_outputs();
     return {quantized, scales};
   }
   // launch parameters
@@ -1642,8 +1919,24 @@ std::vector<at::Tensor> quantize_fp8_per_row(
           });
     }
     C10_CUDA_KERNEL_LAUNCH_CHECK();
+    mark_invalid_outputs();
     return {quantized, scales};
   }
+#ifndef USE_ROCM
+  if (shmem_bytes >= (48 << 10)) {
+    if (qtype == native_e4m3_type) {
+      C10_CUDA_CHECK(cudaFuncSetAttribute(
+          fused_quantize_rowwise<__nv_fp8_e4m3, FP8_E4M3_MAX>,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          shmem_bytes));
+    } else {
+      C10_CUDA_CHECK(cudaFuncSetAttribute(
+          fused_quantize_rowwise<__nv_fp8_e5m2, FP8_E5M2_MAX>,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          shmem_bytes));
+    }
+  }
+#endif
   if (qtype == native_e4m3_type) {
     fused_quantize_rowwise<__nv_fp8_e4m3, FP8_E4M3_MAX>
         <<<grid, block, shmem_bytes, stream>>>(
@@ -1672,33 +1965,55 @@ std::vector<at::Tensor> quantize_fp8_per_row(
   if (err != cudaSuccess) {
     AT_ERROR("CUDA kernel launch failed: ", cudaGetErrorString(err));
   }
+  mark_invalid_outputs();
   return {quantized, scales};
 }
 
 std::vector<at::Tensor> quantize_fp8_per_col(
     at::Tensor input,
     [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
-    [[maybe_unused]] std::optional<at::Tensor> scale_ub) // scale upperbound)
-{
-  CUDA_DEVICE_GUARD(input);
+    std::optional<at::Tensor> scale_ub) {
   TORCH_CHECK(
-      input.dim() >= 2,
-      "Invalid dim. The dim of input should be greater than or equal to 2");
+      input.dim() == 2 || input.dim() == 3,
+      "Invalid dim. The dim of input should be 2 or 3");
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   auto _st = input.scalar_type();
   TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
+  validateQuantizeOptionalMetadata(input, bs, scale_ub);
+  if (!input.is_cuda()) {
+    auto outputs = quantize_fp8_per_col(
+        input.cuda(),
+        bs.has_value() ? std::optional<at::Tensor>(bs->cuda()) : std::nullopt,
+        scale_ub.has_value() ? std::optional<at::Tensor>(scale_ub->cuda())
+                             : std::nullopt);
+    return {outputs[0].cpu(), outputs[1].cpu()};
+  }
+  CUDA_DEVICE_GUARD(input);
+  const auto native_dtype = getNFP8ScalarType(input.get_device());
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
   std::vector<long int> quantized_input_shape;
   quantized_input_shape.reserve(input.dim());
   for (int i = 0; i < input.dim(); i++)
     quantized_input_shape.push_back(input.size(i));
   std::vector<int64_t> scale_shape;
   scale_shape.reserve(input.dim() - 1);
-  for (int i = 1; i < input.dim(); i++)
+  int64_t columns = 1;
+  for (int i = 1; i < input.dim(); i++) {
     scale_shape.push_back(input.size(i));
+    columns *= input.size(i);
+  }
 
   input = input.cuda();
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
-      torch::dtype(torch_fp8_e4m3)
+      torch::dtype(native_dtype)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
   at::Tensor scales = torch::empty(
@@ -1706,19 +2021,40 @@ std::vector<at::Tensor> quantize_fp8_per_col(
       torch::dtype(torch::kFloat32)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+  const auto stream = at::cuda::getCurrentCUDAStream();
   // When input is empty, return empty tensors.
   if (input.numel() == 0) {
+    scales.zero_();
+    invokeMarkInvalidQuantizeOutputs(
+        bs.has_value() ? bs->const_data_ptr<int64_t>() : nullptr,
+        input.size(0),
+        scale_ub.has_value() ? scale_ub->const_data_ptr<float>() : nullptr,
+        nullptr,
+        quantized_input.data_ptr(),
+        quantized_input.numel(),
+        scales.data_ptr<float>(),
+        scales.numel(),
+        stream);
     return std::vector<at::Tensor>{quantized_input, scales};
   }
-  auto* const quantized_input_ptr =
-      reinterpret_cast<__nv_fp8_e4m3*>(quantized_input.data_ptr());
-  const auto stream = at::cuda::getCurrentCUDAStream();
+  auto* const quantized_input_ptr = quantized_input.data_ptr();
   invokeComputeScalesAndQuantizeMatrixCol(
       quantized_input_ptr,
       reinterpret_cast<float*>(scales.data_ptr()),
       reinterpret_cast<const __nv_bfloat16*>(input.const_data_ptr()),
       input.numel(),
-      input.size(-1),
+      columns,
+      scale_ub.has_value() ? scale_ub->const_data_ptr<float>() : nullptr,
+      stream);
+  invokeMarkInvalidQuantizeOutputs(
+      bs.has_value() ? bs->const_data_ptr<int64_t>() : nullptr,
+      input.size(0),
+      scale_ub.has_value() ? scale_ub->const_data_ptr<float>() : nullptr,
+      nullptr,
+      quantized_input.data_ptr(),
+      quantized_input.numel(),
+      scales.data_ptr<float>(),
+      scales.numel(),
       stream);
 
   return std::vector<at::Tensor>{quantized_input, scales};

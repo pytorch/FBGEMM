@@ -663,9 +663,7 @@ def _kernel_silu_quantize_mx4_unpack(
         mantissa = tl.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
 
         # Construct FP4 value from components.
-        new_biased_exp = tl.maximum(
-            tl.minimum(new_biased_exp, EXPONENT_OVERFLOW_THRESHOLD), 0
-        )
+        new_biased_exp = tl.clamp(new_biased_exp, 0, EXPONENT_OVERFLOW_THRESHOLD)
 
         mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
         mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value
@@ -1087,9 +1085,7 @@ def _kernel_rms_quantize_mx4_unpack(
         mantissa = tl.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
 
         # Construct FP4 value from components.
-        new_biased_exp = tl.maximum(
-            tl.minimum(new_biased_exp, EXPONENT_OVERFLOW_THRESHOLD), 0
-        )
+        new_biased_exp = tl.clamp(new_biased_exp, 0, EXPONENT_OVERFLOW_THRESHOLD)
 
         mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
         mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value

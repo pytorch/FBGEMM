@@ -31,9 +31,9 @@ from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -71,22 +71,12 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 SparseType.INT2,
             ]
         ),
-        output_dtype=(
-            st.sampled_from(
-                [
-                    SparseType.FP16,
-                    SparseType.BF16,
-                    SparseType.INT8,
-                ]
-            )
-            if not TEST_WITH_ROCM
-            else st.sampled_from(
-                [
-                    SparseType.FP16,
-                    # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
-                    SparseType.INT8,
-                ]
-            )
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP16,
+                SparseType.BF16,
+                SparseType.INT8,
+            ]
         ),
     )
     @settings(

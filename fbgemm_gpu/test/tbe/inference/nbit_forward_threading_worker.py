@@ -11,8 +11,10 @@
 # under different FBGEMM_TBE_MAX_NUM_THREADS / FBGEMM_TBE_MIN_TABLES_PER_THREAD env values (read once,
 # at the first kernel call, hence a separate process per setting) and checks the
 # outputs are bitwise identical -- i.e. table-threading does not change the result.
+import json
 import os
 import sys
+from typing import Callable
 
 import torch
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
@@ -21,6 +23,19 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
+from torch.autograd.profiler_util import FunctionEvent
+
+
+def _fill_random_weights(cc: IntNBitTableBatchedEmbeddingBagsCodegen) -> None:
+    """fill_random_weights() only fills the quantized row bytes; the per-row
+    fp16 scale/bias stay zero, which makes every forward output zero and every
+    bitwise comparison vacuous. Give them small deterministic non-zero values."""
+    cc.fill_random_weights()
+    for _, scale_bias in cc.split_embedding_weights():
+        if scale_bias is not None:
+            scale_bias.view(torch.float16).copy_(
+                (torch.rand(scale_bias.shape[0], 2) * 0.01 + 0.001).half()
+            )
 
 
 def _pooled() -> torch.Tensor:
@@ -38,7 +53,7 @@ def _pooled() -> torch.Tensor:
         device="cpu",
         output_dtype=SparseType.FP16,
     )
-    cc.fill_random_weights()
+    _fill_random_weights(cc)
 
     # Deterministic indices/offsets (no RNG): T*B bags, each pooling L indices.
     indices = (torch.arange(T * B * L) % E).to(torch.int32)
@@ -77,7 +92,7 @@ def _nobag_skewed(
         # int4 NOBAG output is only well-defined at row_alignment=1
         row_alignment=1,
     )
-    cc.fill_random_weights()
+    _fill_random_weights(cc)
 
     # Deterministic indices (no RNG); a stride coprime with E scatters them.
     idx_parts, all_lengths = [], []
@@ -107,8 +122,95 @@ def _serializable(t: torch.Tensor) -> torch.Tensor:
     return t
 
 
+def _pooled_bags(
+    pooling_mode: PoolingMode = PoolingMode.SUM,
+    weighted: bool = False,
+    T: int = 4,
+    B: int = 1023,
+    pad_total_D: int = 0,
+    output_dtype: SparseType = SparseType.FP16,
+    index_dtype: torch.dtype = torch.int32,
+) -> tuple[torch.Tensor, dict[str, bool]]:
+    # Few tables, many bags: table-level parallelism alone tops out at T=4
+    # threads here, so anything beyond that comes from the bag-chunked
+    # scheduler. _pooled() cannot cover this -- at B=8 the chunk grain exceeds
+    # the batch, every table stays one work item and bag splitting never runs.
+    #
+    # B=1023: every table's last chunk is ragged (1/3/7 bags at 2/4/8 threads).
+    #
+    # Bag lengths are deliberately NON-UNIFORM and include empty bags. With a
+    # constant L a wrong per-chunk index_size can still land on the right
+    # answer, because offsets[n_bags] - offsets[0] and n_bags * L agree; varying
+    # them makes the offset rebasing load bearing. Empty bags must still come
+    # out as zeros: the kernel writes them, with no pre-zero.
+    #
+    # `weighted` passes per-sample weights, which each chunk reads from its own
+    # rebased offset. B=1 with many tables is the read-only shape that must stay
+    # serial when bag parallelism is on.
+    #
+    # `pad_total_D` widens total_D past D_offsets[T]; only the up-front fill
+    # zeroes those columns. Also returns which paths ran (see _profile_paths).
+    E, D = 1000, 16
+
+    torch.manual_seed(0)
+    cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+        embedding_specs=[("", E, D, SparseType.INT8, EmbeddingLocation.HOST)] * T,
+        pooling_mode=pooling_mode,
+        device="cpu",
+        output_dtype=output_dtype,
+    )
+    _fill_random_weights(cc)
+    cc.total_D += pad_total_D
+
+    lengths = (torch.arange(T * B) % 9).to(index_dtype)
+    offsets = torch.cat(
+        [torch.zeros(1, dtype=index_dtype), lengths.cumsum(0).to(index_dtype)]
+    )
+    indices = (torch.arange(int(offsets[-1].item())) * 7 % E).to(index_dtype)
+    per_sample_weights = (
+        torch.rand(indices.numel(), dtype=torch.float32) if weighted else None
+    )
+    return _profile_paths(lambda: cc(indices, offsets, per_sample_weights))
+
+
+def _profile_paths(
+    forward: Callable[[], torch.Tensor],
+) -> tuple[torch.Tensor, dict[str, bool]]:
+    """Run `forward` under the profiler; report whether the lookup op ran the
+    up-front aten::fill_ and whether it took the flattened path."""
+    with torch.profiler.profile(
+        activities=[torch.profiler.ProfilerActivity.CPU]
+    ) as prof:
+        out = forward()
+
+    def inside_lookup(e: FunctionEvent) -> bool:
+        p = e.cpu_parent
+        while p is not None:
+            if "int_nbit_split_embedding" in p.name:
+                return True
+            p = p.cpu_parent
+        return False
+
+    events = prof.events()
+    return out, {
+        "fill": any(e.name == "aten::fill_" and inside_lookup(e) for e in events),
+        "flattened": any(e.name == "fbgemm::tbe_cpu_flattened_bags" for e in events),
+    }
+
+
 _MODES = {
     "pooled": _pooled,
+    "pooled_bags": _pooled_bags,
+    # MEAN divides each bag by its own length, so this is the arm that catches a
+    # chunk being handed the wrong bag count rather than the wrong bag offset.
+    "pooled_bags_mean": lambda: _pooled_bags(PoolingMode.MEAN),
+    "pooled_bags_weighted": lambda: _pooled_bags(weighted=True),
+    "pooled_b1": lambda: _pooled_bags(T=64, B=1),
+    "pooled_bags_padded_total_d": lambda: _pooled_bags(pad_total_D=16),
+    # int64 indices/offsets hit the other generated kernel instantiation.
+    "pooled_bags_int64": lambda: _pooled_bags(index_dtype=torch.int64),
+    # 4-byte output_t through the flattened path.
+    "pooled_bags_fp32": lambda: _pooled_bags(output_dtype=SparseType.FP32),
     "nobag_skewed": lambda: _nobag_skewed(SparseType.INT4, torch.int32),
     # Floating output consumes the synthesised unit-stride chunk offsets, so it
     # exercises the offset/index/output rebasing that the INT4 fast path skips.
@@ -134,12 +236,51 @@ def _check_row_parallelism_gate() -> None:
         )
 
 
+def _compare(ref_path: str, other_paths: list[str]) -> None:
+    """Compare saved outputs by VALUE. Needed because torch.save is not
+    byte-reproducible -- two identical serial runs of this worker produce
+    different file bytes and even different file sizes -- so diffing or hashing
+    the .pt files says nothing about whether the tensors agree."""
+    ref = torch.load(ref_path)
+    f = ref.to(torch.float32)
+    print(
+        f"REF {ref_path}: shape={tuple(ref.shape)} dtype={ref.dtype} "
+        f"nonzero={int((ref != 0).sum())}/{ref.numel()} "
+        f"min={float(f.min()):.6g} max={float(f.max()):.6g} sum={float(f.sum()):.6g}"
+    )
+    mismatches = 0
+    for path in other_paths:
+        out = torch.load(path)
+        if out.shape != ref.shape:
+            print(f"MISMATCH {path}: shape {tuple(out.shape)} vs {tuple(ref.shape)}")
+            mismatches += 1
+        elif not torch.equal(out, ref):
+            delta = (out.to(torch.float32) - ref.to(torch.float32)).abs()
+            print(
+                f"MISMATCH {path}: ndiff={int((out != ref).sum())} "
+                f"of {out.numel()} maxabs={float(delta.max()):.6g}"
+            )
+            mismatches += 1
+        else:
+            print(f"OK {path}: bitwise identical")
+    if mismatches:
+        raise SystemExit(f"{mismatches} mismatch(es) against {ref_path}")
+
+
 def main() -> None:
     out_path = sys.argv[1]
     mode = sys.argv[2] if len(sys.argv) > 2 else "pooled"
+    if mode == "compare":
+        _compare(out_path, sys.argv[3:])
+        return
     _check_row_parallelism_gate()
-    out = _MODES[mode]()
+    result = _MODES[mode]()
+    out, paths = result if isinstance(result, tuple) else (result, None)
     torch.save(_serializable(out), out_path)
+    if paths is not None:
+        # Read by the driver's path assertions.
+        with open(out_path + ".paths", "w") as f:
+            json.dump(paths, f)
 
 
 if __name__ == "__main__":

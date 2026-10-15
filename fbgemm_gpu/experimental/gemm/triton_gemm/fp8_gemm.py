@@ -1494,11 +1494,11 @@ def matmul_fp8_row(
         if a_scale is None:
             scale = b_scale[None, :]
         else:
-            scale = a_scale[:, None] * b_scale[None, :]
+            scale = a_scale.reshape(-1, 1) * b_scale[None, :]
         output = torch.matmul(a.to(torch.bfloat16), b.to(torch.bfloat16).T) * scale
         if bias is not None:
             output += bias[None, :]
-        return output.to(c.dtype)
+        return output.to(c.dtype).view(output_shape)
 
     def grid(META: dict[str, int]) -> tuple[int, int]:
         return (

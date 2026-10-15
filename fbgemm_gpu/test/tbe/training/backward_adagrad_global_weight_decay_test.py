@@ -35,7 +35,6 @@ from .backward_adagrad_common import (  # noqa
     OptimType,
     PoolingMode,
     PoolingMode,
-    skipIfRocm,
     SparseType,
     SplitTableBatchedEmbeddingBagsCodegen,
     st,
