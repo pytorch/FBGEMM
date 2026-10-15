@@ -498,8 +498,18 @@ gen_gpu_files_training = (
         for fstring in [
             "gen_embedding_backward_{}_{}_{}_cuda.cu",
             "gen_embedding_backward_{}_{}_{}_kernel_cta.cu",
-            "gen_embedding_backward_{}_{}_{}_kernel_warp.cu",
         ]
+        + (
+            # Targeted sharding: only plain descs (the slow TUs). See
+            # generate_backward_split.py; keep the gate in sync.
+            [
+                "gen_embedding_backward_{}_{}_{}_kernel_warp_grad_float.cu",
+                "gen_embedding_backward_{}_{}_{}_kernel_warp_grad_half.cu",
+                "gen_embedding_backward_{}_{}_{}_kernel_warp_grad_bf16.cu",
+            ]
+            if wdesc in ["weighted", "unweighted"]
+            else ["gen_embedding_backward_{}_{}_{}_kernel_warp.cu"]
+        )
     ]
 )
 
