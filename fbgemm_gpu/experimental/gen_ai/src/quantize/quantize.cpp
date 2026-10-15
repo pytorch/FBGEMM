@@ -14,12 +14,7 @@
 #include <torch/library.h>
 #include "c10/core/ScalarType.h"
 #include "c10/util/Exception.h"
-
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-#define torch_fp8_e4m3 at::kFloat8_e4m3fnuz
-#else
-#define torch_fp8_e4m3 at::kFloat8_e4m3fn
-#endif
+#include "fbgemm_gpu/embedding_common.h"
 
 namespace fbgemm_gpu {
 
@@ -507,19 +502,35 @@ at::Tensor f8f8bf16_blockwise_meta(
 
 std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
     at::Tensor input,
-    std::optional<at::Tensor> /* bs */,
-    std::optional<at::Tensor> /*scale_ub*/,
-    const bool /*stochastic_rounding*/) {
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> scale_ub,
+    const bool stochastic_rounding) {
   int dims = input.dim();
   TORCH_CHECK(dims == 2 || dims == 3, "The dim of input should be 2 or 3");
-  at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
-  at::Tensor scale;
-  if (dims <= 2) {
-    scale = at::empty_symint({}, input.options().dtype(at::kFloat));
-  } else {
-    const at::SymInt B = input.sym_size(0);
-    scale = at::empty_symint({B}, input.options().dtype(at::kFloat));
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  TORCH_CHECK(
+      input.scalar_type() == at::kBFloat16 || input.scalar_type() == at::kFloat,
+      "Invalid datatype. input must be BF16 or FP32");
+  TORCH_CHECK(
+      !stochastic_rounding || input.sym_size(-1) % 4 == 0,
+      "input row dimension must be a multiple of 4 when stochastic_rounding is true");
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
   }
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
+  at::Tensor Y = at::empty_like(
+      input, input.options().dtype(getNFP8ScalarType(input.get_device())));
+  at::Tensor scale = at::empty_symint({}, input.options().dtype(at::kFloat));
   return {Y, scale};
 }
 
@@ -756,13 +767,46 @@ at::Tensor bf16i4bf16_rowwise_batched_meta(
 
 std::vector<at::Tensor> quantize_fp8_per_row_meta(
     at::Tensor input,
-    std::optional<at::Tensor> /* bs */,
-    std::optional<at::Tensor> /* scale_ub */,
-    std::optional<c10::ScalarType> /* output_dtype */,
-    bool /* stochastic_rounding */) {
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> scale_ub,
+    std::optional<c10::ScalarType> output_dtype,
+    bool stochastic_rounding) {
   int dims = input.dim();
   TORCH_CHECK(dims == 2 || dims == 3, "The dim of input should be 2 or 3");
-  at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  TORCH_CHECK(
+      input.scalar_type() == at::kBFloat16 ||
+          input.scalar_type() == at::kFloat || input.scalar_type() == at::kHalf,
+      "input must be BF16, FP16 or FP32");
+  TORCH_CHECK(
+      !stochastic_rounding || input.sym_size(-1) % 4 == 0,
+      "input row dim must be a multiple of 4 when stochastic_rounding is True");
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
+  }
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
+  const auto native_e4m3_type = getNFP8ScalarType(input.get_device());
+  const auto native_e5m2_type = native_e4m3_type == at::kFloat8_e4m3fn
+      ? at::kFloat8_e5m2
+      : at::kFloat8_e5m2fnuz;
+  const auto qtype = output_dtype.value_or(native_e4m3_type);
+  TORCH_CHECK(
+      qtype == native_e4m3_type || qtype == native_e5m2_type,
+      "output must be e4m3 or e5m2");
+  TORCH_CHECK(
+      !stochastic_rounding || qtype == native_e4m3_type,
+      "Stochastic rounding is only supported for FP8 E4M3 output");
+  at::Tensor Y = at::empty_like(input, input.options().dtype(qtype));
   at::Tensor scale;
   if (dims == 2) {
     const at::SymInt M = input.sym_size(0);
@@ -770,7 +814,7 @@ std::vector<at::Tensor> quantize_fp8_per_row_meta(
   } else {
     const at::SymInt B = input.sym_size(0);
     const at::SymInt M = input.sym_size(1);
-    scale = at::empty_symint({B, M}, input.options().dtype(at::kFloat));
+    scale = at::empty_symint({B * M}, input.options().dtype(at::kFloat));
   }
   return {Y, scale};
 }
@@ -785,19 +829,38 @@ void scaled_fp4_quant_meta(
 
 std::vector<at::Tensor> quantize_fp8_per_col_meta(
     at::Tensor input,
-    std::optional<at::Tensor> /* bs */,
-    std::optional<at::Tensor> /* scale_ub */) {
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> scale_ub) {
   int dims = input.dim();
   TORCH_CHECK(dims == 2 || dims == 3, "The dim of input should be 2 or 3");
-  at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  TORCH_CHECK(
+      input.scalar_type() == at::kBFloat16,
+      "Invalid datatype. input must be BF16");
+  if (bs.has_value()) {
+    TORCH_CHECK(bs->scalar_type() == at::kLong, "bs must be int64");
+    TORCH_CHECK(bs->numel() == 1, "bs must contain one element");
+    TORCH_CHECK(
+        bs->device() == input.device(), "bs must be on the input device");
+  }
+  if (scale_ub.has_value()) {
+    TORCH_CHECK(
+        scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
+    TORCH_CHECK(scale_ub->numel() == 1, "scale_ub must contain one element");
+    TORCH_CHECK(
+        scale_ub->device() == input.device(),
+        "scale_ub must be on the input device");
+  }
+  at::Tensor Y = at::empty_like(
+      input, input.options().dtype(getNFP8ScalarType(input.get_device())));
   at::Tensor scale;
   if (dims == 2) {
-    const at::SymInt M = input.sym_size(0);
-    scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+    const at::SymInt N = input.sym_size(1);
+    scale = at::empty_symint({N}, input.options().dtype(at::kFloat));
   } else {
-    const at::SymInt B = input.sym_size(0);
     const at::SymInt M = input.sym_size(1);
-    scale = at::empty_symint({B, M}, input.options().dtype(at::kFloat));
+    const at::SymInt N = input.sym_size(2);
+    scale = at::empty_symint({M, N}, input.options().dtype(at::kFloat));
   }
   return {Y, scale};
 }
