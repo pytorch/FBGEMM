@@ -1876,13 +1876,13 @@ def matmul_fp8_row_meta(
     imprecise_acc: bool = False,
     tma_persistent: bool = True,
     no_use_persistent: bool | None = None,
+    use_persistent: bool | None = None,
     use_warp_specialization: bool = False,
 ) -> torch.Tensor:
     """Shape function for torch compile."""
-    M, K = a.shape
-    N, K = b.shape
+    N, _ = b.shape
     return torch.empty(
-        (M, N),
+        (*a.shape[:-1], N),
         device=a.device,
         dtype=torch.bfloat16 if dot_out_dtype is None else dot_out_dtype,
     )
@@ -2419,10 +2419,9 @@ def matmul_fp8_block_meta(
     fp8_fast_accum: bool = True,
 ) -> torch.Tensor:
     """Shape function for torch compile."""
-    M, K = a.shape
-    N, K = b.shape
+    N, _ = b.shape
     return torch.empty(
-        (M, N),
+        (*a.shape[:-1], N),
         device=a.device,
         dtype=torch.bfloat16 if dot_out_dtype is None else dot_out_dtype,
     )
