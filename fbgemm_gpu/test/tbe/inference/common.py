@@ -89,6 +89,7 @@ class NBitFowardTestCommon(unittest.TestCase):
         indices_dtype: torch.dtype,
         output_dtype: SparseType,
         row_alignment: int | None = None,
+        force_device_only: bool = False,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
@@ -163,6 +164,8 @@ class NBitFowardTestCommon(unittest.TestCase):
 
         if use_cpu:
             managed = [EmbeddingLocation.HOST] * T
+        elif force_device_only:
+            managed = [EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 EmbeddingLocation.MANAGED_CACHING,

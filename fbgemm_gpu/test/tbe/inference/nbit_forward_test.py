@@ -1915,5 +1915,86 @@ class NBitFowardTest(NBitFowardTestCommon):
         )
 
 
+class NBitLongLNobagTest(NBitFowardTestCommon):
+    # Runs on every GPU: gfx942 dispatches these shapes to the long-L D64
+    # specialization, and every other GPU must produce the same result through
+    # the generic kernels.
+    @unittest.skipIf(*gpu_unavailable)
+    def test_int4_d64_long_l_gfx942_trailing_indices(self) -> None:
+        """Indices past the final offset leave the bagged rows unchanged.
+
+        ``WARNING_ALLOW_TRAILING_INDICES`` lets ``indices`` run past
+        ``offsets[-1]``. One table with one bag of 512 rows plus a trailing
+        index still takes the gfx942 long-L path, which must stop at the final
+        offset instead of mapping the trailing index to a bag past the last
+        table. The trailing row belongs to no bag, so it is not compared.
+
+        Reading past the last table is otherwise silent, so the per-table
+        tensors are backed by storage whose next entry is an INT4 table at a
+        far out-of-range offset: a kernel that reads it faults the GPU.
+        """
+        device = torch.cuda.current_device()
+        E, D, L, T = 1000, 64, 512, 1
+
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[("", E, D, SparseType.INT4, EmbeddingLocation.DEVICE)],
+            pooling_mode=PoolingMode.NONE,
+            output_dtype=SparseType.FP16,
+            bounds_check_mode=BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
+            device=device,
+            indices_dtype=torch.int32,
+        )
+        op.fill_random_weights()
+
+        # Random bytes can decode to NaN scales; quantize finite rows instead.
+        quant_weights, quant_scale_shift = quantize_embs(
+            torch.rand(E, D) * 2 - 1, SparseType.INT4
+        )
+        weights, scale_shift = op.split_embedding_weights()[0]
+        weights.copy_(quant_weights)
+        if quant_scale_shift is not None:
+            self.assertIsNotNone(scale_shift)
+            scale_shift.copy_(quant_scale_shift)
+
+        int4_ty = torch.tensor(
+            [SparseType.INT4.as_int()], dtype=torch.uint8, device=device
+        )
+        out_of_range_offset = torch.tensor([1 << 44], dtype=torch.int64, device=device)
+        op.weights_tys = torch.cat([op.weights_tys, int4_ty])[:T]
+        op.weights_offsets = torch.cat([op.weights_offsets, out_of_range_offset])[:T]
+
+        indices = torch.randint(0, E, (L + 1,), dtype=torch.int, device=device)
+        offsets = torch.tensor([0, L], dtype=torch.int, device=device)
+
+        output = op(indices=indices, offsets=offsets)
+        expected = op(indices=indices[:L], offsets=offsets)
+
+        self.assertEqual(output.shape, (L + 1, D))
+        torch.testing.assert_close(output[:L], expected, rtol=0, atol=0)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_int4_d64_long_l_gfx942(self) -> None:
+        self.execute_nbit_forward_(
+            T=30,
+            D=64,
+            B=17,
+            log_E=3,
+            L=512,
+            weighted=False,
+            mixed=False,
+            pooling_mode=PoolingMode.NONE,
+            weights_ty=SparseType.INT4,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            use_cpu=False,
+            use_array_for_index_remapping=True,
+            do_pruning=False,
+            mixed_weights_ty=False,
+            indices_dtype=torch.int32,
+            output_dtype=SparseType.FP16,
+            force_device_only=True,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
