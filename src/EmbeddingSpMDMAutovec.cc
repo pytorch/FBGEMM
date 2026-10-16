@@ -873,7 +873,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
 ///
 /// Autovectorized version of method `EmbeddingSpMDM_ref` for FP32 weight type.
 ///
-/// @tparam InType HFP8 input type
+/// @tparam InType input data type (`uint8_t` is used)
 /// @tparam IndexType index data type (`int64_t` is used)
 /// @tparam OffsetType offset data type (`int32_t` is used)
 /// @tparam OutType output data type (`float` is used)
@@ -1261,7 +1261,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 ///
 /// Autovectorized version of method `EmbeddingSpMDM_ref` for FP8 weight type.
 ///
-/// @tparam InType HFP8 input type
 /// @tparam IndexType index data type (`int64_t` is used)
 /// @tparam OffsetType offset data type (`int32_t` is used)
 /// @tparam OutType output data type (`float` is used)
@@ -1284,16 +1283,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 /// @param output_stride If -1, output_stride is same as block_size; set to -1
 /// for FP8 autovec implementation (`int64_t`)
 template <
-    FbgemmFP8EmbeddingType InType,
     typename IndexType,
     typename OffsetType,
-    typename OutType>
+    typename OutType,
+    typename Decode>
 static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
     const int64_t data_size,
-    const InType* input,
+    const uint8_t* input,
     const IndexType* indices,
     const OffsetType* offsets_or_lengths,
     const float* weights,
@@ -1302,7 +1301,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const bool is_weight_positional,
     const bool use_offsets,
     const int64_t output_stride,
-    const int64_t input_stride) {
+    const int64_t input_stride,
+    Decode decode) {
   if (data_size < 0) {
     return false;
   }
@@ -1335,7 +1335,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
   // greater or not greater than cache line size will make the branch predictor
   // work better. Same for line 113-126.
   for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    [[maybe_unused]] const InType* prefetch_addr =
+    [[maybe_unused]] const uint8_t* prefetch_addr =
         input + input_stride * indices[pf_idx];
     for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
       do_prefetch(prefetch_addr + offset, 0, 0);
@@ -1394,9 +1394,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
       if (weights != nullptr) {
         w = *weights_addr++;
       }
-      const InType* input_row = input + input_stride * idx;
+      const uint8_t* input_row = input + input_stride * idx;
       for (int64_t j = 0; j < block_size; ++j) {
-        buf[j] = std::fma(w, to_float(input_row[j]), buf[j]);
+        buf[j] = std::fma(w, decode(input_row[j]), buf[j]);
       }
     }
     if (normalize_by_lengths && len) {
@@ -2052,42 +2052,57 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
   abort(); // should not get here
 }
 
-template <
-    FbgemmFP8EmbeddingType InType,
-    typename IndexType,
-    typename OffsetType,
-    typename OutType>
+template <typename IndexType, typename OffsetType, typename OutType>
 typename EmbeddingSpMDMKernelSignature<
-    InType,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+    uint8_t, IndexType, OffsetType, OutType>::Type
 GenerateEmbeddingSpMDMFP8WithStrides_autovec(
     int64_t block_size,
     bool normalize_by_lengths,
     bool is_weight_positional,
     bool use_offsets,
     int64_t output_stride,
-    int64_t input_stride) {
+    int64_t input_stride,
+    int exponent_bits,
+    int exponent_bias) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
   if (input_stride == -1) {
     input_stride = block_size;
   }
-  return [=](int64_t output_size,
-             int64_t index_size,
-             int64_t data_size,
-             const InType* input,
-             const IndexType* indices,
-             const OffsetType* offsets_or_lengths,
-             const float* weights,
-             OutType* out) {
-    return EmbeddingSpMDMFP8_autovec(
-        block_size, output_size, index_size, data_size, input, indices,
-        offsets_or_lengths, weights, normalize_by_lengths, out,
-        is_weight_positional, use_offsets, output_stride, input_stride);
+  auto make_kernel = [&](auto decode) {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const uint8_t* input,
+               const IndexType* indices,
+               const OffsetType* offsets_or_lengths,
+               const float* weights,
+               OutType* out) {
+      return EmbeddingSpMDMFP8_autovec(
+          block_size, output_size, index_size, data_size, input, indices,
+          offsets_or_lengths, weights, normalize_by_lengths, out,
+          is_weight_positional, use_offsets, output_stride, input_stride, decode);
+    };
   };
+  auto make_typed_kernel = [&]<FbgemmFP8Type InType>() {
+    return make_kernel([](uint8_t input) { return to_float(InType{input}); });
+  };
+  if (exponent_bits == 4 && exponent_bias == 7) {
+    return make_typed_kernel.template operator()<hfp8_e4m3>();
+  }
+  if (exponent_bits == 5 && exponent_bias == 7) {
+    return make_typed_kernel.template operator()<hfp8<5, 7>>();
+  }
+  if (exponent_bits == 5 && exponent_bias == 15) {
+    return make_typed_kernel.template operator()<hfp8_e5m2>();
+  }
+  const int mantissa_bits = 7 - exponent_bits;
+  const float multiplier =
+      std::bit_cast<float>(uint32_t(254 - exponent_bias) << 23);
+  return make_kernel([=](uint8_t input) {
+    return detail::hfp8_to_float(input, mantissa_bits, multiplier);
+  });
 }
 
 template <typename InType, typename IndexType, typename OffsetType>
@@ -2154,16 +2169,24 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
       bool no_bag,                                                             \
       int output_bit_rate);
 
-#define INSTANTIATE_SPMDM_FP8_TYPE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template typename EmbeddingSpMDMKernelSignature<                             \
-      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>::Type                        \
-  GenerateEmbeddingSpMDMFP8WithStrides_autovec<                                \
-      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>(                             \
-      int64_t, bool, bool, bool, int64_t, int64_t);
-
 #define INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  INSTANTIATE_SPMDM_FP8_TYPE(hfp8_e4m3, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  INSTANTIATE_SPMDM_FP8_TYPE(hfp8_e5m2, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
+  template typename EmbeddingSpMDMKernelSignature<               \
+      uint8_t,                                                   \
+      INDEX_TYPE,                                                \
+      OFFSET_TYPE,                                               \
+      OUT_TYPE>::Type                                            \
+  GenerateEmbeddingSpMDMFP8WithStrides_autovec<                  \
+      INDEX_TYPE,                                                \
+      OFFSET_TYPE,                                               \
+      OUT_TYPE>(                                                 \
+      int64_t block_size,                                        \
+      bool normalize_by_lengths,                                 \
+      bool is_weight_positional,                                 \
+      bool use_offsets,                                          \
+      int64_t output_stride,                                     \
+      int64_t input_stride,                                      \
+      int exponent_bits,                                         \
+      int exponent_bias);
 
 #define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)        \
   INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \

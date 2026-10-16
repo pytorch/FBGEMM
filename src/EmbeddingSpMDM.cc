@@ -1383,12 +1383,9 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   return generate_kernel.template operator()<inType, outType>();
 }
 
-template <
-    FbgemmFP8EmbeddingType inType,
-    typename indxType,
-    typename offsetType,
-    typename outType>
-typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
+template <typename indxType, typename offsetType, typename outType>
+  requires(!FbgemmFP8Type<indxType>)
+typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDMFP8WithStrides(
         const int64_t block_size,
@@ -1396,7 +1393,9 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool is_weight_positional,
         bool use_offsets,
         int64_t output_stride /*=-1*/,
-        int64_t input_stride /*=-1*/) {
+        int64_t input_stride /*=-1*/,
+        int exponent_bits,
+        int exponent_bias) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1411,7 +1410,6 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   if ((is_autovec_forced() || fbgemmHasArmSve2Support()) &&
       !is_autovec_disabled()) {
     return GenerateEmbeddingSpMDMFP8WithStrides_autovec<
-        /*InType=*/inType,
         /*IndexType=*/indxType,
         /*OffsetType=*/offsetType,
         /*OutType=*/outType>(
@@ -1420,14 +1418,16 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         /*is_weight_positional=*/is_weight_positional,
         /*use_offsets=*/use_offsets,
         /*output_stride=*/output_stride,
-        /*input_stride=*/input_stride);
+        /*input_stride=*/input_stride,
+        /*exponent_bits=*/exponent_bits,
+        /*exponent_bias=*/exponent_bias);
   }
 #endif
 
   return [=](int64_t output_size,
              int64_t index_size,
              int64_t data_size,
-             const inType* input,
+             const uint8_t* input,
              const indxType* indices,
              const offsetType* offsets_or_lengths,
              const float* weights,
@@ -1437,7 +1437,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         output_size,
         index_size,
         data_size,
-        reinterpret_cast<const uint8_t*>(input),
+        input,
         indices,
         offsets_or_lengths,
         weights,
@@ -1447,8 +1447,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         use_offsets,
         output_stride,
         input_stride,
-        inType::exponent_bits,
-        inType::exponent_bias);
+        exponent_bits,
+        exponent_bias);
   };
 }
 
@@ -1632,16 +1632,21 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       bool scale_bias_last,                                   \
       bool no_bag);
 
-#define INSTANTIATE_SPMDMFP8_TYPE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)  \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<                  \
-      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>::Type                        \
-  GenerateEmbeddingSpMDMFP8WithStrides<                                        \
-      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>(                             \
-      int64_t, bool, bool, bool, int64_t, int64_t);
-
-#define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  INSTANTIATE_SPMDMFP8_TYPE(hfp8_e4m3, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  INSTANTIATE_SPMDMFP8_TYPE(hfp8_e5m2, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
+#define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)       \
+  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<              \
+      uint8_t,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE,                                                         \
+      OUT_TYPE>::Type                                                      \
+  GenerateEmbeddingSpMDMFP8WithStrides<INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>( \
+      const int64_t block_size,                                            \
+      bool normalize_by_lengths,                                           \
+      bool is_weight_positional,                                           \
+      bool use_offsets,                                                    \
+      int64_t output_stride,                                               \
+      int64_t input_stride,                                                \
+      int exponent_bits,                                                   \
+      int exponent_bias);
 
 #define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
@@ -1735,7 +1740,6 @@ INSTANTIATE_SPMDMFP8_OUT_T(int64_t, int64_t)
 #undef INSTANTIATE_SPMDM_BASE_THREAD_LOCAL
 #undef INSTANTIATE_SPMDM_NON_BASE_THREAD_LOCAL
 #undef INSTANTIATE_SPMDM_BASE
-#undef INSTANTIATE_SPMDMFP8_TYPE
 #undef INSTANTIATE_SPMDMFP8_BASE
 #undef INSTANTIATE_SPMDM_NOSTRIDE_BASE
 #undef INSTANTIATE_SPMDM_ROWWISE_BASE

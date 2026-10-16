@@ -337,14 +337,20 @@ inline T from_float(float f) {
   }
 }
 
-template <FbgemmFP8Type T>
-constexpr float to_float(T src) {
-  const uint32_t sign = uint32_t(src.val & 0x80) << 24;
-  const uint32_t bits = uint32_t(src.val & 0x7f) << (23 - T::mantissa_bits);
-  constexpr float multiplier =
-      std::bit_cast<float>(uint32_t(254 - T::exponent_bias) << 23);
+namespace detail {
+constexpr float hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
+  const uint32_t sign = uint32_t(src & 0x80) << 24;
+  const uint32_t bits = uint32_t(src & 0x7f) << (23 - mantissa_bits);
   const float value = std::bit_cast<float>(bits) * multiplier;
   return std::bit_cast<float>(std::bit_cast<uint32_t>(value) | sign);
+}
+} // namespace detail
+
+template <FbgemmFP8Type T>
+constexpr float to_float(T src) {
+  constexpr float multiplier =
+      std::bit_cast<float>(uint32_t(254 - T::exponent_bias) << 23);
+  return detail::hfp8_to_float(src.val, T::mantissa_bits, multiplier);
 }
 
 // Saturate before nearest-even rounding; NaN/Inf map to signed maximum.

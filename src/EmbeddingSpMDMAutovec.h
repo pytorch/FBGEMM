@@ -57,13 +57,9 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     bool no_bag,
     int output_bit_rate);
 
-template <
-    FbgemmFP8EmbeddingType InType,
-    typename IndexType,
-    typename OffsetType,
-    typename OutType>
+template <typename IndexType, typename OffsetType, typename OutType>
 typename EmbeddingSpMDMKernelSignature<
-    InType,
+    uint8_t,
     IndexType,
     OffsetType,
     OutType>::Type
@@ -73,7 +69,9 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
     bool is_weight_positional,
     bool use_offsets,
     int64_t output_stride,
-    int64_t input_stride);
+    int64_t input_stride,
+    int exponent_bits,
+    int exponent_bias);
 
 template <typename InType, typename IndexType, typename OffsetType>
 typename EmbeddingSpMDMRowWiseSparseKernelSignature<
