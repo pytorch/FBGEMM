@@ -194,7 +194,7 @@ void set_static_kernel_args(
   // by doing host setup and a memcpy. This is only viable if cuda
   // graphs arent being used.
   int64_t output_offset = 0;
-  if (group_count >= 16 && stream == 0) {
+  if (group_count >= 16 && stream == nullptr) {
     std::vector<KernelArguments> ggemm_kargs;
     ggemm_kargs.reserve(group_count);
 
