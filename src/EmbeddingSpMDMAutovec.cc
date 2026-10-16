@@ -1274,15 +1274,14 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 /// @param offsets_or_lengths Address of offset (`OffsetType*`)
 /// @param weights Weights of sum; optional, can be null for non-weighted sum
 /// (`float*`)
-/// @param normalize_by_lengths Whether or not to normalize by lengths (`bool`)
 /// @param out Address of output (`OutType*`)
 /// @param is_weight_positional If `true`, weight is positional; set to `false`
 /// for FP8 autovec implementation (`bool`)
-/// @param use_offsets If `true`, will use offsets instead of lengths; set to
-/// `true` for FP8 autovec implementation (`bool`)
 /// @param output_stride If -1, output_stride is same as block_size; set to -1
 /// for FP8 autovec implementation (`int64_t`)
 template <
+    bool UseOffsets,
+    bool NormalizeByLengths,
     typename IndexType,
     typename OffsetType,
     typename OutType,
@@ -1296,10 +1295,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const IndexType* indices,
     const OffsetType* offsets_or_lengths,
     const float* weights,
-    bool normalize_by_lengths,
     OutType* out,
     const bool is_weight_positional,
-    const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
     Decode decode) {
@@ -1348,8 +1345,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
 
   for (int m = 0; m < output_size; ++m) {
     fillZero(buf, block_size);
-    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
-                          : offsets_or_lengths[m];
+    int len;
+    if constexpr (UseOffsets) {
+      len = offsets_or_lengths[m + 1] - offsets_or_lengths[m];
+    } else {
+      len = offsets_or_lengths[m];
+    }
     int64_t end = current + len;
     if (end > index_size) {
       return false;
@@ -1399,10 +1400,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
         buf[j] = std::fma(w, decode(input_row[j]), buf[j]);
       }
     }
-    if (normalize_by_lengths && len) {
-      float scale = 1.f / len;
-      for (int j = 0; j < block_size; ++j) {
-        buf[j] *= scale;
+    if constexpr (NormalizeByLengths) {
+      if (len) {
+        const float scale = 1.f / len;
+        for (int j = 0; j < block_size; ++j) {
+          buf[j] *= scale;
+        }
       }
     }
 
@@ -2070,20 +2073,32 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
   if (input_stride == -1) {
     input_stride = block_size;
   }
-  auto make_kernel = [&](auto decode) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const IndexType* indices,
-               const OffsetType* offsets_or_lengths,
-               const float* weights,
-               OutType* out) {
-      return EmbeddingSpMDMFP8_autovec(
-          block_size, output_size, index_size, data_size, input, indices,
-          offsets_or_lengths, weights, normalize_by_lengths, out,
-          is_weight_positional, use_offsets, output_stride, input_stride, decode);
+  using Kernel = typename EmbeddingSpMDMKernelSignature<
+      uint8_t, IndexType, OffsetType, OutType>::Type;
+  auto make_kernel = [&](auto decode) -> Kernel {
+    auto specialize = [&]<bool UseOffsets, bool NormalizeByLengths>() -> Kernel {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const uint8_t* input,
+                 const IndexType* indices,
+                 const OffsetType* offsets_or_lengths,
+                 const float* weights,
+                 OutType* out) {
+        return EmbeddingSpMDMFP8_autovec<UseOffsets, NormalizeByLengths>(
+            block_size, output_size, index_size, data_size, input, indices,
+            offsets_or_lengths, weights, out, is_weight_positional,
+            output_stride, input_stride, decode);
+      };
     };
+    if (use_offsets) {
+      return normalize_by_lengths
+          ? specialize.template operator()<true, true>()
+          : specialize.template operator()<true, false>();
+    }
+    return normalize_by_lengths
+        ? specialize.template operator()<false, true>()
+        : specialize.template operator()<false, false>();
   };
   auto make_typed_kernel = [&]<FbgemmFP8Type InType>() {
     return make_kernel([](uint8_t input) { return to_float(InType{input}); });
