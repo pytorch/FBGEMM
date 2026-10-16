@@ -14,10 +14,33 @@
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 
+{% if is_rocm and nobag and not weighted %}
+#include <string_view>
+{% endif %}
+
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
 
 namespace nbit {
+
+{% if is_rocm and nobag and not weighted %}
+__launch_bounds__(4 * 64)
+__global__ void
+INT4_split_embedding_nobag_codegen_forward_unweighted_kernel_long_L_d64_gfx942(
+    const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits>
+        dev_weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        weights_offsets,
+    const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
+        weights_tys,
+    const int32_t B,
+    const int32_t total_L,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        offsets,
+    pta::PackedTensorAccessor32<at::Half, 2, at::RestrictPtrTraits> output);
+{% endif %}
 
 /*
   Looping over the weight types is required to generate all the C++ template
@@ -316,6 +339,60 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         constexpr auto sparse_type = SparseType::INT4;
         auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_D, sparse_type, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 16);
+        {%- if is_rocm and nobag and not weighted %}
+        if constexpr (
+            std::is_same_v<index_t, int32_t> &&
+            std::is_same_v<output_t, at::Half>) {
+          constexpr int32_t kLongLMinRowsPerBag = 512;
+          constexpr int32_t kLongLMaxBags = 1024;
+          constexpr int32_t kLongLTargetWavesPerCu = 32;
+          constexpr int32_t kLongLWarpsPerBlock = 4;
+          // Matches the kernel's launch contract: blockDim is
+          // (gfx942 wave size, kLongLWarpsPerBlock) and each row uses 8 lanes.
+          // kWarpSize cannot stand in for the wave size: this code also
+          // compiles in the device passes of wave32 targets, where it is 32.
+          constexpr int32_t kGfx942WaveSize = 64;
+          constexpr int32_t kLongLRowsPerWave = kGfx942WaveSize / 8;
+          const int64_t num_bags = static_cast<int64_t>(T) * B;
+          const auto* device_properties =
+              at::cuda::getCurrentDeviceProperties();
+          const bool is_gfx942 =
+              std::string_view(device_properties->gcnArchName)
+                      .compare(0, 6, "gfx942") == 0;
+          const bool only_int4_weights =
+              max_int2_D == 0 && max_int8_D == 0 && max_float16_D == 0 &&
+              max_float32_D == 0 && max_float8_D == 0;
+          if (is_gfx942 && device_only && !use_rocm_packed_bag_mode &&
+              only_int4_weights && D == 64 && num_bags > 0 && row_alignment == 16 &&
+              num_bags <= kLongLMaxBags &&
+              total_L >= num_bags * kLongLMinRowsPerBag) {
+            constexpr int32_t rows_per_block =
+                kLongLWarpsPerBlock * kLongLRowsPerWave;
+            const int64_t requested_blocks =
+                nbit::div_round_up(total_L, rows_per_block);
+            const int64_t resident_blocks =
+                device_properties->multiProcessorCount *
+                kLongLTargetWavesPerCu / kLongLWarpsPerBlock;
+            const int64_t blocks =
+                std::min(requested_blocks, resident_blocks);
+            FBGEMM_LAUNCH_KERNEL(
+                (nbit::INT4_split_embedding_nobag_codegen_forward_unweighted_kernel_long_L_d64_gfx942),
+                blocks,
+                dim3(kGfx942WaveSize, kLongLWarpsPerBlock),
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                PTA_B(dev_weights, uint8_t, 1, 64),
+                PTA_B(weights_offsets, int64_t, 1, 32),
+                PTA_B(weights_tys, uint8_t, 1, 32),
+                B,
+                total_L,
+                PTA_B(indices, int32_t, 1, 32),
+                PTA_B(offsets, int32_t, 1, 32),
+                PTA_B(output, at::Half, 2, 32));
+            return;
+          }
+        }
+        {%- endif %}
         if(use_rocm_packed_bag_mode) {
           if (max_int4_128b_rows > 0) {
             Y(2, 4, 0, 2);
