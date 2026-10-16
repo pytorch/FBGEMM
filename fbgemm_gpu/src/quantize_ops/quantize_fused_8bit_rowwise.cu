@@ -162,8 +162,8 @@ __global__ inline void _compute_8bit_quantize_cuda_kernel(
 // Fused 8-bit rowwise -> FP32/FP16/BF16 kernel
 template <
     typename output_t,
-    bool ScaleBiasLast,
-    typename ScaleBiasT>
+    bool scala_bias_last,
+    typename scala_bias_t>
 __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
     const std::uint8_t* const __restrict__ input,
     const int nrows,
@@ -171,7 +171,7 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
     output_t* const __restrict__ output) {
   // we only support float(from quant kernel) or fp16(from tbe storage) scale
   // bias dtype
-  const int output_columns = ncols - 2 * sizeof(ScaleBiasT);
+  const int output_columns = ncols - 2 * sizeof(scala_bias_t);
 
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
@@ -179,15 +179,15 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
   for (/*row*/; row < nrows; row += row_incre) {
     if (col < output_columns) {
       const std::uint8_t* input_row = input + row * ncols;
-      const ScaleBiasT* input_row_scale_bias = (ScaleBiasLast)
-          ? (reinterpret_cast<const ScaleBiasT*>(input_row + output_columns))
-          : (reinterpret_cast<const ScaleBiasT*>(input_row));
-      if constexpr (!ScaleBiasLast) {
-        input_row += 2 * sizeof(ScaleBiasT);
+      const scala_bias_t* input_row_scale_bias = (scala_bias_last)
+          ? (reinterpret_cast<const scala_bias_t*>(input_row + output_columns))
+          : (reinterpret_cast<const scala_bias_t*>(input_row));
+      if constexpr (!scala_bias_last) {
+        input_row += 2 * sizeof(scala_bias_t);
       }
       output_t* output_row = output + row * output_columns;
 
-      if constexpr (std::is_same_v<ScaleBiasT, float>) {
+      if constexpr (std::is_same_v<scala_bias_t, float>) {
         output_row[col] = input_row[col] * (input_row_scale_bias[0]) +
             (input_row_scale_bias[1]);
       } else {
@@ -496,10 +496,10 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
       at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  auto launch = [&]<bool ScaleBiasLast, typename ScaleBiasT>() {
+  auto launch = [&]<bool scala_bias_last, typename scala_bias_t>() {
     FBGEMM_LAUNCH_KERNEL(
         (_fused8bitrowwise_to_float_cuda_kernel<
-            output_t, ScaleBiasLast, ScaleBiasT>),
+            output_t, scala_bias_last, scala_bias_t>),
         gridDim,
         blockDim,
         0,
