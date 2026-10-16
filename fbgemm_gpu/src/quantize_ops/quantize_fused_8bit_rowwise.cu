@@ -179,10 +179,12 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
   for (/*row*/; row < nrows; row += row_incre) {
     if (col < output_columns) {
       const std::uint8_t* input_row = input + row * ncols;
-      const scala_bias_t* input_row_scale_bias = (scala_bias_last)
-          ? (reinterpret_cast<const scala_bias_t*>(input_row + output_columns))
-          : (reinterpret_cast<const scala_bias_t*>(input_row));
-      if constexpr (!scala_bias_last) {
+      const scala_bias_t* input_row_scale_bias;
+      if constexpr (scala_bias_last) {
+        input_row_scale_bias =
+            reinterpret_cast<const scala_bias_t*>(input_row + output_columns);
+      } else {
+        input_row_scale_bias = reinterpret_cast<const scala_bias_t*>(input_row);
         input_row += 2 * sizeof(scala_bias_t);
       }
       output_t* output_row = output + row * output_columns;
@@ -428,19 +430,10 @@ _single_or_half_precision_to_fused8bitrowwise_gpu(const Tensor& input) {
   return output;
 }
 
-template <typename output_t>
-Tensor _fused8bitrowwise_to_float_gpu_t(
-    const Tensor& input,
-    const bool scale_bias_last = true,
-    const bool quant_padding_float_type = true) {
-  TENSOR_ON_CUDA_GPU(input);
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-  TORCH_CHECK(
-      quant_padding_float_type == true or scale_bias_last == false,
-      "scale bias last only works with 2 byte padding")
+template <typename output_t, bool scala_bias_last, typename scala_bias_t>
+Tensor _fused8bitrowwise_to_float_gpu_typed(const Tensor& input) {
   CUDA_DEVICE_GUARD(input);
-  const int quant_padding_size =
-      (quant_padding_float_type) ? sizeof(float) : sizeof(__half);
+  constexpr int quant_padding_size = sizeof(scala_bias_t);
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
   const int nrows = c10::size_to_dim_(last_dim, input_sizes);
@@ -496,27 +489,37 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
       at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  auto launch = [&]<bool scala_bias_last, typename scala_bias_t>() {
-    FBGEMM_LAUNCH_KERNEL(
-        (_fused8bitrowwise_to_float_cuda_kernel<
-            output_t, scala_bias_last, scala_bias_t>),
-        gridDim,
-        blockDim,
-        0,
-        at::cuda::getCurrentCUDAStream(),
-        input.data_ptr<std::uint8_t>(),
-        nrows,
-        ncols,
-        output.mutable_data_ptr<output_t>());
-  };
-  if (scale_bias_last) {
-    launch.template operator()<true, float>();
-  } else if (quant_padding_float_type) {
-    launch.template operator()<false, float>();
-  } else {
-    launch.template operator()<false, __half>();
-  }
+  FBGEMM_LAUNCH_KERNEL(
+      (_fused8bitrowwise_to_float_cuda_kernel<
+          output_t, scala_bias_last, scala_bias_t>),
+      gridDim,
+      blockDim,
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      input.data_ptr<std::uint8_t>(),
+      nrows,
+      ncols,
+      output.mutable_data_ptr<output_t>());
   return output;
+}
+
+template <typename output_t>
+Tensor _fused8bitrowwise_to_float_gpu_t(
+    const Tensor& input,
+    const bool scale_bias_last = true,
+    const bool quant_padding_float_type = true) {
+  TENSOR_ON_CUDA_GPU(input);
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  TORCH_CHECK(
+      quant_padding_float_type == true or scale_bias_last == false,
+      "scale bias last only works with 2 byte padding")
+  if (scale_bias_last) {
+    return _fused8bitrowwise_to_float_gpu_typed<output_t, true, float>(input);
+  }
+  if (quant_padding_float_type) {
+    return _fused8bitrowwise_to_float_gpu_typed<output_t, false, float>(input);
+  }
+  return _fused8bitrowwise_to_float_gpu_typed<output_t, false, __half>(input);
 }
 
 /// @ingroup quantize-ops-cuda
