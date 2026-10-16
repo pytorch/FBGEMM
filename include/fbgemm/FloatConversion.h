@@ -38,17 +38,21 @@ namespace fbgemm {
 
 namespace detail {
 
-template <typename T, int ExponentBits, bool HasInfinity = true>
+template <
+    typename T,
+    int ExponentBits,
+    bool HasInfinity = true,
+    int ExponentBias = (1 << (ExponentBits - 1)) - 1>
 struct FloatFormat {
   using value_type = T;
   static constexpr int bits = sizeof(T) * CHAR_BIT;
   static constexpr int exponent_bits = ExponentBits;
   static constexpr int mantissa_bits = bits - exponent_bits - 1;
   static constexpr int sign_bit_pos = bits - 1;
-  static constexpr int exponent_bias = (1 << (exponent_bits - 1)) - 1;
+  static constexpr int exponent_bias = ExponentBias;
   static constexpr int unbiased_exponent_min = -exponent_bias + 1;
   static constexpr int unbiased_exponent_max =
-      HasInfinity ? exponent_bias : (exponent_bias + 1);
+      (1 << exponent_bits) - 1 - HasInfinity - exponent_bias;
   static constexpr T sign_bit = T{1} << sign_bit_pos;
   static constexpr T exponent_mask = ((T{1} << exponent_bits) - 1)
       << mantissa_bits;
@@ -333,26 +337,22 @@ inline T from_float(float f) {
   }
 }
 
+namespace detail {
 // HFP8 decoding treats every exponent field as finite, including all ones.
-template <FbgemmFP8Type T>
-constexpr float to_float(T src) {
-  const uint32_t sign = uint32_t(src.val & 0x80) << 24;
-  const uint32_t bits = uint32_t(src.val & 0x7f) << (23 - T::mantissa_bits);
-  constexpr float multiplier =
-      std::bit_cast<float>(uint32_t(254 - T::exponent_bias) << 23);
+constexpr float hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
+  const uint32_t sign = uint32_t(src & 0x80) << 24;
+  const uint32_t bits = uint32_t(src & 0x7f) << (23 - mantissa_bits);
   const float value = std::bit_cast<float>(bits) * multiplier;
   return std::bit_cast<float>(std::bit_cast<uint32_t>(value) | sign);
 }
-
-namespace detail {
-template <FbgemmFP8Type T>
-struct HFP8Format : FloatFormat<uint8_t, T::exponent_bits> {
-  static constexpr int exponent_bias = T::exponent_bias;
-  static constexpr int unbiased_exponent_min = 1 - exponent_bias;
-  static constexpr int unbiased_exponent_max =
-      (1 << T::exponent_bits) - 2 - exponent_bias;
-};
 } // namespace detail
+
+template <FbgemmFP8Type T>
+constexpr float to_float(T src) {
+  constexpr float multiplier =
+      std::bit_cast<float>(uint32_t(254 - T::exponent_bias) << 23);
+  return detail::hfp8_to_float(src.val, T::mantissa_bits, multiplier);
+}
 
 // Like the legacy HFP8 encoder, saturate before rounding and preserve the sign
 // of zero. NaN and infinity map to the signed maximum encoding. Rounding is
@@ -367,7 +367,7 @@ constexpr T from_float(float src) {
   }
   return {detail::ieee754_trunc<
       detail::IEEE754Single,
-      detail::HFP8Format<T>,
+      detail::FloatFormat<uint8_t, T::exponent_bits, true, T::exponent_bias>,
       detail::RoundingMode::ToNearestTiesToEven>(bits)};
 }
 

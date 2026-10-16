@@ -1264,18 +1264,10 @@ void Float8ToFloat_ref_batch(
     int count,
     int exponent_bits,
     int exponent_bias) {
+  const float multiplier =
+      std::bit_cast<float>(uint32_t(254 - exponent_bias) << 23);
   for (int i = 0; i < count; ++i) {
-    uint32_t val_out = 0, sign = 0, multiplier = 0;
-    uint8_t inp = input[i];
-
-    sign = (inp & 0x80) << 24;
-    val_out = (inp & 0x7F) << (24 - (8 - exponent_bits));
-
-    multiplier = (127 + (127 - exponent_bias)) << 23; // 2^(127-bias)
-    float val_out_f = std::bit_cast<float>(val_out) *
-        std::bit_cast<float>(multiplier); // val_out * multiplier
-    val_out = std::bit_cast<uint32_t>(val_out_f) | sign;
-    output[i] = std::bit_cast<float>(val_out);
+    output[i] = detail::hfp8_to_float(input[i], 7 - exponent_bits, multiplier);
   }
 }
 } // namespace
