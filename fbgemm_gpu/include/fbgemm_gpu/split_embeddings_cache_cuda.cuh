@@ -10,6 +10,8 @@
 
 #include <ATen/ATen.h>
 
+#include <cstdint>
+
 /// @defgroup table-batched-embed-cuda CUDA Operators
 /// The following are CUDA Operators
 
@@ -23,6 +25,20 @@ enum uvm_cache_stats_index {
   num_conflict_unique_misses = 4,
   num_conflict_misses = 5,
 };
+
+/// Map a linear index to its cache set.
+C10_HOST_DEVICE C10_ALWAYS_INLINE uint32_t
+cache_slot(const int64_t h_in, const int32_t C) {
+  // MurmurHash3 64-bit mixing function.
+  uint64_t h = static_cast<uint64_t>(h_in);
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccd;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53;
+  h ^= h >> 33;
+
+  return h % static_cast<uint32_t>(C);
+}
 
 } // namespace fbgemm_gpu
 

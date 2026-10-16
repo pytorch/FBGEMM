@@ -275,6 +275,38 @@ void EmbeddingKVDB::get_cuda(
   rec->record.end();
 }
 
+void EmbeddingKVDB::get_cuda_with_found_mask(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    const at::Tensor& found_mask) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::get_cuda_with_found_mask ##");
+  check_tensor_type_consistency(indices, weights);
+  TORCH_CHECK(
+      supports_found_mask_reads(),
+      "Found-mask reads require a supported backend with random "
+      "initialization disabled");
+  TORCH_CHECK(
+      l2_cache_ == nullptr,
+      "Found-mask reads do not support the generic L2 cache");
+  TORCH_CHECK(found_mask.device().is_cpu(), "Found mask must be on CPU");
+  TORCH_CHECK(
+      found_mask.scalar_type() == at::ScalarType::Byte,
+      "Found mask must have dtype uint8");
+  TORCH_CHECK(found_mask.dim() == 1, "Found mask must be one-dimensional");
+  TORCH_CHECK(
+      found_mask.numel() >= indices.numel(),
+      "Found mask must have at least as many elements as indices");
+  TORCH_CHECK(found_mask.is_contiguous(), "Found mask must be contiguous");
+  auto self = shared_from_this();
+  std::function<void()>* functor = new std::function<void()>(
+      [=]() { self->get_impl(indices, weights, count, found_mask, 0); });
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
+  rec->record.end();
+}
+
 void EmbeddingKVDB::set_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
@@ -533,6 +565,15 @@ void EmbeddingKVDB::get(
     const at::Tensor& weights,
     const at::Tensor& count,
     int64_t sleep_ms) {
+  get_impl(indices, weights, count, std::nullopt, sleep_ms);
+}
+
+void EmbeddingKVDB::get_impl(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    const std::optional<at::Tensor>& found_mask,
+    int64_t sleep_ms) {
   // trigger evict by trigger_step_interval or mem_util_threshold_GB
   maybe_evict();
   if (auto num_lookups = get_maybe_uvm_scalar(count); num_lookups <= 0) {
@@ -567,6 +608,9 @@ void EmbeddingKVDB::get(
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     XLOG(INFO) << "get sleep end";
   }
+  TORCH_CHECK(
+      !found_mask.has_value() || l2_cache_ == nullptr,
+      "Found-mask reads do not support the generic L2 cache");
   auto cache_context = get_cache(indices, count);
   if (cache_context != nullptr) {
     if (cache_context->num_misses > 0) {
@@ -612,7 +656,13 @@ void EmbeddingKVDB::get(
           facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
     }
   } else { // no l2 cache
-    get_kv_db_async_with_guard(indices, weights, count, read_guard).wait();
+    if (found_mask.has_value()) {
+      get_kv_db_async_with_found_mask(
+          indices, weights, count, found_mask.value())
+          .wait();
+    } else {
+      get_kv_db_async_with_guard(indices, weights, count, read_guard).wait();
+    }
     // only resume eviction on the set instead of get
     // because here is the calling order in training, there isn't too much room
     // between get and set to conduct eviction, so just don't result on get
