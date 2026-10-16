@@ -1142,6 +1142,16 @@ static torch::autograd::variable_list backward(
     {%- for (var, _ , ivalue_cast, type) in args_pt2.unified_pt2.split_saved_data %}
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
     {%- endfor %}
+    {%- if "falr_ref_gap" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    TORCH_CHECK(
+        falr_ref_gap <= 0.0 ||
+            (row_counter_offsets.defined() &&
+             row_counter_offsets.numel() == weights_offsets.numel()),
+        "falr_ref_gap > 0 requires a row_counter with one offset per feature; got ",
+        row_counter_offsets.defined() ? row_counter_offsets.numel() : 0,
+        " offsets, expected ",
+        weights_offsets.numel());
+    {%- endif %}
     {%- endif %} {# /* if not dense */ #}
 
     const static bool is_annotate_trace_enabled = config::is_feature_enabled(
