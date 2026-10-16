@@ -162,8 +162,8 @@ __global__ inline void _compute_8bit_quantize_cuda_kernel(
 // Fused 8-bit rowwise -> FP32/FP16/BF16 kernel
 template <
     typename output_t,
-    bool scala_bias_last,
-    bool quant_padding_float_type>
+    bool ScaleBiasLast,
+    typename ScaleBiasT>
 __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
     const std::uint8_t* const __restrict__ input,
     const int nrows,
@@ -171,9 +171,7 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
     output_t* const __restrict__ output) {
   // we only support float(from quant kernel) or fp16(from tbe storage) scale
   // bias dtype
-  using scala_bias_t =
-      typename std::conditional<quant_padding_float_type, float, __half>::type;
-  const int output_columns = ncols - 2 * sizeof(scala_bias_t);
+  const int output_columns = ncols - 2 * sizeof(ScaleBiasT);
 
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
@@ -181,15 +179,15 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
   for (/*row*/; row < nrows; row += row_incre) {
     if (col < output_columns) {
       const std::uint8_t* input_row = input + row * ncols;
-      const scala_bias_t* input_row_scale_bias = (scala_bias_last)
-          ? (reinterpret_cast<const scala_bias_t*>(input_row + output_columns))
-          : (reinterpret_cast<const scala_bias_t*>(input_row));
-      if constexpr (!scala_bias_last) {
-        input_row += 2 * sizeof(scala_bias_t);
+      const ScaleBiasT* input_row_scale_bias = (ScaleBiasLast)
+          ? (reinterpret_cast<const ScaleBiasT*>(input_row + output_columns))
+          : (reinterpret_cast<const ScaleBiasT*>(input_row));
+      if constexpr (!ScaleBiasLast) {
+        input_row += 2 * sizeof(ScaleBiasT);
       }
       output_t* output_row = output + row * output_columns;
 
-      if constexpr (std::is_same_v<scala_bias_t, float>) {
+      if constexpr (std::is_same_v<ScaleBiasT, float>) {
         output_row[col] = input_row[col] * (input_row_scale_bias[0]) +
             (input_row_scale_bias[1]);
       } else {
@@ -498,38 +496,26 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
       at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-#define DEQUANT_LAUNCH(scale_bias_last, quant_padding_float_type) \
-  FBGEMM_LAUNCH_KERNEL(                                           \
-      (_fused8bitrowwise_to_float_cuda_kernel<                    \
-          scalar_t,                                               \
-          scale_bias_last,                                        \
-          quant_padding_float_type>),                             \
-      gridDim,                                                    \
-      blockDim,                                                   \
-      0,                                                          \
-      at::cuda::getCurrentCUDAStream(),                           \
-      input.data_ptr<std::uint8_t>(),                             \
-      nrows,                                                      \
-      ncols,                                                      \
-      output.mutable_data_ptr<scalar_t>())
-
-  FBGEMM_DISPATCH_FLOATING_TYPES(
-      output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {
-        if (scale_bias_last) {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH(true, true);
-          } else {
-            DEQUANT_LAUNCH(true, false);
-          }
-        } else {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH(false, true);
-          } else {
-            DEQUANT_LAUNCH(false, false);
-          }
-        }
-      });
-#undef DEQUANT_LAUNCH
+  auto launch = [&]<bool ScaleBiasLast, typename ScaleBiasT>() {
+    FBGEMM_LAUNCH_KERNEL(
+        (_fused8bitrowwise_to_float_cuda_kernel<
+            output_t, ScaleBiasLast, ScaleBiasT>),
+        gridDim,
+        blockDim,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        input.data_ptr<std::uint8_t>(),
+        nrows,
+        ncols,
+        output.mutable_data_ptr<output_t>());
+  };
+  if (scale_bias_last) {
+    launch.template operator()<true, float>();
+  } else if (quant_padding_float_type) {
+    launch.template operator()<false, float>();
+  } else {
+    launch.template operator()<false, __half>();
+  }
   return output;
 }
 
