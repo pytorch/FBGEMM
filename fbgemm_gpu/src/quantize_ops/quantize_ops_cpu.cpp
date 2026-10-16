@@ -153,7 +153,8 @@ Tensor _float_to_fusednbitrowwise_cpu(
 template <typename output_t>
 Tensor _fusednbitrowwise_to_float_cpu(
     const Tensor& input,
-    const int64_t bit_rate) {
+    const int64_t bit_rate,
+    const bool scale_bias_last = true) {
   TENSOR_ON_CPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
 
@@ -181,7 +182,12 @@ Tensor _fusednbitrowwise_to_float_cpu(
                                   // Yields unresolved data_ptr symbol.
 
   fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<output_t>(
-      bit_rate, input.const_data_ptr<uint8_t>(), nrows, ncols, output_data);
+      bit_rate,
+      input.const_data_ptr<uint8_t>(),
+      nrows,
+      ncols,
+      output_data,
+      scale_bias_last);
 
   return output;
 }
@@ -226,7 +232,7 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
       output.mutable_data_ptr()); // output.mutable_data_ptr<output_t>(); ->
                                   // Yields unresolved data_ptr symbol.
 
-  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<output_ty>(
+  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<output_ty>(
       bit_rate,
       input.const_data_ptr<uint8_t>(),
       nrows,
@@ -442,17 +448,19 @@ Tensor fusednbitrowwise_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t bit_rate,
     const int64_t output_dtype,
-    const bool scale_bias_last [[maybe_unused]]) {
+    const bool scale_bias_last) {
   Tensor output;
 
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
-      output = _fusednbitrowwise_to_float_cpu<float>(input, bit_rate);
+      output = _fusednbitrowwise_to_float_cpu<float>(
+          input, bit_rate, scale_bias_last);
 
       break;
     case SparseType::FP16:
-      output = _fusednbitrowwise_to_float_cpu<fbgemm::float16>(input, bit_rate);
+      output = _fusednbitrowwise_to_float_cpu<fbgemm::float16>(
+          input, bit_rate, scale_bias_last);
       break;
     default:
       TORCH_CHECK(false);
