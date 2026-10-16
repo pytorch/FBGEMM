@@ -45,7 +45,6 @@ if open_source:
         additional_decorators,
         gpu_unavailable,
         optests,
-        running_on_github,
         TEST_WITH_ROCM,
     )
 else:
@@ -53,7 +52,6 @@ else:
         additional_decorators,
         gpu_unavailable,
         optests,
-        running_on_github,
         TEST_WITH_ROCM,
     )
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -83,10 +81,6 @@ additional_decorators.update(
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardNoneTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(
-        running_on_github and torch.version.hip is not None,
-        "Test is flaky on GitHub + ROCm",
-    )
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -145,10 +139,6 @@ class BackwardNoneTest(unittest.TestCase):
         self.execute_backward_none_(optimizer=OptimType.EXACT_ROWWISE_ADAGRAD, **kwargs)
 
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(
-        running_on_github and torch.version.hip is not None,
-        "Test is flaky on GitHub + ROCm",
-    )
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.sampled_from([2, 4, 128, 256]),
