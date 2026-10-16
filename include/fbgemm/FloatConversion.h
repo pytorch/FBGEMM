@@ -81,7 +81,8 @@ enum class RoundingMode {
 
 // Generic IEEE754 truncation algorithm.
 template <typename Src, typename Tgt, RoundingMode RoundingMode>
-inline typename Tgt::value_type ieee754_trunc(typename Src::value_type value) {
+constexpr typename Tgt::value_type ieee754_trunc(
+    typename Src::value_type value) {
   static_assert(Src::exponent_bits >= Tgt::exponent_bits);
   static_assert(Src::mantissa_bits > Tgt::mantissa_bits);
   using ST = typename Src::value_type;
@@ -208,7 +209,7 @@ inline typename Tgt::value_type ieee754_trunc(typename Src::value_type value) {
 
 } // namespace detail
 
-inline float16 cpu_float2half_rn(float f) {
+constexpr float16 cpu_float2half_rn(float f) {
   uint32_t f_u32 = std::bit_cast<uint32_t>(f);
   return {detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
@@ -216,7 +217,7 @@ inline float16 cpu_float2half_rn(float f) {
       detail::RoundingMode::ToNearestTiesToEven>(f_u32)};
 }
 
-inline float16 cpu_float2half_rz(float f) {
+constexpr float16 cpu_float2half_rz(float f) {
   uint32_t f_u32 = std::bit_cast<uint32_t>(f);
   return {detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
@@ -226,7 +227,7 @@ inline float16 cpu_float2half_rz(float f) {
 
 // Converts a 16-bit unsigned integer representation of a IEEE754 half-precision
 // float into an IEEE754 32-bit single-precision float
-inline float cpu_half2float_ref(const float16 h) {
+constexpr float cpu_half2float_ref(const float16 h) {
   constexpr uint32_t f16_num_exponent_bits = 5;
   constexpr uint32_t f16_num_mantissa_bits = 10;
   constexpr uint32_t f16_num_non_sign_bits =
@@ -304,12 +305,12 @@ inline float16 cpu_float2half(const float f) {
 #endif
 }
 
-inline float cpu_bf162float(bfloat16 src) {
+constexpr float cpu_bf162float(bfloat16 src) {
   uint32_t val_fp32 = static_cast<uint32_t>(src.val) << 16;
   return std::bit_cast<float>(val_fp32);
 }
 
-inline bfloat16 cpu_float2bfloat16(float src) {
+constexpr bfloat16 cpu_float2bfloat16(float src) {
   uint32_t temp = std::bit_cast<uint32_t>(src);
   return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
 }
