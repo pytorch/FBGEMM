@@ -31,8 +31,9 @@ gpu_cpp_library(
     -Wno-error=shadow
   HIPCC_FLAGS
     -Wno-error=shadow
-  # asmjit is third-party code, so do not apply this warning to its sources.
+  # asmjit is third-party code, so do not apply these warnings to its sources.
   EXCLUDED_WARNING_FLAGS
     -Wunused-const-variable
+    -Wzero-as-null-pointer-constant
   DESTINATION
     fbgemm_gpu)
