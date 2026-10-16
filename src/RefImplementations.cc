@@ -1453,7 +1453,7 @@ bool EmbeddingSpMDMNBit_ref(
 
   // block_size is the number of elements and fused_block_size is the size of
   // an entire row, including scale and bias.
-  const auto scale_bias_offset = 2 * sizeof(float16);
+  constexpr auto scale_bias_offset = 2 * sizeof(float16);
   if (input_stride == -1) {
     input_stride = (block_size + num_elem_per_byte - 1) / num_elem_per_byte +
         scale_bias_offset;
@@ -1656,7 +1656,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
   if constexpr (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
     // of an entire row, including scale and bias.
-    const auto scale_bias_offset = 2 * sizeof(float);
+    constexpr auto scale_bias_offset = 2 * sizeof(float);
     const int64_t fused_block_size = block_size + scale_bias_offset;
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
@@ -1778,7 +1778,7 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
 
   // block_size is the number of elements and fused_block_size is the size of
   // an entire row, including scale and bias.
-  const auto scale_bias_offset = 2 * sizeof(float16);
+  constexpr auto scale_bias_offset = 2 * sizeof(float16);
   const int64_t fused_block_size =
       (block_size + num_elem_per_byte - 1) / num_elem_per_byte +
       scale_bias_offset;
