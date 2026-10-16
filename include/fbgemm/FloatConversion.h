@@ -338,7 +338,6 @@ inline T from_float(float f) {
 }
 
 namespace detail {
-// HFP8 decoding treats every exponent field as finite, including all ones.
 constexpr float hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
   const uint32_t sign = uint32_t(src & 0x80) << 24;
   const uint32_t bits = uint32_t(src & 0x7f) << (23 - mantissa_bits);
@@ -354,9 +353,7 @@ constexpr float to_float(T src) {
   return detail::hfp8_to_float(src.val, T::mantissa_bits, multiplier);
 }
 
-// Like the legacy HFP8 encoder, saturate before rounding and preserve the sign
-// of zero. NaN and infinity map to the signed maximum encoding. Rounding is
-// explicitly to nearest, ties to even, independently of the host rounding mode.
+// Saturate before nearest-even rounding; NaN/Inf map to signed maximum.
 template <FbgemmFP8Type T>
 constexpr T from_float(float src) {
   constexpr uint32_t max_bits =

@@ -24,10 +24,8 @@ struct bfloat16 {
   bool operator==(const bfloat16&) const = default;
 };
 
-// Byte storage for the configurable HFP8 encoding used by the FP8 conversion
-// and embedding APIs. This is not an IEEE/ONNX E4M3FN or E5M2 type: the legacy
-// encoder saturates finite values and the decoder treats all exponent fields
-// as finite. Format parameters are part of the type, rather than the buffer.
+// Legacy HFP8 encoding, distinct from standard E4M3FN/E5M2:
+// encoding saturates; decoding treats every exponent field as finite.
 template <int ExponentBits, int ExponentBias>
 struct hfp8 {
   static_assert(ExponentBits == 4 || ExponentBits == 5);

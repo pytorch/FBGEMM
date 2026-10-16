@@ -2143,7 +2143,6 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
       exponent_bias == hfp8_e5m2::exponent_bias) {
     return make_typed_kernel.template operator()<hfp8_e5m2>();
   }
-  // Custom formats share the same decoder, with metadata fixed at creation.
   const int mantissa_bits = 7 - exponent_bits;
   const float multiplier =
       std::bit_cast<float>(uint32_t(254 - exponent_bias) << 23);

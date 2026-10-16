@@ -204,8 +204,6 @@ GenerateEmbeddingSpMDMFP8WithStrides(
     int exponent_bits = 4,
     int exponent_bias = 7);
 
-// A typed input carries the HFP8 format; callers do not pass exponent metadata.
-// Return the adapter directly to avoid an additional std::function layer.
 template <
     FbgemmFP8Type InType,
     typename IndexType,
