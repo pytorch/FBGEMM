@@ -9,7 +9,6 @@
 #pragma once
 #include <cstdint>
 #include <functional>
-#include <utility>
 
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/Types.h"
@@ -175,66 +174,23 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     const bool no_bag = false,
     int output_bit_rate = -1);
 
-/**
- * @param output_stride If -1, output_stride is same as block_size
- * @param input_stride in Bytes. If -1, input_stride is same as
- *                     block_size / num_elem_per_byte + 2 * sizeof(float16)
- * @param exponent_bits is the number of exponent bits in the FP8 encode
- *                      (normally 4 or 5)
- * @param exponent_bias is subtracted from the exponent to obtain the actual
- *                      exponent for the floating-point number
- */
 template <
+    FbgemmFP8EmbeddingType InType,
     typename IndexType,
     typename OffsetType = std::int32_t,
     typename OutType = float>
-  requires(!FbgemmFP8Type<IndexType>)
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<
-    std::uint8_t,
+    InType,
     IndexType,
     OffsetType,
     OutType>::Type
 GenerateEmbeddingSpMDMFP8WithStrides(
-    const std::int64_t block_size,
+    std::int64_t block_size,
     bool normalize_by_lengths,
     bool is_weight_positional = false,
     bool use_offsets = true,
     std::int64_t output_stride = -1,
-    std::int64_t input_stride = -1,
-    int exponent_bits = 4,
-    int exponent_bias = 7);
-
-template <
-    FbgemmFP8Type InType,
-    typename IndexType,
-    typename OffsetType = std::int32_t,
-    typename OutType = float>
-auto GenerateEmbeddingSpMDMFP8WithStrides(
-    const std::int64_t block_size,
-    bool normalize_by_lengths,
-    bool is_weight_positional = false,
-    bool use_offsets = true,
-    std::int64_t output_stride = -1,
-    std::int64_t input_stride = -1) {
-  auto kernel = GenerateEmbeddingSpMDMFP8WithStrides<
-      IndexType, OffsetType, OutType>(
-      block_size, normalize_by_lengths, is_weight_positional, use_offsets,
-      output_stride, input_stride, InType::exponent_bits, InType::exponent_bias);
-  return [kernel = std::move(kernel)](
-             std::int64_t output_size,
-             std::int64_t index_size,
-             std::int64_t data_size,
-             const InType* input,
-             const IndexType* indices,
-             const OffsetType* offsets_or_lengths,
-             const float* weights,
-             OutType* out) {
-    return kernel(
-        output_size, index_size, data_size,
-        reinterpret_cast<const std::uint8_t*>(input), indices,
-        offsets_or_lengths, weights, out);
-  };
-}
+    std::int64_t input_stride = -1);
 
 template <
     typename InType,

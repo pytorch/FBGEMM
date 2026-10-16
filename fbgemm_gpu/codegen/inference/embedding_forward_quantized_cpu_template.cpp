@@ -40,10 +40,6 @@ namespace {
 
 using Tensor = at::Tensor;
 
-C10_NOINLINE void check_fp8_params(int64_t fp8_exponent_bits, int64_t fp8_exponent_bias) {
-  TORCH_CHECK(fp8_exponent_bits > 0 && fp8_exponent_bias > 0, "FP8 requires fp8_exponent_bits > 0 (got ", fp8_exponent_bits, ") and fp8_exponent_bias > 0 (got ", fp8_exponent_bias, ")");
-}
-
 // kPropagateTls: raw OpenMP does not carry the caller's ThreadLocalState
 // (dispatch keys, grad/inference mode, autocast, ...) to worker threads the way
 // at::parallel_for does, so when `f` makes ATen calls (e.g. at::arange in the
@@ -598,7 +594,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     const index_t* offset_ptr = offsets_begin_ptr;
                 {% endif %}
                 const auto kernel = fbgemm::{{ kernel_name }}<
-                    {% if use_base %}
+                    {% if use_base or use_fp8 %}
                     {{ weight_type }},
                     {% endif %}
                     index_t,
@@ -625,10 +621,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     /*use_offsets=*/true,
                     /*output_stride=*/output_stride,
                     /*input_stride=*/D_bytes / sizeof({{ weight_type }})
-                    {% if use_fp8 %}
-                    ,/*exponent_bits=*/fp8_exponent_bits,
-                    /*exponent_bias=*/fp8_exponent_bias
-                    {% endif %}
                     {% if has_asmjit %}
                     ,/*scale_bias_last=*/scale_bias_last
                     {% endif %}
@@ -657,8 +649,19 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 } else if (weight_ty == SparseType::INT8) {
                     {{ generate_and_exec_kernel("uint8_t", True, False, False) }}
                 } else if (weight_ty == SparseType::FP8) {
-                    check_fp8_params(fp8_exponent_bits, fp8_exponent_bias);
-                    {{ generate_and_exec_kernel("uint8_t", False, False, True) }}
+                    const auto run_fp8 = [&]<fbgemm::FbgemmFP8EmbeddingType InType>() {
+                      {{ generate_and_exec_kernel("InType", False, False, True) }}
+                    };
+                    if (fp8_exponent_bits == fbgemm::hfp8_e4m3::exponent_bits &&
+                        fp8_exponent_bias == fbgemm::hfp8_e4m3::exponent_bias) {
+                      run_fp8.template operator()<fbgemm::hfp8_e4m3>();
+                    } else if (fp8_exponent_bits == fbgemm::hfp8_e5m2::exponent_bits &&
+                               fp8_exponent_bias == fbgemm::hfp8_e5m2::exponent_bias) {
+                      run_fp8.template operator()<fbgemm::hfp8_e5m2>();
+                    } else {
+                      TORCH_CHECK(false, "CPU FP8 embedding requires HFP8 (4, 7) or (5, 15), got (",
+                                  fp8_exponent_bits, ", ", fp8_exponent_bias, ")");
+                    }
                 } else if (weight_ty == SparseType::INT4 || weight_ty == SparseType::INT2) {
                     int bit_rate;
                     switch (weight_ty) {

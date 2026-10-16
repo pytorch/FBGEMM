@@ -49,6 +49,10 @@ concept FbgemmFP8Type = requires {
   requires std::same_as<T, hfp8<T::exponent_bits, T::exponent_bias>>;
 };
 
+template <typename T>
+concept FbgemmFP8EmbeddingType =
+    std::same_as<T, hfp8_e4m3> || std::same_as<T, hfp8_e5m2>;
+
 static_assert(sizeof(hfp8_e4m3) == 1 && sizeof(hfp8_e5m2) == 1);
 static_assert(alignof(hfp8_e4m3) == 1 && alignof(hfp8_e5m2) == 1);
 static_assert(std::is_standard_layout_v<hfp8_e4m3>);
