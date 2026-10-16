@@ -104,6 +104,16 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     impl_->get_cuda(indices, weights, count);
   }
 
+  /// Rows whose found_mask entry is zero are invalid and intentionally left
+  /// untouched. Consumers must gate access to weights with found_mask.
+  void get_cuda_with_found_mask(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count,
+      at::Tensor found_mask) {
+    impl_->get_cuda_with_found_mask(indices, weights, count, found_mask);
+  }
+
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
     impl_->set(indices, weights, count);
   }
