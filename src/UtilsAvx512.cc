@@ -228,6 +228,34 @@ inline void transpose_kernel_16x16_avx512(
   _mm512_storeu_ps(&dst[15 * ld_dst], p);
 }
 
+// unpacking and interleaving 32-bit and then 64-bit elements of the first M
+// rows of input, using temp as scratch. Afterwards input[4 * g + k] lane l
+// holds column 4 * l + k of rows 4 * g .. 4 * g + 3.
+template <int M>
+void transpose_unpack_32_64_avx512(__m512 input[16], __m512 temp[16]) {
+  int i = 0;
+  // unpacking and interleaving 32-bit elements
+  for (i = 0; i < (M + 1) / 2; ++i) {
+    temp[2 * i] = _mm512_unpacklo_ps(input[2 * i], input[2 * i + 1]);
+    temp[2 * i + 1] = _mm512_unpackhi_ps(input[2 * i], input[2 * i + 1]);
+  }
+  for (i = i * 2; i < 16; ++i) {
+    temp[i] = _mm512_setzero_ps();
+  }
+
+  // unpacking and interleaving 64-bit elements
+  for (i = 0; i < (M + 3) / 4; ++i) {
+    input[4 * i] = _mm512_castpd_ps(_mm512_unpacklo_pd(
+        _mm512_castps_pd(temp[4 * i]), _mm512_castps_pd(temp[4 * i + 2])));
+    input[4 * i + 1] = _mm512_castpd_ps(_mm512_unpackhi_pd(
+        _mm512_castps_pd(temp[4 * i]), _mm512_castps_pd(temp[4 * i + 2])));
+    input[4 * i + 2] = _mm512_castpd_ps(_mm512_unpacklo_pd(
+        _mm512_castps_pd(temp[4 * i + 1]), _mm512_castps_pd(temp[4 * i + 3])));
+    input[4 * i + 3] = _mm512_castpd_ps(_mm512_unpackhi_pd(
+        _mm512_castps_pd(temp[4 * i + 1]), _mm512_castps_pd(temp[4 * i + 3])));
+  }
+}
+
 // kernel for transposing mxn where m, n <= 16
 // M + (M + 1) / 2 * 2 + (M + 3) / 4 * 4 + (M + 7) / 8 * 8 + 2 * N instructions
 template <int M>
@@ -251,27 +279,8 @@ void transpose_kernel_mxn_avx512(
     input[i] = _mm512_setzero_ps();
   }
 
-  // unpacking and interleaving 32-bit elements
   __m512 temp[16];
-  for (i = 0; i < (M + 1) / 2; ++i) {
-    temp[2 * i] = _mm512_unpacklo_ps(input[2 * i], input[2 * i + 1]);
-    temp[2 * i + 1] = _mm512_unpackhi_ps(input[2 * i], input[2 * i + 1]);
-  }
-  for (i = i * 2; i < 16; ++i) {
-    temp[i] = _mm512_setzero_ps();
-  }
-
-  // unpacking and interleaving 64-bit elements
-  for (i = 0; i < (M + 3) / 4; ++i) {
-    input[4 * i] = _mm512_castpd_ps(_mm512_unpacklo_pd(
-        _mm512_castps_pd(temp[4 * i]), _mm512_castps_pd(temp[4 * i + 2])));
-    input[4 * i + 1] = _mm512_castpd_ps(_mm512_unpackhi_pd(
-        _mm512_castps_pd(temp[4 * i]), _mm512_castps_pd(temp[4 * i + 2])));
-    input[4 * i + 2] = _mm512_castpd_ps(_mm512_unpacklo_pd(
-        _mm512_castps_pd(temp[4 * i + 1]), _mm512_castps_pd(temp[4 * i + 3])));
-    input[4 * i + 3] = _mm512_castpd_ps(_mm512_unpackhi_pd(
-        _mm512_castps_pd(temp[4 * i + 1]), _mm512_castps_pd(temp[4 * i + 3])));
-  }
+  transpose_unpack_32_64_avx512<M>(input, temp);
 
   //  shuffle 128-bits (composed of 4 32-bit elements)
   for (i = 0; i < (M + 7) / 8; ++i) {
@@ -301,6 +310,59 @@ void transpose_kernel_mxn_avx512(
       input[i] = _mm512_shuffle_f32x4(temp[i - 8], temp[i], 0xdd);
     }
     _mm512_mask_storeu_ps(&dst[i * ld_dst], dst_mask, input[i]);
+  }
+}
+
+// kernel for transposing mx16 where 8 < m < 16
+// A single cross-lane permute stage leaves 8 contiguous dst elements in each
+// 256-bit half, which are stored directly.
+template <int M>
+void transpose_kernel_mx16_avx512(
+    const float* src,
+    int64_t ld_src,
+    float* dst,
+    int64_t ld_dst) {
+  static_assert(M > 8 && M < 16, "M must be in (8, 16)");
+  __m512 input[16];
+  int i = 0;
+  for (i = 0; i < M; ++i) {
+    input[i] = _mm512_loadu_ps(&src[i * ld_src]);
+  }
+  for (; i < 16; ++i) {
+    input[i] = _mm512_setzero_ps();
+  }
+
+  __m512 temp[16];
+  transpose_unpack_32_64_avx512<M>(input, temp);
+
+  // idx_lo: [a.l0 | b.l0 | a.l2 | b.l2], idx_hi: [a.l1 | b.l1 | a.l3 | b.l3]
+  const __m512i idx_lo = _mm512_setr_epi32(
+      0, 1, 2, 3, 16, 17, 18, 19, 8, 9, 10, 11, 24, 25, 26, 27);
+  const __m512i idx_hi = _mm512_setr_epi32(
+      4, 5, 6, 7, 20, 21, 22, 23, 12, 13, 14, 15, 28, 29, 30, 31);
+  const __mmask16 tail_mask = (1 << (M - 8)) - 1;
+  const __mmask16 tail_mask_hi = tail_mask << 8;
+  for (i = 0; i < 4; ++i) {
+    // r0: dst rows i | 8 + i, r1: dst rows 4 + i | 12 + i (elements 0..7)
+    // r2, r3: same dst rows, elements 8..M-1
+    __m512 r0 = _mm512_permutex2var_ps(input[i], idx_lo, input[4 + i]);
+    __m512 r1 = _mm512_permutex2var_ps(input[i], idx_hi, input[4 + i]);
+    __m512 r2 = _mm512_permutex2var_ps(input[8 + i], idx_lo, input[12 + i]);
+    __m512 r3 = _mm512_permutex2var_ps(input[8 + i], idx_hi, input[12 + i]);
+
+    _mm256_storeu_ps(&dst[i * ld_dst], _mm512_castps512_ps256(r0));
+    _mm256_storeu_ps(
+        &dst[(8 + i) * ld_dst],
+        _mm256_castpd_ps(_mm512_extractf64x4_pd(_mm512_castps_pd(r0), 1)));
+    _mm256_storeu_ps(&dst[(4 + i) * ld_dst], _mm512_castps512_ps256(r1));
+    _mm256_storeu_ps(
+        &dst[(12 + i) * ld_dst],
+        _mm256_castpd_ps(_mm512_extractf64x4_pd(_mm512_castps_pd(r1), 1)));
+
+    _mm512_mask_storeu_ps(&dst[i * ld_dst + 8], tail_mask, r2);
+    _mm512_mask_storeu_ps(&dst[(8 + i) * ld_dst], tail_mask_hi, r2);
+    _mm512_mask_storeu_ps(&dst[(4 + i) * ld_dst + 8], tail_mask, r3);
+    _mm512_mask_storeu_ps(&dst[(12 + i) * ld_dst], tail_mask_hi, r3);
   }
 }
 
@@ -2196,12 +2258,8 @@ void transpose_avx512(
         break;
       case 9:
         for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<9>(
-              16,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
+          transpose_kernel_mx16_avx512<9>(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
         if (jb < N) {
           transpose_kernel_mxn_avx512<9>(
@@ -2214,12 +2272,8 @@ void transpose_avx512(
         break;
       case 10:
         for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<10>(
-              16,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
+          transpose_kernel_mx16_avx512<10>(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
         if (jb < N) {
           transpose_kernel_mxn_avx512<10>(
@@ -2232,12 +2286,8 @@ void transpose_avx512(
         break;
       case 11:
         for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<11>(
-              16,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
+          transpose_kernel_mx16_avx512<11>(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
         if (jb < N) {
           transpose_kernel_mxn_avx512<11>(
@@ -2250,12 +2300,8 @@ void transpose_avx512(
         break;
       case 12:
         for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<12>(
-              16,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
+          transpose_kernel_mx16_avx512<12>(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
         if (jb < N) {
           transpose_kernel_mxn_avx512<12>(
@@ -2268,12 +2314,8 @@ void transpose_avx512(
         break;
       case 13:
         for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<13>(
-              16,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
+          transpose_kernel_mx16_avx512<13>(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
         if (jb < N) {
           transpose_kernel_mxn_avx512<13>(
@@ -2286,12 +2328,8 @@ void transpose_avx512(
         break;
       case 14:
         for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<14>(
-              16,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
+          transpose_kernel_mx16_avx512<14>(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
         if (jb < N) {
           transpose_kernel_mxn_avx512<14>(
@@ -2304,12 +2342,8 @@ void transpose_avx512(
         break;
       case 15:
         for (jb = 0; jb + 16 <= N; jb += 16) {
-          transpose_kernel_mxn_avx512<15>(
-              16,
-              &src[ib * ld_src + jb],
-              ld_src,
-              &dst[ib + jb * ld_dst],
-              ld_dst);
+          transpose_kernel_mx16_avx512<15>(
+              &src[ib * ld_src + jb], ld_src, &dst[ib + jb * ld_dst], ld_dst);
         }
         if (jb < N) {
           transpose_kernel_mxn_avx512<15>(

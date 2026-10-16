@@ -20,6 +20,17 @@ using namespace std;
 using namespace fbgemm;
 
 namespace {
+
+// The bit-manipulation conversions are usable in constant expressions; these
+// fail to compile if any of them stops being constexpr.
+static_assert(cpu_float2half_rn(1.0f).val == 0x3C00);
+static_assert(cpu_float2half_rn(-2.0f).val == 0xC000);
+static_assert(cpu_float2half_rz(1.0f).val == 0x3C00);
+static_assert(cpu_half2float_ref(float16{0x3C00}) == 1.0f);
+static_assert(cpu_half2float_ref(float16{0xC000}) == -2.0f);
+static_assert(cpu_bf162float(cpu_float2bfloat16(1.0f)) == 1.0f);
+static_assert(cpu_float2bfloat16(1.0f).val == 0x3F80);
+
 class FBGemmFloat16Test : public testing::TestWithParam<bool> {};
 
 template <FbgemmHalfType T>

@@ -460,6 +460,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         self.assertEqual(
             [10, 20, 60, 70, -1],
             prefetched_info.linear_unique_indices.tolist()[
+                # pyrefly: ignore [bad-index]
                 :linear_unique_indices_length_scalar
             ],
         )
@@ -467,6 +468,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
         self.assertEqual(
             [10, 20, 60, 70, tbe.total_cache_hash_size],
             prefetched_info.linear_unique_cache_indices.tolist()[
+                # pyrefly: ignore [bad-index]
                 :linear_unique_indices_length_scalar
             ],
         )
@@ -481,6 +483,7 @@ class StorePrefetchedTensorsTest(unittest.TestCase):
                 [300],
                 [400],
             ],
+            # pyrefly: ignore [bad-index]
             identities.tolist()[: linear_unique_indices_length_scalar - 1],
         )
         self.assertEqual(identities.shape[0], 6)

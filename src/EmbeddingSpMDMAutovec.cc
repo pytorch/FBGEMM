@@ -1115,7 +1115,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
   if constexpr (is8bit) {
     // block_size is the number of elements and fused_block_size is the size in
     // bytes of an entire row, including scale and bias.
-    const auto scale_bias_offset = 2 * sizeof(float);
+    constexpr auto scale_bias_offset = 2 * sizeof(float);
     const int64_t fused_block_size = block_size + scale_bias_offset;
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {

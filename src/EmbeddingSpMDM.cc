@@ -1467,7 +1467,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   int64_t input_stride = block_size;
   if constexpr (std::is_same_v<inType, uint8_t>) {
-    const auto scale_bias_offset = 2 * sizeof(float);
+    constexpr auto scale_bias_offset = 2 * sizeof(float);
     input_stride = block_size + scale_bias_offset;
   }
   if (!cpuinfo_initialize()) {
