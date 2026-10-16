@@ -13,6 +13,7 @@ import random
 import unittest
 from collections.abc import Callable
 from typing import Any
+from unittest import mock
 
 import hypothesis.strategies as st
 import numpy as np
@@ -1994,6 +1995,34 @@ class NBitLongLNobagTest(NBitFowardTestCommon):
             output_dtype=SparseType.FP16,
             force_device_only=True,
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_int4_d64_long_l_gfx942_mixed_types_fallback(self) -> None:
+        weight_types = [
+            SparseType.INT4 if table % 2 == 0 else SparseType.INT8
+            for table in range(30)
+        ]
+        with mock.patch.object(np.random, "choice", side_effect=weight_types):
+            self.execute_nbit_forward_(
+                T=30,
+                D=64,
+                B=17,
+                log_E=3,
+                L=512,
+                weighted=False,
+                mixed=False,
+                pooling_mode=PoolingMode.NONE,
+                weights_ty=SparseType.INT4,
+                use_cache=False,
+                cache_algorithm=CacheAlgorithm.LRU,
+                use_cpu=False,
+                use_array_for_index_remapping=True,
+                do_pruning=False,
+                mixed_weights_ty=True,
+                indices_dtype=torch.int32,
+                output_dtype=SparseType.FP16,
+                force_device_only=True,
+            )
 
 
 if __name__ == "__main__":

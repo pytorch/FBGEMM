@@ -359,8 +359,11 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
           const bool is_gfx942 =
               std::string_view(device_properties->gcnArchName)
                       .compare(0, 6, "gfx942") == 0;
-          if (is_gfx942 && device_only && !use_rocm_packed_bag_mode && D == 64 &&
-              num_bags > 0 && row_alignment == 16 &&
+          const bool only_int4_weights =
+              max_int2_D == 0 && max_int8_D == 0 && max_float16_D == 0 &&
+              max_float32_D == 0 && max_float8_D == 0;
+          if (is_gfx942 && device_only && !use_rocm_packed_bag_mode &&
+              only_int4_weights && D == 64 && num_bags > 0 && row_alignment == 16 &&
               num_bags <= kLongLMaxBags &&
               total_L >= num_bags * kLongLMinRowsPerBag) {
             constexpr int32_t rows_per_block =
