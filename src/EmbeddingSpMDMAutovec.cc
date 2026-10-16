@@ -1257,21 +1257,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
   }
 }
 
-namespace {
-void Float8ToFloat_ref_batch(
-    const uint8_t* input,
-    float* output,
-    int count,
-    int exponent_bits,
-    int exponent_bias) {
-  const float multiplier =
-      std::bit_cast<float>(uint32_t(254 - exponent_bias) << 23);
-  for (int i = 0; i < count; ++i) {
-    output[i] = detail::hfp8_to_float(input[i], 7 - exponent_bits, multiplier);
-  }
-}
-} // namespace
-
 /// @ingroup tbe-cpu-autovec
 ///
 /// Autovectorized version of method `EmbeddingSpMDM_ref` for FP8 weight type.
@@ -2158,9 +2143,14 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
       exponent_bias == hfp8_e5m2::exponent_bias) {
     return make_typed_kernel.template operator()<hfp8_e5m2>();
   }
-  // Preserve support for custom runtime formats through the original decoder.
+  // Custom formats share the same decoder, with metadata fixed at creation.
+  const int mantissa_bits = 7 - exponent_bits;
+  const float multiplier =
+      std::bit_cast<float>(uint32_t(254 - exponent_bias) << 23);
   return make_kernel([=](const uint8_t* input, float* output, int count) {
-    Float8ToFloat_ref_batch(input, output, count, exponent_bits, exponent_bias);
+    for (int i = 0; i < count; ++i) {
+      output[i] = detail::hfp8_to_float(input[i], mantissa_bits, multiplier);
+    }
   });
 }
 
