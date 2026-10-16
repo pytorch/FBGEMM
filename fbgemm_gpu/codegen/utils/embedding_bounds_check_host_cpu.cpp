@@ -11,10 +11,13 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
+#include <atomic>
+#include <chrono>
+#include <optional>
+#include <string>
+
 #ifdef FBGEMM_FBCODE
 #include <folly/synchronization/AtomicRef.h>
-#else
-#include <atomic>
 #endif
 
 #include "fbgemm_gpu/embedding_common.h"
@@ -44,6 +47,63 @@ using atomic_ref = folly::atomic_ref<T>;
 template <typename T>
 using atomic_ref = std::atomic_ref<T>;
 #endif
+
+// The warning tensor is reset on every call, so it cannot limit logging across
+// calls; this process-wide limiter does.
+class BoundsCheckLogLimiter {
+ public:
+  // Returns the number of warnings suppressed since the previous log if the
+  // caller should log now, or std::nullopt if this warning is suppressed.
+  std::optional<int64_t> try_acquire() {
+    const int64_t now_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    int64_t next_log_time_ns =
+        next_log_time_ns_.load(std::memory_order_relaxed);
+    if (now_ns < next_log_time_ns ||
+        !next_log_time_ns_.compare_exchange_strong(
+            next_log_time_ns,
+            now_ns + kLogIntervalNs,
+            std::memory_order_relaxed)) {
+      num_suppressed_.fetch_add(1, std::memory_order_relaxed);
+      return std::nullopt;
+    }
+    return num_suppressed_.exchange(0, std::memory_order_relaxed);
+  }
+
+ private:
+  static constexpr int64_t kLogIntervalNs = 10'000'000'000;
+  std::atomic<int64_t> next_log_time_ns_{0};
+  std::atomic<int64_t> num_suppressed_{0};
+};
+
+// Namespace scope rather than function-local statics: the log sites are inside
+// AT_DISPATCH_INDEX_TYPES, which would create one limiter per index type.
+BoundsCheckLogLimiter final_offset_log_limiter;
+BoundsCheckLogLimiter offsets_log_limiter;
+BoundsCheckLogLimiter indices_log_limiter;
+
+std::string suppressed_warnings_suffix(int64_t num_suppressed) {
+  if (num_suppressed == 0) {
+    return "";
+  }
+  return " (" + std::to_string(num_suppressed) +
+      " similar warnings suppressed since the last one)";
+}
+
+// Records the warning and returns the number of suppressed warnings if the
+// caller should log it. Only the first warning of a call is a log candidate.
+std::optional<int64_t> record_warning(
+    int64_t& warning,
+    BoundsCheckLogLimiter& log_limiter) {
+  const auto previous_warnings =
+      atomic_ref<int64_t>(warning).fetch_add(1, std::memory_order_relaxed);
+  if (previous_warnings != 0) {
+    return std::nullopt;
+  }
+  return log_limiter.try_acquire();
+}
 
 template <typename index_t>
 void adjust_offset_cpu(
@@ -135,8 +195,8 @@ void bounds_check_indices_cpu(
       TORCH_CHECK(!invalid_final_offset);
     } else if (is_warning_mode) {
       if (invalid_final_offset) {
-        if (atomic_ref<int64_t>(warning_acc[0])
-                .fetch_add(1, std::memory_order_relaxed) == 0) {
+        if (const auto num_suppressed =
+                record_warning(warning_acc[0], final_offset_log_limiter)) {
           LOG(ERROR)
               << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
               << "): The last element in offsets is incorrect for "
@@ -144,7 +204,8 @@ void bounds_check_indices_cpu(
               << (vbe ? total_B : B) << ", total table num T: " << T
               << ", last element in offsets: " << offsets_acc[total_B]
               << ", indices size: " << num_indices
-              << ". Setting the last element in offsets to be indices size.";
+              << ". Setting the last element in offsets to be indices size."
+              << suppressed_warnings_suffix(*num_suppressed);
         }
         offsets_acc[total_B] = num_indices;
       }
@@ -167,15 +228,16 @@ void bounds_check_indices_cpu(
         } else if (is_warning_mode) {
           if (indices_start < 0 || indices_start > indices_end ||
               indices_end > num_indices) {
-            if (atomic_ref<int64_t>(warning_acc[0])
-                    .fetch_add(1, std::memory_order_relaxed) == 0) {
+            if (const auto num_suppressed =
+                    record_warning(warning_acc[0], offsets_log_limiter)) {
               LOG(ERROR)
                   << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
                   << "): (at least one) Out of bounds access for batch: " << b
                   << ", table: " << t << ", indices_start: " << indices_start
                   << ", indices_end: " << indices_end
                   << ", num_indices: " << num_indices
-                  << ". Setting indices_start and indices_end within the range";
+                  << ". Setting indices_start and indices_end within the range"
+                  << suppressed_warnings_suffix(*num_suppressed);
             }
             adjust_offset_cpu(
                 indices_start,
@@ -205,14 +267,15 @@ void bounds_check_indices_cpu(
             TORCH_CHECK(idx < num_rows);
           } else if (is_warning_mode) {
             if (idx < 0 || idx >= num_rows) {
-              if (atomic_ref<int64_t>(warning_acc[0])
-                      .fetch_add(1, std::memory_order_relaxed) == 0) {
+              if (const auto num_suppressed =
+                      record_warning(warning_acc[0], indices_log_limiter)) {
                 LOG(ERROR)
                     << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
                     << "): (at least one) Out of bounds access for batch: " << b
                     << ", table: " << t << ", bag element: " << l
                     << ", idx: " << idx << ", num_rows: " << num_rows
-                    << ". Setting idx to zero.";
+                    << ". Setting idx to zero."
+                    << suppressed_warnings_suffix(*num_suppressed);
               }
               indices_acc[indices_start + l] = 0;
             }
