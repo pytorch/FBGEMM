@@ -57,7 +57,7 @@ transpose_embedding_input(
       int num_items,                           \
       int begin_bit = 0,                       \
       int end_bit = sizeof(KeyT) * 8,          \
-      cudaStream_t stream = 0)
+      cudaStream_t stream = nullptr)
 
 DECL_RADIX_SORT_PAIRS_FN(int64_t, int32_t);
 DECL_RADIX_SORT_PAIRS_FN(int64_t, int64_t);
