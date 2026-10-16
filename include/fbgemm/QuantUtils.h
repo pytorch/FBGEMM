@@ -58,7 +58,7 @@ constexpr T2 clamp(T1 src, int precision, bool is_signed = false) {
   assert(max <= std::numeric_limits<T1>::max());
   assert(max <= std::numeric_limits<T2>::max());
 
-  return std::min<T1>(std::max<T1>(src, min), max);
+  return std::clamp<T1>(src, min, max);
 }
 
 /// Quantize src using zero_point and scale, clamp to the specified precision,
