@@ -430,8 +430,16 @@ _single_or_half_precision_to_fused8bitrowwise_gpu(const Tensor& input) {
   return output;
 }
 
-template <typename output_t, bool scala_bias_last, typename scala_bias_t>
-Tensor _fused8bitrowwise_to_float_gpu_typed(const Tensor& input) {
+template <
+    typename output_t,
+    bool scala_bias_last = true,
+    typename scala_bias_t = float>
+Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
+  static_assert(
+      std::is_same_v<scala_bias_t, float> || std::is_same_v<scala_bias_t, __half>);
+  static_assert(!scala_bias_last || std::is_same_v<scala_bias_t, float>);
+  TENSOR_ON_CUDA_GPU(input);
+  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   CUDA_DEVICE_GUARD(input);
   constexpr int quant_padding_size = sizeof(scala_bias_t);
   const auto input_sizes = input.sizes();
@@ -504,22 +512,20 @@ Tensor _fused8bitrowwise_to_float_gpu_typed(const Tensor& input) {
 }
 
 template <typename output_t>
-Tensor _fused8bitrowwise_to_float_gpu_t(
+Tensor _fused8bitrowwise_to_float_gpu_dispatch_t(
     const Tensor& input,
-    const bool scale_bias_last = true,
-    const bool quant_padding_float_type = true) {
-  TENSOR_ON_CUDA_GPU(input);
-  TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+    const bool scale_bias_last,
+    const bool quant_padding_float_type) {
   TORCH_CHECK(
       quant_padding_float_type == true or scale_bias_last == false,
       "scale bias last only works with 2 byte padding")
   if (scale_bias_last) {
-    return _fused8bitrowwise_to_float_gpu_typed<output_t, true, float>(input);
+    return _fused8bitrowwise_to_float_gpu_t<output_t, true, float>(input);
   }
   if (quant_padding_float_type) {
-    return _fused8bitrowwise_to_float_gpu_typed<output_t, false, float>(input);
+    return _fused8bitrowwise_to_float_gpu_t<output_t, false, float>(input);
   }
-  return _fused8bitrowwise_to_float_gpu_typed<output_t, false, __half>(input);
+  return _fused8bitrowwise_to_float_gpu_t<output_t, false, __half>(input);
 }
 
 /// @ingroup quantize-ops-cuda
@@ -568,15 +574,15 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu(
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
-      output = _fused8bitrowwise_to_float_gpu_t<float>(
+      output = _fused8bitrowwise_to_float_gpu_dispatch_t<float>(
           input, scale_bias_last, quant_padding_float_type);
       break;
     case SparseType::FP16:
-      output = _fused8bitrowwise_to_float_gpu_t<at::Half>(
+      output = _fused8bitrowwise_to_float_gpu_dispatch_t<at::Half>(
           input, scale_bias_last, quant_padding_float_type);
       break;
     case SparseType::BF16:
-      output = _fused8bitrowwise_to_float_gpu_t<at::BFloat16>(
+      output = _fused8bitrowwise_to_float_gpu_dispatch_t<at::BFloat16>(
           input, scale_bias_last, quant_padding_float_type);
       break;
     default:
