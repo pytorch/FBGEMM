@@ -54,6 +54,7 @@ using D0DataType = float;
 using D1DataType = float;
 using DsDataType = ck::Tuple<D0DataType, D1DataType>;
 using EDataType = ck::bhalf_t;
+constexpr int kGroupSetupThreads = 256;
 
 TuningCache& getTuningCache() {
   // This kernel has multiple APIs templated based on InputType, so we use this
@@ -309,9 +310,12 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     int64_t N,
     int64_t K,
     int64_t group_count) {
-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each thread is responsible for setting up the arguments for one group.
-  if (thread_idx < group_count) {
+  const int64_t first_group =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t group_stride =
+      static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t thread_idx = first_group; thread_idx < group_count;
+       thread_idx += group_stride) {
     // Compute offsets for this group.
     int64_t group_M = prepad_M[thread_idx];
     KernelArguments kernel_group_args = {
@@ -329,6 +333,33 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     // Write kernel args to memory.
     kernel_args[thread_idx] = kernel_group_args;
   }
+}
+
+void launch_set_kernel_args_fixed_nk(
+    KernelArguments* kernel_args,
+    ADataType* XQ,
+    BDataType* WQ,
+    D0DataType* w_scale,
+    D1DataType* x_scale,
+    EDataType* output,
+    int64_t* prepad_M,
+    int64_t M,
+    int64_t N,
+    int64_t K,
+    int64_t group_count,
+    hipStream_t stream) {
+  set_kernel_args_fixed_nk_kernel<<<1, kGroupSetupThreads, 0, stream>>>(
+      kernel_args,
+      XQ,
+      WQ,
+      w_scale,
+      x_scale,
+      output,
+      prepad_M,
+      M,
+      N,
+      K,
+      group_count);
 }
 
 __global__ void set_kernel_args_fixed_nk_kernel_zeroing(
@@ -463,7 +494,7 @@ void set_dynamic_kernel_args(
         K,
         group_count);
   } else {
-    set_kernel_args_fixed_nk_kernel<<<1, group_count, 0, stream>>>(
+    launch_set_kernel_args_fixed_nk(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
         reinterpret_cast<BDataType*>(WQ.data_ptr()),
@@ -474,7 +505,8 @@ void set_dynamic_kernel_args(
         M,
         N,
         K,
-        group_count);
+        group_count,
+        stream);
   }
 }
 
