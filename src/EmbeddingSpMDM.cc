@@ -1384,6 +1384,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
 }
 
 template <typename indxType, typename offsetType, typename outType>
+  requires(!FbgemmFP8Type<indxType>)
 typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDMFP8WithStrides(

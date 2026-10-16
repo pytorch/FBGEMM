@@ -1306,9 +1306,12 @@ void Float8ToFloat_ref_batch(
 /// `true` for FP8 autovec implementation (`bool`)
 /// @param output_stride If -1, output_stride is same as block_size; set to -1
 /// for FP8 autovec implementation (`int64_t`)
-/// @param exponent_bits Bits to use in exponent
-/// @param exponent_bias Bias to use in exponent
-template <typename IndexType, typename OffsetType, typename OutType>
+/// @param decode Converts a row of byte-encoded FP8 values to FP32
+template <
+    typename IndexType,
+    typename OffsetType,
+    typename OutType,
+    typename Decode>
 static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const int64_t block_size,
     const int64_t output_size,
@@ -1324,8 +1327,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    const int exponent_bits,
-    const int exponent_bias) {
+    Decode decode) {
   if (data_size < 0) {
     return false;
   }
@@ -1429,12 +1431,10 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
       //  the code is iterating thru a dimisonals of a embedding vectory
 
       // Perform the batch conversion
-      Float8ToFloat_ref_batch(
+      decode(
           input + input_stride * idx,
           converted_inputs.get(),
-          batch_size,
-          exponent_bits,
-          exponent_bias);
+          batch_size);
 
       // Now accumulate the results using vectorized operations if possible
       const float* input_row = converted_inputs.get();
@@ -2124,32 +2124,52 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
   if (input_stride == -1) {
     input_stride = block_size;
   }
-  return [=](int64_t output_size,
-             int64_t index_size,
-             int64_t data_size,
-             const uint8_t* input,
-             const IndexType* indices,
-             const OffsetType* offsets_or_lengths,
-             const float* weights,
-             OutType* out) {
-    return EmbeddingSpMDMFP8_autovec(
-        /*block_size=*/block_size,
-        /*output_size=*/output_size,
-        /*index_size=*/index_size,
-        /*data_size=*/data_size,
-        /*input=*/input,
-        /*indices=*/indices,
-        /*offsets_or_lengths=*/offsets_or_lengths,
-        /*weights=*/weights,
-        /*normalize_by_lengths=*/normalize_by_lengths,
-        /*out=*/out,
-        /*is_weight_positional=*/is_weight_positional,
-        /*use_offsets=*/use_offsets,
-        /*output_stride=*/output_stride,
-        /*input_stride=*/input_stride,
-        /*exponent_bits=*/exponent_bits,
-        /*exponent_bias=*/exponent_bias);
+  auto make_kernel = [&](auto decode) {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const uint8_t* input,
+               const IndexType* indices,
+               const OffsetType* offsets_or_lengths,
+               const float* weights,
+               OutType* out) {
+      return EmbeddingSpMDMFP8_autovec(
+          /*block_size=*/block_size,
+          /*output_size=*/output_size,
+          /*index_size=*/index_size,
+          /*data_size=*/data_size,
+          /*input=*/input,
+          /*indices=*/indices,
+          /*offsets_or_lengths=*/offsets_or_lengths,
+          /*weights=*/weights,
+          /*normalize_by_lengths=*/normalize_by_lengths,
+          /*out=*/out,
+          /*is_weight_positional=*/is_weight_positional,
+          /*use_offsets=*/use_offsets,
+          /*output_stride=*/output_stride,
+          /*input_stride=*/input_stride,
+          decode);
+    };
   };
+  auto make_typed_kernel = [&]<FbgemmFP8Type InType>() {
+    return make_kernel([](const uint8_t* input, float* output, int count) {
+      for (int i = 0; i < count; ++i) {
+        output[i] = to_float(InType{input[i]});
+      }
+    });
+  };
+  if (exponent_bits == hfp8_e4m3::exponent_bits &&
+      exponent_bias == hfp8_e4m3::exponent_bias) {
+    return make_typed_kernel.template operator()<hfp8_e4m3>();
+  }
+  if (exponent_bits == hfp8_e5m2::exponent_bits &&
+      exponent_bias == hfp8_e5m2::exponent_bias) {
+    return make_typed_kernel.template operator()<hfp8_e5m2>();
+  }
+  // Preserve support for custom runtime formats through the original decoder.
+  return make_kernel([=](const uint8_t* input, float* output, int count) {
+    Float8ToFloat_ref_batch(input, output, count, exponent_bits, exponent_bias);
+  });
 }
 
 template <typename InType, typename IndexType, typename OffsetType>

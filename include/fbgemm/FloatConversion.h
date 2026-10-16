@@ -333,4 +333,42 @@ inline T from_float(float f) {
   }
 }
 
+// HFP8 decoding treats every exponent field as finite, including all ones.
+template <FbgemmFP8Type T>
+constexpr float to_float(T src) {
+  const uint32_t sign = uint32_t(src.val & 0x80) << 24;
+  const uint32_t bits = uint32_t(src.val & 0x7f) << (23 - T::mantissa_bits);
+  constexpr float multiplier =
+      std::bit_cast<float>(uint32_t(254 - T::exponent_bias) << 23);
+  const float value = std::bit_cast<float>(bits) * multiplier;
+  return std::bit_cast<float>(std::bit_cast<uint32_t>(value) | sign);
+}
+
+namespace detail {
+template <FbgemmFP8Type T>
+struct HFP8Format : FloatFormat<uint8_t, T::exponent_bits> {
+  static constexpr int exponent_bias = T::exponent_bias;
+  static constexpr int unbiased_exponent_min = 1 - exponent_bias;
+  static constexpr int unbiased_exponent_max =
+      (1 << T::exponent_bits) - 2 - exponent_bias;
+};
+} // namespace detail
+
+// Like the legacy HFP8 encoder, saturate before rounding and preserve the sign
+// of zero. NaN and infinity map to the signed maximum encoding. Rounding is
+// explicitly to nearest, ties to even, independently of the host rounding mode.
+template <FbgemmFP8Type T>
+constexpr T from_float(float src) {
+  constexpr uint32_t max_bits =
+      std::bit_cast<uint32_t>(to_float(T{T::max_encoding}));
+  const uint32_t bits = std::bit_cast<uint32_t>(src);
+  if ((bits & 0x7fffffff) >= max_bits) {
+    return {static_cast<uint8_t>(((bits >> 24) & 0x80) | T::max_encoding)};
+  }
+  return {detail::ieee754_trunc<
+      detail::IEEE754Single,
+      detail::HFP8Format<T>,
+      detail::RoundingMode::ToNearestTiesToEven>(bits)};
+}
+
 } // namespace fbgemm

@@ -24,6 +24,40 @@ struct bfloat16 {
   bool operator==(const bfloat16&) const = default;
 };
 
+// Byte storage for the configurable HFP8 encoding used by the FP8 conversion
+// and embedding APIs. This is not an IEEE/ONNX E4M3FN or E5M2 type: the legacy
+// encoder saturates finite values and the decoder treats all exponent fields
+// as finite. Format parameters are part of the type, rather than the buffer.
+template <int ExponentBits, int ExponentBias>
+struct hfp8 {
+  static_assert(ExponentBits == 4 || ExponentBits == 5);
+  static_assert(ExponentBias >= 0 && ExponentBias <= (1 << ExponentBits) - 2);
+
+  static constexpr int exponent_bits = ExponentBits;
+  static constexpr int exponent_bias = ExponentBias;
+  static constexpr int mantissa_bits = 7 - ExponentBits;
+  static constexpr uint8_t max_encoding =
+      (((1 << ExponentBits) - 2) << mantissa_bits) |
+      ((1 << mantissa_bits) - 1);
+  uint8_t val;
+  bool operator==(const hfp8&) const = default;
+};
+
+using hfp8_e4m3 = hfp8<4, 7>;
+using hfp8_e5m2 = hfp8<5, 15>;
+
+template <typename T>
+concept FbgemmFP8Type = requires {
+  requires std::same_as<T, hfp8<T::exponent_bits, T::exponent_bias>>;
+};
+
+static_assert(sizeof(hfp8_e4m3) == 1 && sizeof(hfp8_e5m2) == 1);
+static_assert(alignof(hfp8_e4m3) == 1 && alignof(hfp8_e5m2) == 1);
+static_assert(std::is_standard_layout_v<hfp8_e4m3>);
+static_assert(std::is_standard_layout_v<hfp8_e5m2>);
+static_assert(std::is_trivially_copyable_v<hfp8_e4m3>);
+static_assert(std::is_trivially_copyable_v<hfp8_e5m2>);
+
 static_assert(sizeof(float16) == 2);
 static_assert(sizeof(bfloat16) == 2);
 // float16/bfloat16 must stay layout- and ABI-compatible with uint16_t: the
