@@ -629,6 +629,35 @@ class TestFp8Matmul(unittest.TestCase):
         self.assertEqual(result.shape, torch.Size((2, 3, 4)))
         self.assertTrue(torch.allclose(result, a @ b.T, atol=2e-1, rtol=5e-2))
 
+    def test_fp8_matmul_fake_preserves_batch_dimensions(self) -> None:
+        with FakeTensorMode():
+            device = torch.accelerator.current_accelerator()
+            a = torch.empty(2, 3, 5, device=device, dtype=torch.float8_e4m3fn)
+            b = torch.empty(4, 5, device=device, dtype=torch.float8_e4m3fn)
+            row_scale_a = torch.empty(2, 3, device=device)
+            row_scale_b = torch.empty(4, device=device)
+            block_scale_a = torch.empty(1, 1, device=device)
+            block_scale_b = torch.empty(1, 1, device=device)
+
+            row_result = matmul_fp8_row(
+                a,
+                b,
+                row_scale_a,
+                row_scale_b,
+                use_persistent=False,
+                # Non-default last arg forces every schema arg into the fake.
+                use_warp_specialization=True,
+            )
+            block_result = matmul_fp8_block(
+                a,
+                b,
+                block_scale_a,
+                block_scale_b,
+            )
+
+        self.assertEqual(row_result.shape, torch.Size((2, 3, 4)))
+        self.assertEqual(block_result.shape, torch.Size((2, 3, 4)))
+
     def test_fp8_matmul_empty_uses_requested_output_dtype(self) -> None:
         device = torch.accelerator.current_accelerator()
         a = torch.empty(0, 5, device=device, dtype=torch.float8_e4m3fn)
