@@ -997,6 +997,84 @@ GenEmbeddingSpMDMNBitLookup<
       });
 }
 
+#if HAVE_SVE
+// Binding the input bit rate as a template parameter lets the unpacking width,
+// the element-per-byte count and the bit-rate branches inside the kernel's
+// inner loops all fold away at compile time.
+template <
+    int InputBitRate,
+    typename indxType,
+    typename offsetType,
+    typename outType>
+typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
+    Type
+    GenerateEmbeddingSpMDMNBitWithStrides_SveFp16(
+        const int64_t block_size,
+        const bool normalize_by_lengths,
+        const bool is_weight_positional,
+        const bool use_offsets,
+        const int64_t output_stride,
+        const int64_t input_stride,
+        const bool scale_bias_last,
+        const bool no_bag) {
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const uint8_t* input,
+             const indxType* indices,
+             const offsetType* offsets_or_lengths,
+             const float* weights,
+             outType* out) {
+    if (no_bag) {
+      return internal::EmbeddingSpMDMNBit_Sve_Fp16<
+          InputBitRate,
+          indxType,
+          offsetType,
+          outType,
+          true,
+          true>(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last);
+    }
+    return internal::EmbeddingSpMDMNBit_Sve_Fp16<
+        InputBitRate,
+        indxType,
+        offsetType,
+        outType,
+        false,
+        true>(
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last);
+  };
+}
+#endif // HAVE_SVE
+
 } // namespace
 
 template <
@@ -1129,61 +1207,34 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     // throughput: ~0.5-1% relative error vs FP32 at typical bag
     // sizes (L=100), worst-case O(L * eps_fp16) ~= 10%.
     if (is_sve_fp16_enabled()) {
-      return [=](int64_t output_size,
-                 int64_t index_size,
-                 int64_t data_size,
-                 const uint8_t* input,
-                 const indxType* indices,
-                 const offsetType* offsets_or_lengths,
-                 const float* weights,
-                 outType* out) {
-        if (no_bag) {
-          return internal::EmbeddingSpMDMNBit_Sve_Fp16<
-              indxType,
-              offsetType,
-              outType,
-              true,
-              true>(
-              input_bit_rate,
-              block_size,
-              output_size,
-              index_size,
-              data_size,
-              input,
-              indices,
-              offsets_or_lengths,
-              weights,
-              normalize_by_lengths,
-              out,
-              is_weight_positional,
-              use_offsets,
-              output_stride,
-              input_stride,
-              scale_bias_last);
-        }
-        return internal::EmbeddingSpMDMNBit_Sve_Fp16<
+      if (input_bit_rate == 4) {
+        return GenerateEmbeddingSpMDMNBitWithStrides_SveFp16<
+            4,
             indxType,
             offsetType,
-            outType,
-            false,
-            true>(
-            input_bit_rate,
+            outType>(
             block_size,
-            output_size,
-            index_size,
-            data_size,
-            input,
-            indices,
-            offsets_or_lengths,
-            weights,
             normalize_by_lengths,
-            out,
             is_weight_positional,
             use_offsets,
             output_stride,
             input_stride,
-            scale_bias_last);
-      };
+            scale_bias_last,
+            no_bag);
+      }
+      return GenerateEmbeddingSpMDMNBitWithStrides_SveFp16<
+          2,
+          indxType,
+          offsetType,
+          outType>(
+          block_size,
+          normalize_by_lengths,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag);
     }
   }
 
