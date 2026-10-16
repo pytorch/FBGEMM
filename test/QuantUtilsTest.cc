@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstring>
 #include <limits>
 #include <random>
 #include <sstream>
@@ -819,6 +820,50 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfScaleBiasFrontTest) {
 // Scale and bias are of type float
 TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   auto [rows, cols] = GetParam();
+
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || \
+    defined(_M_IX86)
+  auto check_layouts = []<typename OutputType>(int rows, int cols) {
+    for (const bool scale_bias_last : {false, true}) {
+      for (const bool quant_padding_float_type : {false, true}) {
+        const int metadata_bytes =
+            2 * (quant_padding_float_type ? sizeof(float) : sizeof(float16));
+        const int input_columns = cols + metadata_bytes;
+        vector<uint8_t> input(rows * input_columns);
+        for (int row = 0; row < rows; ++row) {
+          auto* input_row = input.data() + row * input_columns;
+          auto* metadata = input_row + (scale_bias_last ? cols : 0);
+          auto* values = input_row + (scale_bias_last ? 0 : metadata_bytes);
+          if (quant_padding_float_type) {
+            const float scale_bias[] = {0.5f, -2.0f};
+            std::memcpy(metadata, scale_bias, sizeof(scale_bias));
+          } else {
+            const float16 scale_bias[] = {
+                cpu_float2half_rn(0.5f), cpu_float2half_rn(-2.0f)};
+            std::memcpy(metadata, scale_bias, sizeof(scale_bias));
+          }
+          for (int col = 0; col < cols; ++col) {
+            values[col] = (row + col) % 16;
+          }
+        }
+        vector<OutputType> actual(rows * cols), expected(rows * cols);
+        Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<OutputType>(
+            input.data(), rows, input_columns, expected.data(),
+            scale_bias_last, quant_padding_float_type);
+        Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf<OutputType>(
+            input.data(), rows, input_columns, actual.data(),
+            scale_bias_last, quant_padding_float_type);
+        // These inputs decode exactly in all three output formats.
+        EXPECT_EQ(actual, expected)
+            << "cols=" << cols << " scale_bias_last=" << scale_bias_last
+            << " quant_padding_float_type=" << quant_padding_float_type;
+      }
+    }
+  };
+  check_layouts.template operator()<float>(rows, cols);
+  check_layouts.template operator()<float16>(rows, cols);
+  check_layouts.template operator()<bfloat16>(rows, cols);
+#endif
 
   random_device rd;
   mt19937 gen(rd());
