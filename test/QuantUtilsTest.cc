@@ -759,6 +759,63 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   }
 }
 
+// Only the reference implementation handles the scale-bias-front layout; the
+// vectorized kernels assume scale and bias sit at the end of the row. Check
+// that the public entry point honours the flag rather than decoding the
+// leading scale and bias as quantized data.
+TEST_P(EmbeddingQuantizeTest, embeddingHalfScaleBiasFrontTest) {
+  auto [bit_rate, rows, cols] = GetParam();
+
+  random_device rd;
+  mt19937 gen(rd());
+  uniform_real_distribution<float> disFP(-10.0f, 10.0f);
+
+  vector<float> inpVec(rows * cols);
+  std::ranges::generate(inpVec, [&, disFP]() mutable { return disFP(gen); });
+
+  const int elements_per_byte = 8 / bit_rate;
+  const int out_emb_cols = (cols + elements_per_byte - 1) / elements_per_byte;
+  const int out_cols = out_emb_cols + 2 * sizeof(float16);
+  const int dequant_cols = out_emb_cols * elements_per_byte;
+
+  vector<uint8_t> scaleBiasLast(rows * out_cols);
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<float>(
+      bit_rate, inpVec.data(), rows, cols, scaleBiasLast.data());
+
+  // Rotate every row so that scale and bias come first instead of last.
+  vector<uint8_t> scaleBiasFront(rows * out_cols);
+  for (int r = 0; r < rows; ++r) {
+    const uint8_t* src = scaleBiasLast.data() + r * out_cols;
+    uint8_t* dst = scaleBiasFront.data() + r * out_cols;
+    std::copy(src + out_emb_cols, src + out_cols, dst);
+    std::copy(src, src + out_emb_cols, dst + 2 * sizeof(float16));
+  }
+
+  vector<float> frontRef(rows * dequant_cols);
+  vector<float> frontTest(rows * dequant_cols);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float>(
+      bit_rate,
+      scaleBiasFront.data(),
+      rows,
+      out_cols,
+      frontRef.data(),
+      /*scale_bias_last=*/false);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float>(
+      bit_rate,
+      scaleBiasFront.data(),
+      rows,
+      out_cols,
+      frontTest.data(),
+      /*scale_bias_last=*/false);
+  EXPECT_EQ(frontRef, frontTest);
+
+  // Rotating the row must not change what it decodes to.
+  vector<float> lastTest(rows * dequant_cols);
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float>(
+      bit_rate, scaleBiasLast.data(), rows, out_cols, lastTest.data());
+  EXPECT_EQ(lastTest, frontRef);
+}
+
 // Scale and bias are of type float
 TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
   auto [rows, cols] = GetParam();

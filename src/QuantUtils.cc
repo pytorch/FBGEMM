@@ -793,11 +793,18 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     size_t input_rows,
     int input_columns,
     OutputType* output,
-    bool scale_bias_last [[maybe_unused]]) {
+    bool scale_bias_last) {
   auto ref_fallback = [&]() {
     FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
-        bit_rate, input, input_rows, input_columns, output);
+        bit_rate, input, input_rows, input_columns, output, scale_bias_last);
   };
+
+  // The vectorized kernels below all assume scale and bias sit at the end of
+  // the row; only the reference implementation handles the front layout.
+  if (!scale_bias_last) {
+    ref_fallback();
+    return;
+  }
 
 #if HAVE_SVE
   switch (bit_rate) {
