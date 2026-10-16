@@ -46,6 +46,29 @@ set(BUILD_VARIANT_ROCM    "rocm")
 set(BUILD_VARIANT_VALUES
   "${BUILD_VARIANT_CPU};${BUILD_VARIANT_CUDA};${BUILD_VARIANT_ROCM}")
 
+# Detect only full ROCm SDKs. PyTorch wheels may put a runtime-only hipconfig on
+# PATH whose reported tree does not contain the CMake packages needed to build.
+set(FBGEMM_ROCM_INSTALLATION_FOUND FALSE)
+if(EXISTS "/opt/rocm/lib/cmake/hip")
+  set(FBGEMM_ROCM_INSTALLATION_FOUND TRUE)
+elseif(NOT "$ENV{ROCM_PATH}" STREQUAL "" AND
+    EXISTS "$ENV{ROCM_PATH}/lib/cmake/hip")
+  set(FBGEMM_ROCM_INSTALLATION_FOUND TRUE)
+else()
+  find_program(FBGEMM_BUILD_VARIANT_HIPCONFIG_EXECUTABLE hipconfig)
+  if(FBGEMM_BUILD_VARIANT_HIPCONFIG_EXECUTABLE)
+    execute_process(
+      COMMAND ${FBGEMM_BUILD_VARIANT_HIPCONFIG_EXECUTABLE} --rocmpath
+      OUTPUT_VARIABLE FBGEMM_HIPCONFIG_ROCM_PATH
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE FBGEMM_HIPCONFIG_RESULT)
+    if(FBGEMM_HIPCONFIG_RESULT EQUAL 0 AND
+        EXISTS "${FBGEMM_HIPCONFIG_ROCM_PATH}/lib/cmake/hip")
+      set(FBGEMM_ROCM_INSTALLATION_FOUND TRUE)
+    endif()
+  endif()
+endif()
+
 if (DEFINED FBGEMM_BUILD_VARIANT)
   # If FBGEMM_BUILD_VARIANT is set, validate it
   if(NOT FBGEMM_BUILD_VARIANT IN_LIST BUILD_VARIANT_VALUES)
@@ -54,8 +77,7 @@ if (DEFINED FBGEMM_BUILD_VARIANT)
       Allowed values: ${BUILD_VARIANT_VALUES}")
   endif()
 
-elseif(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
-  (NOT EXISTS "/bin/nvcc"))
+elseif(FBGEMM_ROCM_INSTALLATION_FOUND AND NOT EXISTS "/bin/nvcc")
   message(
     "AMD GPU has been detected; will default to ROCm build"
   )
