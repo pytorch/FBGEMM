@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-strict
+from __future__ import annotations
 
 import itertools
 import unittest
@@ -17,9 +17,14 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     MINIMUM_BLOCK_K,
     MINIMUM_BLOCK_M,
     MINIMUM_BLOCK_N,
+    prune_configs,
     prune_configs_h100_static,
+    USED_MATMUL_NON_PERSISTENT_CONFIGS,
 )
+from torch._dynamo.source import LocalSource
+from torch._dynamo.testing import CompileCounterWithBackend
 from torch._subclasses.fake_tensor import FakeTensorMode
+from torch.fx.experimental.symbolic_shapes import DimDynamic, ShapeEnv
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -531,6 +536,45 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_row((3, 4, 5), torch.device("cpu"), False)
         _test_matmul_fp8_row((3, 4, 5), torch.device("cpu"), False, True)
 
+    @unittest.skipIf(
+        torch.version.hip is None,
+        "Non-persistent kernel configs use AMD-only options.",
+    )
+    def test_matmul_fp8_row_dynamic_rows(self) -> None:
+        counter = CompileCounterWithBackend("inductor")
+
+        @torch.compile(backend=counter, fullgraph=True)
+        def matmul(
+            a: torch.Tensor,
+            b: torch.Tensor,
+            a_scale: torch.Tensor,
+            b_scale: torch.Tensor,
+        ) -> torch.Tensor:
+            return matmul_fp8_row(a, b, a_scale, b_scale, no_use_persistent=True)
+
+        device = torch.accelerator.current_accelerator()
+        a, a_scale = quantize_fp8_row(
+            torch.randn(64, 3072, device=device, dtype=torch.bfloat16)
+        )
+        b, b_scale = quantize_fp8_row(
+            torch.randn(1280, 3072, device=device, dtype=torch.bfloat16)
+        )
+        torch._dynamo.mark_dynamic(a, 0, min=1, max=64)
+        torch._dynamo.mark_dynamic(a_scale, 0, min=1, max=64)
+        for rows in (64, 63, 33, 32, 17, 10, 6, 2, 1):
+            with self.subTest(rows=rows):
+                input_a = a if rows == 64 else a[:rows].clone()
+                input_scale = a_scale if rows == 64 else a_scale[:rows].clone()
+                result = matmul(input_a, b, input_scale, b_scale)
+                self.assertEqual(result.shape, (rows, 1280))
+                expected = input_a.float() @ b.float().T
+                expected *= input_scale[:, None] * b_scale[None, :]
+                torch.testing.assert_close(
+                    result.float(), expected, atol=0.5, rtol=0.02
+                )
+                if rows != 1:
+                    self.assertEqual(counter.frame_count, 1)
+
     def test_matmul_fp8_row_skip_scaling(self) -> None:
         def _fp8_clamp(x: torch.Tensor) -> torch.Tensor:
             fp8_dtype = torch.float8_e4m3fn
@@ -852,6 +896,74 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((256, 256, 640), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 64), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 192), (256, 256, 128), True)
+
+
+class TestPruneConfigsNonPersistent(unittest.TestCase):
+    def test_pruning_preserves_symbolic_dimensions(self) -> None:
+        for dimension, hint in (("M", 64), ("N", 1280), ("K", 3072)):
+            with self.subTest(dimension=dimension):
+                shape_env = ShapeEnv()
+                source = LocalSource(dimension)
+                symbol = shape_env.create_symbol(
+                    hint,
+                    source,
+                    dynamic_dim=DimDynamic.DYNAMIC,
+                    do_not_specialize_zero_one=True,
+                )
+                shape_env.constrain_symbol_range(symbol, 1, hint)
+                symbolic_size = shape_env.create_symintnode(
+                    symbol, hint=hint, source=source
+                )
+                args: dict[str, torch.Tensor | int | torch.SymInt] = {
+                    "M": 64,
+                    "N": 1280,
+                    "K": 3072,
+                    "A": torch.empty(
+                        64, 3072, dtype=torch.float8_e4m3fn, device="meta"
+                    ),
+                    "B": torch.empty(
+                        1280, 3072, dtype=torch.float8_e4m3fn, device="meta"
+                    ),
+                }
+                expected = prune_configs(
+                    USED_MATMUL_NON_PERSISTENT_CONFIGS, args, USE_BIAS=False
+                )
+                args[dimension] = symbolic_size
+                actual = prune_configs(
+                    USED_MATMUL_NON_PERSISTENT_CONFIGS, args, USE_BIAS=False
+                )
+                self.assertEqual(actual, expected)
+                self.assertIs(args[dimension], symbolic_size)
+                bounds = shape_env.bound_sympy(symbol)
+                self.assertEqual(bounds.lower, 1)
+                self.assertEqual(bounds.upper, hint)
+                self.assertEqual(shape_env.guards, [])
+
+    def test_pruning_keeps_small_shape_and_bias_constraints(self) -> None:
+        configs = [
+            triton.Config(
+                {
+                    "BLOCK_M": block_m,
+                    "BLOCK_N": 16,
+                    "BLOCK_K": 64,
+                    "GROUP_M": 1,
+                    "SPLIT_K": split_k,
+                    "matrix_instr_nonkdim": 16,
+                }
+            )
+            for block_m, split_k in ((16, 1), (32, 1), (16, 2))
+        ]
+        args = {
+            "M": 1,
+            "N": 1,
+            "K": 3072,
+            "A": torch.empty(1, 3072, dtype=torch.float8_e4m3fn, device="meta"),
+            "B": torch.empty(1, 3072, dtype=torch.float8_e4m3fn, device="meta"),
+        }
+        self.assertEqual(
+            prune_configs(configs, args, USE_BIAS=False), [configs[0], configs[2]]
+        )
+        self.assertEqual(prune_configs(configs, args, USE_BIAS=True), [configs[0]])
 
 
 class _FakeConfig:

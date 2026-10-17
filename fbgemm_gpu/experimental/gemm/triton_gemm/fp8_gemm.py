@@ -4,7 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
+from __future__ import annotations
+
 import functools
 import logging
 import os
@@ -22,6 +23,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.utils import (
 )
 from packaging import version
 from torch._tensor import Tensor
+from torch.fx.experimental import symbolic_shapes
 from triton import Config  # @manual
 from triton.runtime.jit import reinterpret as tl_reinterpret, TensorWrapper  # @manual
 
@@ -3926,9 +3928,13 @@ def is_invalid_config(config, N, M, K, mfma, use_bias):
 def prune_configs(configs, named_args, **kwargs):
 
     pruned_configs = []
-    M = named_args["M"]
-    N = named_args["N"]
-    K = named_args["K"]
+    shape_hint = getattr(symbolic_shapes, "optimization_hint", None) or getattr(
+        symbolic_shapes, "hint_int", None
+    )
+    assert shape_hint is not None
+    M = shape_hint(named_args["M"])
+    N = shape_hint(named_args["N"])
+    K = shape_hint(named_args["K"])
     elemBytes_a = named_args["A"].element_size()
     elemBytes_b = named_args["B"].element_size()
     use_bias = kwargs["USE_BIAS"]
