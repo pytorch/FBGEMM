@@ -15,6 +15,8 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+#include <fbgemm_gpu/quantize/fp8_dtype.h>
+#include <ATen/DeviceGuard.h>
 #include <c10/hip/HIPStream.h>
 
 #include "kernels/fp8_rowwise_preshuffle_kernel_manifest.h"
@@ -101,10 +103,8 @@ at::Tensor f8f8_rowwise_preshuffle_wrapper(
     bool use_fast_accum,
     std::optional<at::Tensor> output = std::nullopt) {
   // Check that input datatypes are valid.
-  TORCH_CHECK(
-      (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
-          (WQ.dtype() == at::kFloat8_e4m3fnuz),
-      "Inputs must be type float8_e4m3fnuz.");
+  check_ck_fp8_inputs(XQ, WQ);
+  const at::OptionalDeviceGuard device_guard(XQ.device());
   TORCH_CHECK(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");

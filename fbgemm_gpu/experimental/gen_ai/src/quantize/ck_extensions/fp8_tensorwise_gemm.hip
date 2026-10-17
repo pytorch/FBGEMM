@@ -12,6 +12,7 @@
 #include <numeric>
 
 #include <ATen/ATen.h>
+#include <fbgemm_gpu/quantize/fp8_dtype.h>
 #include <c10/core/DeviceGuard.h>
 #include <c10/hip/HIPStream.h>
 
@@ -224,17 +225,8 @@ at::Tensor f8f8bf16_tensorwise(
     at::Tensor WQ,
     double scale,
     bool use_fast_accum) {
-  TORCH_CHECK(XQ.is_cuda() && WQ.is_cuda(), "Inputs must be CUDA tensors.");
-  TORCH_CHECK(
-      XQ.device() == WQ.device(), "Inputs must be on the same device.");
+  check_ck_fp8_inputs(XQ, WQ);
   c10::DeviceGuard device_guard{XQ.device()};
-  const auto native_dtype = at::detail::getCUDAHooks().isGPUArch(
-                                {"gfx94", "gfx90a"}, XQ.get_device())
-      ? at::kFloat8_e4m3fnuz
-      : at::kFloat8_e4m3fn;
-  TORCH_CHECK(
-      XQ.dtype() == native_dtype && WQ.dtype() == native_dtype,
-      "Inputs must use the native FP8 E4M3 type.");
   TORCH_CHECK(use_fast_accum, "AMD does not support disabling use_fast_accum");
   auto [kernel, pad] = get_kernel_mode(XQ, WQ);
   if (pad) {
