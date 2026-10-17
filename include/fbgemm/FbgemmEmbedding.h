@@ -9,8 +9,10 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <utility>
 
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/Types.h"
 
 namespace fbgemm {
 
@@ -186,6 +188,7 @@ template <
     typename IndexType,
     typename OffsetType = std::int32_t,
     typename OutType = float>
+  requires(!FbgemmFP8Type<IndexType>)
 FBGEMM_API typename EmbeddingSpMDMKernelSignature<
     std::uint8_t,
     IndexType,
@@ -200,6 +203,49 @@ GenerateEmbeddingSpMDMFP8WithStrides(
     std::int64_t input_stride = -1,
     int exponent_bits = 4,
     int exponent_bias = 7);
+
+template <
+    FbgemmFP8Type InType,
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+auto GenerateEmbeddingSpMDMFP8WithStrides(
+    const std::int64_t block_size,
+    bool normalize_by_lengths,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1) {
+  auto kernel =
+      GenerateEmbeddingSpMDMFP8WithStrides<IndexType, OffsetType, OutType>(
+          block_size,
+          normalize_by_lengths,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          InType::exponent_bits,
+          InType::exponent_bias);
+  return [kernel = std::move(kernel)](
+             std::int64_t output_size,
+             std::int64_t index_size,
+             std::int64_t data_size,
+             const InType* input,
+             const IndexType* indices,
+             const OffsetType* offsets_or_lengths,
+             const float* weights,
+             OutType* out) {
+    return kernel(
+        output_size,
+        index_size,
+        data_size,
+        reinterpret_cast<const std::uint8_t*>(input),
+        indices,
+        offsets_or_lengths,
+        weights,
+        out);
+  };
+}
 
 template <
     typename InType,
