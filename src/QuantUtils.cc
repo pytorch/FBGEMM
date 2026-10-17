@@ -923,51 +923,34 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
 #else
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-    if constexpr (std::is_same_v<OutputType, bfloat16>) {
-      if (fbgemmHasAvx512Bf16Support()) {
-#define DEQUANT_LAUNCH_AVX512_BF16(scale_bias_last, quant_padding_float_type) \
-  Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512<                           \
-      scale_bias_last,                                                        \
-      quant_padding_float_type>(input, input_rows, input_columns, output);
-
-        if (scale_bias_last) {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH_AVX512_BF16(true, true);
-          } else {
-            DEQUANT_LAUNCH_AVX512_BF16(true, false);
-          }
-        } else {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH_AVX512_BF16(false, true);
-          } else {
-            DEQUANT_LAUNCH_AVX512_BF16(false, false);
-          }
+    auto launch = [&]<bool ScaleBiasLast, bool QuantPaddingFloatType>() {
+      if constexpr (std::is_same_v<OutputType, bfloat16>) {
+        if (fbgemmHasAvx512Bf16Support()) {
+          Fused8BitRowwiseQuantizedSBFloatToBfloat16Avx512<
+              ScaleBiasLast,
+              QuantPaddingFloatType>(input, input_rows, input_columns, output);
+          return;
         }
-#undef DEQUANT_LAUNCH_AVX512_BF16
-        return;
       }
-    }
-
-#define DEQUANT_LAUNCH_AVX2(scale_bias_last, quant_padding_float_type) \
-  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<                   \
-      OutputType,                                                      \
-      scale_bias_last,                                                 \
-      quant_padding_float_type>(input, input_rows, input_columns, output);
+      Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<
+          OutputType,
+          ScaleBiasLast,
+          QuantPaddingFloatType>(input, input_rows, input_columns, output);
+    };
 
     if (scale_bias_last) {
       if (quant_padding_float_type) {
-        DEQUANT_LAUNCH_AVX2(true, true);
+        launch.template operator()<true, true>();
       } else {
-        DEQUANT_LAUNCH_AVX2(true, false);
+        launch.template operator()<true, false>();
       }
     } else {
       if (quant_padding_float_type) {
-        DEQUANT_LAUNCH_AVX2(false, true);
+        launch.template operator()<false, true>();
       } else {
-        DEQUANT_LAUNCH_AVX2(false, false);
+        launch.template operator()<false, false>();
       }
     }
-#undef DEQUANT_LAUNCH_AVX2
 
     return;
 #endif
