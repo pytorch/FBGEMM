@@ -6,11 +6,32 @@
 
 set(FBGEMM_HAVE_HIP FALSE)
 
-if(NOT DEFINED ENV{ROCM_PATH})
+# Locate ROCm from ROCM_PATH, else /opt/rocm if it exists, else hipconfig.
+# hipconfig comes last because PyTorch's ROCm wheels can install a hipconfig of
+# their own, for a ROCm runtime that is not a full ROCm installation.
+if(NOT "$ENV{ROCM_PATH}" STREQUAL "")
+  set(ROCM_PATH $ENV{ROCM_PATH})
+elseif(EXISTS "/opt/rocm")
   set(ROCM_PATH /opt/rocm)
 else()
-  set(ROCM_PATH $ENV{ROCM_PATH})
+  find_program(FBGEMM_HIPCONFIG_EXECUTABLE hipconfig)
+  if(FBGEMM_HIPCONFIG_EXECUTABLE)
+    execute_process(
+      COMMAND ${FBGEMM_HIPCONFIG_EXECUTABLE} --rocmpath
+      OUTPUT_VARIABLE ROCM_PATH
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE _hipconfig_result)
+    if(NOT _hipconfig_result EQUAL 0)
+      unset(ROCM_PATH)
+    endif()
+  endif()
+  if(NOT ROCM_PATH)
+    message(FATAL_ERROR
+      "Unable to locate ROCm: ROCM_PATH is not set, /opt/rocm does not exist, "
+      "and hipconfig is not on PATH")
+  endif()
 endif()
+message(STATUS "ROCm path: ${ROCM_PATH}")
 
 macro(torch_hip_get_arch_list store_var)
   if(DEFINED ENV{PYTORCH_ROCM_ARCH})
