@@ -475,16 +475,18 @@ FBGEMM_API void RequantizeFixedPoint(
     int num_threads) {
   int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
-  if (std::is_same_v<T, uint8_t> && params.target_qparams.precision == 8 &&
-      cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-    RequantizeFixedPointAvx2(
-        &src[i_begin], &dst[i_begin], i_end - i_begin, params);
-#endif
-  } else {
-    for (int64_t i = i_begin; i < i_end; ++i) {
-      dst[i] = RequantizeFixedPoint<T>(src[i], params);
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
+        fbgemmHasAvx2Support()) {
+      RequantizeFixedPointAvx2(
+          &src[i_begin], &dst[i_begin], i_end - i_begin, params);
+      return;
     }
+  }
+#endif
+  for (int64_t i = i_begin; i < i_end; ++i) {
+    dst[i] = RequantizeFixedPoint<T>(src[i], params);
   }
 }
 
