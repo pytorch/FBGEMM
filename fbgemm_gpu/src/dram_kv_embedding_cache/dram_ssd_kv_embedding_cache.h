@@ -13,6 +13,7 @@
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/logging/xlog.h>
+#include <functional>
 #include <thread>
 
 #include "dram_kv_embedding_cache.h"
@@ -100,6 +101,13 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
   }
   int64_t get_ssd_num_writes() const {
     return ssd_num_writes_.load(std::memory_order_relaxed);
+  }
+
+  /// Install a deterministic test seam after flush snapshots a shard's clean
+  /// metadata and releases its map lock, but before that snapshot is persisted.
+  void set_after_metadata_snapshot_hook_for_testing(
+      std::function<void(int64_t)> hook) {
+    after_metadata_snapshot_hook_for_testing_ = std::move(hook);
   }
 
   // --- Core EmbeddingKVDB interface ---
@@ -514,6 +522,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
                             block_size]() {
         ShardData shard;
         std::vector<int64_t> non_dirty_keys;
+        std::vector<weight_type> non_dirty_metadata;
         {
           auto rlock_start = facebook::WallClockUtil::NowInUsecFast();
           auto rlmap = kv_store.by(shard_id).rlock();
@@ -521,6 +530,9 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
           shard.keys.reserve(rlmap->size());
           shard.blocks.reserve(rlmap->size());
           non_dirty_keys.reserve(rlmap->size());
+          non_dirty_metadata.reserve(rlmap->size() * metaheader_dim_);
+          auto metadata_snapshot_start =
+              facebook::WallClockUtil::NowInUsecFast();
           for (auto& [key, block] : *rlmap) {
             if (pool->get_dirty(block)) {
               shard.keys.push_back(key);
@@ -529,8 +541,17 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
               pool->clear_dirty(block);
             } else {
               non_dirty_keys.push_back(key);
+              const auto metadata_offset = non_dirty_metadata.size();
+              non_dirty_metadata.resize(metadata_offset + metaheader_dim_);
+              std::memcpy(
+                  non_dirty_metadata.data() + metadata_offset,
+                  reinterpret_cast<const weight_type*>(block),
+                  metaheader_dim_ * sizeof(weight_type));
             }
           }
+          shard_metadata_read_us[shard_id] =
+              facebook::WallClockUtil::NowInUsecFast() -
+              metadata_snapshot_start;
           shard_rlock_us[shard_id] =
               facebook::WallClockUtil::NowInUsecFast() - rlock_start;
         }
@@ -551,17 +572,25 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
         // (set_kv_zch_eviction_metadata_async only writes to DRAM
         // without setting the dirty bit).
         if (rocksdb_backend_ && !non_dirty_keys.empty()) {
+          // Keep keys and metadata from the same locked snapshot. Re-reading
+          // the DRAM map after releasing its rlock lets eviction remove a clean
+          // row in between and would overwrite the valid SSD header with zero.
+          if (after_metadata_snapshot_hook_for_testing_) {
+            after_metadata_snapshot_hook_for_testing_(shard_id);
+          }
           auto num_keys = static_cast<int64_t>(non_dirty_keys.size());
-          auto md_read_start = facebook::WallClockUtil::NowInUsecFast();
           auto indices = at::from_blob(
                              non_dirty_keys.data(),
                              {num_keys},
                              at::TensorOptions().dtype(at::kLong))
                              .clone();
           auto count = at::tensor({num_keys}, at::ScalarType::Long);
-          auto metadata = dram_cache_->get_kv_metadata_rows(indices, count);
-          shard_metadata_read_us[shard_id] =
-              facebook::WallClockUtil::NowInUsecFast() - md_read_start;
+          auto metadata = at::from_blob(
+                              non_dirty_metadata.data(),
+                              {num_keys, metaheader_dim_},
+                              at::TensorOptions().dtype(
+                                  c10::CppTypeToScalarType<weight_type>::value))
+                              .clone();
 
           auto md_write_start = facebook::WallClockUtil::NowInUsecFast();
           rocksdb_backend_->set_kv_metadata_async(indices, metadata, count)
@@ -792,6 +821,8 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
 
   // MetaHeader width in weight_type elements
   int64_t metaheader_dim_;
+
+  std::function<void(int64_t)> after_metadata_snapshot_hook_for_testing_;
 
   // Dedicated executor for async DRAM backfill
   std::unique_ptr<folly::CPUThreadPoolExecutor> backfill_executor_;

@@ -10,13 +10,16 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_cache.h"
 
 #include <fmt/format.h>
+#include <folly/system/EnvUtil.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace kv_mem {
@@ -286,25 +289,29 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
     folly::coro::blockingWait(cache.set_kv_db_async(indices, weights, count));
   }
 
-  // Build a standalone float cache, varying only enable_ssd_backend so tests
-  // can compare dirty-bit behavior with the flag on vs off.
+  // Build a standalone float cache with focused overrides for each test.
   std::shared_ptr<DramKVEmbeddingCache<float>> makeCache(
-      bool enable_ssd_backend) {
+      bool enable_ssd_backend,
+      int num_shards = NUM_SHARDS,
+      bool is_training = false,
+      bool disable_random_init = true,
+      double uniform_init_lower = -0.1,
+      double uniform_init_upper = 0.1) {
     auto hash_size_cumsum = at::tensor({0, 100000}, at::kLong);
     return std::make_shared<DramKVEmbeddingCache<float>>(
         EMBEDDING_DIM,
-        /*uniform_init_lower=*/-0.1,
-        /*uniform_init_upper=*/0.1,
+        uniform_init_lower,
+        uniform_init_upper,
         /*feature_evict_config=*/std::nullopt,
-        NUM_SHARDS,
+        num_shards,
         /*num_threads=*/4,
         /*row_storage_bitwidth=*/32,
         /*backend_return_whole_row=*/false,
         /*enable_async_update=*/false,
         /*table_dims=*/std::nullopt,
         hash_size_cumsum,
-        /*is_training=*/false,
-        /*disable_random_init=*/true,
+        is_training,
+        disable_random_init,
         /*enable_raw_embedding_streaming=*/false,
         /*res_store_shards=*/0,
         /*res_server_port=*/0,
@@ -571,6 +578,28 @@ TEST_F(DramKVEmbeddingCacheTest, SingleKeyMetadata) {
   EXPECT_GE(header.count, 0u);
 }
 
+// A key can be evicted after input sharding but before its shard lock is
+// acquired. Missing rows retain the zero-initialized metadata instead of
+// aborting the process.
+TEST_F(DramKVEmbeddingCacheTest, MissingKeyMetadataReturnsZeroRow) {
+  constexpr int64_t present_id = 42;
+  constexpr int64_t missing_id = 99;
+  set_kv_db_async(*dram_cache_, present_id, 2.5f);
+
+  auto indices = at::tensor({present_id, missing_id}, at::kLong);
+  auto count = at::tensor({2}, at::kLong);
+  auto metadata = dram_cache_->get_kv_metadata_rows(indices, count);
+
+  const int64_t metadata_dim =
+      static_cast<int64_t>(FixedBlockPool::get_metaheader_dim<float>());
+  MetaHeader present_header{};
+  std::memcpy(
+      &present_header, metadata[0].data_ptr<float>(), sizeof(MetaHeader));
+  EXPECT_EQ(present_header.key, present_id);
+  EXPECT_TRUE(present_header.used);
+  EXPECT_TRUE(at::equal(metadata[1], at::zeros({metadata_dim}, at::kFloat)));
+}
+
 // Test: get_kv_metadata_rows returns correct metadata for multiple keys across
 // shards
 TEST_F(DramKVEmbeddingCacheTest, MultipleKeysMetadata) {
@@ -723,6 +752,452 @@ TEST_F(DramKVEmbeddingCacheTest, EmptyGetResumesTriggeredEvictionWhenEnabled) {
 
   EXPECT_TRUE(waitForEvictionIdle(*cache, std::chrono::seconds(10)));
   cache->wait_until_eviction_done();
+}
+
+TEST_F(DramKVEmbeddingCacheTest, PipelinedReadMatchesLegacy) {
+  folly::test::EnvVarSaver env_saver;
+  unsetenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE");
+  unsetenv("KVZCH_SKIP_DRAM_PERF_TIMING");
+  auto legacy_cache = makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+
+  setenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", "8", /*overwrite=*/1);
+  setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+  auto pipelined_cache =
+      makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+
+  std::vector<int64_t> stored_ids;
+  for (int64_t id = 1; id <= 20; ++id) {
+    stored_ids.push_back(id);
+  }
+  set_kv_db_async(*legacy_cache, stored_ids, /*value=*/2.5f);
+  set_kv_db_async(*pipelined_cache, stored_ids, /*value=*/2.5f);
+
+  std::vector<int64_t> requested_ids = stored_ids;
+  requested_ids.push_back(3);
+  requested_ids.push_back(100001);
+  requested_ids.push_back(-1);
+  requested_ids.push_back(25);
+  auto indices = at::tensor(requested_ids, at::kLong);
+  auto count = at::tensor({23}, at::kLong);
+  auto legacy_weights = at::full(
+      {24, EMBEDDING_DIM}, -7.0f, at::TensorOptions().dtype(at::kFloat));
+  auto pipelined_weights = legacy_weights.clone();
+
+  folly::coro::blockingWait(
+      legacy_cache->get_kv_db_async(indices, legacy_weights, count));
+  folly::coro::blockingWait(
+      pipelined_cache->get_kv_db_async(indices, pipelined_weights, count));
+
+  EXPECT_TRUE(at::equal(legacy_weights, pipelined_weights));
+  auto expected = at::full(
+      {24, EMBEDDING_DIM}, -7.0f, at::TensorOptions().dtype(at::kFloat));
+  expected.slice(/*dim=*/0, /*start=*/0, /*end=*/21).fill_(2.5f);
+  expected[21].zero_();
+  EXPECT_TRUE(at::equal(expected, pipelined_weights));
+}
+
+TEST_F(DramKVEmbeddingCacheTest, FoundMaskLeavesAbsentRowsUnwritten) {
+  auto cache = makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+  set_kv_db_async(*cache, std::vector<int64_t>{1, 2}, /*value=*/2.5f);
+
+  auto indices = at::tensor({1, 100001, -1, 2, 25}, at::kLong);
+  auto count = at::tensor({4}, at::kLong);
+  auto weights = at::full(
+      {indices.numel(), EMBEDDING_DIM},
+      -7.0f,
+      at::TensorOptions().dtype(at::kFloat));
+  auto found_mask =
+      at::full({indices.numel()}, 7, at::TensorOptions().dtype(at::kByte));
+
+  folly::coro::blockingWait(cache->get_kv_db_async_with_found_mask(
+      indices, weights, count, found_mask));
+
+  auto expected_weights = at::full_like(weights, -7.0f);
+  expected_weights[0].fill_(2.5f);
+  expected_weights[3].fill_(2.5f);
+  EXPECT_TRUE(at::equal(expected_weights, weights));
+  EXPECT_TRUE(
+      at::equal(
+          at::tensor({1, 0, 7, 1, 7}, at::TensorOptions().dtype(at::kByte)),
+          found_mask));
+}
+
+TEST_F(
+    DramKVEmbeddingCacheTest,
+    FoundMaskWorksWithParallelShardInputAndReadSplits) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1", /*overwrite=*/1);
+  setenv("KVZCH_DRAM_READ_SPLITS_PER_SHARD", "2", /*overwrite=*/1);
+  setenv("KVZCH_DRAM_READ_SPLIT_ZERO_COPY", "1", /*overwrite=*/1);
+  setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+  auto cache = makeCache(/*enable_ssd_backend=*/false, NUM_SHARDS);
+
+  constexpr int64_t kNumRows = 16384;
+  std::vector<int64_t> stored_ids;
+  stored_ids.reserve(kNumRows / 2);
+  for (int64_t id = 0; id < kNumRows; id += 2) {
+    stored_ids.push_back(id);
+  }
+  set_kv_db_async(*cache, stored_ids, /*value=*/2.5f);
+
+  auto indices = at::arange(kNumRows, at::TensorOptions().dtype(at::kLong));
+  auto count = at::tensor({kNumRows}, at::kLong);
+  auto weights = at::full(
+      {kNumRows, EMBEDDING_DIM}, -7.0f, at::TensorOptions().dtype(at::kFloat));
+  auto found_mask =
+      at::full({kNumRows}, 7, at::TensorOptions().dtype(at::kByte));
+
+  folly::coro::blockingWait(cache->get_kv_db_async_with_found_mask(
+      indices, weights, count, found_mask));
+
+  const auto hit_indices =
+      at::arange(0, kNumRows, 2, at::TensorOptions().dtype(at::kLong));
+  auto expected_weights = at::full_like(weights, -7.0f);
+  expected_weights.index_fill_(0, hit_indices, 2.5f);
+  auto expected_found_mask = at::zeros_like(found_mask);
+  expected_found_mask.index_fill_(0, hit_indices, 1);
+  EXPECT_TRUE(at::equal(expected_weights, weights));
+  EXPECT_TRUE(at::equal(expected_found_mask, found_mask));
+}
+
+TEST_F(DramKVEmbeddingCacheTest, ParallelReadSplitsMatchLegacy) {
+  folly::test::EnvVarSaver env_saver;
+  unsetenv("KVZCH_DRAM_READ_SPLITS_PER_SHARD");
+  unsetenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE");
+  unsetenv("KVZCH_SKIP_DRAM_PERF_TIMING");
+  unsetenv("KVZCH_SKIP_DISABLED_INITIALIZERS");
+  unsetenv("KVZCH_DRAM_READ_SPLIT_ZERO_COPY");
+  auto legacy_cache = makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+
+  setenv("KVZCH_DRAM_READ_SPLITS_PER_SHARD", "4", /*overwrite=*/1);
+  setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+  setenv("KVZCH_SKIP_DISABLED_INITIALIZERS", "1", /*overwrite=*/1);
+  auto copied_split_cache =
+      makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+  setenv("KVZCH_DRAM_READ_SPLIT_ZERO_COPY", "1", /*overwrite=*/1);
+  setenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", "8", /*overwrite=*/1);
+  auto zero_copy_split_cache =
+      makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+
+  constexpr int64_t stored_count = 8192;
+  std::vector<int64_t> stored_ids;
+  stored_ids.reserve(stored_count);
+  for (int64_t id = 1; id <= stored_count; ++id) {
+    stored_ids.push_back(id);
+  }
+  set_kv_db_async(*legacy_cache, stored_ids, /*value=*/2.5f);
+  set_kv_db_async(*copied_split_cache, stored_ids, /*value=*/2.5f);
+  set_kv_db_async(*zero_copy_split_cache, stored_ids, /*value=*/2.5f);
+
+  std::vector<int64_t> requested_ids = stored_ids;
+  requested_ids.push_back(7);
+  requested_ids.push_back(100001);
+  requested_ids.push_back(-1);
+  requested_ids.push_back(9);
+  const auto active_count = static_cast<int64_t>(requested_ids.size()) - 1;
+
+  for (const auto index_type : {at::kInt, at::kLong}) {
+    auto indices =
+        at::tensor(requested_ids, at::TensorOptions().dtype(index_type));
+    auto count =
+        at::tensor({active_count}, at::TensorOptions().dtype(index_type));
+    auto legacy_weights = at::full(
+        {static_cast<int64_t>(requested_ids.size()), EMBEDDING_DIM},
+        -7.0f,
+        at::TensorOptions().dtype(at::kFloat));
+    auto copied_split_weights = legacy_weights.clone();
+    auto zero_copy_split_weights = legacy_weights.clone();
+
+    folly::coro::blockingWait(
+        legacy_cache->get_kv_db_async(indices, legacy_weights, count));
+    folly::coro::blockingWait(copied_split_cache->get_kv_db_async(
+        indices, copied_split_weights, count));
+    folly::coro::blockingWait(zero_copy_split_cache->get_kv_db_async(
+        indices, zero_copy_split_weights, count));
+
+    EXPECT_TRUE(at::equal(legacy_weights, copied_split_weights));
+    EXPECT_TRUE(at::equal(legacy_weights, zero_copy_split_weights));
+    auto expected = at::full_like(zero_copy_split_weights, -7.0f);
+    expected.slice(/*dim=*/0, /*start=*/0, /*end=*/stored_count + 1)
+        .fill_(2.5f);
+    expected[stored_count + 1].zero_();
+    EXPECT_TRUE(at::equal(expected, zero_copy_split_weights));
+  }
+}
+
+TEST_F(
+    DramKVEmbeddingCacheTest,
+    SkipDisabledInitializersKeepsEnabledRandomInitialization) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_SKIP_DISABLED_INITIALIZERS", "1", /*overwrite=*/1);
+  auto cache = makeCache(
+      /*enable_ssd_backend=*/false,
+      /*num_shards=*/1,
+      /*is_training=*/true,
+      /*disable_random_init=*/false,
+      /*uniform_init_lower=*/2.0,
+      /*uniform_init_upper=*/3.0);
+
+  auto indices = at::tensor({42}, at::kLong);
+  auto weights = at::full(
+      {1, EMBEDDING_DIM}, -7.0f, at::TensorOptions().dtype(at::kFloat));
+  auto count = at::tensor({1}, at::kLong);
+  folly::coro::blockingWait(cache->get_kv_db_async(indices, weights, count));
+
+  EXPECT_TRUE(at::all(weights >= 2.0).item<bool>());
+  EXPECT_TRUE(at::all(weights < 3.0).item<bool>());
+}
+
+TEST_F(DramKVEmbeddingCacheTest, ParallelShardInputMatchesLegacy) {
+  folly::test::EnvVarSaver env_saver;
+  constexpr int64_t active_count = 16384;
+  constexpr int64_t tail_size = 8;
+  constexpr int64_t num_keys = 1021;
+
+  std::vector<int64_t> ids(active_count + tail_size);
+  std::vector<float> last_value(num_keys + 1, -1.0f);
+  for (int64_t i = 0; i < active_count; ++i) {
+    ids[i] = i % 113 == 0 ? -1 : (i * 37) % num_keys + 1;
+    if (ids[i] >= 0) {
+      last_value[ids[i]] = static_cast<float>(i);
+    }
+  }
+  for (int64_t i = active_count; std::cmp_less(i, ids.size()); ++i) {
+    ids[i] = 50000 + i;
+  }
+
+  std::vector<int64_t> query_ids;
+  query_ids.reserve(num_keys + tail_size + 3);
+  for (int64_t id = 1; id <= num_keys; ++id) {
+    query_ids.push_back(id);
+  }
+  for (int64_t i = 0; i < tail_size; ++i) {
+    query_ids.push_back(50000 + active_count + i);
+  }
+  query_ids.push_back(-1);
+  query_ids.push_back(99999);
+  query_ids.push_back(7);
+
+  for (const auto index_type : {at::kInt, at::kLong}) {
+    unsetenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT");
+    auto legacy_cache = makeCache(/*enable_ssd_backend=*/false);
+    setenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1", /*overwrite=*/1);
+    auto parallel_cache = makeCache(/*enable_ssd_backend=*/false);
+
+    auto indices = at::tensor(ids, at::TensorOptions().dtype(index_type));
+    auto weights =
+        at::arange(
+            static_cast<double>(ids.size()),
+            at::TensorOptions().dtype(at::kFloat))
+            .view({static_cast<int64_t>(ids.size()), 1})
+            .expand({static_cast<int64_t>(ids.size()), EMBEDDING_DIM})
+            .contiguous();
+    auto count =
+        at::tensor({active_count}, at::TensorOptions().dtype(index_type));
+    folly::coro::blockingWait(
+        legacy_cache->set_kv_db_async(indices, weights, count));
+    folly::coro::blockingWait(
+        parallel_cache->set_kv_db_async(indices, weights, count));
+
+    auto query = at::tensor(query_ids, at::TensorOptions().dtype(index_type));
+    auto query_count = at::tensor(
+        {static_cast<int64_t>(query_ids.size() - 1)},
+        at::TensorOptions().dtype(index_type));
+    auto legacy_weights = at::full(
+        {static_cast<int64_t>(query_ids.size()), EMBEDDING_DIM},
+        -7.0f,
+        at::TensorOptions().dtype(at::kFloat));
+    auto parallel_weights = legacy_weights.clone();
+    folly::coro::blockingWait(
+        legacy_cache->get_kv_db_async(query, legacy_weights, query_count));
+    folly::coro::blockingWait(
+        parallel_cache->get_kv_db_async(query, parallel_weights, query_count));
+
+    EXPECT_TRUE(at::equal(legacy_weights, parallel_weights));
+    auto expected = at::full_like(legacy_weights, -7.0f);
+    for (int64_t row = 0; std::cmp_less(row, query_ids.size() - 1); ++row) {
+      const auto id = query_ids[row];
+      if (id < 0) {
+        continue;
+      }
+      if (id <= num_keys) {
+        expected[row].fill_(last_value[id]);
+      } else {
+        expected[row].zero_();
+      }
+    }
+    EXPECT_TRUE(at::equal(expected, parallel_weights));
+  }
+}
+
+TEST_F(DramKVEmbeddingCacheTest, ExecutorThreadCapRequiresTargetFastPath) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_DRAM_EXECUTOR_THREAD_CAP", "1", /*overwrite=*/1);
+  setenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1", /*overwrite=*/1);
+  setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+  auto single_thread_cache = makeCache(/*enable_ssd_backend=*/false);
+  EXPECT_EQ(single_thread_cache->get_executor_num_threads(), 1);
+
+  constexpr int64_t kNumRows = 8192;
+  auto indices = at::arange(kNumRows, at::TensorOptions().dtype(at::kLong));
+  auto weights = at::full(
+      {kNumRows, EMBEDDING_DIM}, 2.5f, at::TensorOptions().dtype(at::kFloat));
+  auto count = at::tensor({kNumRows}, at::kLong);
+  folly::coro::blockingWait(
+      single_thread_cache->set_kv_db_async(indices, weights, count));
+  auto output = at::zeros_like(weights);
+  folly::coro::blockingWait(
+      single_thread_cache->get_kv_db_async(indices, output, count));
+  EXPECT_TRUE(at::equal(weights, output));
+
+  setenv("KVZCH_DRAM_EXECUTOR_THREAD_CAP", "2", /*overwrite=*/1);
+  auto capped_cache = makeCache(/*enable_ssd_backend=*/false);
+  EXPECT_EQ(capped_cache->get_executor_num_threads(), 2);
+
+  folly::coro::blockingWait(
+      capped_cache->set_kv_db_async(indices, weights, count));
+  output.zero_();
+  folly::coro::blockingWait(
+      capped_cache->get_kv_db_async(indices, output, count));
+  EXPECT_TRUE(at::equal(weights, output));
+
+  unsetenv("KVZCH_SKIP_DRAM_PERF_TIMING");
+  auto refused_cache = makeCache(/*enable_ssd_backend=*/false);
+  EXPECT_GE(refused_cache->get_executor_num_threads(), 4);
+
+  setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+  unsetenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT");
+  refused_cache = makeCache(/*enable_ssd_backend=*/false);
+  EXPECT_GE(refused_cache->get_executor_num_threads(), 4);
+
+  setenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1", /*overwrite=*/1);
+  refused_cache = makeCache(
+      /*enable_ssd_backend=*/false,
+      NUM_SHARDS,
+      /*is_training=*/false,
+      /*disable_random_init=*/false);
+  EXPECT_GE(refused_cache->get_executor_num_threads(), 4);
+}
+
+TEST_F(DramKVEmbeddingCacheTest, SegmentedShardReadsMatchMergedInput) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1", /*overwrite=*/1);
+  setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+  setenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", "8", /*overwrite=*/1);
+  unsetenv("KVZCH_DRAM_READ_SPLITS_PER_SHARD");
+  unsetenv("KVZCH_DRAM_EXECUTOR_THREAD_CAP");
+
+  constexpr int64_t kStoredRows = 8192;
+  constexpr int64_t kActiveRows = 16384;
+  constexpr int64_t kTailRows = 8;
+  std::vector<int64_t> stored_ids;
+  stored_ids.reserve(kStoredRows);
+  for (int64_t id = 1; id <= kStoredRows; ++id) {
+    stored_ids.push_back(id);
+  }
+
+  for (const auto index_type : {at::kInt, at::kLong}) {
+    unsetenv("KVZCH_DRAM_SEGMENTED_SHARD_READS");
+    auto merged_cache = makeCache(/*enable_ssd_backend=*/false);
+    setenv("KVZCH_DRAM_SEGMENTED_SHARD_READS", "1", /*overwrite=*/1);
+    auto segmented_cache = makeCache(/*enable_ssd_backend=*/false);
+    EXPECT_TRUE(segmented_cache->get_segmented_shard_reads_enabled());
+    set_kv_db_async(*merged_cache, stored_ids, /*value=*/2.5f);
+    set_kv_db_async(*segmented_cache, stored_ids, /*value=*/2.5f);
+
+    std::vector<int64_t> query_ids(kActiveRows + kTailRows);
+    for (int64_t i = 0; i < kActiveRows; ++i) {
+      query_ids[i] = i % 113 == 0 ? -1 : i % 12000 + 1;
+    }
+    for (size_t i = kActiveRows; i < query_ids.size(); ++i) {
+      query_ids[i] = 50000 + static_cast<int64_t>(i);
+    }
+    auto query = at::tensor(query_ids, at::TensorOptions().dtype(index_type));
+    auto count =
+        at::tensor({kActiveRows}, at::TensorOptions().dtype(index_type));
+    auto merged_weights = at::full(
+        {static_cast<int64_t>(query_ids.size()), EMBEDDING_DIM},
+        -7.0f,
+        at::TensorOptions().dtype(at::kFloat));
+    auto segmented_weights = merged_weights.clone();
+    auto merged_found_mask =
+        at::full({query.numel()}, 7, at::TensorOptions().dtype(at::kByte));
+    auto segmented_found_mask = merged_found_mask.clone();
+
+    folly::coro::blockingWait(merged_cache->get_kv_db_async_with_found_mask(
+        query, merged_weights, count, merged_found_mask));
+    folly::coro::blockingWait(segmented_cache->get_kv_db_async_with_found_mask(
+        query, segmented_weights, count, segmented_found_mask));
+
+    auto expected = at::full_like(merged_weights, -7.0f);
+    auto expected_found_mask = at::full_like(merged_found_mask, 7);
+    for (int64_t row = 0; row < kActiveRows; ++row) {
+      const auto id = query_ids[row];
+      if (id < 0) {
+        continue;
+      }
+      if (id <= kStoredRows) {
+        expected[row].fill_(2.5f);
+        expected_found_mask[row] = 1;
+      } else {
+        expected_found_mask[row] = 0;
+      }
+    }
+    EXPECT_TRUE(at::equal(merged_weights, segmented_weights));
+    EXPECT_TRUE(at::equal(expected, segmented_weights));
+    EXPECT_TRUE(at::equal(merged_found_mask, segmented_found_mask));
+    EXPECT_TRUE(at::equal(expected_found_mask, segmented_found_mask));
+
+    auto negative_query =
+        at::full({kActiveRows}, -1, at::TensorOptions().dtype(index_type));
+    auto negative_count =
+        at::tensor({kActiveRows}, at::TensorOptions().dtype(index_type));
+    auto negative_weights = at::full(
+        {kActiveRows, EMBEDDING_DIM},
+        -7.0f,
+        at::TensorOptions().dtype(at::kFloat));
+    auto negative_found_mask =
+        at::full({kActiveRows}, 7, at::TensorOptions().dtype(at::kByte));
+    folly::coro::blockingWait(segmented_cache->get_kv_db_async_with_found_mask(
+        negative_query, negative_weights, negative_count, negative_found_mask));
+    EXPECT_TRUE(at::all(negative_weights == -7.0f).item<bool>());
+    EXPECT_TRUE(at::all(negative_found_mask == 7).item<bool>());
+  }
+}
+
+TEST_F(DramKVEmbeddingCacheTest, SegmentedShardReadsFallBackForSingleShard) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1", /*overwrite=*/1);
+  setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+  unsetenv("KVZCH_DRAM_READ_SPLITS_PER_SHARD");
+
+  constexpr int64_t kNumRows = 8192;
+  auto indices = at::arange(kNumRows, at::TensorOptions().dtype(at::kLong));
+  auto count = at::tensor({kNumRows}, at::kLong);
+
+  unsetenv("KVZCH_DRAM_SEGMENTED_SHARD_READS");
+  auto legacy_cache = makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+  setenv("KVZCH_DRAM_SEGMENTED_SHARD_READS", "1", /*overwrite=*/1);
+  auto fallback_cache =
+      makeCache(/*enable_ssd_backend=*/false, /*num_shards=*/1);
+  EXPECT_FALSE(fallback_cache->get_segmented_shard_reads_enabled());
+  set_kv_db_async(*legacy_cache, std::vector<int64_t>{1, 2}, /*value=*/2.5f);
+  set_kv_db_async(*fallback_cache, std::vector<int64_t>{1, 2}, /*value=*/2.5f);
+
+  auto legacy_weights = at::full(
+      {kNumRows, EMBEDDING_DIM}, -7.0f, at::TensorOptions().dtype(at::kFloat));
+  auto fallback_weights = legacy_weights.clone();
+  auto legacy_found_mask =
+      at::full({kNumRows}, 7, at::TensorOptions().dtype(at::kByte));
+  auto fallback_found_mask = legacy_found_mask.clone();
+
+  folly::coro::blockingWait(legacy_cache->get_kv_db_async_with_found_mask(
+      indices, legacy_weights, count, legacy_found_mask));
+  folly::coro::blockingWait(fallback_cache->get_kv_db_async_with_found_mask(
+      indices, fallback_weights, count, fallback_found_mask));
+
+  EXPECT_TRUE(at::equal(legacy_weights, fallback_weights));
+  EXPECT_TRUE(at::equal(legacy_found_mask, fallback_found_mask));
 }
 
 // Shared fixture for all enable_ssd_backend-parameterized dirty-bit tests, so a
