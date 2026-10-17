@@ -1350,6 +1350,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if extra_optimizer_config is None:
             extra_optimizer_config = UserEnabledConfigDefinition()
+
+        if extra_optimizer_config.use_falr:
+            if optimizer != OptimType.ROWWISE_RMSPROP_AR:
+                raise ValueError(
+                    "`use_falr` is only supported for OptimType.ROWWISE_RMSPROP_AR, "
+                    f"got {optimizer}"
+                )
+            falr_ref_gap = extra_optimizer_config.falr_ref_gap
+            if not (math.isfinite(falr_ref_gap) and falr_ref_gap > 0.0):
+                raise ValueError(
+                    f"`use_falr` requires a finite falr_ref_gap > 0, got {falr_ref_gap}"
+                )
+            # A floor above 1 would boost the lr instead of shrinking it. The
+            # range checks also reject NaN and inf.
+            if not 0.0 <= extra_optimizer_config.falr_floor <= 1.0:
+                raise ValueError(
+                    "falr_floor must be in [0, 1], got "
+                    f"{extra_optimizer_config.falr_floor}"
+                )
+            # row_counter is an EMA weighted by ema_beta.
+            if not 0.0 <= ema_beta <= 1.0:
+                raise ValueError(
+                    f"`use_falr` requires ema_beta in [0, 1], got {ema_beta}"
+                )
+        self._use_falr: bool = extra_optimizer_config.use_falr
         self.use_rowwise_bias_correction: bool = (
             extra_optimizer_config.use_rowwise_bias_correction
         )
@@ -1401,6 +1426,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ar_alpha=ar_alpha,
             ema_beta=ema_beta,
             min_shrinkage=min_shrinkage,
+            falr_ref_gap=(
+                extra_optimizer_config.falr_ref_gap if self._use_falr else 0.0
+            ),
+            falr_floor=extra_optimizer_config.falr_floor if self._use_falr else 0.1,
         )
 
         if optimizer != OptimType.NONE:
@@ -1569,9 +1598,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     dtype=torch.float32,
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
-                # Empty placeholders for the shared row_counter Momentum
-                # dispatch (AR doesn't use them but the dispatch reads them).
-                self._register_nonpersistent_buffers("row_counter")
+                if self._use_falr:
+                    self._apply_split(
+                        construct_split_state(
+                            embedding_specs,
+                            rowwise=True,
+                            cacheable=False,
+                        ),
+                        prefix="row_counter",
+                        # pyrefly: ignore [bad-argument-type]
+                        dtype=torch.float32,
+                        uvm_host_mapped=self.uvm_host_mapped,
+                    )
+                else:
+                    self._register_nonpersistent_buffers("row_counter")
                 self.register_buffer(
                     "max_counter",
                     torch.ones(1, dtype=torch.float32, device=self.current_device),
@@ -3285,6 +3325,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     momentum1,
                     prev_iter,
                     iter_int,
+                    row_counter=row_counter if self._use_falr else None,
                     mixed_D=self.mixed_D,
                 ),
             )
@@ -3957,12 +3998,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 for states in split_optimizer_states
             ]
         elif self.optimizer == OptimType.ROWWISE_RMSPROP_AR:
+            # TorchScript can't compile dict unpacking, so both branches are
+            # written out.
             list_of_state_dict = [
-                {
-                    "sum": states[0],
-                    "prev_iter": states[1],
-                    "iter": self.iter,
-                }
+                (
+                    {
+                        "sum": states[0],
+                        "prev_iter": states[1],
+                        "iter": self.iter,
+                        "row_counter": states[2],
+                    }
+                    if self._use_falr
+                    else {
+                        "sum": states[0],
+                        "prev_iter": states[1],
+                        "iter": self.iter,
+                    }
+                )
                 for states in split_optimizer_states
             ]
         else:
@@ -4123,8 +4175,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     rowwise=True,
                 )
             )
-        if self._used_rowwise_adagrad_with_counter or (
-            self.optimizer == OptimType.ADAM and self.use_rowwise_bias_correction
+        if (
+            self._used_rowwise_adagrad_with_counter
+            or self._use_falr
+            or (self.optimizer == OptimType.ADAM and self.use_rowwise_bias_correction)
         ):
             states.append(
                 get_optimizer_states(

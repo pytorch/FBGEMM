@@ -118,6 +118,9 @@ class OptimizerArgs(NamedTuple):
                                 # convention where alpha means learning rate).
     ema_beta: float = 0.99      # EMA decay for momentum1 (g²)
     min_shrinkage: float = 0.1  # floor on the decay multiplier; 0.0 = full soft-reset
+    # `falr_ref_gap` of 0 disables falr.
+    falr_ref_gap: float = 0.0   # rows accessed this often keep full lr
+    falr_floor: float = 0.1     # min lr scale for rare rows
 
 
 class Momentum(NamedTuple):
