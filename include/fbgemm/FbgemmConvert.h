@@ -150,6 +150,18 @@ FBGEMM_API void FloatToFloat16_sve2(
     size_t size,
     bool do_clip = false);
 
+/**
+ * @brief NEON implementation to convert fp32 numbers to fp16 numbers.
+ *
+ * @param do_clip if true we saturate to fp16 min and max instead of generating
+ *                infinities.
+ */
+FBGEMM_API void FloatToFloat16_neon(
+    const float* src,
+    float16* dst,
+    size_t size,
+    bool do_clip = false);
+
 #if !defined(__aarch64__)
 /**
  * @brief AVX2 implementation to convert fp16 numbers to fp32 numbers.
@@ -165,6 +177,13 @@ Float16ToFloat_avx2(const float16* src, float* dst, size_t size);
 FBGEMM_API void
 Float16ToFloat_avx512(const float16* src, float* dst, size_t size);
 #endif
+
+/**
+ * @brief NEON implementation to convert fp16 numbers to fp32 numbers.
+ *
+ */
+FBGEMM_API void
+Float16ToFloat_neon(const float16* src, float* dst, size_t size);
 
 /**
  * @brief Transform all entries in a matrix from fp32 to float16 and back to
