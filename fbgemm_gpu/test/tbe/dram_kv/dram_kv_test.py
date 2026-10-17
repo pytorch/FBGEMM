@@ -117,7 +117,7 @@ class DRAMKVTest(unittest.TestCase):
 
     def test_initializer(
         self,
-    ):
+    ) -> None:
         weights_precision: SparseType = SparseType.FP32
         emb_dim = 128
         uniform_init_lower = -1
@@ -156,7 +156,7 @@ class DRAMKVTest(unittest.TestCase):
             ).item()
         logging.info(f"weights initialized {weights_out=}")
 
-    def test_get_ids(self):
+    def test_get_ids(self) -> None:
         T = 3
         D = 1
         log_E = 1
