@@ -44,7 +44,8 @@ elif [[ "$CU_VERSION" == "cu"* ]]; then
     echo "################################################################################"
 
 
-elif [[ "$CU_VERSION" == "rocm7.0"* ]]; then
+elif [[ "$CU_VERSION" == "rocm7."* ]] ||
+     [[ "$CU_VERSION" == "rocm10."* ]]; then
     export PYTORCH_ROCM_ARCH="gfx908,gfx90a,gfx942,gfx950"
     echo "[NOVA] Set PYTORCH_ROCM_ARCH to: ${PYTORCH_ROCM_ARCH}"
 
