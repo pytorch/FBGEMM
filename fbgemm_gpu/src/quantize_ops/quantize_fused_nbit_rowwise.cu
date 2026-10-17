@@ -242,24 +242,12 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
   // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
   // bytes and the data is naturally aligned (i.e., its address is a multiple of
   // that size).
-  Tensor output;
-  if constexpr (std::is_same_v<output_t, float>) {
-    output = at::empty(
-        {nrows, output_columns}, // 4 = sizeof(float)
-        input.options().dtype(at::kFloat));
-  } else if constexpr (std::is_same_v<output_t, at::Half>) {
-    output = at::empty(
-        {nrows, output_columns}, // 2 = sizeof(half)
-        input.options().dtype(at::kHalf));
-  } else if constexpr (std::is_same_v<output_t, at::BFloat16>) {
-    output = at::empty(
-        {nrows, output_columns}, // 2 = sizeof(bfloat16)
-        input.options().dtype(at::kBFloat16));
-  } else {
-    TORCH_CHECK(
-        false,
-        "Unsupported output dtype within _fusednbitrowwise_to_float_gpu_t");
-  }
+  static_assert(
+      std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> ||
+      std::is_same_v<output_t, at::BFloat16>);
+  Tensor output = at::empty(
+      {nrows, output_columns},
+      input.options().dtype(c10::CppTypeToScalarType<output_t>::value));
 
   if (nrows == 0 || output_columns == 0) {
     return output;
