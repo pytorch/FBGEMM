@@ -46,7 +46,6 @@ if open_source:
         additional_decorators,
         gpu_unavailable,
         optests,
-        running_on_github,
         TEST_WITH_ROCM,
         use_cpu_strategy,
     )
@@ -55,7 +54,6 @@ else:
         additional_decorators,
         gpu_unavailable,
         optests,
-        running_on_github,
         TEST_WITH_ROCM,
         use_cpu_strategy,
     )
@@ -592,10 +590,6 @@ class BackwardSGDTest(unittest.TestCase):
             SparseType.FP32,  # output_dtype
         )
 
-    @unittest.skipIf(
-        running_on_github and torch.version.hip is not None,
-        "Test is flaky on GitHub + ROCm",
-    )
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=256),
@@ -660,10 +654,6 @@ class BackwardSGDTest(unittest.TestCase):
             use_writeback_bwd_prehook=True,
         )
 
-    @unittest.skipIf(
-        running_on_github and torch.version.hip is not None,
-        "Test is flaky on GitHub + ROCm",
-    )
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=256),
@@ -790,10 +780,6 @@ class BackwardSGDTest(unittest.TestCase):
             use_api_v1=True,
         )
 
-    @unittest.skipIf(
-        running_on_github and torch.version.hip is not None,
-        "Test is flaky on GitHub + ROCm",
-    )
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=256),
