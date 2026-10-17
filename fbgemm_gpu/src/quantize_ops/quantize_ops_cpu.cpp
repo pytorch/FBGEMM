@@ -208,24 +208,12 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
   const int32_t output_columns =
       (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
 
-  Tensor output;
-  if constexpr (std::is_same_v<output_t, float>) {
-    output = at::empty(
-        {nrows, output_columns}, // 4 = sizeof(float)
-        input.options().dtype(at::kFloat));
-  } else if constexpr (std::is_same_v<output_t, at::Half>) {
-    output = at::empty(
-        {nrows, output_columns}, // 2 = sizeof(half)
-        input.options().dtype(at::kHalf));
-  } else if constexpr (std::is_same_v<output_t, at::BFloat16>) {
-    output = at::empty(
-        {nrows, output_columns}, // 2 = sizeof(half)
-        input.options().dtype(at::kBFloat16));
-  } else {
-    TORCH_CHECK(
-        false,
-        "Unsupported output dtype for _fusednbitrowwise_sbfront_to_float_or_half_cpu");
-  }
+  static_assert(
+      std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> ||
+      std::is_same_v<output_t, at::BFloat16>);
+  Tensor output = at::empty(
+      {nrows, output_columns},
+      input.options().dtype(c10::CppTypeToScalarType<output_t>::value));
 
   using output_ty = to_fbgemm_type_t<output_t>;
   output_ty* output_data = static_cast<output_ty*>(
