@@ -778,44 +778,43 @@ INSTANTIATE_QuantizationNeonFunctions8Bits(float16)
 // clang-format on
 #undef INSTANTIATE_QuantizationNeonFunctions8Bits
 
-#define INSTANTIATE_QuantizationNeonFunctionsNBits(type, bit_rate)  \
-  template void                                                     \
-  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon<type, bit_rate>( \
-      const type* input,                                            \
-      size_t input_rows,                                            \
-      int input_columns,                                            \
-      std::uint8_t* output);                                        \
-  template void                                                     \
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<type, bit_rate>( \
-      const std::uint8_t* input,                                    \
-      size_t input_rows,                                            \
-      int input_columns,                                            \
+#define INSTANTIATE_QUANT_NBIT_NEON(type, bit_rate)                            \
+  template void                                                                \
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon<type, bit_rate>(            \
+      const type* input,                                                       \
+      size_t input_rows,                                                       \
+      int input_columns,                                                       \
+      std::uint8_t* output);
+
+#define INSTANTIATE_DEQUANT_NBIT_NEON(type, bit_rate)                          \
+  template void                                                                \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<type, bit_rate>(            \
+      const std::uint8_t* input,                                               \
+      size_t input_rows,                                                       \
+      int input_columns,                                                       \
       type* output);
 
-    // clang-format off
-INSTANTIATE_QuantizationNeonFunctionsNBits(float, 2)
-INSTANTIATE_QuantizationNeonFunctionsNBits(float, 4)
-INSTANTIATE_QuantizationNeonFunctionsNBits(float, 8)
-INSTANTIATE_QuantizationNeonFunctionsNBits(float16, 2)
-INSTANTIATE_QuantizationNeonFunctionsNBits(float16, 4)
-INSTANTIATE_QuantizationNeonFunctionsNBits(float16, 8)
-// clang-format on
-#undef INSTANTIATE_QuantizationNeonFunctionsNBits
+// Input quantization supports FP32/FP16; dequantization also supports BF16.
+// clang-format off
+INSTANTIATE_QUANT_NBIT_NEON(float, 2)
+INSTANTIATE_QUANT_NBIT_NEON(float, 4)
+INSTANTIATE_QUANT_NBIT_NEON(float, 8)
+INSTANTIATE_QUANT_NBIT_NEON(float16, 2)
+INSTANTIATE_QUANT_NBIT_NEON(float16, 4)
+INSTANTIATE_QUANT_NBIT_NEON(float16, 8)
 
-#define INSTANTIATE_DequantNBitBf16Neon(bit_rate)                       \
-  template void                                                         \
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<bfloat16, bit_rate>( \
-      const std::uint8_t* input,                                        \
-      size_t input_rows,                                                \
-      int input_columns,                                                \
-      bfloat16* output);
-
-    // clang-format off
-INSTANTIATE_DequantNBitBf16Neon(2)
-INSTANTIATE_DequantNBitBf16Neon(4)
-INSTANTIATE_DequantNBitBf16Neon(8)
+INSTANTIATE_DEQUANT_NBIT_NEON(float, 2)
+INSTANTIATE_DEQUANT_NBIT_NEON(float, 4)
+INSTANTIATE_DEQUANT_NBIT_NEON(float, 8)
+INSTANTIATE_DEQUANT_NBIT_NEON(float16, 2)
+INSTANTIATE_DEQUANT_NBIT_NEON(float16, 4)
+INSTANTIATE_DEQUANT_NBIT_NEON(float16, 8)
+INSTANTIATE_DEQUANT_NBIT_NEON(bfloat16, 2)
+INSTANTIATE_DEQUANT_NBIT_NEON(bfloat16, 4)
+INSTANTIATE_DEQUANT_NBIT_NEON(bfloat16, 8)
 // clang-format on
-#undef INSTANTIATE_DequantNBitBf16Neon
+#undef INSTANTIATE_QUANT_NBIT_NEON
+#undef INSTANTIATE_DEQUANT_NBIT_NEON
 
 #endif // HAVE_SVE
 

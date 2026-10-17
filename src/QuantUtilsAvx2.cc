@@ -2290,45 +2290,44 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
   } // for each row
 }
 
-#define INSTANTIATE_QuantizationAvx2FunctionsNBits(type, bit_rate)  \
-  template void                                                     \
-  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<type, bit_rate>( \
-      const type* input,                                            \
-      size_t input_rows,                                            \
-      int input_columns,                                            \
-      std::uint8_t* output,                                         \
-      const type* rowwise_min_max);                                 \
-  template void                                                     \
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<type, bit_rate>( \
-      const std::uint8_t* input,                                    \
-      size_t input_rows,                                            \
-      int input_columns,                                            \
+#define INSTANTIATE_QUANT_NBIT_AVX2(type, bit_rate)                            \
+  template void                                                                \
+  FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<type, bit_rate>(            \
+      const type* input,                                                       \
+      size_t input_rows,                                                       \
+      int input_columns,                                                       \
+      std::uint8_t* output,                                                    \
+      const type* rowwise_min_max);
+
+#define INSTANTIATE_DEQUANT_NBIT_AVX2(type, bit_rate)                          \
+  template void                                                                \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<type, bit_rate>(            \
+      const std::uint8_t* input,                                               \
+      size_t input_rows,                                                       \
+      int input_columns,                                                       \
       type* output);
 
+// Input quantization supports FP32/FP16; dequantization also supports BF16.
 // clang-format off
-INSTANTIATE_QuantizationAvx2FunctionsNBits(float, 2)
-INSTANTIATE_QuantizationAvx2FunctionsNBits(float, 4)
-INSTANTIATE_QuantizationAvx2FunctionsNBits(float, 8)
-INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 2)
-INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 4)
-INSTANTIATE_QuantizationAvx2FunctionsNBits(float16, 8)
-// clang-format on
-#undef INSTANTIATE_QuantizationAvx2FunctionsNBits
+INSTANTIATE_QUANT_NBIT_AVX2(float, 2)
+INSTANTIATE_QUANT_NBIT_AVX2(float, 4)
+INSTANTIATE_QUANT_NBIT_AVX2(float, 8)
+INSTANTIATE_QUANT_NBIT_AVX2(float16, 2)
+INSTANTIATE_QUANT_NBIT_AVX2(float16, 4)
+INSTANTIATE_QUANT_NBIT_AVX2(float16, 8)
 
-#define INSTANTIATE_DequantNBitBf16Avx2(bit_rate)                       \
-  template void                                                         \
-  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<bfloat16, bit_rate>( \
-      const std::uint8_t* input,                                        \
-      size_t input_rows,                                                \
-      int input_columns,                                                \
-      bfloat16* output);
-
-    // clang-format off
-INSTANTIATE_DequantNBitBf16Avx2(2)
-INSTANTIATE_DequantNBitBf16Avx2(4)
-INSTANTIATE_DequantNBitBf16Avx2(8)
+INSTANTIATE_DEQUANT_NBIT_AVX2(float, 2)
+INSTANTIATE_DEQUANT_NBIT_AVX2(float, 4)
+INSTANTIATE_DEQUANT_NBIT_AVX2(float, 8)
+INSTANTIATE_DEQUANT_NBIT_AVX2(float16, 2)
+INSTANTIATE_DEQUANT_NBIT_AVX2(float16, 4)
+INSTANTIATE_DEQUANT_NBIT_AVX2(float16, 8)
+INSTANTIATE_DEQUANT_NBIT_AVX2(bfloat16, 2)
+INSTANTIATE_DEQUANT_NBIT_AVX2(bfloat16, 4)
+INSTANTIATE_DEQUANT_NBIT_AVX2(bfloat16, 8)
 // clang-format on
-#undef INSTANTIATE_DequantNBitBf16Avx2
+#undef INSTANTIATE_QUANT_NBIT_AVX2
+#undef INSTANTIATE_DEQUANT_NBIT_AVX2
 
 #define INSTANTIATE_QuantizationAvx2Functions8Bits(type)                 \
   template void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<type>( \
