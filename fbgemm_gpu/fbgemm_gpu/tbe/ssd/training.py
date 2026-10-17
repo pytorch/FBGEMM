@@ -136,6 +136,219 @@ class SwitchStats:
     snapshot_count: int
 
 
+class _DirectMappedEnrichmentCache(nn.Module):
+    """Owner-local HBM cache used by the direct enrichment read path."""
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        total_hash_size: int,
+        cache_dtype: torch.dtype,
+        device: torch.device,
+        cache_size_mb: int,
+        read_populate: bool,
+        read_populate_max_lookups: int,
+    ) -> None:
+        super().__init__()
+        row_bytes = embedding_dim * torch.empty((), dtype=cache_dtype).element_size()
+        tag_bytes = torch.empty((), dtype=torch.int64).element_size()
+        cache_sets = max(
+            1,
+            min(
+                total_hash_size,
+                cache_size_mb * 1024 * 1024 // (row_bytes + tag_bytes),
+            ),
+        )
+        self._read_populate = read_populate
+        self._read_populate_max_lookups = read_populate_max_lookups
+        self._last_query_count = 0
+        self._last_miss_count: torch.Tensor | None = None
+        self._action_indices: torch.Tensor | None = None
+        self._action_indices_cpu: torch.Tensor | None = None
+        self._actions_count: torch.Tensor | None = None
+        self._actions_count_cpu: torch.Tensor | None = None
+        self._inserted_rows: torch.Tensor | None = None
+        self._row_addresses: torch.Tensor | None = None
+        self.register_buffer(
+            "cache_state",
+            torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device),
+            persistent=False,
+        )
+        self.register_buffer(
+            "cache_weights",
+            torch.empty((cache_sets, embedding_dim), dtype=cache_dtype, device=device),
+            persistent=False,
+        )
+        # Citrine C3: keep the limiter on the cache device.
+        self.register_buffer(
+            "_read_populate_lookup_count",
+            torch.zeros(1, dtype=torch.int64, device=device),
+            persistent=False,
+        )
+        logging.info(
+            "Direct enrichment owner cache has %d rows (%.2f GiB); "
+            "read_populate=%s; read_populate_max_lookups=%d",
+            cache_sets,
+            cache_sets * (row_bytes + tag_bytes) / (1024**3),
+            read_populate,
+            read_populate_max_lookups,
+        )
+
+    def _grow_workspaces(self, required_capacity: int) -> None:
+        if (
+            self._action_indices is None
+            or self._action_indices.numel() < required_capacity
+        ):
+            self._action_indices = torch.ops.fbgemm.new_unified_tensor(
+                torch.empty(1, dtype=torch.int64, device=self.cache_weights.device),
+                (required_capacity,),
+                is_host_mapped=True,
+            )
+            self._action_indices_cpu = torch.ops.fbgemm.uvm_to_cpu(self._action_indices)
+            self._inserted_rows = torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(
+                    1,
+                    dtype=self.cache_weights.dtype,
+                    device=self.cache_weights.device,
+                ),
+                (required_capacity, self.cache_weights.size(1)),
+                is_host_mapped=True,
+            )
+            self._row_addresses = torch.empty(
+                required_capacity,
+                dtype=torch.int64,
+                device=self.cache_weights.device,
+            )
+        if self._actions_count is None:
+            self._actions_count = torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(1, dtype=torch.int32, device=self.cache_weights.device),
+                (1,),
+                is_host_mapped=True,
+            )
+            self._actions_count_cpu = torch.ops.fbgemm.uvm_to_cpu(self._actions_count)
+
+    def _get_workspaces(self, num_indices: int) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        self._grow_workspaces(max(1, num_indices))
+        assert self._action_indices is not None
+        assert self._action_indices_cpu is not None
+        assert self._actions_count is not None
+        assert self._actions_count_cpu is not None
+        assert self._inserted_rows is not None
+        assert self._row_addresses is not None
+        return (
+            self._action_indices[:num_indices],
+            self._action_indices_cpu[:num_indices],
+            self._actions_count,
+            self._actions_count_cpu,
+            self._inserted_rows[:num_indices],
+            self._row_addresses[:num_indices],
+        )
+
+    def lookup(
+        self,
+        indices: torch.Tensor,
+        read_backend_into: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
+    ) -> torch.Tensor:
+        if indices.numel() == 0:
+            self._last_query_count = 0
+            self._last_miss_count = None
+            return torch.empty(
+                (0, self.cache_weights.size(1)),
+                dtype=self.cache_weights.dtype,
+                device=indices.device,
+            )
+        (
+            action_indices,
+            action_indices_cpu,
+            actions_count,
+            actions_count_cpu,
+            inserted_rows,
+            row_addresses,
+        ) = self._get_workspaces(indices.numel())
+        torch.ops.fbgemm.kvzch_direct_cache_lookup(
+            indices,
+            self.cache_state,
+            self.cache_weights,
+            action_indices,
+            actions_count,
+            inserted_rows,
+            row_addresses,
+        )
+        read_backend_into(action_indices_cpu, inserted_rows, actions_count_cpu)
+        output = torch.empty(
+            (indices.numel(), self.cache_weights.size(1)),
+            dtype=self.cache_weights.dtype,
+            device=indices.device,
+        )
+        torch.ops.fbgemm.ssd_gather_from_row_addresses(output, row_addresses)
+        if self._read_populate:
+            torch.ops.fbgemm.kvzch_direct_cache_insert(
+                self.cache_state,
+                self.cache_weights,
+                action_indices,
+                inserted_rows,
+                self._read_populate_insert_actions_count(actions_count),
+            )
+        self._last_miss_count = actions_count
+        self._last_query_count = indices.numel()
+        return output
+
+    def _read_populate_insert_actions_count(
+        self, actions_count: torch.Tensor
+    ) -> torch.Tensor:
+        if self._read_populate_max_lookups == 0:
+            return actions_count
+        # Citrine C6: keep the population decision on device in the hot path.
+        should_populate = (
+            self._read_populate_lookup_count < self._read_populate_max_lookups
+        )
+        insert_actions_count = actions_count * should_populate.to(
+            dtype=actions_count.dtype
+        )
+        self._read_populate_lookup_count.add_(1)
+        return insert_actions_count
+
+    def populate_from_write(self, indices: torch.Tensor, rows: torch.Tensor) -> None:
+        if indices.numel() == 0:
+            return
+        if rows.dim() != 2 or rows.size(0) != indices.numel():
+            raise ValueError("owner-local direct cache write rows must match indices")
+        embedding_dim = self.cache_weights.size(1)
+        if rows.size(1) > embedding_dim:
+            raise ValueError("owner-local direct cache write rows are too wide")
+        if rows.size(1) < embedding_dim:
+            rows = torch.nn.functional.pad(rows, (0, embedding_dim - rows.size(1)))
+        torch.ops.fbgemm.kvzch_direct_cache_insert(
+            self.cache_state,
+            self.cache_weights,
+            indices.contiguous(),
+            rows.contiguous(),
+            None,
+        )
+
+    def last_hit_counts(self) -> tuple[int, int]:
+        if self._last_miss_count is None:
+            return 0, self._last_query_count
+        # Citrine C6: this diagnostic API is called only on demand, not per step.
+        return (
+            self._last_query_count - int(self._last_miss_count.item()),
+            self._last_query_count,
+        )
+
+    def reset(self) -> None:
+        self.cache_state.fill_(-1)
+        self._read_populate_lookup_count.zero_()
+        self._last_query_count = 0
+        self._last_miss_count = None
+
+
 class DramKvPerfStat(str, Enum):
     """Named keys for the perf stats vector returned by `ssd_db.get_dram_kv_perf()`.
 
@@ -317,7 +530,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     _first_instance_ref: ClassVar[weakref.ref[Any] | None] = None
     _eviction_triggered: ClassVar[bool] = False
 
-    def __init__(
+    def __init__(  # noqa: C901
         self,
         embedding_specs: list[tuple[int, int]],  # tuple of (rows, dims)
         feature_table_map: list[int] | None,  # [T]
@@ -427,6 +640,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.backend_return_whole_row: bool = False
         self._embedding_cache_mode: bool = False
         self._enrichment_enabled: bool = False
+        self._direct_backend_gather: bool = False
+        self._owner_cache_size_mb: int = 0
+        self._owner_cache_read_populate: bool = False
+        self._owner_cache_read_populate_max_lookups: int = 0
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -473,6 +690,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.kv_zch_params.enrichment_policy is not None
                 and self._embedding_cache_mode
             )
+            if self._enrichment_enabled:
+                enrichment_policy = self.kv_zch_params.enrichment_policy
+                assert enrichment_policy is not None
+                self._direct_backend_gather = enrichment_policy.direct_backend_gather
+                self._owner_cache_size_mb = enrichment_policy.owner_cache_size_mb
+                self._owner_cache_read_populate = (
+                    enrichment_policy.owner_cache_read_populate
+                )
+                self._owner_cache_read_populate_max_lookups = (
+                    enrichment_policy.owner_cache_read_populate_max_lookups
+                )
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -505,6 +733,24 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         rows, dims = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
         assert T_ > 0
+        if self._direct_backend_gather:
+            if self.backend_type != BackendType.DRAM:
+                raise ValueError("direct enrichment gather requires the DRAM backend")
+            if pooling_mode != PoolingMode.NONE:
+                raise ValueError("direct enrichment gather requires PoolingMode.NONE")
+            if not torch.cuda.is_available():
+                raise ValueError("direct enrichment gather requires a CUDA device")
+            if T_ != 1:
+                raise ValueError(
+                    "direct enrichment gather requires exactly one table per TBE"
+                )
+            if dims[0] % 4 != 0:
+                raise ValueError(
+                    "direct enrichment gather requires a dimension divisible by four"
+                )
+            # Direct mode bypasses the generic associative L1. Retain one set as
+            # structural scaffolding for existing TBE state and checkpoint APIs.
+            cache_sets = 1
         # pyre-fixme[8]: Attribute has type `device`; used as `int`.
         self.current_device: torch.device = torch.cuda.current_device()
 
@@ -1277,6 +1523,29 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         # Prefetch operation completion event
         self.prefetch_complete_event = torch.cuda.Event()
+        # Direct enrichment follows the public TBE prefetch/forward contract.
+        # A prepared output retains the source indices identity and is consumed
+        # only by a matching forward; a stale look-ahead is replaced or dropped.
+        # A lookup records prefetch_complete_event after its row-address gather;
+        # write warming waits for that event before replacing slots, then records
+        # _direct_cache_insert_complete_event for the next lookup.
+        self._direct_cache_insert_complete_event = torch.cuda.Event()
+        self._prefetched_direct_backend_output: torch.Tensor | None = None
+        self._prefetched_direct_backend_indices: torch.Tensor | None = None
+        self._pending_direct_cache_fill_indices: torch.Tensor | None = None
+        self._direct_enrichment_dim = dims[0] if self._direct_backend_gather else 0
+        self._direct_enrichment_output_dtype = output_dtype.as_dtype()
+        self._direct_enrichment_cache: _DirectMappedEnrichmentCache | None = None
+        if self._owner_cache_size_mb > 0:
+            self._direct_enrichment_cache = _DirectMappedEnrichmentCache(
+                embedding_dim=self._direct_enrichment_dim,
+                total_hash_size=self.total_hash_size,
+                cache_dtype=weights_precision.as_dtype(),
+                device=self.lxu_cache_weights.device,
+                cache_size_mb=self._owner_cache_size_mb,
+                read_populate=self._owner_cache_read_populate,
+                read_populate_max_lookups=(self._owner_cache_read_populate_max_lookups),
+            )
 
         if self.prefetch_pipeline:
             # SSD scratch pad index queue insert completion event
@@ -2416,6 +2685,196 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 if post_event is not None:
                     write_stream.record_event(post_event)
 
+    @property
+    def direct_backend_gather_enabled(self) -> bool:
+        return self._direct_backend_gather
+
+    def _read_direct_backend_rows(self, indices: torch.Tensor) -> torch.Tensor:
+        output = torch.empty(
+            (indices.numel(), self._direct_enrichment_dim),
+            device=indices.device,
+            dtype=self.weights_precision.as_dtype(),
+        )
+        if indices.numel() == 0:
+            return output
+        indices_cpu = self.to_pinned_cpu(indices)
+        rows_cpu = torch.empty(
+            (indices.numel(), self._direct_enrichment_dim),
+            dtype=self.weights_precision.as_dtype(),
+            pin_memory=True,
+        )
+        count_cpu = torch.tensor([indices.numel()], dtype=torch.long)
+        self.ssd_db.get_cuda(indices_cpu, rows_cpu, count_cpu)
+        output.copy_(rows_cpu, non_blocking=True)
+        return output
+
+    def _read_direct_backend_rows_with_found_mask(
+        self, indices: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        output = torch.empty(
+            (indices.numel(), self._direct_enrichment_dim),
+            device=indices.device,
+            dtype=self.weights_precision.as_dtype(),
+        )
+        found_mask = torch.empty(
+            indices.numel(), device=indices.device, dtype=torch.uint8
+        )
+        if indices.numel() == 0:
+            return output, found_mask
+        indices_cpu = self.to_pinned_cpu(indices)
+        rows_cpu = torch.empty(
+            (indices.numel(), self._direct_enrichment_dim),
+            dtype=self.weights_precision.as_dtype(),
+            pin_memory=True,
+        )
+        found_mask_cpu = torch.empty(
+            indices.numel(), dtype=torch.uint8, pin_memory=True
+        )
+        count_cpu = torch.tensor([indices.numel()], dtype=torch.long)
+        self.ssd_db.get_cuda_with_found_mask(
+            indices_cpu,
+            rows_cpu,
+            count_cpu,
+            found_mask_cpu,
+        )
+        output.copy_(rows_cpu, non_blocking=True)
+        found_mask.copy_(found_mask_cpu, non_blocking=True)
+        return output, found_mask
+
+    def _read_direct_backend_rows_into(
+        self,
+        indices_cpu: torch.Tensor,
+        rows: torch.Tensor,
+        count_cpu: torch.Tensor,
+    ) -> None:
+        self.ssd_db.get_cuda(indices_cpu, rows, count_cpu)
+
+    def _direct_enrichment_lookup(self, indices: torch.Tensor) -> torch.Tensor:
+        indices = indices.to(dtype=torch.int64)
+        current_stream = torch.cuda.current_stream()
+        owner_cache = self._direct_enrichment_cache
+        if owner_cache is None:
+            output = self._read_direct_backend_rows(indices)
+        else:
+            # Cache workspaces and published slots are shared across streams.
+            # Wait for the previous lookup or insert before capturing row pointers.
+            current_stream.wait_event(self._direct_cache_insert_complete_event)
+            output = owner_cache.lookup(
+                indices,
+                self._read_direct_backend_rows_into,
+            )
+            # This event covers both gather and optional read population. A later
+            # lookup cannot reuse workspaces or observe a partially published row.
+            current_stream.record_event(self._direct_cache_insert_complete_event)
+        # Write warming waits for this event before it can overwrite a cache slot.
+        current_stream.record_event(self.prefetch_complete_event)
+        return output.to(dtype=self._direct_enrichment_output_dtype)
+
+    @staticmethod
+    def _same_direct_prefetch_indices(
+        expected: torch.Tensor | None, actual: torch.Tensor
+    ) -> bool:
+        if (
+            expected is None
+            or expected.device != actual.device
+            or expected.dtype != actual.dtype
+            or expected.size() != actual.size()
+        ):
+            return False
+        if (
+            expected.stride() == actual.stride()
+            and expected.storage_offset() == actual.storage_offset()
+            and expected.data_ptr() == actual.data_ptr()
+        ):
+            return True
+        # Input distribution can materialize an equivalent indices tensor for
+        # forward. This synchronized comparison is only the exceptional
+        # different-storage path; the steady pipeline stays on the pointer fast
+        # path above. A semantic mismatch must fall back to a canonical lookup.
+        expected.record_stream(torch.cuda.current_stream())
+        return torch.equal(expected, actual)
+
+    def _consume_direct_enrichment_prefetch(
+        self, indices: torch.Tensor
+    ) -> torch.Tensor | None:
+        output = self._prefetched_direct_backend_output
+        expected_indices = self._prefetched_direct_backend_indices
+        self._prefetched_direct_backend_output = None
+        self._prefetched_direct_backend_indices = None
+        if output is None or not self._same_direct_prefetch_indices(
+            expected_indices, indices
+        ):
+            return None
+        output.record_stream(torch.cuda.current_stream())
+        return output
+
+    def _advance_direct_enrichment_iteration(self) -> None:
+        if self.gather_ssd_cache_stats and dist.get_rank() == 0:
+            self._report_kv_backend_stats()
+        self.may_trigger_eviction()
+        self.step += 1
+
+    def _prefetch_direct_enrichment(self, indices: torch.Tensor) -> None:
+        if self._prefetched_direct_backend_output is not None:
+            if self._same_direct_prefetch_indices(
+                self._prefetched_direct_backend_indices, indices
+            ):
+                return
+            self._prefetched_direct_backend_output = None
+            self._prefetched_direct_backend_indices = None
+        current_stream = torch.cuda.current_stream()
+        indices.record_stream(current_stream)
+        self._advance_direct_enrichment_iteration()
+        with torch.no_grad(), record_function(
+            "## kvzch_enrichment_direct_backend_prefetch ##"
+        ):
+            self._prefetched_direct_backend_output = self._direct_enrichment_lookup(
+                indices
+            )
+            self._prefetched_direct_backend_indices = indices
+
+    def _populate_direct_enrichment_cache_from_pending(
+        self,
+    ) -> torch.Tensor | None:
+        owner_cache = self._direct_enrichment_cache
+        pending_indices = self._pending_direct_cache_fill_indices
+        if owner_cache is None or pending_indices is None:
+            return None
+        current_stream = torch.cuda.current_stream()
+        current_stream.wait_event(self.prefetch_complete_event)
+        pending_indices.record_stream(current_stream)
+        rows, found_mask = self._read_direct_backend_rows_with_found_mask(
+            pending_indices
+        )
+        found = found_mask != 0
+        owner_cache.populate_from_write(
+            pending_indices[found],
+            rows[found],
+        )
+        current_stream.record_event(self._direct_cache_insert_complete_event)
+        self._pending_direct_cache_fill_indices = None
+        return pending_indices[~found]
+
+    def owner_local_cache_last_hit_counts(self) -> tuple[int, int] | None:
+        owner_cache = self._direct_enrichment_cache
+        return owner_cache.last_hit_counts() if owner_cache is not None else None
+
+    def reset_enrichment_cache(self) -> None:
+        if not self._direct_backend_gather:
+            return
+        current_stream = torch.cuda.current_stream()
+        current_stream.wait_event(self.prefetch_complete_event)
+        current_stream.wait_event(self._direct_cache_insert_complete_event)
+        current_stream.wait_stream(self.enrichment_query_stream)
+        if self._pending_direct_cache_fill_indices is not None:
+            self._pending_direct_cache_fill_indices.record_stream(current_stream)
+        if self._direct_enrichment_cache is not None:
+            self._direct_enrichment_cache.reset()
+            current_stream.record_event(self._direct_cache_insert_complete_event)
+        self._pending_direct_cache_fill_indices = None
+        self._prefetched_direct_backend_output = None
+        self._prefetched_direct_backend_indices = None
+
     def prefetch(
         self,
         indices: Tensor,
@@ -2424,6 +2883,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         forward_stream: torch.cuda.Stream | None = None,
         batch_size_per_feature_per_rank: list[list[int]] | None = None,
     ) -> None:
+        if self._direct_backend_gather:
+            self._prefetch_direct_enrichment(indices)
+            return
         if self.prefetch_stream is None and forward_stream is not None:
             # Set the prefetch stream to the current stream
             self.prefetch_stream = torch.cuda.current_stream()
@@ -3054,6 +3516,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         vbe_output_offsets: Tensor | None = None,
         # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
     ) -> Tensor:
+        if self._direct_backend_gather:
+            prefetched_output = self._consume_direct_enrichment_prefetch(indices)
+            if prefetched_output is not None:
+                return prefetched_output
+            self._advance_direct_enrichment_iteration()
+            with torch.no_grad(), record_function(
+                "## kvzch_enrichment_direct_backend_gather ##"
+            ):
+                return self._direct_enrichment_lookup(indices)
         self.clear_cache()
         if vbe_output is not None or vbe_output_offsets is not None:
             # CPU is not supported in SSD TBE
@@ -6384,18 +6855,28 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         indices: torch.Tensor,
         offsets: torch.Tensor,
         weights: torch.Tensor,
-    ) -> None:
+    ) -> torch.Tensor:
         assert (
             self._enrichment_enabled
         ), "Must be in _enrichment_enabled to support direct_write_embedding method."
+        dedup_linear_indices = torch.empty(0, dtype=torch.long, device=indices.device)
+        source_stream = torch.cuda.current_stream()
         with record_function(f"## enrichment_query_id_{self.tbe_unique_id} ##"):
             with torch.no_grad():
                 # Run all GPU operations on enrichment_query_stream to avoid
                 # CUDA driver mutex contention with the main training stream
                 with torch.cuda.stream(self.enrichment_query_stream):
-                    self.enrichment_query_stream.wait_stream(
-                        torch.cuda.current_stream()
-                    )  # wait for input tensors to be ready
+                    self.enrichment_query_stream.wait_stream(source_stream)
+                    indices.record_stream(self.enrichment_query_stream)
+                    offsets.record_stream(self.enrichment_query_stream)
+                    weights.record_stream(self.enrichment_query_stream)
+
+                    # Retry rows whose prior enrichment write had not reached
+                    # DRAM yet. Cache insertion waits for every in-flight direct
+                    # gather that may still hold a slot pointer.
+                    retry_indices = (
+                        self._populate_direct_enrichment_cache_from_pending()
+                    )
 
                     B_offsets = None
                     max_B = -1
@@ -6434,6 +6915,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                                 dtype=torch.long,
                             ),
                         )
+                    if self._direct_enrichment_cache is not None:
+                        if retry_indices is not None and retry_indices.numel() > 0:
+                            # Bound retry growth to one current request. Dropped
+                            # or permanently missing enrichment IDs age out as
+                            # later write cadences arrive.
+                            retry_limit = max(1, dedup_linear_indices.numel())
+                            retry_indices = retry_indices[:retry_limit]
+                            self._pending_direct_cache_fill_indices = torch.cat(
+                                (retry_indices, dedup_linear_indices)
+                            )
+                        else:
+                            self._pending_direct_cache_fill_indices = (
+                                dedup_linear_indices
+                            )
+        return dedup_linear_indices
 
     def fetch_sids_sync(
         self,

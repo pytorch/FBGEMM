@@ -256,6 +256,30 @@ class EnrichmentPolicy(NamedTuple):
     fs_feature_name: str = ""
     # Laser IGR batch size (0 = no batching, send all IDs in one RPC)
     laser_batch_size: int = 0
+    # Read enrichment rows directly from the DRAM backend in prefetch/forward.
+    direct_backend_gather: bool = False
+    # HBM budget for the direct-mapped owner-local cache. Zero disables it.
+    owner_cache_size_mb: int = 0
+    # Populate the owner-local cache with rows fetched on the read path.
+    owner_cache_read_populate: bool = False
+    # Limit read-path population to this many lookups. Zero means unlimited.
+    owner_cache_read_populate_max_lookups: int = 0
+
+    def validate(self) -> None:
+        assert self.owner_cache_size_mb >= 0, "owner_cache_size_mb must be nonnegative"
+        assert (
+            self.owner_cache_read_populate_max_lookups >= 0
+        ), "owner_cache_read_populate_max_lookups must be nonnegative"
+        assert (
+            not self.owner_cache_size_mb or self.direct_backend_gather
+        ), "owner_cache_size_mb requires direct_backend_gather"
+        assert (
+            not self.owner_cache_read_populate or self.owner_cache_size_mb > 0
+        ), "owner_cache_read_populate requires owner_cache_size_mb"
+        assert (
+            self.owner_cache_read_populate_max_lookups == 0
+            or self.owner_cache_read_populate
+        ), "bounded owner-cache population requires owner_cache_read_populate"
 
 
 class KVZCHParams(NamedTuple):
@@ -290,6 +314,8 @@ class KVZCHParams(NamedTuple):
         assert (
             not self.backend_return_whole_row or self.enable_optimizer_offloading
         ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
+        if self.enrichment_policy is not None:
+            self.enrichment_policy.validate()
 
 
 class KVZCHTBEConfig(NamedTuple):
