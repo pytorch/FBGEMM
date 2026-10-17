@@ -1272,7 +1272,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if ((is_autovec_forced() || fbgemmHasArmSve2Support()) &&
-      !is_autovec_disabled()) {
+      !is_autovec_disabled() &&
+      (!CPUINFO_ARCH_X86_64 || fbgemmHasAvx512Support())) {
     return GenerateEmbeddingSpMDMWithStrides_autovec<
         /*InType=*/inType,
         /*IndexType=*/indxType,
@@ -1407,7 +1408,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if ((is_autovec_forced() || fbgemmHasArmSve2Support()) &&
-      !is_autovec_disabled()) {
+      !is_autovec_disabled() &&
+      (!CPUINFO_ARCH_X86_64 || fbgemmHasAvx512Support())) {
     return GenerateEmbeddingSpMDMFP8WithStrides_autovec<
         /*IndexType=*/indxType,
         /*OffsetType=*/offsetType,
@@ -1567,7 +1569,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   if ((is_autovec_forced() || fbgemmHasArmSve2Support()) &&
-      !is_autovec_disabled()) {
+      !is_autovec_disabled() &&
+      (!CPUINFO_ARCH_X86_64 || fbgemmHasAvx512Support())) {
     return GenerateEmbeddingSpMDMRowWiseSparse_autovec<
         /*InType=*/inType,
         /*IndexType=*/indxType,
