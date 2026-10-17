@@ -41,8 +41,14 @@ build:windows --cxxopt=/std:c++20
 build:windows --host_cxxopt=/std:c++20
 build:windows --conlyopt=/std:c17
 build:windows --host_conlyopt=/std:c17
+build:windows_arm64 --cxxopt=/std:c++20
+build:windows_arm64 --host_cxxopt=/std:c++20
+build:windows_arm64 --conlyopt=/std:c17
+build:windows_arm64 --host_conlyopt=/std:c17
 
 # Generation of `runfiles` directories on Windows has to be explicitly enabled.
 # See https://github.com/bazelbuild/bazel/issues/8843.
 build:windows --enable_runfiles
 test:windows --enable_runfiles
+build:windows_arm64 --enable_runfiles
+test:windows_arm64 --enable_runfiles
