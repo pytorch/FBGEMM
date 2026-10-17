@@ -103,13 +103,15 @@ static void run_benchmark(
   vector<int> container(num_rows);
 
   // please note we generate unique indices
+  iota(container.begin(), container.end(), 0);
   for (int i = 0; i < batch_size; ++i) {
-    iota(container.begin(), container.end(), 0);
-    shuffle(container.begin(), container.end(), generator);
-    copy(
+    int k = offsets[i + 1] - offsets[i];
+    sample(
         container.begin(),
-        container.begin() + (offsets[i + 1] - offsets[i]),
-        back_inserter(indices));
+        container.end(),
+        back_inserter(indices),
+        k,
+        generator);
   }
   copy(begin(indices), end(indices), back_inserter(indices_32));
 
