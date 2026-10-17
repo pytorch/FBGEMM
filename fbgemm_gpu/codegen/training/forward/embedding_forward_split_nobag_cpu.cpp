@@ -29,7 +29,7 @@ template <
     typename index_t,
     typename offset_t,
     typename output_t>
-void split_embedding_nobag_codegen_forward_cpu_kernel(
+static void split_embedding_nobag_codegen_forward_cpu_kernel(
     const Tensor& weights,
     const Tensor& weights_offsets,
     int64_t D,
