@@ -7,10 +7,56 @@
  */
 
 #include "common.cuh"
+#include "fbgemm/Types.h"
 
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+
+namespace {
+template <typename Format>
+struct Hfp8Parameters {
+  static constexpr int exponent_bits = Format::exponent_bits;
+  static constexpr int exponent_bias = Format::exponent_bias;
+};
+
+template <>
+struct Hfp8Parameters<void> {
+  int exponent_bits;
+  int exponent_bias;
+};
+
+template <typename Format>
+struct EncodeHfp8 : Format {
+  double max_pos;
+
+  C10_HOST_DEVICE uint8_t operator()(float input) const {
+    return float_to_hfp8(
+        input, this->exponent_bits, this->exponent_bias, max_pos);
+  }
+};
+
+template <typename Format>
+struct DecodeHfp8 : Format {
+  C10_HOST_DEVICE float operator()(uint8_t input) const {
+    return hfp8_to_float(input, this->exponent_bits, this->exponent_bias);
+  }
+};
+
+template <typename Launch>
+void dispatch_hfp8_format(int64_t ebits, int64_t exponent_bias, Launch launch) {
+  if (ebits == 4 && exponent_bias == 7) {
+    launch(Hfp8Parameters<fbgemm::hfp8_e4m3>{});
+  } else if (ebits == 5 && exponent_bias == 7) {
+    launch(Hfp8Parameters<fbgemm::hfp8<5, 7>>{});
+  } else if (ebits == 5 && exponent_bias == 15) {
+    launch(Hfp8Parameters<fbgemm::hfp8_e5m2>{});
+  } else {
+    launch(Hfp8Parameters<void>{
+        static_cast<int>(ebits), static_cast<int>(exponent_bias)});
+  }
+}
+} // namespace
 
 /// @ingroup quantize-ops-cuda
 /// Converts a tensor of `float` values into a tensor of Hybrid 8-bit Floating
@@ -42,8 +88,9 @@ DLL_PUBLIC at::Tensor _float_to_hfp8_gpu(
                   .add_input(input)
                   .build();
 
-  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(float in) -> uint8_t {
-    return float_to_hfp8(in, ebits, exponent_bias, max_pos);
+  dispatch_hfp8_format(ebits, exponent_bias, [&](auto format) {
+    at::native::gpu_kernel(
+        iter, EncodeHfp8<decltype(format)>{format, max_pos});
   });
 
   return output;
@@ -77,8 +124,8 @@ DLL_PUBLIC at::Tensor _hfp8_to_float_gpu(
                   .add_input(input)
                   .build();
 
-  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(uint8_t in) -> float {
-    return hfp8_to_float(in, ebits, exponent_bias);
+  dispatch_hfp8_format(ebits, exponent_bias, [&](auto format) {
+    at::native::gpu_kernel(iter, DecodeHfp8<decltype(format)>{format});
   });
 
   return output;

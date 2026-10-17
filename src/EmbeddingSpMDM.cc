@@ -1384,6 +1384,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
 }
 
 template <typename indxType, typename offsetType, typename outType>
+  requires(!FbgemmFP8Type<indxType>)
 typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDMFP8WithStrides(
@@ -1423,7 +1424,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
   }
 #endif
 
-  // There is only the reference implementation for FP8 embedding
   return [=](int64_t output_size,
              int64_t index_size,
              int64_t data_size,
@@ -1432,7 +1432,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
              const offsetType* offsets_or_lengths,
              const float* weights,
              outType* out) {
-    return EmbeddingSpMDMFP8_ref( // changed this from ref -> autovec.
+    return EmbeddingSpMDMFP8_ref(
         block_size,
         output_size,
         index_size,
@@ -1681,12 +1681,6 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       bool is_weight_positional,                                           \
       bool use_offsets);
 
-#define INSTANTIATE_SPMDMFP8_BASE_uint8_t(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
-#define INSTANTIATE_SPMDMFP8_BASE_float(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
-#define INSTANTIATE_SPMDMFP8_BASE_float16(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
-#define INSTANTIATE_SPMDMFP8_BASE_bfloat16(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
-
 #define INSTANTIATE_SPMDM_BASE_THREAD_LOCAL(                               \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)                            \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true) \
@@ -1697,8 +1691,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
   INSTANTIATE_SPMDM_NOSTRIDE_BASE(                       \
       IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)  \
   INSTANTIATE_SPMDM_NOSTRIDE_BASE(                       \
-      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false) \
-  INSTANTIATE_SPMDMFP8_BASE_##IN_TYPE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)
 
 #define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)              \
   INSTANTIATE_SPMDM_BASE_THREAD_LOCAL(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float) \
@@ -1729,10 +1722,23 @@ INSTANTIATE_SPMDM_INDEX_T(float16)
 INSTANTIATE_SPMDM_INDEX_T(bfloat16)
 INSTANTIATE_SPMDM_INDEX_T(uint8_t)
 
+#define INSTANTIATE_SPMDMFP8_OUT_T(INDEX_TYPE, OFFSET_TYPE) \
+  INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, float) \
+  INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
+  INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, bfloat16)
+
+INSTANTIATE_SPMDMFP8_OUT_T(int32_t, int32_t)
+INSTANTIATE_SPMDMFP8_OUT_T(int32_t, int64_t)
+INSTANTIATE_SPMDMFP8_OUT_T(int64_t, int32_t)
+INSTANTIATE_SPMDMFP8_OUT_T(int64_t, int64_t)
+
+#undef INSTANTIATE_SPMDMFP8_OUT_T
+
 #undef INSTANTIATE_SPMDM_INDEX_T
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T
-#undef INSTANTIATE_SPMDM_THREAD_LOCAL
+#undef INSTANTIATE_SPMDM_BASE_THREAD_LOCAL
+#undef INSTANTIATE_SPMDM_NON_BASE_THREAD_LOCAL
 #undef INSTANTIATE_SPMDM_BASE
 #undef INSTANTIATE_SPMDMFP8_BASE
 #undef INSTANTIATE_SPMDM_NOSTRIDE_BASE

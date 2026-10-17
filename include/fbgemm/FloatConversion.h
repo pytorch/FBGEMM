@@ -38,17 +38,21 @@ namespace fbgemm {
 
 namespace detail {
 
-template <typename T, int ExponentBits, bool HasInfinity = true>
+template <
+    typename T,
+    int ExponentBits,
+    bool HasInfinity = true,
+    int ExponentBias = (1 << (ExponentBits - 1)) - 1>
 struct FloatFormat {
   using value_type = T;
   static constexpr int bits = sizeof(T) * CHAR_BIT;
   static constexpr int exponent_bits = ExponentBits;
   static constexpr int mantissa_bits = bits - exponent_bits - 1;
   static constexpr int sign_bit_pos = bits - 1;
-  static constexpr int exponent_bias = (1 << (exponent_bits - 1)) - 1;
+  static constexpr int exponent_bias = ExponentBias;
   static constexpr int unbiased_exponent_min = -exponent_bias + 1;
   static constexpr int unbiased_exponent_max =
-      HasInfinity ? exponent_bias : (exponent_bias + 1);
+      (1 << exponent_bits) - 1 - HasInfinity - exponent_bias;
   static constexpr T sign_bit = T{1} << sign_bit_pos;
   static constexpr T exponent_mask = ((T{1} << exponent_bits) - 1)
       << mantissa_bits;
@@ -331,6 +335,37 @@ inline T from_float(float f) {
   } else {
     return cpu_float2half(f);
   }
+}
+
+namespace detail {
+constexpr float hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
+  const uint32_t sign = uint32_t(src & 0x80) << 24;
+  const uint32_t bits = uint32_t(src & 0x7f) << (23 - mantissa_bits);
+  const float value = std::bit_cast<float>(bits) * multiplier;
+  return std::bit_cast<float>(std::bit_cast<uint32_t>(value) | sign);
+}
+} // namespace detail
+
+template <FbgemmFP8Type T>
+constexpr float to_float(T src) {
+  constexpr float multiplier =
+      std::bit_cast<float>(uint32_t(254 - T::exponent_bias) << 23);
+  return detail::hfp8_to_float(src.val, T::mantissa_bits, multiplier);
+}
+
+// Saturate before nearest-even rounding; NaN/Inf map to signed maximum.
+template <FbgemmFP8Type T>
+constexpr T from_float(float src) {
+  constexpr uint32_t max_bits =
+      std::bit_cast<uint32_t>(to_float(T{T::max_encoding}));
+  const uint32_t bits = std::bit_cast<uint32_t>(src);
+  if ((bits & 0x7fffffff) >= max_bits) {
+    return {static_cast<uint8_t>(((bits >> 24) & 0x80) | T::max_encoding)};
+  }
+  return {detail::ieee754_trunc<
+      detail::IEEE754Single,
+      detail::FloatFormat<uint8_t, T::exponent_bits, true, T::exponent_bias>,
+      detail::RoundingMode::ToNearestTiesToEven>(bits)};
 }
 
 } // namespace fbgemm
