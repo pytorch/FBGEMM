@@ -247,11 +247,15 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
         return srcs
 
 def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
-    intrinsics_srcs = ["src/UtilsNeon.cc"]
+    intrinsics_srcs = [
+        "src/UtilsNeon.cc",
+        "src/FbgemmFloat16ConvertNEON.cc",
+    ]
 
     # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
         "src/UtilsNeon.cc",
+        "src/FbgemmFloat16ConvertNEON.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
         "src/fp32/KleidiAIFP32UKernelsNeon.cc",
         "src/QuantUtilsNeon.cc",
