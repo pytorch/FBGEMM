@@ -172,6 +172,36 @@ class WaveConfigUnionTest(unittest.TestCase):
 
 
 class DispatchCodeGenerationTest(unittest.TestCase):
+    def test_subwarp_divisor_preserves_absolute_group_sizes(self) -> None:
+        for warp_size, items_per_warp in ((32, 128), (64, 256)):
+            with self.subTest(warp_size=warp_size), patch.dict(
+                jinja_environment.env.globals,
+                {
+                    "has_wave32": warp_size == 32,
+                    "has_wave64": warp_size == 64,
+                    f"items_per_wave{warp_size}": items_per_warp,
+                },
+            ):
+                absolute_configs = jinja_environment.get_max_vecs_template_configs(
+                    items_per_warp=items_per_warp,
+                    fixed_max_vecs_per_thread=2,
+                    use_subwarp_shuffle=True,
+                    use_vec_blocking=True,
+                )
+                divisor_configs = jinja_environment.get_max_vecs_template_configs_union(
+                    fixed_max_vecs_per_thread=2,
+                    use_subwarp_shuffle=True,
+                    use_vec_blocking=True,
+                )
+
+                self.assertEqual(
+                    absolute_configs,
+                    [
+                        (max_vecs, warp_size // divisor, use_blocking)
+                        for max_vecs, divisor, use_blocking in divisor_configs
+                    ],
+                )
+
     def test_non_vec_blocking_dispatch_uses_runtime_warp_size(self) -> None:
         with patch.dict(
             jinja_environment.env.globals,
