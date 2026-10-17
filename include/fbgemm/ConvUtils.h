@@ -50,7 +50,7 @@ struct conv_param_t {
   /**
    * @brief Constructor for initializing the convolution parameters.
    */
-  conv_param_t(
+  constexpr conv_param_t(
       int mb,
       int ic,
       int oc,
