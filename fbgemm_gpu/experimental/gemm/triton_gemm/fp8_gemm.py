@@ -4,7 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
+from __future__ import annotations
+
 import functools
 import logging
 import os
@@ -22,6 +23,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.utils import (
 )
 from packaging import version
 from torch._tensor import Tensor
+from torch.fx.experimental import symbolic_shapes
 from triton import Config  # @manual
 from triton.runtime.jit import reinterpret as tl_reinterpret, TensorWrapper  # @manual
 
@@ -1876,13 +1878,13 @@ def matmul_fp8_row_meta(
     imprecise_acc: bool = False,
     tma_persistent: bool = True,
     no_use_persistent: bool | None = None,
+    use_persistent: bool | None = None,
     use_warp_specialization: bool = False,
 ) -> torch.Tensor:
     """Shape function for torch compile."""
-    M, K = a.shape
-    N, K = b.shape
+    N, _ = b.shape
     return torch.empty(
-        (M, N),
+        (*a.shape[:-1], N),
         device=a.device,
         dtype=torch.bfloat16 if dot_out_dtype is None else dot_out_dtype,
     )
@@ -2419,10 +2421,9 @@ def matmul_fp8_block_meta(
     fp8_fast_accum: bool = True,
 ) -> torch.Tensor:
     """Shape function for torch compile."""
-    M, K = a.shape
-    N, K = b.shape
+    N, _ = b.shape
     return torch.empty(
-        (M, N),
+        (*a.shape[:-1], N),
         device=a.device,
         dtype=torch.bfloat16 if dot_out_dtype is None else dot_out_dtype,
     )
@@ -3927,9 +3928,13 @@ def is_invalid_config(config, N, M, K, mfma, use_bias):
 def prune_configs(configs, named_args, **kwargs):
 
     pruned_configs = []
-    M = named_args["M"]
-    N = named_args["N"]
-    K = named_args["K"]
+    shape_hint = getattr(symbolic_shapes, "optimization_hint", None) or getattr(
+        symbolic_shapes, "hint_int", None
+    )
+    assert shape_hint is not None
+    M = shape_hint(named_args["M"])
+    N = shape_hint(named_args["N"])
+    K = shape_hint(named_args["K"])
     elemBytes_a = named_args["A"].element_size()
     elemBytes_b = named_args["B"].element_size()
     use_bias = kwargs["USE_BIAS"]

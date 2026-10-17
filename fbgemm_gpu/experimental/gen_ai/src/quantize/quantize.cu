@@ -174,6 +174,25 @@ struct __align__(8) i8x8 {
 
 namespace {
 
+void check_same_device(
+    const at::Tensor& input,
+    const at::Tensor& auxiliary,
+    const char* auxiliary_name) {
+  TORCH_CHECK(
+      auxiliary.device() == input.device(),
+      auxiliary_name,
+      " must be on the same device as input");
+}
+
+void check_optional_same_device(
+    const at::Tensor& input,
+    const std::optional<at::Tensor>& auxiliary,
+    const char* auxiliary_name) {
+  if (auxiliary.has_value()) {
+    check_same_device(input, auxiliary.value(), auxiliary_name);
+  }
+}
+
 void validate_per_tensor_quantize_i8_input(const at::Tensor& X) {
   TORCH_CHECK(X.is_cuda(), "X must be a CUDA tensor");
   TORCH_CHECK(
@@ -406,6 +425,10 @@ __global__ void silu_mul_quantize_i8_kernel(
 }
 
 at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale) {
+  CUDA_DEVICE_GUARD(X1);
+  TORCH_CHECK(
+      X2.device() == X1.device(), "X1 and X2 must be on the same device");
+  TORCH_CHECK(X2.sizes() == X1.sizes(), "X1 and X2 must have the same shape");
   float inv_scale = 1.0 / (scale + 1.0e-8);
   auto Y = at::empty(X1.sizes(), X1.options().dtype(at::kChar));
   TORCH_CHECK(X1.size(1) % 8 == 0);
@@ -962,6 +985,8 @@ at::Tensor get_fp8_per_tensor_scale(
 {
   TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
   CUDA_DEVICE_GUARD(input);
+  check_optional_same_device(input, bs, "bs");
+  check_optional_same_device(input, scale_ub, "scale_ub");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
@@ -1030,6 +1055,7 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
     bool stochastic_rounding) {
   TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
   CUDA_DEVICE_GUARD(input);
+  check_same_device(input, scale, "scale");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
@@ -1144,7 +1170,6 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
     quantized_input_shape.push_back(input.size(i));
   }
   std::vector<long int> scale_shape = {};
-  input = input.cuda();
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
       torch::dtype(native_dtype)
@@ -1753,6 +1778,7 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     return {outputs[0].cpu(), outputs[1].cpu()};
   }
   CUDA_DEVICE_GUARD(input);
+  check_optional_same_device(input, scale_ub, "scale_ub");
 #ifdef USE_ROCM
   const auto native_e4m3_type = getNFP8ScalarType(input.get_device());
   const bool use_ocp_fp8 = native_e4m3_type == at::kFloat8_e4m3fn;

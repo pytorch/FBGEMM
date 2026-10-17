@@ -37,7 +37,7 @@ template <
     typename index_t,
     typename offset_t,
     typename output_t>
-void split_embedding_forward_cpu_kernel(
+static void split_embedding_forward_cpu_kernel(
     Tensor weights,
     Tensor weights_offsets,
     Tensor D_offsets,
@@ -287,7 +287,7 @@ Tensor split_embedding_codegen_forward_cpu_meta(
 }
 
 template <typename index_t, typename weights_t, typename grad_t>
-void split_embedding_grad_indice_weights_cpu_kernel(
+static void split_embedding_grad_indice_weights_cpu_kernel(
     Tensor grad_output,
     Tensor weights,
     Tensor weights_offsets,

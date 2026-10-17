@@ -964,12 +964,12 @@ class FP8Tests(unittest.TestCase):
         invalid_scale_ubs = (
             (torch.tensor(1.0, dtype=torch.float64, device=self.device), "float32"),
             (torch.ones(2, dtype=torch.float32, device=self.device), "one element"),
-            (torch.tensor(1.0, dtype=torch.float32), "input device"),
+            (torch.tensor(1.0, dtype=torch.float32), "device"),
         )
         invalid_batch_sizes = (
             (torch.tensor(1.0, dtype=torch.float32, device=self.device), "int64"),
             (torch.ones(2, dtype=torch.int64, device=self.device), "one element"),
-            (torch.tensor(1, dtype=torch.int64), "input device"),
+            (torch.tensor(1, dtype=torch.int64), "device"),
         )
         for op in (
             torch.ops.fbgemm.quantize_fp8_per_tensor,
@@ -998,9 +998,9 @@ class FP8Tests(unittest.TestCase):
             with self.subTest(op=op):
                 self.assertEqual(quantized.device.type, "cpu")
                 self.assertEqual(scale.device.type, "cpu")
-                with self.assertRaisesRegex(RuntimeError, "input device"):
+                with self.assertRaisesRegex(RuntimeError, "device"):
                     op(cpu_input, bs=device_bs)
-                with self.assertRaisesRegex(RuntimeError, "input device"):
+                with self.assertRaisesRegex(RuntimeError, "device"):
                     op(cpu_input, scale_ub=device_scale_ub)
 
         for scale_ub, error in invalid_scale_ubs:
@@ -1015,7 +1015,7 @@ class FP8Tests(unittest.TestCase):
         invalid_scales = (
             (torch.tensor(1.0, dtype=torch.float64, device=self.device), "float32"),
             (torch.ones(2, dtype=torch.float32, device=self.device), "one element"),
-            (torch.tensor(1.0, dtype=torch.float32), "input device"),
+            (torch.tensor(1.0, dtype=torch.float32), "device"),
         )
         for scale, error in invalid_scales:
             with self.subTest(op="fixed_scale", scale_error=error):
@@ -1139,6 +1139,144 @@ class FP8Tests(unittest.TestCase):
         self.assertEqual(scale.device.index, input_device)
         expected_scale = x.float().abs().amax(dim=1) / E4M3_MAX_POS
         torch.testing.assert_close(scale, expected_scale, atol=0, rtol=0)
+
+    @unittest.skipIf(torch.cuda.device_count() < 2, "Requires two GPUs")
+    def test_quantizer_nondefault_device(self) -> None:
+        current = torch.cuda.current_device()
+        other = (current + 1) % torch.cuda.device_count()
+        x = torch.ones((4, 128), device=f"cuda:{other}", dtype=torch.bfloat16)
+        for name in (
+            "quantize_fp8_per_tensor",
+            "quantize_fp8_per_row",
+            "quantize_fp8_per_col",
+        ):
+            with self.subTest(operator=name):
+                q, scale = getattr(torch.ops.fbgemm, name)(x)
+                self.assertEqual(q.device, x.device)
+                self.assertEqual(scale.device, x.device)
+                if name == "quantize_fp8_per_row":
+                    scale = scale.unsqueeze(-1)
+                torch.testing.assert_close(
+                    q.float() * scale, x.float(), atol=1e-6, rtol=1e-6
+                )
+                self.assertEqual(torch.cuda.current_device(), current)
+        q = torch.ops.fbgemm.silu_mul_quantize_i8(x, x, 1.0)
+        self.assertEqual(q.device, x.device)
+        torch.testing.assert_close(q, torch.ones_like(q), atol=0, rtol=0)
+        self.assertEqual(torch.cuda.current_device(), current)
+        with self.assertRaisesRegex(RuntimeError, "same device"):
+            torch.ops.fbgemm.silu_mul_quantize_i8(x, x.to(f"cuda:{current}"), 1.0)
+        self.assertEqual(torch.cuda.current_device(), current)
+
+        wrong_device = f"cuda:{current}"
+        bs = torch.tensor([x.size(0)], dtype=torch.int64, device=wrong_device)
+        scale_ub = torch.tensor([1.0], dtype=torch.float32, device=wrong_device)
+        scale = torch.tensor([1.0], dtype=torch.float32, device=wrong_device)
+        valid_scale = scale.to(x.device)
+        invalid_auxiliary_calls = {
+            "tensorwise bs": lambda: torch.ops.fbgemm.quantize_fp8_per_tensor(x, bs),
+            "tensorwise scale_ub": lambda: torch.ops.fbgemm.quantize_fp8_per_tensor(
+                x, None, scale_ub
+            ),
+            "get scale bs": lambda: torch.ops.fbgemm.get_fp8_per_tensor_scale(x, bs),
+            "get scale scale_ub": lambda: torch.ops.fbgemm.get_fp8_per_tensor_scale(
+                x, None, scale_ub
+            ),
+            "fixed scale": lambda: torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+                x, scale
+            ),
+            "fixed scale bs": lambda: torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+                x, valid_scale, bs
+            ),
+            "rowwise scale_ub": lambda: torch.ops.fbgemm.quantize_fp8_per_row(
+                x, None, scale_ub
+            ),
+        }
+        for name, call in invalid_auxiliary_calls.items():
+            with self.subTest(operator=name), self.assertRaisesRegex(
+                RuntimeError, "device"
+            ):
+                call()
+            self.assertEqual(torch.cuda.current_device(), current)
+
+    def test_quantizer_cpu_bridge_auxiliaries(self) -> None:
+        x = torch.ones((2, 128), dtype=torch.bfloat16)
+        bs = torch.tensor([2], dtype=torch.int64)
+        scale_ub = torch.tensor([1.0], dtype=torch.float32)
+
+        quantized, scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x, bs, scale_ub)
+        self.assertEqual(quantized.device.type, "cpu")
+        self.assertEqual(scale.device.type, "cpu")
+
+    def test_quantize_int8(self) -> None:
+        values = torch.tensor(
+            [
+                -200,
+                -128,
+                -127,
+                -1.5,
+                -0.5,
+                0,
+                0.5,
+                1.5,
+                126,
+                127,
+                128,
+                200,
+                2,
+                -2,
+                4,
+                -4,
+            ],
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
+        for x in (values, torch.zeros_like(values), torch.randn_like(values)):
+            for scale in (1.0, 0.125):
+                with self.subTest(operator="per_tensor_quantize_i8", scale=scale):
+                    quantized = torch.ops.fbgemm.per_tensor_quantize_i8(x, scale)
+                    expected = (
+                        (x.float() / (scale + 1e-8))
+                        .clamp(-128, 127)
+                        .round()
+                        .to(torch.int8)
+                    )
+                    self.assertEqual(quantized.shape, x.shape)
+                    self.assertEqual(quantized.dtype, torch.int8)
+                    self.assertEqual(quantized.device, x.device)
+                    torch.testing.assert_close(quantized, expected, atol=0, rtol=0)
+            quantized, scale = torch.ops.fbgemm.per_tensor_dynamic_quantize_i8(x)
+            expected_scale = x.abs().max().div(127)
+            expected = (
+                (x.float() / (expected_scale.float() + 1e-8))
+                .clamp(-128, 127)
+                .round()
+                .to(torch.int8)
+            )
+            self.assertEqual(quantized.dtype, torch.int8)
+            self.assertEqual(quantized.shape, x.shape)
+            self.assertEqual(quantized.device, x.device)
+            torch.testing.assert_close(scale, expected_scale, atol=0, rtol=0)
+            torch.testing.assert_close(quantized, expected, atol=0, rtol=0)
+
+        x1 = torch.linspace(
+            -2, 2, 3 * 128, dtype=torch.bfloat16, device=self.device
+        ).reshape(3, 128)
+        x2 = torch.ones_like(x1)
+        scale = 0.03125
+        quantized = torch.ops.fbgemm.silu_mul_quantize_i8(x1, x2, scale)
+        expected = (
+            (torch.nn.functional.silu(x1.float()) * x2.float() / scale)
+            .clamp(-128, 127)
+            .round()
+            .to(torch.int8)
+        )
+        self.assertEqual(quantized.dtype, torch.int8)
+        self.assertEqual(quantized.shape, x1.shape)
+        self.assertEqual(quantized.device, x1.device)
+        torch.testing.assert_close(quantized, expected, atol=1, rtol=0)
+        with self.assertRaisesRegex(RuntimeError, "same shape"):
+            torch.ops.fbgemm.silu_mul_quantize_i8(x1, x2[:2], scale)
 
     def test_quantize_fp8_per_row_stochastic_rounding(self) -> None:
         fp8_max = torch.finfo(fp8_e4m3).max
@@ -2586,9 +2724,6 @@ class FP8Tests(unittest.TestCase):
             self.assertEqual(gemv_output.shape, (1, N))
             self.assertEqual(gemv_output.dtype, torch.bfloat16)
 
-    @unittest.skipIf(
-        torch.version.hip, "Skip on AMD: cuda quantize op is yet supported."
-    )
     @settings(deadline=None)
     @given(
         K=st.sampled_from([0, 128]),
