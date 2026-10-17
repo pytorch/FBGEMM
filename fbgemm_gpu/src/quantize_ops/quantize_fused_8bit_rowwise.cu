@@ -160,10 +160,7 @@ __global__ inline void _compute_8bit_quantize_cuda_kernel(
 }
 
 // Fused 8-bit rowwise -> FP32/FP16/BF16 kernel
-template <
-    typename output_t,
-    bool scala_bias_last,
-    bool quant_padding_float_type>
+template <typename output_t, bool scala_bias_last, typename scala_bias_t>
 __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
     const std::uint8_t* const __restrict__ input,
     const int nrows,
@@ -171,8 +168,6 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
     output_t* const __restrict__ output) {
   // we only support float(from quant kernel) or fp16(from tbe storage) scale
   // bias dtype
-  using scala_bias_t =
-      typename std::conditional<quant_padding_float_type, float, __half>::type;
   const int output_columns = ncols - 2 * sizeof(scala_bias_t);
 
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
@@ -181,10 +176,12 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
   for (/*row*/; row < nrows; row += row_incre) {
     if (col < output_columns) {
       const std::uint8_t* input_row = input + row * ncols;
-      const scala_bias_t* input_row_scale_bias = (scala_bias_last)
-          ? (reinterpret_cast<const scala_bias_t*>(input_row + output_columns))
-          : (reinterpret_cast<const scala_bias_t*>(input_row));
-      if constexpr (!scala_bias_last) {
+      const scala_bias_t* input_row_scale_bias;
+      if constexpr (scala_bias_last) {
+        input_row_scale_bias =
+            reinterpret_cast<const scala_bias_t*>(input_row + output_columns);
+      } else {
+        input_row_scale_bias = reinterpret_cast<const scala_bias_t*>(input_row);
         input_row += 2 * sizeof(scala_bias_t);
       }
       output_t* output_row = output + row * output_columns;
@@ -430,19 +427,19 @@ _single_or_half_precision_to_fused8bitrowwise_gpu(const Tensor& input) {
   return output;
 }
 
-template <typename output_t>
-Tensor _fused8bitrowwise_to_float_gpu_t(
-    const Tensor& input,
-    const bool scale_bias_last = true,
-    const bool quant_padding_float_type = true) {
+template <
+    typename output_t,
+    bool scala_bias_last = true,
+    typename scala_bias_t = float>
+Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
+  static_assert(
+      std::is_same_v<scala_bias_t, float> ||
+      std::is_same_v<scala_bias_t, __half>);
+  static_assert(!scala_bias_last || std::is_same_v<scala_bias_t, float>);
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-  TORCH_CHECK(
-      quant_padding_float_type == true or scale_bias_last == false,
-      "scale bias last only works with 2 byte padding")
   CUDA_DEVICE_GUARD(input);
-  const int quant_padding_size =
-      (quant_padding_float_type) ? sizeof(float) : sizeof(__half);
+  constexpr int quant_padding_size = sizeof(scala_bias_t);
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
   const int nrows = c10::size_to_dim_(last_dim, input_sizes);
@@ -498,39 +495,38 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
       at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-#define DEQUANT_LAUNCH(scale_bias_last, quant_padding_float_type) \
-  FBGEMM_LAUNCH_KERNEL(                                           \
-      (_fused8bitrowwise_to_float_cuda_kernel<                    \
-          scalar_t,                                               \
-          scale_bias_last,                                        \
-          quant_padding_float_type>),                             \
-      gridDim,                                                    \
-      blockDim,                                                   \
-      0,                                                          \
-      at::cuda::getCurrentCUDAStream(),                           \
-      input.data_ptr<std::uint8_t>(),                             \
-      nrows,                                                      \
-      ncols,                                                      \
-      output.mutable_data_ptr<scalar_t>())
-
-  FBGEMM_DISPATCH_FLOATING_TYPES(
-      output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {
-        if (scale_bias_last) {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH(true, true);
-          } else {
-            DEQUANT_LAUNCH(true, false);
-          }
-        } else {
-          if (quant_padding_float_type) {
-            DEQUANT_LAUNCH(false, true);
-          } else {
-            DEQUANT_LAUNCH(false, false);
-          }
-        }
-      });
-#undef DEQUANT_LAUNCH
+  FBGEMM_LAUNCH_KERNEL(
+      (_fused8bitrowwise_to_float_cuda_kernel<
+          output_t,
+          scala_bias_last,
+          scala_bias_t>),
+      gridDim,
+      blockDim,
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      input.data_ptr<std::uint8_t>(),
+      nrows,
+      ncols,
+      output.mutable_data_ptr<output_t>());
   return output;
+}
+
+template <typename output_t>
+Tensor _fused8bitrowwise_to_float_gpu_dispatch_t(
+    const Tensor& input,
+    const bool scale_bias_last,
+    const bool quant_padding_float_type) {
+  TORCH_CHECK(
+      quant_padding_float_type == true or scale_bias_last == false,
+      "2-byte padding (quant_padding_float_type=false) only works with "
+      "scale_bias_last=false")
+  if (scale_bias_last) {
+    return _fused8bitrowwise_to_float_gpu_t<output_t, true, float>(input);
+  }
+  if (quant_padding_float_type) {
+    return _fused8bitrowwise_to_float_gpu_t<output_t, false, float>(input);
+  }
+  return _fused8bitrowwise_to_float_gpu_t<output_t, false, __half>(input);
 }
 
 /// @ingroup quantize-ops-cuda
@@ -579,15 +575,15 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu(
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
-      output = _fused8bitrowwise_to_float_gpu_t<float>(
+      output = _fused8bitrowwise_to_float_gpu_dispatch_t<float>(
           input, scale_bias_last, quant_padding_float_type);
       break;
     case SparseType::FP16:
-      output = _fused8bitrowwise_to_float_gpu_t<at::Half>(
+      output = _fused8bitrowwise_to_float_gpu_dispatch_t<at::Half>(
           input, scale_bias_last, quant_padding_float_type);
       break;
     case SparseType::BF16:
-      output = _fused8bitrowwise_to_float_gpu_t<at::BFloat16>(
+      output = _fused8bitrowwise_to_float_gpu_dispatch_t<at::BFloat16>(
           input, scale_bias_last, quant_padding_float_type);
       break;
     default:
