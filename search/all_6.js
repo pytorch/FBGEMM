@@ -21,7 +21,7 @@ var searchData=
   ['compare_5fbuffers_18',['compare_buffers',['../namespacefbgemm.html#a9d995b583abb4b09927c90f66e3b1463',1,'fbgemm']]],
   ['compressedsparsecolumn_19',['CompressedSparseColumn',['../classfbgemm_1_1_compressed_sparse_column.html',1,'fbgemm']]],
   ['configuration_20',['FBGEMM_GPU Configuration',['../group__fbgemm-gpu-config.html',1,'']]],
-  ['conv_5fparam_5ft_21',['conv_param_t',['../structfbgemm_1_1conv__param__t.html',1,'conv_param_t&lt; SPATIAL_DIM &gt;'],['../structfbgemm_1_1conv__param__t.html#a77bf96f2ab6443fe0e3dba58319d88b5',1,'fbgemm::conv_param_t::conv_param_t()']]],
+  ['conv_5fparam_5ft_21',['conv_param_t',['../structfbgemm_1_1conv__param__t.html',1,'conv_param_t&lt; SPATIAL_DIM &gt;'],['../structfbgemm_1_1conv__param__t.html#a8df5c52269d58295eb445e54b7b68c99',1,'fbgemm::conv_param_t::conv_param_t()']]],
   ['conv_5fparam_5ft_3c_202_20_3e_22',['conv_param_t&lt; 2 &gt;',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]],
   ['conv_5fparam_5ft_3c_20spatial_5fdim_20_3e_23',['conv_param_t&lt; SPATIAL_DIM &gt;',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]],
   ['convfastpath_24',['ConvFastPath',['../namespacefbgemm.html#ad5bda89769bca9a01ddf81591f20ef02',1,'fbgemm']]],
