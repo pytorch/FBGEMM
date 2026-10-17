@@ -55,6 +55,7 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
   /// @param opentab_vec_payload_indexes Comma-separated vec payload indexes
   /// @param opentab_timeout_ms OpenTab request timeout in ms
   /// @param opentab_batch_size OpenTab batch size
+  /// @param laser_key_suffix Appended to every Laser key
   explicit EnrichmentConfig(
       int64_t enrichment_type,
       std::string provider_name,
@@ -75,7 +76,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
       int64_t fs_feature_group_id = 0,
       std::string fs_feature_group_name = "",
       std::string fs_feature_name = "",
-      int64_t laser_batch_size = 0)
+      int64_t laser_batch_size = 0,
+      std::string laser_key_suffix = "")
       : enrichment_type_(static_cast<EnrichmentType>(enrichment_type)),
         provider_name_(std::move(provider_name)),
         client_id_(std::move(client_id)),
@@ -96,7 +98,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
         fs_feature_group_id_(fs_feature_group_id),
         fs_feature_group_name_(std::move(fs_feature_group_name)),
         fs_feature_name_(std::move(fs_feature_name)),
-        laser_batch_size_(laser_batch_size) {}
+        laser_batch_size_(laser_batch_size),
+        laser_key_suffix_(std::move(laser_key_suffix)) {}
 
   EnrichmentType enrichment_type_;
   std::string provider_name_;
@@ -126,6 +129,10 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
 
   // Laser IGR batch size (0 = no batching, send all IDs in one RPC)
   int64_t laser_batch_size_;
+
+  // Appended to every Laser key, for tiers keyed on more than the raw ID
+  // (e.g. ",v2" for a tier keyed "<id>,<version>")
+  std::string laser_key_suffix_;
 };
 
 } // namespace kv_mem
