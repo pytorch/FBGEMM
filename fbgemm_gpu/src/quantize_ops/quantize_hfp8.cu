@@ -7,10 +7,32 @@
  */
 
 #include "common.cuh"
+#include "fbgemm/Types.h"
 
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+
+namespace {
+struct EncodeHfp8 {
+  int exponent_bits;
+  int exponent_bias;
+  double max_pos;
+
+  C10_HOST_DEVICE uint8_t operator()(float input) const {
+    return float_to_hfp8(input, exponent_bits, exponent_bias, max_pos);
+  }
+};
+
+struct DecodeHfp8 {
+  int exponent_bits;
+  int exponent_bias;
+
+  C10_HOST_DEVICE float operator()(uint8_t input) const {
+    return hfp8_to_float(input, exponent_bits, exponent_bias);
+  }
+};
+} // namespace
 
 /// @ingroup quantize-ops-cuda
 /// Converts a tensor of `float` values into a tensor of Hybrid 8-bit Floating
@@ -42,9 +64,10 @@ DLL_PUBLIC at::Tensor _float_to_hfp8_gpu(
                   .add_input(input)
                   .build();
 
-  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(float in) -> uint8_t {
-    return float_to_hfp8(in, ebits, exponent_bias, max_pos);
-  });
+  at::native::gpu_kernel(
+      iter,
+      EncodeHfp8{
+          static_cast<int>(ebits), static_cast<int>(exponent_bias), max_pos});
 
   return output;
 }
@@ -77,9 +100,9 @@ DLL_PUBLIC at::Tensor _hfp8_to_float_gpu(
                   .add_input(input)
                   .build();
 
-  at::native::gpu_kernel(iter, [=] GPU_LAMBDA(uint8_t in) -> float {
-    return hfp8_to_float(in, ebits, exponent_bias);
-  });
+  at::native::gpu_kernel(
+      iter,
+      DecodeHfp8{static_cast<int>(ebits), static_cast<int>(exponent_bias)});
 
   return output;
 }
