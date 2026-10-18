@@ -13,6 +13,7 @@ Unit tests for fbgemm_gpu.tbe.ssd.ssd_config
 Tests cover:
 - Import path correctness
 - EvictionPolicy.validate() behavior
+- EnrichmentPolicy.validate() behavior
 - KVZCHParams.validate() behavior
 - BackendType.from_str() behavior
 """
@@ -80,6 +81,67 @@ class EvictionPolicyValidateTest(unittest.TestCase):
         ep.validate()  # Should not raise
 
 
+class EnrichmentPolicyValidateTest(unittest.TestCase):
+    """Test EnrichmentPolicy.validate() logic for the Laser key suffixes."""
+
+    def test_laser_key_suffix_validates(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(enrichment_dim=128, laser_key_suffix=",v1")
+        policy.validate()  # Should not raise
+
+    def test_both_suffix_fields_fail(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(
+            enrichment_dim=256,
+            laser_key_suffix=",v1",
+            laser_key_suffixes=(",v1", ",v2"),
+        )
+        with self.assertRaises(AssertionError):
+            policy.validate()
+
+    def test_single_suffix_validates(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, EnrichmentType
+
+        policy = EnrichmentPolicy(
+            enrichment_type=EnrichmentType.IGR_LASER_SID,
+            enrichment_dim=127,
+            laser_key_suffixes=(",v1",),
+        )
+        policy.validate()  # Should not raise
+
+    def test_multiple_suffixes_split_dim_validates(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(
+            enrichment_dim=256,
+            laser_key_suffixes=(",v1", ",v2"),
+        )
+        policy.validate()  # Should not raise
+
+    def test_multiple_suffixes_uneven_dim_fails(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(
+            enrichment_dim=128,
+            laser_key_suffixes=(",v1", ",v2", ",v3"),
+        )
+        with self.assertRaises(AssertionError):
+            policy.validate()
+
+    def test_multiple_suffixes_require_laser_embedding(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, EnrichmentType
+
+        policy = EnrichmentPolicy(
+            enrichment_type=EnrichmentType.IGR_LASER_SID,
+            enrichment_dim=256,
+            laser_key_suffixes=(",v1", ",v2"),
+        )
+        with self.assertRaises(AssertionError):
+            policy.validate()
+
+
 class KVZCHParamsValidateTest(unittest.TestCase):
     """Test KVZCHParams.validate() logic."""
 
@@ -110,6 +172,20 @@ class KVZCHParamsValidateTest(unittest.TestCase):
             bucket_sizes=[],
             backend_return_whole_row=True,
             enable_optimizer_offloading=False,
+        )
+        with self.assertRaises(AssertionError):
+            params.validate()
+
+    def test_validates_enrichment_policy(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
+
+        params = KVZCHParams(
+            bucket_offsets=[],
+            bucket_sizes=[],
+            enrichment_policy=EnrichmentPolicy(
+                enrichment_dim=128,
+                laser_key_suffixes=(",v1", ",v2", ",v3"),
+            ),
         )
         with self.assertRaises(AssertionError):
             params.validate()
