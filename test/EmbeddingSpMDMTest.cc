@@ -173,14 +173,15 @@ TEST(EmbeddingSpMDMTest, TypedHalfInputsAndOutputs) {
   verify_strided_to_float.template operator()<bfloat16>();
 }
 
-TEST(EmbeddingSpMDMTest, TypedHalfOutputsForFP8Input) {
+template <FbgemmFP8Type InType>
+static void verifyTypedFP8Outputs() {
   constexpr int64_t block_size = 2;
-  constexpr int exponent_bits = 4;
-  constexpr int exponent_bias = 7;
+  constexpr int exponent_bits = InType::exponent_bits;
+  constexpr int exponent_bias = InType::exponent_bias;
   const vector<float> input_float{1.5f, -2.0f, 3.0f, 4.0f};
-  vector<uint8_t> input(input_float.size());
+  vector<InType> input(input_float.size());
   for (size_t i = 0; i < input.size(); ++i) {
-    FloatToFloat8_ref(input_float[i], &input[i], exponent_bits, exponent_bias);
+    FloatToFloat8_ref(input_float[i], &input[i].val, exponent_bits, exponent_bias);
   }
   const vector<int32_t> indices{0, 1};
   const vector<int32_t> offsets{0, 2};
@@ -192,7 +193,7 @@ TEST(EmbeddingSpMDMTest, TypedHalfOutputsForFP8Input) {
         1,
         indices.size(),
         2,
-        input.data(),
+        reinterpret_cast<const uint8_t*>(input.data()),
         indices.data(),
         offsets.data(),
         nullptr,
@@ -206,15 +207,13 @@ TEST(EmbeddingSpMDMTest, TypedHalfOutputsForFP8Input) {
         exponent_bias)));
 
     auto kernel =
-        GenerateEmbeddingSpMDMFP8WithStrides<int32_t, int32_t, OutType>(
+        GenerateEmbeddingSpMDMFP8WithStrides<InType, int32_t, int32_t, OutType>(
             block_size,
             false,
             false,
             true,
             -1,
-            -1,
-            exponent_bits,
-            exponent_bias);
+            -1);
     vector<OutType> actual(block_size);
     ASSERT_TRUE(kernel(
         1,
@@ -231,6 +230,14 @@ TEST(EmbeddingSpMDMTest, TypedHalfOutputsForFP8Input) {
 
   verify.template operator()<float16>();
   verify.template operator()<bfloat16>();
+}
+
+TEST(EmbeddingSpMDMTest, TypedOutputsForFP8Input) {
+  verifyTypedFP8Outputs<hfp8_e4m3>();
+  verifyTypedFP8Outputs<hfp8<5, 7>>();
+  verifyTypedFP8Outputs<hfp8_e5m2>();
+  // Exercise a custom format outside the autovec specializations.
+  verifyTypedFP8Outputs<hfp8<4, 8>>();
 }
 
 static vector<int> prefetch_distances = {0, 16, 1000000};
