@@ -1257,34 +1257,10 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
   }
 }
 
-namespace {
-void Float8ToFloat_ref_batch(
-    const uint8_t* input,
-    float* output,
-    int count,
-    int exponent_bits,
-    int exponent_bias) {
-  for (int i = 0; i < count; ++i) {
-    uint32_t val_out = 0, sign = 0, multiplier = 0;
-    uint8_t inp = input[i];
-
-    sign = (inp & 0x80) << 24;
-    val_out = (inp & 0x7F) << (24 - (8 - exponent_bits));
-
-    multiplier = (127 + (127 - exponent_bias)) << 23; // 2^(127-bias)
-    float val_out_f = std::bit_cast<float>(val_out) *
-        std::bit_cast<float>(multiplier); // val_out * multiplier
-    val_out = std::bit_cast<uint32_t>(val_out_f) | sign;
-    output[i] = std::bit_cast<float>(val_out);
-  }
-}
-} // namespace
-
 /// @ingroup tbe-cpu-autovec
 ///
 /// Autovectorized version of method `EmbeddingSpMDM_ref` for FP8 weight type.
 ///
-/// @tparam InType input data type (`uint8_t` is used)
 /// @tparam IndexType index data type (`int64_t` is used)
 /// @tparam OffsetType offset data type (`int32_t` is used)
 /// @tparam OutType output data type (`float` is used)
@@ -1298,17 +1274,17 @@ void Float8ToFloat_ref_batch(
 /// @param offsets_or_lengths Address of offset (`OffsetType*`)
 /// @param weights Weights of sum; optional, can be null for non-weighted sum
 /// (`float*`)
-/// @param normalize_by_lengths Whether or not to normalize by lengths (`bool`)
 /// @param out Address of output (`OutType*`)
 /// @param is_weight_positional If `true`, weight is positional; set to `false`
 /// for FP8 autovec implementation (`bool`)
-/// @param use_offsets If `true`, will use offsets instead of lengths; set to
-/// `true` for FP8 autovec implementation (`bool`)
 /// @param output_stride If -1, output_stride is same as block_size; set to -1
 /// for FP8 autovec implementation (`int64_t`)
-/// @param exponent_bits Bits to use in exponent
-/// @param exponent_bias Bias to use in exponent
-template <typename IndexType, typename OffsetType, typename OutType>
+template <
+    bool UseOffsets,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType,
+    typename Decode>
 static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const int64_t block_size,
     const int64_t output_size,
@@ -1318,14 +1294,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const IndexType* indices,
     const OffsetType* offsets_or_lengths,
     const float* weights,
-    bool normalize_by_lengths,
     OutType* out,
     const bool is_weight_positional,
-    const bool use_offsets,
+    const bool normalize_by_lengths,
     const int64_t output_stride,
     const int64_t input_stride,
-    const int exponent_bits,
-    const int exponent_bias) {
+    Decode decode) {
   if (data_size < 0) {
     return false;
   }
@@ -1371,8 +1345,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
 
   for (int m = 0; m < output_size; ++m) {
     fillZero(buf, block_size);
-    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
-                          : offsets_or_lengths[m];
+    int len;
+    if constexpr (UseOffsets) {
+      len = offsets_or_lengths[m + 1] - offsets_or_lengths[m];
+    } else {
+      len = offsets_or_lengths[m];
+    }
     int64_t end = current + len;
     if (end > index_size) {
       return false;
@@ -1385,13 +1363,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
         get_output_type<OutType>(),
         output_size,
         len);
-
-    // Adjust these as necessary to reflect actual batch size
-    const int batch_size = block_size; // Assuming the entire block is
-                                       // processed at once; adjust if needed
-
-    // Temporary buffer to hold the converted floats
-    std::unique_ptr<float[]> converted_inputs(new float[batch_size]);
 
     const float* weights_addr = weights != nullptr
         ? (is_weight_positional ? weights : weights + current)
@@ -1424,36 +1395,17 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
       if (weights != nullptr) {
         w = *weights_addr++;
       }
-      // check if each loop interation depends on one another
-      //  if not, approach it with parellel,
-      //  the code is iterating thru a dimisonals of a embedding vectory
-
-      // Perform the batch conversion
-      Float8ToFloat_ref_batch(
-          input + input_stride * idx,
-          converted_inputs.get(),
-          batch_size,
-          exponent_bits,
-          exponent_bias);
-
-      // Now accumulate the results using vectorized operations if possible
-      const float* input_row = converted_inputs.get();
-      int64_t j = 0;
-#ifdef FBGEMM_VECTOR_WIDTH
-      for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
-        float value = *input_row++;
-        buf[j] = std::fma(w, value, buf[j]);
-      }
-#endif
-      for (; j < block_size; ++j) {
-        float value = *input_row++;
-        buf[j] = std::fma(w, value, buf[j]);
+      const uint8_t* input_row = input + input_stride * idx;
+      for (int64_t j = 0; j < block_size; ++j) {
+        buf[j] = std::fma(w, decode(input_row[j]), buf[j]);
       }
     }
-    if (normalize_by_lengths && len) {
-      float scale = 1.f / len;
-      for (int j = 0; j < block_size; ++j) {
-        buf[j] *= scale;
+    if (normalize_by_lengths) {
+      if (len) {
+        const float scale = 1.f / len;
+        for (int j = 0; j < block_size; ++j) {
+          buf[j] *= scale;
+        }
       }
     }
 
@@ -2124,32 +2076,59 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
   if (input_stride == -1) {
     input_stride = block_size;
   }
-  return [=](int64_t output_size,
-             int64_t index_size,
-             int64_t data_size,
-             const uint8_t* input,
-             const IndexType* indices,
-             const OffsetType* offsets_or_lengths,
-             const float* weights,
-             OutType* out) {
-    return EmbeddingSpMDMFP8_autovec(
-        /*block_size=*/block_size,
-        /*output_size=*/output_size,
-        /*index_size=*/index_size,
-        /*data_size=*/data_size,
-        /*input=*/input,
-        /*indices=*/indices,
-        /*offsets_or_lengths=*/offsets_or_lengths,
-        /*weights=*/weights,
-        /*normalize_by_lengths=*/normalize_by_lengths,
-        /*out=*/out,
-        /*is_weight_positional=*/is_weight_positional,
-        /*use_offsets=*/use_offsets,
-        /*output_stride=*/output_stride,
-        /*input_stride=*/input_stride,
-        /*exponent_bits=*/exponent_bits,
-        /*exponent_bias=*/exponent_bias);
+  using Kernel = typename EmbeddingSpMDMKernelSignature<
+      uint8_t,
+      IndexType,
+      OffsetType,
+      OutType>::Type;
+  auto make_kernel = [&](auto decode) -> Kernel {
+    auto specialize = [&]<bool UseOffsets>() -> Kernel {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const uint8_t* input,
+                 const IndexType* indices,
+                 const OffsetType* offsets_or_lengths,
+                 const float* weights,
+                 OutType* out) {
+        return EmbeddingSpMDMFP8_autovec<UseOffsets>(
+            block_size,
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            out,
+            is_weight_positional,
+            normalize_by_lengths,
+            output_stride,
+            input_stride,
+            decode);
+      };
+    };
+    return use_offsets ? specialize.template operator()<true>()
+                       : specialize.template operator()<false>();
   };
+  auto make_typed_kernel = [&]<FbgemmFP8Type InType>() {
+    return make_kernel([](uint8_t input) { return to_float(InType{input}); });
+  };
+  if (exponent_bits == 4 && exponent_bias == 7) {
+    return make_typed_kernel.template operator()<hfp8_e4m3>();
+  }
+  if (exponent_bits == 5 && exponent_bias == 7) {
+    return make_typed_kernel.template operator()<hfp8<5, 7>>();
+  }
+  if (exponent_bits == 5 && exponent_bias == 15) {
+    return make_typed_kernel.template operator()<hfp8_e5m2>();
+  }
+  const int mantissa_bits = 7 - exponent_bits;
+  const float multiplier =
+      std::bit_cast<float>(uint32_t(254 - exponent_bias) << 23);
+  return make_kernel([=](uint8_t input) {
+    return detail::hfp8_to_float(input, mantissa_bits, multiplier);
+  });
 }
 
 template <typename InType, typename IndexType, typename OffsetType>

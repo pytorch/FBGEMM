@@ -254,9 +254,8 @@ def repeat_arange_meta(lengths: Tensor) -> Tensor:
         # FakeTensor context: use dynamic sizing for proper shape tracking
         ctx = torch.library.get_ctx()
         output_size = ctx.new_dynamic_size()
-        # Size-oblivious guard resolution for the data-dependent output size,
-        # so test_aot_dispatch_dynamic does not fail on the unbacked SymInt.
-        torch._check_is_size(output_size)
+        # Explicit non-negative bound for the data-dependent output size.
+        torch._check(output_size >= 0)
         return torch.empty([output_size], dtype=lengths.dtype, device=lengths.device)
 
 
@@ -443,8 +442,7 @@ def jagged_index_select_2d_forward_v2_abstract(
     torch._check(values.device == output_offsets.device)
     torch._check(values.dim() == 2)
     dynamic_num_dense_output_rows = torch.library.get_ctx().new_dynamic_size()
-    # Size-oblivious guard resolution for the data-dependent output rows.
-    torch._check_is_size(dynamic_num_dense_output_rows)
+    torch._check(dynamic_num_dense_output_rows >= 0)
     num_cols = values.size(1)
     return values.new_empty([dynamic_num_dense_output_rows, num_cols])
 
@@ -717,7 +715,6 @@ def merge_pooled_embeddings(
 ) -> torch.Tensor:
     if len(pooled_embeddings) == 0:
         return torch.empty([], device=target_device)
-    torch._check_is_size(cat_dim)
     torch._check(cat_dim >= 0)
     torch._check(cat_dim <= 1)
     total_cat_dim_size = 0
@@ -725,7 +722,7 @@ def merge_pooled_embeddings(
         torch._check(e.dim() == 2)
         torch._check(e.size(1 - cat_dim) == uncat_dim_size)
         total_cat_dim_size += e.size(cat_dim)
-    torch._check_is_size(total_cat_dim_size)
+    torch._check(total_cat_dim_size >= 0)
     e = pooled_embeddings[0]
     if cat_dim == 0:
         return e.new_empty(
@@ -777,10 +774,7 @@ def dense_to_jagged_forward(
 ) -> torch.Tensor:
     if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
-    # Mark the data-dependent output size as a size (>= 0) so downstream
-    # dynamic-shape guards (e.g. total_L * inner_dim) resolve size-obliviously
-    # under test_aot_dispatch_dynamic instead of raising on the unbacked SymInt.
-    torch._check_is_size(total_L)
+    torch._check(total_L >= 0)
     return dense.new_zeros(
         [total_L, dense.size()[-1]],
         dtype=dense.dtype,
@@ -840,8 +834,7 @@ def batch_index_select_dim0_tensor_abstract(
     torch._check(input_num_indices.size(0) == input_rows.size(0))
     torch._check(input_num_indices.size(0) == input_columns.size(0))
     output_numel = torch.library.get_ctx().new_dynamic_size()
-    # Size-oblivious guard resolution for the data-dependent output numel.
-    torch._check_is_size(output_numel)
+    torch._check(output_numel >= 0)
     return inputs.new_empty([output_numel])
 
 
@@ -1161,7 +1154,7 @@ def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
     if selected_lengths_sum is None:
         selected_lengths_sum = torch.library.get_ctx().new_dynamic_size()
 
-    torch._check_is_size(selected_lengths_sum)
+    torch._check(selected_lengths_sum >= 0)
     vlw: list[torch.Tensor] = [
         values.new_empty([selected_lengths_sum]),  # output
         lengths.new_empty([indices.shape[0] * num_batches]),  # output_lengths
@@ -1427,8 +1420,7 @@ def padded_fp8_rowwise_quantized_to_float(
         # When output_last_dim is not supplied the kernel reads per-row pad
         # values, making the output column count data-dependent.
         output_columns = torch.library.get_ctx().new_dynamic_size()
-        # Size-oblivious guard resolution for the data-dependent output cols.
-        torch._check_is_size(output_columns)
+        torch._check(output_columns >= 0)
     output_shape: list[int | torch.SymInt] = [*input_t.shape]
     output_shape[last_dim] = output_columns
     if output_dtype == SparseType.FP32.as_int():

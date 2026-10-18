@@ -47,7 +47,7 @@ FBGEMM_API void ChooseRequantizationMultiplier(
 // TODO: T26263653 fix signed-integer-overflow undefined behavior
 template <typename T1, typename T2 = std::uint8_t>
 NO_SANITIZE("signed-integer-overflow")
-T2 clamp(T1 src, int precision, bool is_signed = false) {
+constexpr T2 clamp(T1 src, int precision, bool is_signed = false) {
   std::int32_t min = is_signed ? -(1LL << (precision - 1)) : 0;
   std::int32_t max =
       is_signed ? ((1LL << (precision - 1)) - 1) : (1LL << precision) - 1;
@@ -58,7 +58,7 @@ T2 clamp(T1 src, int precision, bool is_signed = false) {
   assert(max <= std::numeric_limits<T1>::max());
   assert(max <= std::numeric_limits<T2>::max());
 
-  return std::min<T1>(std::max<T1>(src, min), max);
+  return std::clamp<T1>(src, min, max);
 }
 
 /// Quantize src using zero_point and scale, clamp to the specified precision,
@@ -145,7 +145,7 @@ FBGEMM_API void QuantizeGroupwise(
     T* dst);
 
 template <typename T>
-float Dequantize(T src, const TensorQuantizationParams& qparams) {
+constexpr float Dequantize(T src, const TensorQuantizationParams& qparams) {
   return qparams.scale * (src - qparams.zero_point);
 }
 

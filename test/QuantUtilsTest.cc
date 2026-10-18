@@ -24,6 +24,22 @@
 using namespace std;
 using namespace fbgemm;
 
+namespace {
+
+// These helpers must remain usable in constant expressions.
+static_assert(fbgemm::clamp<int>(-1, 8) == 0);
+static_assert(fbgemm::clamp<int>(128, 8) == 128);
+static_assert(fbgemm::clamp<int>(256, 8) == 255);
+static_assert(fbgemm::clamp<int, int8_t>(-129, 8, true) == -128);
+static_assert(fbgemm::clamp<int, int8_t>(128, 8, true) == 127);
+
+constexpr TensorQuantizationParams kConstexprQparams{0.5f, 4, 8};
+static_assert(Dequantize<uint8_t>(4, kConstexprQparams) == 0.0f);
+static_assert(Dequantize<uint8_t>(2, kConstexprQparams) == -1.0f);
+static_assert(Dequantize<uint8_t>(8, kConstexprQparams) == 2.0f);
+
+} // namespace
+
 // tuple represents K, C, X, G, layout_t
 // layout_t can be KCX or KXC
 class QuantizeGroupwiseTest
