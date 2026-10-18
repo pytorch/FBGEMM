@@ -164,6 +164,147 @@ class SSDUtilsTest(unittest.TestCase):
             use_pipeline=use_pipeline,
         )
 
+    def test_kvzch_direct_cache_lookup(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        embedding_dim = 4
+        cache_sets = 4
+        first_id_by_slot: dict[int, int] = {}
+        collision_keys: list[int] = []
+        for key in range(100):
+            slot = torch.ops.fbgemm.lxu_cache_slot(key, cache_sets)
+            if slot in first_id_by_slot:
+                collision_keys = [first_id_by_slot[slot], key]
+                break
+            first_id_by_slot[slot] = key
+        self.assertEqual(len(collision_keys), 2)
+        hit_key, miss_key = collision_keys
+        slot = torch.ops.fbgemm.lxu_cache_slot(hit_key, cache_sets)
+        cache_state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
+        cache_state[slot][0] = hit_key
+        cache_weights = torch.zeros(
+            (cache_sets, embedding_dim), dtype=torch.float32, device=device
+        )
+        cache_weights[slot] = torch.arange(
+            1, embedding_dim + 1, dtype=torch.float32, device=device
+        )
+        indices = torch.tensor(
+            [hit_key, miss_key, hit_key], dtype=torch.int64, device=device
+        )
+        action_indices = torch.empty_like(indices)
+        actions_count = torch.zeros(1, dtype=torch.int32, device=device)
+        inserted_rows = torch.zeros(
+            (indices.numel(), embedding_dim), dtype=torch.float32, device=device
+        )
+        row_addresses = torch.empty_like(indices)
+
+        torch.ops.fbgemm.kvzch_direct_cache_lookup(
+            indices,
+            cache_state,
+            cache_weights,
+            action_indices,
+            actions_count,
+            inserted_rows,
+            row_addresses,
+        )
+        self.assertEqual(int(actions_count.item()), 1)
+        self.assertEqual(int(action_indices[0].item()), miss_key)
+        miss_row = torch.arange(
+            11, 11 + embedding_dim, dtype=torch.float32, device=device
+        )
+        inserted_rows[0].copy_(miss_row)
+        output = torch.empty_like(inserted_rows)
+        torch.ops.fbgemm.ssd_gather_from_row_addresses(output, row_addresses)
+
+        hit_row = cache_weights[slot]
+        torch.testing.assert_close(
+            output,
+            torch.stack((hit_row, miss_row, hit_row)),
+        )
+
+    def test_kvzch_direct_cache_insert(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        embedding_dim = 4
+        cache_sets = 4
+        first_id_by_slot: dict[int, int] = {}
+        collision_keys: list[int] = []
+        for key in range(100):
+            slot = torch.ops.fbgemm.lxu_cache_slot(key, cache_sets)
+            if slot in first_id_by_slot:
+                collision_keys = [first_id_by_slot[slot], key]
+                break
+            first_id_by_slot[slot] = key
+        self.assertEqual(len(collision_keys), 2)
+        first_key, replacement_key = collision_keys
+        slot = torch.ops.fbgemm.lxu_cache_slot(first_key, cache_sets)
+        cache_state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
+        cache_weights = torch.zeros(
+            (cache_sets, embedding_dim), dtype=torch.float32, device=device
+        )
+        first_row = torch.arange(
+            1, embedding_dim + 1, dtype=torch.float32, device=device
+        ).view(1, -1)
+
+        torch.ops.fbgemm.kvzch_direct_cache_insert(
+            cache_state,
+            cache_weights,
+            torch.tensor([first_key], dtype=torch.int64, device=device),
+            first_row,
+        )
+        self.assertEqual(int(cache_state[slot][0].item()), first_key)
+        torch.testing.assert_close(cache_weights[slot], first_row[0])
+
+        zero_key = next(
+            key
+            for key in range(100, 200)
+            if torch.ops.fbgemm.lxu_cache_slot(key, cache_sets) != slot
+        )
+        zero_slot = torch.ops.fbgemm.lxu_cache_slot(zero_key, cache_sets)
+        torch.ops.fbgemm.kvzch_direct_cache_insert(
+            cache_state,
+            cache_weights,
+            torch.tensor([zero_key], dtype=torch.int64, device=device),
+            torch.zeros_like(first_row),
+        )
+        self.assertEqual(int(cache_state[zero_slot][0].item()), -1)
+
+        cache_state.fill_(-1)
+        cache_weights.zero_()
+        prefix_count = torch.tensor([1], dtype=torch.int32, device=device)
+        torch.ops.fbgemm.kvzch_direct_cache_insert(
+            cache_state,
+            cache_weights,
+            torch.tensor([first_key, zero_key], dtype=torch.int64, device=device),
+            torch.cat((first_row, first_row + 20)),
+            prefix_count,
+        )
+        self.assertEqual(int(cache_state[slot][0].item()), first_key)
+        self.assertEqual(int(cache_state[zero_slot][0].item()), -1)
+        torch.testing.assert_close(cache_weights[slot], first_row[0])
+
+        replacement_row = first_row + 10
+        torch.ops.fbgemm.kvzch_direct_cache_insert(
+            cache_state,
+            cache_weights,
+            torch.tensor([replacement_key], dtype=torch.int64, device=device),
+            replacement_row,
+        )
+        self.assertEqual(int(cache_state[slot][0].item()), replacement_key)
+        torch.testing.assert_close(cache_weights[slot], replacement_row[0])
+
+        cache_state.fill_(-1)
+        cache_weights.zero_()
+        collision_rows = torch.cat((first_row, replacement_row))
+        torch.ops.fbgemm.kvzch_direct_cache_insert(
+            cache_state,
+            cache_weights,
+            torch.tensor(collision_keys, dtype=torch.int64, device=device),
+            collision_rows,
+        )
+        winning_key = int(cache_state[slot][0].item())
+        self.assertIn(winning_key, collision_keys)
+        winning_row = collision_rows[collision_keys.index(winning_key)]
+        torch.testing.assert_close(cache_weights[slot], winning_row)
+
     def expand_tensor(
         self, tensor: torch.Tensor, size: int, max_val: int
     ) -> torch.Tensor:

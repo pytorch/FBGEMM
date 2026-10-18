@@ -37,6 +37,24 @@ ssd_cache_populate_actions_cuda(
     const bool lock_cache_line,
     const std::optional<Tensor>& lxu_cache_locking_counter);
 
+Tensor ssd_gather_from_row_addresses_cuda(Tensor output, Tensor row_addresses);
+
+Tensor kvzch_direct_cache_lookup_cuda(
+    Tensor indices,
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor action_indices,
+    Tensor actions_count,
+    Tensor inserted_rows,
+    Tensor row_addresses);
+
+Tensor kvzch_direct_cache_insert_cuda(
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor indices,
+    Tensor rows,
+    const std::optional<Tensor>& count);
+
 /// @ingroup embedding-ssd
 ///
 /// @brief Similar to `torch.Tensor.index_put` but ignore `indices < 0`
@@ -1212,6 +1230,9 @@ static auto dram_kv_embedding_cache_wrapper =
             })
         .def("get_cuda", &DramKVEmbeddingCacheWrapper::get_cuda)
         .def(
+            "get_cuda_with_found_mask",
+            &DramKVEmbeddingCacheWrapper::get_cuda_with_found_mask)
+        .def(
             "set_backend_return_whole_row",
             &DramKVEmbeddingCacheWrapper::set_backend_return_whole_row,
             "",
@@ -1609,7 +1630,65 @@ Tensor masked_index_select_meta(
   return self;
 }
 
+Tensor ssd_gather_from_row_addresses_meta(
+    Tensor output,
+    Tensor /*row_addresses*/) {
+  return output;
+}
+
+Tensor kvzch_direct_cache_lookup_meta(
+    Tensor /*indices*/,
+    Tensor /*cache_state*/,
+    Tensor /*cache_weights*/,
+    Tensor /*action_indices*/,
+    Tensor /*actions_count*/,
+    Tensor /*inserted_rows*/,
+    Tensor row_addresses) {
+  return row_addresses;
+}
+
+Tensor kvzch_direct_cache_insert_meta(
+    Tensor /*cache_state*/,
+    Tensor cache_weights,
+    Tensor /*indices*/,
+    Tensor /*rows*/,
+    const std::optional<Tensor>& /*count*/) {
+  return cache_weights;
+}
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "ssd_gather_from_row_addresses("
+      "    Tensor(a!) output, "
+      "    Tensor row_addresses"
+      ") -> Tensor(a!)");
+  DISPATCH_TO_CUDA(
+      "ssd_gather_from_row_addresses", ssd_gather_from_row_addresses_cuda);
+  DISPATCH_TO_META(
+      "ssd_gather_from_row_addresses", ssd_gather_from_row_addresses_meta);
+  m.def(
+      "kvzch_direct_cache_lookup("
+      "    Tensor indices, "
+      "    Tensor cache_state, "
+      "    Tensor cache_weights, "
+      "    Tensor(b!) action_indices, "
+      "    Tensor(c!) actions_count, "
+      "    Tensor inserted_rows, "
+      "    Tensor(d!) row_addresses"
+      ") -> Tensor(d!)");
+  DISPATCH_TO_CUDA("kvzch_direct_cache_lookup", kvzch_direct_cache_lookup_cuda);
+  DISPATCH_TO_META("kvzch_direct_cache_lookup", kvzch_direct_cache_lookup_meta);
+  m.def(
+      "kvzch_direct_cache_insert("
+      "    Tensor(a!) cache_state, "
+      "    Tensor(b!) cache_weights, "
+      "    Tensor indices, "
+      "    Tensor rows, "
+      "    Tensor? count=None"
+      ") -> Tensor(b!)");
+  DISPATCH_TO_CUDA("kvzch_direct_cache_insert", kvzch_direct_cache_insert_cuda);
+  DISPATCH_TO_META("kvzch_direct_cache_insert", kvzch_direct_cache_insert_meta);
+
   m.def(
       "create_kv_tensor_wrapper_from_serialized("
       "    str serialized"
