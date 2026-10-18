@@ -46,6 +46,45 @@ no_long_tests: bool = False
 
 @optests.generate_opcheck_tests(fast=True)
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
+    @unittest.skipIf(gpu_unavailable, "CUDA is unavailable")
+    def test_dequantize_layouts_and_output_types(self) -> None:
+        for bit_rate in (2, 4, 8):
+            for nrows, packed_cols in ((0, 2), (3, 0), (1, 2), (3, 6), (3, 18)):
+                payload = torch.arange(nrows * packed_cols, dtype=torch.int32)
+                payload = (
+                    ((payload * 37) % 256).to(torch.uint8).reshape(nrows, packed_cols)
+                )
+                params = torch.tensor([0.5, -1.0], dtype=torch.float16)
+                params = params.view(torch.uint8).repeat(nrows, 1)
+                shifts = torch.arange(0, 8, bit_rate, dtype=torch.int32)
+                unpacked = (payload.int().unsqueeze(-1) >> shifts) & (
+                    (1 << bit_rate) - 1
+                )
+                expected = (
+                    unpacked.reshape(nrows, packed_cols * (8 // bit_rate)).float() * 0.5
+                    - 1.0
+                )
+                for scale_bias_last in (False, True):
+                    parts = (payload, params) if scale_bias_last else (params, payload)
+                    packed = torch.cat(parts, dim=1).cuda()
+                    for dtype in (SparseType.FP32, SparseType.FP16, SparseType.BF16):
+                        with self.subTest(
+                            bit_rate=bit_rate,
+                            shape=(nrows, packed_cols),
+                            scale_bias_last=scale_bias_last,
+                            dtype=dtype,
+                        ):
+                            actual = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                                packed, bit_rate, dtype.as_int(), scale_bias_last
+                            )
+                            self.assertEqual(actual.dtype, dtype.as_dtype())
+                            torch.testing.assert_close(
+                                actual.cpu(),
+                                expected.to(dtype.as_dtype()),
+                                rtol=0,
+                                atol=0,
+                            )
+
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),

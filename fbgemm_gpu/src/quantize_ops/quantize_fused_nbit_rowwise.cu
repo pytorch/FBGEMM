@@ -265,28 +265,24 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
       at::cuda::getCurrentCUDAStream());
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-#define DEQUANT_LAUNCH_NBIT(scale_bias_last)                               \
-  FBGEMM_LAUNCH_KERNEL(                                                    \
-      (_fusednbitrowwise_to_float_cuda_kernel<scalar_t, scale_bias_last>), \
-      gridDim,                                                             \
-      blockDim,                                                            \
-      0,                                                                   \
-      at::cuda::getCurrentCUDAStream(),                                    \
-      bit_rate,                                                            \
-      input.data_ptr<std::uint8_t>(),                                      \
-      nrows,                                                               \
-      ncols,                                                               \
-      output.mutable_data_ptr<scalar_t>())
-
-  FBGEMM_DISPATCH_FLOATING_TYPES(
-      output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {
-        if (scale_bias_last) {
-          DEQUANT_LAUNCH_NBIT(true);
-        } else {
-          DEQUANT_LAUNCH_NBIT(false);
-        }
-      });
-#undef DEQUANT_LAUNCH_NBIT
+  auto launch = [&]<bool ScaleBiasLast>() {
+    FBGEMM_LAUNCH_KERNEL(
+        (_fusednbitrowwise_to_float_cuda_kernel<output_t, ScaleBiasLast>),
+        gridDim,
+        blockDim,
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        bit_rate,
+        input.data_ptr<std::uint8_t>(),
+        nrows,
+        ncols,
+        output.mutable_data_ptr<output_t>());
+  };
+  if (scale_bias_last) {
+    launch.template operator()<true>();
+  } else {
+    launch.template operator()<false>();
+  }
   return output;
 }
 
