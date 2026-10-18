@@ -1951,7 +1951,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
   } // for each row
 }
 
-template <typename OutputType, int BIT_RATE>
+template <typename OutputType, int BIT_RATE, bool scale_bias_last>
 void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     const std::uint8_t* input,
     size_t input_rows,
@@ -1968,9 +1968,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
       (input_columns - 2 * sizeof(uint16_t)) * NUM_ELEM_PER_BYTE;
 
   // Compute a remainder for vector load
-  // Since every row is followed by 2 fp16 (scale and bias), luckily
-  // we don't need mask at bit-rate granularity but just at 32-bit
-  // granularity.
+  // Trailing scale/bias provides padding for 32-bit masked loads. For the
+  // front layout, copy the tail into a padded buffer before loading it.
   constexpr int NUM_ELEM_PER_32BIT = 32 / BIT_RATE;
   // multiply by 4 because we're handling 4 vlen per iteration
   constexpr int NUM_OF_32BIT_PER_VLOAD = VLEN * 4 / NUM_ELEM_PER_32BIT;
@@ -2038,7 +2037,10 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     const std::uint8_t* input_row = input + row * input_columns;
     const uint16_t* input_row_scale_bias = reinterpret_cast<const uint16_t*>(
         input_row +
-        (output_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE);
+        (scale_bias_last ? input_columns - 2 * sizeof(uint16_t) : 0));
+    if constexpr (!scale_bias_last) {
+      input_row += 2 * sizeof(uint16_t);
+    }
     float scale = halfToFloat(input_row_scale_bias[0]);
     float bias = halfToFloat(input_row_scale_bias[1]);
     OutputType* const output_row = output + row * output_columns;
@@ -2117,17 +2119,24 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
       }
 
       if (remainder) {
+        const uint8_t* tail = input_row + col / NUM_ELEM_PER_BYTE;
+        alignas(16) uint8_t padded_tail[16] = {};
+        if constexpr (!scale_bias_last) {
+          // The last row may end at a page boundary; do not read beyond it.
+          std::memcpy(padded_tail, tail, remainder / NUM_ELEM_PER_BYTE);
+          tail = padded_tail;
+        }
         __m256i vinq;
         if constexpr (BIT_RATE == 4) {
           vinq = _mm256_cvtepu8_epi16(_mm_maskload_epi32(
-              reinterpret_cast<const int*>(input_row + col / NUM_ELEM_PER_BYTE),
+              reinterpret_cast<const int*>(tail),
               vmask_load));
           vinq = _mm256_and_si256(
               _mm256_or_si256(vinq, _mm256_slli_epi32(vinq, 4)),
               _mm256_set1_epi16(0x0f0f));
         } else {
           vinq = _mm256_cvtepu8_epi32(_mm_maskload_epi32(
-              reinterpret_cast<const int*>(input_row + col / NUM_ELEM_PER_BYTE),
+              reinterpret_cast<const int*>(tail),
               vmask_load));
           vinq = _mm256_and_si256(
               _mm256_or_si256(
@@ -2221,6 +2230,17 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
   } // for each row
 }
 
+// Preserve the existing trailing-layout entry point and its instantiations.
+template <typename OutputType, int BIT_RATE>
+void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
+    const std::uint8_t* input,
+    size_t input_rows,
+    int input_columns,
+    OutputType* output) {
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<OutputType, BIT_RATE, true>(
+      input, input_rows, input_columns, output);
+}
+
 template <
     typename OutputType,
     bool scale_bias_last,
@@ -2307,6 +2327,14 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
       int input_columns,                                            \
       type* output);
 
+#define INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(type, bit_rate)                \
+  template void                                                        \
+  FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<type, bit_rate, false>( \
+      const std::uint8_t* input,                                        \
+      size_t input_rows,                                                \
+      int input_columns,                                               \
+      type* output);
+
 // Input quantization supports FP32/FP16; dequantization also supports BF16.
 // clang-format off
 INSTANTIATE_QUANT_NBIT_AVX2(float, 2)
@@ -2325,9 +2353,19 @@ INSTANTIATE_DEQUANT_NBIT_AVX2(float16, 8)
 INSTANTIATE_DEQUANT_NBIT_AVX2(bfloat16, 2)
 INSTANTIATE_DEQUANT_NBIT_AVX2(bfloat16, 4)
 INSTANTIATE_DEQUANT_NBIT_AVX2(bfloat16, 8)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(float, 2)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(float, 4)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(float, 8)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(float16, 2)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(float16, 4)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(float16, 8)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(bfloat16, 2)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(bfloat16, 4)
+INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2(bfloat16, 8)
 // clang-format on
 #undef INSTANTIATE_QUANT_NBIT_AVX2
 #undef INSTANTIATE_DEQUANT_NBIT_AVX2
+#undef INSTANTIATE_DEQUANT_NBIT_FRONT_AVX2
 
 #define INSTANTIATE_QuantizationAvx2Functions8Bits(type)                 \
   template void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<type>( \
