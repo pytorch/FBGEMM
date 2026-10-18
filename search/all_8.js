@@ -12,7 +12,7 @@ var searchData=
   ['embeddingstatstrackerconfig_9',['EmbeddingStatsTrackerConfig',['../classfbgemm_1_1_embedding_stats_tracker_config.html',1,'fbgemm']]],
   ['emitextracthalfvector_10',['emitExtractHalfVector',['../namespacefbgemm.html#a4c25a363a50f7ddc8ebb3e23346701bf',1,'fbgemm']]],
   ['emitloaddword_11',['emitLoadDWord',['../namespacefbgemm.html#a8fc7c09b12c7af0d68ecc42f36b95f2c',1,'fbgemm']]],
-  ['enrichmentconfig_12',['EnrichmentConfig',['../structkv__mem_1_1_enrichment_config.html',1,'EnrichmentConfig'],['../structkv__mem_1_1_enrichment_config.html#a66e74f27b75af1a14258aef42ced6b86',1,'kv_mem::EnrichmentConfig::EnrichmentConfig()']]],
+  ['enrichmentconfig_12',['EnrichmentConfig',['../structkv__mem_1_1_enrichment_config.html',1,'EnrichmentConfig'],['../structkv__mem_1_1_enrichment_config.html#a3aa4e0ae5313c3828de0c2682c97dbbe',1,'kv_mem::EnrichmentConfig::EnrichmentConfig()']]],
   ['enumerate_5fall_5ffeature_5fflags_13',['ENUMERATE_ALL_FEATURE_FLAGS',['../group__fbgemm-gpu-config.html#gac42b789c9026f13d4c8bc000f5bd5edc',1,'feature_gates.h']]],
   ['equals_14',['equals',['../classfbgemm_1_1_pack_b_matrix.html#a5299773354edb62a96e39dc55ab5d770',1,'fbgemm::PackBMatrix']]],
   ['example_20method_20group_15',['Example Method Group',['../group__example-method-group.html',1,'']]],
