@@ -15,14 +15,33 @@ namespace fbgemm_gpu {
 
 namespace {
 
+// Specialize common formats while preserving the runtime path for other widths.
+template <typename F>
+void dispatch_nbit_rate(int64_t bit_rate, F&& fn) {
+  switch (bit_rate) {
+    case 2:
+      fn.template operator()<2>();
+      break;
+    case 4:
+      fn.template operator()<4>();
+      break;
+    case 8:
+      fn.template operator()<8>();
+      break;
+    default:
+      fn.template operator()<0>();
+  }
+}
+
 // FP32/FP16 -> Fused 4/2-bit rowwise kernel
-template <typename input_t>
+template <typename input_t, int BitRate>
 __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
-    const int bit_rate,
+    const int runtime_bit_rate,
     const input_t* __restrict__ input,
     const int nrows,
     const int ncols,
     std::uint8_t* __restrict__ output) {
+  const int bit_rate = BitRate == 0 ? runtime_bit_rate : BitRate;
   const int num_elem_per_byte = 8 / bit_rate;
   const int output_columns =
       (ncols + num_elem_per_byte - 1) / num_elem_per_byte + 2 * sizeof(__half);
@@ -75,13 +94,14 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
 }
 
 // Fused 4/2-bit rowwise -> FP32/FP16 kernel
-template <typename output_t, bool scale_bias_last>
+template <typename output_t, bool scale_bias_last, int BitRate>
 __global__ inline void _fusednbitrowwise_to_float_cuda_kernel(
-    const int bit_rate,
+    const int runtime_bit_rate,
     const std::uint8_t* input,
     const int nrows,
     const int ncols,
     output_t* const output) {
+  const int bit_rate = BitRate == 0 ? runtime_bit_rate : BitRate;
   const int num_elem_per_byte = 8 / bit_rate;
   const int output_columns = (ncols - 2 * sizeof(__half)) * num_elem_per_byte;
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
@@ -155,17 +175,19 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       input.scalar_type(), "_float_to_fusednbitrowwise_cuda_kernel", [&] {
-        FBGEMM_LAUNCH_KERNEL(
-            (_float_to_fusednbitrowwise_cuda_kernel<scalar_t>),
-            num_blocks,
-            threads_per_block,
-            0,
-            at::cuda::getCurrentCUDAStream(),
-            bit_rate,
-            input.data_ptr<scalar_t>(),
-            nrows,
-            ncols,
-            output.mutable_data_ptr<std::uint8_t>());
+        dispatch_nbit_rate(bit_rate, [&]<int BitRate>() {
+          FBGEMM_LAUNCH_KERNEL(
+              (_float_to_fusednbitrowwise_cuda_kernel<scalar_t, BitRate>),
+              num_blocks,
+              threads_per_block,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              bit_rate,
+              input.data_ptr<scalar_t>(),
+              nrows,
+              ncols,
+              output.mutable_data_ptr<std::uint8_t>());
+        });
       });
 
   return output;
@@ -267,7 +289,7 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
 
 #define DEQUANT_LAUNCH_NBIT(scale_bias_last)                               \
   FBGEMM_LAUNCH_KERNEL(                                                    \
-      (_fusednbitrowwise_to_float_cuda_kernel<scalar_t, scale_bias_last>), \
+      (_fusednbitrowwise_to_float_cuda_kernel<scalar_t, scale_bias_last, BitRate>), \
       gridDim,                                                             \
       blockDim,                                                            \
       0,                                                                   \
@@ -280,11 +302,13 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {
-        if (scale_bias_last) {
-          DEQUANT_LAUNCH_NBIT(true);
-        } else {
-          DEQUANT_LAUNCH_NBIT(false);
-        }
+        dispatch_nbit_rate(bit_rate, [&]<int BitRate>() {
+          if (scale_bias_last) {
+            DEQUANT_LAUNCH_NBIT(true);
+          } else {
+            DEQUANT_LAUNCH_NBIT(false);
+          }
+        });
       });
 #undef DEQUANT_LAUNCH_NBIT
   return output;

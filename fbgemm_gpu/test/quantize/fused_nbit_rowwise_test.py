@@ -46,6 +46,66 @@ no_long_tests: bool = False
 
 @optests.generate_opcheck_tests(fast=True)
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
+    @unittest.skipIf(gpu_unavailable, "CUDA is unavailable")
+    def test_specialized_bit_rates_and_runtime_fallback(self) -> None:
+        # One bit exercises the retained runtime kernel, while 2/4/8 specialize.
+        for bit_rate in (1, 2, 4, 8):
+            for dtype in (torch.float32, torch.float16, torch.bfloat16):
+                for nrows, ncols in ((0, 32), (3, 0), (1, 32), (3, 272)):
+                    with self.subTest(
+                        bit_rate=bit_rate, dtype=dtype, shape=(nrows, ncols)
+                    ):
+                        values = (torch.arange(ncols).float() % 17 - 8) / 4
+                        data = values.repeat(nrows, 1).to(dtype).cuda()
+                        quantized = torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
+                            data, bit_rate
+                        )
+                        self.assertEqual(
+                            quantized.shape, (nrows, ncols // (8 // bit_rate) + 4)
+                        )
+                        if nrows == 0 or ncols == 0:
+                            actual = (
+                                torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
+                                    quantized, bit_rate
+                                )
+                            )
+                            self.assertEqual(actual.shape, data.shape)
+                            continue
+                        reference = fused_rowwise_nbit_quantize_reference(
+                            data.float().cpu().numpy(), bit_rate
+                        )
+                        np.testing.assert_array_equal(
+                            quantized.cpu().numpy(), reference
+                        )
+                        expected = fused_rowwise_nbit_quantize_dequantize_reference(
+                            data.float().cpu().numpy(), bit_rate
+                        )
+                        for scale_bias_last in (False, True):
+                            packed = (
+                                quantized
+                                if scale_bias_last
+                                else torch.cat(
+                                    (quantized[:, -4:], quantized[:, :-4]), dim=1
+                                )
+                            )
+                            for output_dtype in (
+                                SparseType.FP32,
+                                SparseType.FP16,
+                                SparseType.BF16,
+                            ):
+                                actual = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                                    packed,
+                                    bit_rate,
+                                    output_dtype.as_int(),
+                                    scale_bias_last,
+                                )
+                                torch.testing.assert_close(
+                                    actual.cpu(),
+                                    torch.from_numpy(expected).to(
+                                        output_dtype.as_dtype()
+                                    ),
+                                )
+
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
