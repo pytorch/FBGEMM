@@ -461,8 +461,8 @@ for (const auto d : c10::irange(D)) {
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   {%- endif %}
 
+  {% if not nobag %}
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
-
   int num_tables = 0; // # of physical tables
   int table_to_feature_offset[T + 1];
   table_to_feature_offset[0] = 0;
@@ -474,6 +474,7 @@ for (const auto d : c10::irange(D)) {
   }
   ++num_tables;
   table_to_feature_offset[num_tables] = T;
+  {% endif %}
 
   TORCH_CHECK_EQ(host_weights.dim(), 1);
 
