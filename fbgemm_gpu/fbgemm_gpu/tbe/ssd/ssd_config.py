@@ -259,6 +259,29 @@ class EnrichmentPolicy(NamedTuple):
     # Appended to every Laser key, for tiers keyed on more than the raw ID
     # (e.g. ",v2" for a tier keyed "<id>,<version>")
     laser_key_suffix: str = ""
+    # Several keys per ID: each ID is fetched as "<id><suffix>" for every
+    # suffix in the same multiget (e.g. (",v1", ",v2")). The values are
+    # concatenated in suffix order, so enrichment_dim is the total width, and an
+    # ID is cached only when every key hits. Set this or laser_key_suffix, not
+    # both.
+    laser_key_suffixes: tuple[str, ...] = ()
+
+    def validate(self) -> None:
+        assert not (self.laser_key_suffix and self.laser_key_suffixes), (
+            "set laser_key_suffix or laser_key_suffixes, not both, actual "
+            f"{self.laser_key_suffix!r} and {self.laser_key_suffixes!r}"
+        )
+        num_suffixes = len(self.laser_key_suffixes)
+        if num_suffixes <= 1:
+            return
+        assert self.enrichment_type == EnrichmentType.IGR_LASER_EMBEDDING, (
+            "multiple laser_key_suffixes are only supported for "
+            f"IGR_LASER_EMBEDDING, actual {self.enrichment_type}"
+        )
+        assert self.enrichment_dim % num_suffixes == 0, (
+            "enrichment_dim must split evenly across laser_key_suffixes, "
+            f"actual {self.enrichment_dim} for {num_suffixes} suffixes"
+        )
 
 
 class KVZCHParams(NamedTuple):
@@ -290,6 +313,8 @@ class KVZCHParams(NamedTuple):
             f"actual {offsets} vs {sizes}"
         )
         self.eviction_policy.validate()
+        if self.enrichment_policy is not None:
+            self.enrichment_policy.validate()
         assert (
             not self.backend_return_whole_row or self.enable_optimizer_offloading
         ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
