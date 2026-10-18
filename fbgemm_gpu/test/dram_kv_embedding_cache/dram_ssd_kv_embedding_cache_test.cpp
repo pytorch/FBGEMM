@@ -204,6 +204,39 @@ class DramSsdKVEmbeddingCacheTest : public ::testing::Test {
     return weights;
   }
 
+  /// Read only the MetaHeader rows directly from the SSD tier.
+  at::Tensor readSsdMetadata(const std::vector<int64_t>& ids) {
+    auto num = static_cast<int64_t>(ids.size());
+    auto indices = at::tensor(ids, at::TensorOptions().dtype(at::kLong));
+    auto metadata = at::zeros({num, kMetaHeaderDim}, at::kFloat);
+    auto count = at::tensor({num}, at::kLong);
+    ssd_backend_->get_kv_db_async(indices, metadata, count).wait();
+    return metadata;
+  }
+
+  /// Remove a key using the same map-then-pool ordering as production
+  /// eviction. Returns false when the key was already absent.
+  bool evictCleanDramKey(int64_t id) {
+    auto& kv_store = dram_cache_->get_kv_store();
+    for (int64_t shard = 0; shard < dram_cache_->get_num_shards(); ++shard) {
+      float* block = nullptr;
+      {
+        auto wlock = kv_store.by(shard).wlock();
+        auto it = wlock->find(id);
+        if (it == wlock->end()) {
+          continue;
+        }
+        block = it->second;
+        wlock->erase(id);
+      }
+      auto* pool = kv_store.pool_by(shard);
+      auto pool_lock = pool->acquire_lock();
+      pool->deallocate_t<float>(block);
+      return true;
+    }
+    return false;
+  }
+
   std::shared_ptr<kv_mem::DramKVEmbeddingCache<float>> dram_cache_;
   std::shared_ptr<ssd::EmbeddingRocksDB> ssd_backend_;
   std::shared_ptr<DramSsdKVEmbeddingCache<float>> composite_;
@@ -509,6 +542,35 @@ TEST_F(DramSsdKVEmbeddingCacheTest, FlushDirtyBlocksToSsd) {
   composite_->flush();
   EXPECT_EQ(composite_->get_ssd_num_writes(), writes_after_first)
       << "Second flush should not re-write already-flushed (clean) blocks";
+}
+
+// A clean key can be evicted after flush releases the shard rlock. Its SSD
+// metadata must come from the locked snapshot, not a second DRAM lookup.
+TEST_F(DramSsdKVEmbeddingCacheTest, FlushPreservesMetadataAcrossCleanEviction) {
+  createComposite();
+
+  constexpr int64_t id = 73;
+  insertIntoSsd(id, 7.3f);
+  insertViaComposite(id, 7.3f);
+
+  auto indices = at::tensor({id}, at::kLong);
+  auto count = at::tensor({1}, at::kLong);
+  auto engage_rates = at::tensor({0.75f}, at::kFloat);
+  composite_->set_kv_zch_eviction_metadata_async(indices, count, engage_rates)
+      .wait();
+  auto expected_metadata =
+      dram_cache_->get_kv_metadata_rows(indices, count).clone();
+
+  std::atomic<bool> evicted{false};
+  composite_->set_after_metadata_snapshot_hook_for_testing(
+      [this, id, &evicted](int64_t /*shard_id*/) {
+        evicted.store(evictCleanDramKey(id));
+      });
+
+  composite_->flush();
+
+  EXPECT_TRUE(evicted.load());
+  EXPECT_TRUE(readSsdMetadata({id}).equal(expected_metadata));
 }
 
 // Test: get_dram_kv_perf appends the SSD metrics as the last 5 entries.

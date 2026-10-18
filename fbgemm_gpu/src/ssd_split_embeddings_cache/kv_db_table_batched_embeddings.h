@@ -329,6 +329,16 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& weights,
       const at::Tensor& count);
 
+  /// Read rows and publish per-row validity in found_mask. A zero mask entry
+  /// means the corresponding weights row is unspecified and must not be read;
+  /// implementations may deliberately leave it untouched to reuse scratch
+  /// buffers without clearing every miss.
+  void get_cuda_with_found_mask(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      const at::Tensor& found_mask);
+
   void set_cuda(
       const at::Tensor& indices,
       const at::Tensor& weights,
@@ -646,9 +656,31 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   virtual void flush_or_compact(const int64_t timestep) = 0;
 
+  /// The same validity contract as get_cuda_with_found_mask(): weights rows
+  /// with a zero mask entry are unspecified and may remain untouched.
+  virtual folly::SemiFuture<std::vector<folly::Unit>>
+  get_kv_db_async_with_found_mask(
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*weights*/,
+      const at::Tensor& /*count*/,
+      const at::Tensor& /*found_mask*/) {
+    FBEXCEPTION("Backend does not support found-mask reads");
+  }
+
+  virtual bool supports_found_mask_reads() const {
+    return false;
+  }
+
   void check_tensor_type_consistency(
       const at::Tensor& indices,
       const at::Tensor& weights);
+
+  void get_impl(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      const std::optional<at::Tensor>& found_mask,
+      int64_t sleep_ms);
 
   std::unique_ptr<l2_cache::CacheLibCache> l2_cache_;
   // Config that l2_cache_ was built from, kept so invalidate_l2_cache() can
