@@ -1123,7 +1123,8 @@ auto enrichment_config =
                 int64_t,
                 std::string,
                 std::string,
-                int64_t>(),
+                int64_t,
+                std::string>(),
             "",
             {
                 torch::arg("enrichment_type"),
@@ -1146,6 +1147,7 @@ auto enrichment_config =
                 torch::arg("fs_feature_group_name") = "",
                 torch::arg("fs_feature_name") = "",
                 torch::arg("laser_batch_size") = 0,
+                torch::arg("laser_key_suffix") = "",
             });
 
 static auto dram_kv_embedding_cache_wrapper =

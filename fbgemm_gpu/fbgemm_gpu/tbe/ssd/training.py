@@ -1066,6 +1066,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.fs_feature_group_name,
                     ep.fs_feature_name,
                     ep.laser_batch_size,
+                    ep.laser_key_suffix,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -1191,6 +1192,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.fs_feature_group_name,
                     ep.fs_feature_name,
                     ep.laser_batch_size,
+                    ep.laser_key_suffix,
                 )
             # Create the composite DRAM+SSD wrapper. The wrapper is the sole
             # initializer of the DRAM+SSD backend: it builds the RocksDB (L3)

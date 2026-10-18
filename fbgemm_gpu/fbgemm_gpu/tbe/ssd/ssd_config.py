@@ -256,6 +256,9 @@ class EnrichmentPolicy(NamedTuple):
     fs_feature_name: str = ""
     # Laser IGR batch size (0 = no batching, send all IDs in one RPC)
     laser_batch_size: int = 0
+    # Appended to every Laser key, for tiers keyed on more than the raw ID
+    # (e.g. ",v2" for a tier keyed "<id>,<version>")
+    laser_key_suffix: str = ""
 
 
 class KVZCHParams(NamedTuple):
