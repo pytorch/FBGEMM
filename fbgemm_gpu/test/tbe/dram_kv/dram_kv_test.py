@@ -115,6 +115,82 @@ class DRAMKVTest(unittest.TestCase):
         logging.info(f"weights actual {weights_out=}")
         assert torch.equal(weights, weights_out)
 
+    def test_get_cuda_with_found_mask(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        embedding_dim = 8
+        dram_kv = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+            max_D=embedding_dim,
+            uniform_init_lower=-0.1,
+            uniform_init_upper=0.1,
+            num_shards=1,
+            num_threads=2,
+            row_storage_bitwidth=32,
+            disable_random_init=True,
+        )
+        stored_indices = torch.tensor([1, 2], dtype=torch.int64)
+        stored_weights = torch.tensor(
+            [[1.0] * embedding_dim, [2.0] * embedding_dim], dtype=torch.float32
+        )
+        stored_count = torch.tensor([2], dtype=torch.int64)
+        dram_kv.set_cuda(stored_indices, stored_weights, stored_count, 1)
+
+        requested_indices = torch.tensor([1, 99, -1, 2, 100], dtype=torch.int64)
+        active_count = torch.tensor([4], dtype=torch.int64)
+        weights_gpu = torch.ops.fbgemm.new_unified_tensor(
+            torch.empty(1, device=device, dtype=torch.float32),
+            (requested_indices.numel(), embedding_dim),
+            is_host_mapped=True,
+        )
+        weights_cpu = torch.ops.fbgemm.uvm_to_cpu(weights_gpu)
+        weights_cpu.fill_(-7.0)
+        found_gpu = torch.ops.fbgemm.new_unified_tensor(
+            torch.empty(1, device=device, dtype=torch.uint8),
+            (requested_indices.numel(),),
+            is_host_mapped=True,
+        )
+        found_cpu = torch.ops.fbgemm.uvm_to_cpu(found_gpu)
+        found_cpu.fill_(7)
+
+        dram_kv.get_cuda_with_found_mask(
+            requested_indices, weights_gpu, active_count, found_cpu
+        )
+        torch.cuda.synchronize()
+
+        expected_weights = torch.full_like(weights_cpu, -7.0)
+        expected_weights[0].fill_(1.0)
+        expected_weights[3].fill_(2.0)
+        torch.testing.assert_close(weights_cpu, expected_weights, rtol=0, atol=0)
+        torch.testing.assert_close(
+            found_cpu,
+            torch.tensor([1, 0, 7, 1, 7], dtype=torch.uint8),
+            rtol=0,
+            atol=0,
+        )
+
+    def test_get_cuda_with_found_mask_rejects_random_initialization(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        embedding_dim = 8
+        dram_kv = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+            max_D=embedding_dim,
+            uniform_init_lower=-0.1,
+            uniform_init_upper=0.1,
+            num_shards=1,
+            num_threads=2,
+            row_storage_bitwidth=32,
+            disable_random_init=False,
+        )
+        indices = torch.tensor([1], dtype=torch.int64)
+        weights = torch.ops.fbgemm.new_unified_tensor(
+            torch.empty(1, device=device, dtype=torch.float32),
+            (1, embedding_dim),
+            is_host_mapped=True,
+        )
+        count = torch.tensor([1], dtype=torch.int64)
+        found_mask = torch.zeros(1, dtype=torch.uint8)
+
+        with self.assertRaisesRegex(RuntimeError, "random initialization disabled"):
+            dram_kv.get_cuda_with_found_mask(indices, weights, count, found_mask)
+
     def test_initializer(
         self,
     ):
