@@ -1199,6 +1199,62 @@ class FP8Tests(unittest.TestCase):
                 call()
             self.assertEqual(torch.cuda.current_device(), current)
 
+    @unittest.skipIf(not torch.version.hip, "Requires AMD CK kernels")
+    def test_ck_fp8_native_dtype(self) -> None:
+        arch = torch.cuda.get_device_properties(self.device).gcnArchName.split(":")[0]
+        if arch not in ("gfx942", "gfx950"):
+            self.skipTest("CK FP8 kernels require gfx942 or gfx950")
+        native_dtype = (
+            torch.float8_e4m3fn if arch == "gfx950" else torch.float8_e4m3fnuz
+        )
+        wrong_dtype = torch.float8_e4m3fnuz if arch == "gfx950" else torch.float8_e4m3fn
+        q = torch.ones((512, 512), device=self.device, dtype=torch.bfloat16).to(
+            native_dtype
+        )
+        wrong = q.float().to(wrong_dtype)
+        row_scale = torch.ones(512, device=self.device)
+        block_scale = torch.ones((4, 4), device=self.device)
+        cases = (
+            ("f8f8bf16_tensorwise", q, (1.0,)),
+            ("f8f8bf16_blockwise", q, (block_scale, block_scale)),
+            ("f8f8bf16_rowwise", q, (row_scale, row_scale)),
+            ("f8f8f16_rowwise", q, (row_scale, row_scale)),
+            ("f8f8bf16_rowwise_preshuffle", q, (row_scale, row_scale)),
+            (
+                "f8f8bf16_rowwise_batched",
+                q.unsqueeze(0),
+                (row_scale.unsqueeze(0), row_scale.unsqueeze(0)),
+            ),
+        )
+        for name, input_q, scales in cases:
+            with self.subTest(operator=name):
+                op = getattr(torch.ops.fbgemm, name)
+                if name in (
+                    "f8f8bf16_blockwise",
+                    "f8f8bf16_rowwise_preshuffle",
+                ):
+                    empty = input_q[:0].contiguous()
+                    output = op(empty, input_q, scales[0][:0], scales[1])
+                    self.assertEqual(output.shape, (0, 512))
+                    self.assertEqual(output.dtype, torch.bfloat16)
+                    self.assertEqual(output.device, input_q.device)
+                else:
+                    output = op(input_q, input_q, *scales)
+                    torch.testing.assert_close(
+                        output.float(),
+                        torch.full_like(output.float(), 512),
+                        atol=0,
+                        rtol=0,
+                    )
+                invalid = wrong.reshape(input_q.shape)
+                for left, right in ((invalid, input_q), (input_q, invalid)):
+                    with self.assertRaisesRegex(RuntimeError, "native dtype"):
+                        op(left, right, *scales)
+                if torch.cuda.device_count() > 1:
+                    other = (input_q.device.index + 1) % torch.cuda.device_count()
+                    with self.assertRaisesRegex(RuntimeError, "share a device"):
+                        op(input_q, input_q.to(f"cuda:{other}"), *scales)
+
     def test_quantizer_cpu_bridge_auxiliaries(self) -> None:
         x = torch.ones((2, 128), dtype=torch.bfloat16)
         bs = torch.tensor([2], dtype=torch.int64)

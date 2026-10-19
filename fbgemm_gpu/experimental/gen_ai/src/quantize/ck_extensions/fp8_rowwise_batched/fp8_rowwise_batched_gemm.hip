@@ -15,6 +15,8 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+#include <fbgemm_gpu/quantize/fp8_dtype.h>
+#include <ATen/DeviceGuard.h>
 #include <c10/hip/HIPStream.h>
 
 #include "kernels/fp8_rowwise_batched_kernel_manifest.h"
@@ -209,10 +211,8 @@ at::Tensor f8f8bf16_rowwise_batched(
   TORCH_CHECK(
       XQ.dim() == 3 && WQ.dim() == 3,
       "Inputs must have 3 dimensions, with the first being batch.");
-  TORCH_CHECK(
-      (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
-          (WQ.dtype() == at::kFloat8_e4m3fnuz),
-      "Inputs must be type float8_e4m3fnuz.");
+  check_ck_fp8_inputs(XQ, WQ);
+  const at::OptionalDeviceGuard device_guard(XQ.device());
   TORCH_CHECK(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");
