@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2026 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -187,12 +188,16 @@ static ALWAYS_INLINE void Dequant4bitToF32_neon(
   }
 
   // Scalar tail: handle remaining elements (<32 floats)
-  for (; offset < block_size; offset += 2) {
+  for (; offset + 1 < block_size; offset += 2) {
     uint8_t tmp = *input_row++;
     float quantized1 = float(tmp & 0xf);
     float quantized2 = float(tmp >> 4);
     buf[offset] = std::fma(scale, quantized1, buf[offset] + bias);
     buf[offset + 1] = std::fma(scale, quantized2, buf[offset + 1] + bias);
+  }
+  if (offset < block_size) {
+    const float quantized = float(*input_row & 0xf);
+    buf[offset] = std::fma(scale, quantized, buf[offset] + bias);
   }
 }
 #endif
@@ -530,15 +535,21 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
 
   int64_t current = 0;
   const int64_t rounded_block_size = round_up(block_size, num_elem_per_byte);
+  constexpr bool use_direct_output =
+      InputBitRate == 4 && std::is_same_v<OutType, float>;
+  const int64_t accumulation_buffer_size =
+      use_direct_output ? block_size : rounded_block_size;
 
   std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
   float* buf = nullptr;
-  if (std::cmp_less_equal(rounded_block_size, LOCAL_STORAGE_SIZE)) {
-    buf = local_storage.data();
-  } else {
-    heap_storage.reset(new float[rounded_block_size]);
-    buf = heap_storage.get();
+  if constexpr (!use_direct_output) {
+    if (std::cmp_less_equal(rounded_block_size, LOCAL_STORAGE_SIZE)) {
+      buf = local_storage.data();
+    } else {
+      heap_storage.reset(new float[rounded_block_size]);
+      buf = heap_storage.get();
+    }
   }
 
   for (int64_t m = 0; m < output_size; ++m) {
@@ -547,6 +558,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     int64_t end = current + len;
     if (end > index_size) {
       return false;
+    }
+    if constexpr (use_direct_output) {
+      buf = out;
     }
 
     // Track every forward pass with the actual bag size (len)
@@ -558,7 +572,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         get_output_type<OutType>(),
         output_size,
         len);
-    fillZero(buf, rounded_block_size);
+    fillZero(buf, accumulation_buffer_size);
 
     const float* weights_addr = weights != nullptr
         ? (is_weight_positional ? weights : weights + current)
@@ -607,12 +621,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
 #ifdef __ARM_NEON
         Dequant4bitToF32_neon(input_row, buf, block_size, scale, bias, j);
 #else
-        for (; j < block_size; j += 2) {
+        for (; j + 1 < block_size; j += 2) {
           uint8_t tmp = *input_row++;
           float quantized1 = float(tmp & 0xf);
           float quantized2 = float(tmp >> 4);
           buf[j] = std::fma(scale, quantized1, buf[j] + bias);
           buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
+        }
+        if (j < block_size) {
+          const float quantized = float(*input_row & 0xf);
+          buf[j] = std::fma(scale, quantized, buf[j] + bias);
         }
 #endif
       } else if constexpr (InputBitRate == 2) {
@@ -683,7 +701,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         buf[j] *= scale;
       }
     }
-    fill_output(out, buf, block_size);
+    if constexpr (!use_direct_output) {
+      fill_output(out, buf, block_size);
+    }
     out += output_stride;
   }
   return current == index_size;
