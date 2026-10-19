@@ -8,6 +8,7 @@
 # pyre-strict
 
 
+import itertools
 import unittest
 
 import fbgemm_gpu
@@ -50,6 +51,56 @@ def make_pitched_tensor(
     storage = torch.randn((height, pitch_elems), dtype=dtype, device=device)
     view = storage[:, :width]  # logical shape
     return view.contiguous() if alignment == 0 else view  # return pitched view
+
+
+# Long enough that the copies below are enqueued while every source device is
+# still busy, on both MI300X and NVIDIA clocks.
+BUSY_SOURCE_SPIN_CYCLES = 50_000_000
+BUSY_SOURCE_TRIALS = 3
+UNWRITTEN_VALUE = -1.0
+TARGET_DEVICE = torch.device("cuda:0")
+
+
+def multi_gpu_counts() -> list[int]:
+    return [count for count in (2, 4) if count <= torch.cuda.device_count()]
+
+
+def rows_per_device(num_gpus: int, rows: int, width: int) -> list[torch.Tensor]:
+    # Distinct non-negative values, so a row copied before it was written
+    # (UNWRITTEN_VALUE) or from the wrong device never matches.
+    return [
+        torch.arange(
+            device * rows * width,
+            (device + 1) * rows * width,
+            dtype=torch.float32,
+            device=torch.device(f"cuda:{device}"),
+        ).reshape(rows, width)
+        for device in range(num_gpus)
+    ]
+
+
+def write_after_busy_spin(
+    destinations: list[torch.Tensor], values: list[torch.Tensor]
+) -> None:
+    # Every device other than the target writes its values on its default
+    # stream only after a long spin there, so an op that does not order its
+    # copies after the work pending on the source device reads UNWRITTEN_VALUE.
+    for destination in destinations:
+        destination.fill_(UNWRITTEN_VALUE)
+    for device in range(torch.cuda.device_count()):
+        torch.cuda.synchronize(device)
+    for destination, value in zip(destinations, values):
+        with torch.cuda.device(destination.device):
+            if destination.device != TARGET_DEVICE:
+                torch.cuda._sleep(BUSY_SOURCE_SPIN_CYCLES)
+            destination.copy_(value)
+
+
+def empty_padded_like(value: torch.Tensor) -> torch.Tensor:
+    # Padded rows force the pitched (2D) copy.
+    return torch.empty(
+        value.size(0), value.size(1) + 8, dtype=value.dtype, device=value.device
+    )[:, : value.size(1)]
 
 
 # @unittest.skipIf(open_source, "Not supported in open source yet")
@@ -368,6 +419,72 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         torch.cuda.synchronize()
 
         self.assertEqual(output[0].numel(), 0)
+
+    # The tests below run with the target device current and the default stream
+    # current on every device, the setup in which a copy issued from the target
+    # device on a source device's default stream is not ordered after that
+    # source device's pending work on ROCm.
+
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Requires at least two devices to transfer between",
+    )
+    def test_merge_pooled_embeddings_waits_for_busy_source_devices(self) -> None:
+        # cat_dim 0 moves each input as one flat copy. cat_dim 1 writes each
+        # input into a column slice of the output, which takes the pitched copy.
+        for num_gpus, cat_dim in itertools.product(multi_gpu_counts(), (0, 1)):
+            values = rows_per_device(num_gpus, rows=64, width=32)
+            uncat_dim_size = values[0].size(1 - cat_dim)
+            expected = torch.cat([value.cpu() for value in values], dim=cat_dim)
+            for trial in range(BUSY_SOURCE_TRIALS):
+                with self.subTest(
+                    num_gpus=num_gpus, cat_dim=cat_dim, trial=trial
+                ), torch.cuda.device(TARGET_DEVICE):
+                    inputs = [torch.empty_like(value) for value in values]
+                    write_after_busy_spin(inputs, values)
+                    output = torch.ops.fbgemm.merge_pooled_embeddings(
+                        inputs, uncat_dim_size, TARGET_DEVICE, cat_dim
+                    )
+                    torch.testing.assert_close(output.cpu(), expected, rtol=0, atol=0)
+
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Requires at least two devices to transfer between",
+    )
+    def test_all_to_one_device_waits_for_busy_source_devices(self) -> None:
+        for num_gpus, pitched in itertools.product(multi_gpu_counts(), (False, True)):
+            values = rows_per_device(num_gpus, rows=64, width=32)
+            for trial in range(BUSY_SOURCE_TRIALS):
+                with self.subTest(
+                    num_gpus=num_gpus, pitched=pitched, trial=trial
+                ), torch.cuda.device(TARGET_DEVICE):
+                    inputs = [
+                        empty_padded_like(value) if pitched else torch.empty_like(value)
+                        for value in values
+                    ]
+                    write_after_busy_spin(inputs, values)
+                    outputs = torch.ops.fbgemm.all_to_one_device(inputs, TARGET_DEVICE)
+                    for output, value in zip(outputs, values):
+                        torch.testing.assert_close(
+                            output.cpu(), value.cpu(), rtol=0, atol=0
+                        )
+
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Requires at least two devices to transfer between",
+    )
+    def test_sum_reduce_to_one_waits_for_busy_source_devices(self) -> None:
+        for num_gpus in multi_gpu_counts():
+            values = rows_per_device(num_gpus, rows=64, width=32)
+            expected = torch.stack([value.cpu() for value in values]).sum(dim=0)
+            for trial in range(BUSY_SOURCE_TRIALS):
+                with self.subTest(num_gpus=num_gpus, trial=trial), torch.cuda.device(
+                    TARGET_DEVICE
+                ):
+                    inputs = [torch.empty_like(value) for value in values]
+                    write_after_busy_spin(inputs, values)
+                    output = torch.ops.fbgemm.sum_reduce_to_one(inputs, TARGET_DEVICE)
+                    torch.testing.assert_close(output.cpu(), expected, rtol=0, atol=0)
 
 
 if __name__ == "__main__":

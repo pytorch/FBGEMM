@@ -133,6 +133,12 @@ AdjacencyMatrix<Node> get_intermediate_node(
 // registered as one allocation per 20MiB chunk, so a contiguous transfer larger
 // than a chunk is rejected when described as pitched. The flat copy also covers
 // dimensions past the first two, which the pitched description silently drops.
+//
+// `copy_stream` must be a stream on the source device, and the copy is issued
+// with the source device current. The default stream's handle is null, and HIP
+// resolves a null handle against the current device, so issuing the copy while
+// another device is current would queue it on that device's default stream,
+// unordered against the work still pending on the source device.
 void copy_to_device_async(
     const Tensor& src,
     Tensor& dst,
@@ -140,6 +146,14 @@ void copy_to_device_async(
   if (src.numel() == 0) {
     return;
   }
+
+  TORCH_CHECK(
+      copy_stream.device() == src.device(),
+      "The copy stream must be on the source device, but the stream is on ",
+      copy_stream.device(),
+      " and the source tensor is on ",
+      src.device());
+  const at::cuda::CUDAGuard source_device_guard(src.device());
 
   if (src.is_contiguous() && dst.is_contiguous() &&
       src.sizes() == dst.sizes()) {
