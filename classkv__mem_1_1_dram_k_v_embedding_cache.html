@@ -124,7 +124,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a047abf23fb18225675fcb9846a39f2dd" id="r_a047abf23fb18225675fcb9846a39f2dd"><td class="memTemplParams" colspan="2">template&lt;typename FetchFn, typename PrepareFn&gt; </td></tr>
 <tr class="memitem:a047abf23fb18225675fcb9846a39f2dd template"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a047abf23fb18225675fcb9846a39f2dd">dispatchEnrichmentAsync</a> (std::vector&lt; int64_t &gt; hashed_ids, std::vector&lt; int64_t &gt; unhashed_ids, const char *log_prefix, FetchFn fetchFn, PrepareFn prepareFn)</td></tr>
 <tr class="memitem:aa8c1bbe2a7ab1e8e1d54118019abca60" id="r_aa8c1bbe2a7ab1e8e1d54118019abca60"><td class="memItemLeft">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight"><a class="el" href="#aa8c1bbe2a7ab1e8e1d54118019abca60">fetch_sids_sync</a> (at::Tensor hashed_indices, at::Tensor unhashed_indices, at::Tensor count) override</td></tr>
-<tr class="memitem:a31225c0d4a54952f46db295152b22065" id="r_a31225c0d4a54952f46db295152b22065"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a31225c0d4a54952f46db295152b22065">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt)</td></tr>
+<tr class="memitem:ab5172028ec58fd3ef007fc016b049265" id="r_ab5172028ec58fd3ef007fc016b049265"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ab5172028ec58fd3ef007fc016b049265">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt, const std::optional&lt; at::Tensor &gt; &amp;found_mask=std::nullopt)</td></tr>
+<tr class="memitem:a5ad7f6df6f124e625b38d688ba41077a" id="r_a5ad7f6df6f124e625b38d688ba41077a"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a5ad7f6df6f124e625b38d688ba41077a">get_kv_db_async_with_found_mask</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const at::Tensor &amp;found_mask) override</td></tr>
 <tr class="memitem:a089b321f90b6319a7c99cf01406cbd76" id="r_a089b321f90b6319a7c99cf01406cbd76"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a089b321f90b6319a7c99cf01406cbd76">maybe_evict</a> () override</td></tr>
 <tr class="memitem:ab046b99f3345b44e6ff583b776c4a3d1" id="r_ab046b99f3345b44e6ff583b776c4a3d1"><td class="memItemLeft">size_t&#160;</td><td class="memItemRight"><a class="el" href="#ab046b99f3345b44e6ff583b776c4a3d1">get_map_used_memsize_in_bytes</a> () const override</td></tr>
 <tr class="memitem:a21a0f0c644433c7e4af4f1182eca1549" id="r_a21a0f0c644433c7e4af4f1182eca1549"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a21a0f0c644433c7e4af4f1182eca1549">wait_until_laser_write_resume</a> ()</td></tr>
@@ -137,6 +138,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:af92863de35d4f1785d5843b665139eec pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_af92863de35d4f1785d5843b665139eec"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#af92863de35d4f1785d5843b665139eec">get_kv_db_weights_only_async</a> (const at::Tensor &amp;, const at::Tensor &amp;, const at::Tensor &amp;)</td></tr>
 <tr class="memitem:a4d3c2b2de499c727ea34cfd3348fba1a pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_a4d3c2b2de499c727ea34cfd3348fba1a"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a4d3c2b2de499c727ea34cfd3348fba1a">get_kv_db_metadata_only_async</a> (const at::Tensor &amp;, const at::Tensor &amp;, const at::Tensor &amp;)</td></tr>
 <tr class="memitem:adac116554b543b7c4228c018a85882f5 pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
+<tr class="memitem:aa6c61b95631616bb7a5e7ec16586a09b pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_aa6c61b95631616bb7a5e7ec16586a09b"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#aa6c61b95631616bb7a5e7ec16586a09b">get_cuda_with_found_mask</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const at::Tensor &amp;found_mask)</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft">std::vector&lt; double &gt;&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
 <tr class="memitem:a0496498b933dbcb6cfa7a6623df15bc0 pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_a0496498b933dbcb6cfa7a6623df15bc0"><td class="memItemLeft">virtual bool&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a0496498b933dbcb6cfa7a6623df15bc0">l2_eviction_write_back_enabled</a> () const</td></tr>
 <tr class="memitem:aaebbc42c26c398bec2abb2614bfaeffa pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_aaebbc42c26c398bec2abb2614bfaeffa"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#aaebbc42c26c398bec2abb2614bfaeffa">invalidate_l2_cache</a> ()</td></tr>
@@ -486,8 +488,8 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
-<a id="a31225c0d4a54952f46db295152b22065" name="a31225c0d4a54952f46db295152b22065"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a31225c0d4a54952f46db295152b22065">&#9670;&#160;</a></span>get_kv_db_async_impl()</h2>
+<a id="ab5172028ec58fd3ef007fc016b049265" name="ab5172028ec58fd3ef007fc016b049265"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab5172028ec58fd3ef007fc016b049265">&#9670;&#160;</a></span>get_kv_db_async_impl()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -520,7 +522,12 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>width_length</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
+          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>width_length</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>found_mask</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -539,6 +546,50 @@ template&lt;typename weight_type&gt; </div>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
+
+</div>
+</div>
+<a id="a5ad7f6df6f124e625b38d688ba41077a" name="a5ad7f6df6f124e625b38d688ba41077a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5ad7f6df6f124e625b38d688ba41077a">&#9670;&#160;</a></span>get_kv_db_async_with_found_mask()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt; get_kv_db_async_with_found_mask </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>found_mask</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>The same validity contract as <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#aa6c61b95631616bb7a5e7ec16586a09b">get_cuda_with_found_mask()</a>: weights rows with a zero mask entry are unspecified and may remain untouched. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>

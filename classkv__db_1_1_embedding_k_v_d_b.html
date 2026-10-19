@@ -126,6 +126,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4d3c2b2de499c727ea34cfd3348fba1a" id="r_a4d3c2b2de499c727ea34cfd3348fba1a"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a4d3c2b2de499c727ea34cfd3348fba1a">get_kv_db_metadata_only_async</a> (const at::Tensor &amp;, const at::Tensor &amp;, const at::Tensor &amp;)</td></tr>
 <tr class="memitem:ac7915f47cef0152710d8e819974ae66e" id="r_ac7915f47cef0152710d8e819974ae66e"><td class="memItemLeft">virtual std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ac7915f47cef0152710d8e819974ae66e">fetch_sids_sync</a> (at::Tensor, at::Tensor, at::Tensor)</td></tr>
 <tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
+<tr class="memitem:aa6c61b95631616bb7a5e7ec16586a09b" id="r_aa6c61b95631616bb7a5e7ec16586a09b"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aa6c61b95631616bb7a5e7ec16586a09b">get_cuda_with_found_mask</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const at::Tensor &amp;found_mask)</td></tr>
 <tr class="memitem:a15046e704688bd9fc930567ec176e866" id="r_a15046e704688bd9fc930567ec176e866"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a15046e704688bd9fc930567ec176e866">maybe_evict</a> ()</td></tr>
 <tr class="memitem:a9ef4e4f1a94c7994e58011a3c276c9cf" id="r_a9ef4e4f1a94c7994e58011a3c276c9cf"><td class="memItemLeft">virtual size_t&#160;</td><td class="memItemRight"><a class="el" href="#a9ef4e4f1a94c7994e58011a3c276c9cf">get_map_used_memsize_in_bytes</a> () const</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft">std::vector&lt; double &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
@@ -269,6 +270,38 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
 <dl class="section note"><dt>Note</dt><dd>weights will be updated from either L2 cache or storage tier </dd></dl>
+
+</div>
+</div>
+<a id="aa6c61b95631616bb7a5e7ec16586a09b" name="aa6c61b95631616bb7a5e7ec16586a09b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa6c61b95631616bb7a5e7ec16586a09b">&#9670;&#160;</a></span>get_cuda_with_found_mask()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void get_cuda_with_found_mask </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>found_mask</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Read rows and publish per-row validity in found_mask. A zero mask entry means the corresponding weights row is unspecified and must not be read; implementations may deliberately leave it untouched to reuse scratch buffers without clearing every miss. </p>
 
 </div>
 </div>
