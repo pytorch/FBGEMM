@@ -70,12 +70,7 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
   const int64_t ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const int64_t output_columns = ncols_aligned + 2 * sizeof(float);
 
-  float max_pos;
-  if (forward) {
-    max_pos = 0.9375;
-  } else {
-    max_pos = 0.875;
-  }
+  const float max_pos = forward ? 0.9375 : 0.875;
   constexpr float kEpsilon = 1e-20f;
   // always a power of 2 up to size 32. Multiple rows can share the same warp
   // when smaller than 32.
@@ -144,18 +139,9 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
   // Assert if index is out of bound
   CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
 
-  int ebit;
-  int bias;
-  float max_pos;
-  if (forward) {
-    ebit = 4;
-    bias = 15;
-    max_pos = 0.9375;
-  } else {
-    ebit = 5;
-    bias = 31;
-    max_pos = 0.875;
-  }
+  const int ebit = forward ? 4 : 5;
+  const int bias = forward ? 15 : 31;
+  const float max_pos = forward ? 0.9375 : 0.875;
 
   const int64_t ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const int64_t output_columns = ncols_aligned + 2 * sizeof(float);
@@ -263,13 +249,10 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
               forward);
         });
   } else {
-    // range_tensor is used to store the range for each embedding row.
     // We save max_pos/max_val(rowwise) as row scale to quantize
     // unlike INT8, FP8 does not have zero shift
     // This will guarantee the numerical match but bring some perf
     // regression.
-    auto range_tensor = at::empty({nrows}, input.options().dtype(at::kFloat));
-
     {
       // we need a blockDim.x that is a power of 2 no larger than the warp size
       // of 32
