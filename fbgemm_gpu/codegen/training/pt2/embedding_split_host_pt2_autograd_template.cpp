@@ -1410,7 +1410,9 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     const std::vector<double>& aux_float,
     c10::List<bool> aux_bool,
     {%- endif %} {#-/* if not dense */#}
-    {{ args_pt2.unified_pt2.split_function_args | join(", ") }},
+    {%- if lookup_args["args"] %}
+    {{ lookup_args["args"] | join(", ") }},
+    {%- endif %}
     {#- /* The VBE arguments are on every unified lookup signature so the PT2
           schema is one shape for all optimizers, and are forwarded only by
           optimizers that support VBE. */ #}
@@ -1427,7 +1429,13 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     {#- /* ssd and pre-allocated vbe_output is not yet supported in Dense TBE */ -#}
     {{ mu_vbe }}const c10::SymInt vbe_output_size = -1
     {%- endif %} {#-/* if not dense */#}
+    {%- for declaration in lookup_args["default_args"] %}
+    , {{ declaration }}
+    {%- endfor %}
 ) {
+  {%- for initializer in lookup_args["default_initializers"] %}
+  {{ initializer }}
+  {%- endfor %}
 
   {%- if has_gpu_support or has_cpu_support %}
 
@@ -1523,7 +1531,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    float[] aux_float, "
         "    bool[] aux_bool, "
         {%- endif %} {#-/* if not dense */#}
-        "    {{ args_pt2.unified_pt2.split_function_schemas | join(", ") }}, "
+        {%- if lookup_args["schemas"] %}
+        "    {{ lookup_args["schemas"] | join(", ") }}, "
+        {%- endif %}
         "    SymInt max_B=-1, "
         "    SymInt max_B_feature_rank=-1, "
         {%- if not dense %}
@@ -1535,6 +1545,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- else %}
         "    SymInt vbe_output_size=-1 "
         {%- endif %} {#-/* if not dense */#}
+        {%- for declaration in lookup_args["default_schemas"] %}
+        ", {{ declaration }} "
+        {%- endfor %}
         ") -> Tensor",
         {PT2_COMPLIANT_TAG});
     // We're playing a funny trick here: we're using the autograd

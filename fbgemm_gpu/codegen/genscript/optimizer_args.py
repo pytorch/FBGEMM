@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-strict
 # pyre-ignore-all-errors[29]
 # pyre-ignore-all-errors[53]
 # flake8: noqa F401
@@ -667,6 +666,38 @@ def make_split_function_args_v1(args_str: str) -> str:
     )
 
 
+def make_split_function_v1_defaults(
+    split_arg_spec: list[OptimItem], v1_args_str: str
+) -> list[str]:
+    """
+    Declare the scalar optimizer arguments that a V1 lookup function does not take.
+
+    V1 signatures are frozen, so scalar arguments appended to an optimizer spec
+    after V1 was frozen are forwarded to autograd with their spec defaults.
+
+    Parameters:
+        split_arg_spec (list[OptimItem]): Frontend argument items (tensors extended
+            for cpu/cuda)
+        v1_args_str (str): V1 function args with tensors extended, e.g.,
+            "Tensor momentum1_host, float eps = 0"
+
+    Returns:
+        C++ declarations, e.g., ["const int64_t new_int = 7;"]
+    """
+    v1_names = {arg.split("=")[0].split()[-1] for arg in v1_args_str.split(",")}
+    cpp_types = {
+        ArgType.INT: "int64_t",
+        ArgType.SYM_INT: "c10::SymInt",
+        ArgType.FLOAT: "double",
+        ArgType.BOOL: "bool",
+    }
+    return [
+        f"const {cpp_types[s.ty]} {s.name} = {make_default_literal(s.default)};"
+        for s in split_arg_spec
+        if s.ty in cpp_types and s.name not in v1_names
+    ]
+
+
 def make_ivalue_cast(ty: ArgType) -> str:
     return {
         ArgType.INT: "toInt",
@@ -955,6 +986,71 @@ class PT2ArgsSet:
 ######################################################################
 
 
+# Required positional lists are part of each published lookup schema. Keep this
+# contract fixed when optimizer specs gain arguments: other lists belong after
+# every existing lookup parameter, with None defaults for older frontends.
+LOOKUP_REQUIRED_OPTIMIZER_LISTS: dict[str, tuple[str, ...]] = {
+    "adagrad": ("optim_float",),
+    "adam": ("optim_tensor", "optim_float", "optim_bool"),
+    "lamb": ("optim_float",),
+    "lars_sgd": ("optim_float",),
+    "partial_rowwise_adam": ("optim_float",),
+    "partial_rowwise_lamb": ("optim_float",),
+    "rowwise_adagrad": ("optim_int", "optim_float"),
+    "rowwise_adagrad_with_counter": ("optim_int", "optim_float"),
+    "rowwise_rmsprop_ar": ("optim_float",),
+    "sgd": (),
+    "none": ("optim_int",),
+}
+
+
+def make_lookup_function_args(args: PT2ArgsSet, optimizer: str) -> dict[str, list[str]]:
+    """Preserve published lookup slots and reserve defaulted optimizer lists.
+
+    Python frontend and C++ backend packages upgrade independently. Lists that
+    already occupy required positional slots retain their declarations and
+    order. Other lists are appended after all existing lookup parameters as
+    optional lists defaulting to None, so older frontends can omit them. Lookup
+    converts None to an empty list for reserved lists used by autograd; unused
+    reserved parameters are ignored. Positions remain unchanged when an
+    optimizer starts using a list. Frontends must not supply reserved lists to
+    backends that predate these parameters.
+
+    Optimizers without a published PT2 lookup schema reserve all four lists.
+    Internal autograd arguments remain driven by the optimizer specification.
+    """
+    required = LOOKUP_REQUIRED_OPTIMIZER_LISTS.get(optimizer, ())
+    indices = [
+        index
+        for index, name in enumerate(args.split_function_arg_names)
+        if name not in args.split_args_dict or name in required
+    ]
+    default_names = [name for name in args.split_args_dict if name not in required]
+    result = {
+        "args": [args.split_function_args[index] for index in indices],
+        "schemas": [args.split_function_schemas[index] for index in indices],
+        "default_args": [],
+        "default_schemas": [],
+        "default_initializers": [],
+    }
+    for name in default_names:
+        ty = name.removeprefix("optim_")
+        cpp_type = list_arg(ty).rsplit(" ", 1)[0]
+        schema_type = schema_list_arg(ty).rsplit(" ", 1)[0]
+        used = name in args.split_function_arg_names
+        unused = "" if used else "[[maybe_unused]] "
+        result["default_args"].append(
+            f"{unused}std::optional<{cpp_type}> {name}_optional = std::nullopt"
+        )
+        result["default_schemas"].append(f"{schema_type}? {name}=None")
+        if used:
+            result["default_initializers"].append(
+                f"[[maybe_unused]] auto {name} = "
+                f"{name}_optional.value_or({cpp_type}{{}});"
+            )
+    return result
+
+
 @dataclass
 class OptimizerArgs:
     split_kernel_args: list[str]
@@ -989,6 +1085,7 @@ class OptimizerArgs:
     split_function_args_no_defaults_by_surface: dict[str, list[str]]
     split_function_args_v1: str | None = None
     split_function_schemas_v1: str | None = None
+    split_function_v1_defaults: list[str] = field(default_factory=list)
 
     @staticmethod
     # pyre-ignore[3]
@@ -1095,6 +1192,7 @@ class OptimizerArgs:
         # is not none`) skip V1 entirely instead of emitting an empty arg list.
         split_function_args_v1 = None
         split_function_schemas_v1 = None
+        split_function_v1_defaults = []
         if additional_spec is not None and additional_spec.get("v1"):
             if len(split_saved_tensors) > 0:
                 extended_args_str = extend_tensors_args_from_str(
@@ -1104,6 +1202,9 @@ class OptimizerArgs:
                 extended_args_str = additional_spec["v1"]
             split_function_args_v1 = make_split_function_args_v1(extended_args_str)
             split_function_schemas_v1 = extended_args_str
+            split_function_v1_defaults = make_split_function_v1_defaults(
+                frontend_split_arg_spec, extended_args_str
+            )
 
         # pyre-fixme[28]: Unexpected keyword argument `placeholder_type_combos`.
         return OptimizerArgs(
@@ -1223,6 +1324,7 @@ class OptimizerArgs:
             split_saved_tensors_optional=split_saved_tensors_optional,
             split_function_args_v1=split_function_args_v1,
             split_function_schemas_v1=split_function_schemas_v1,
+            split_function_v1_defaults=split_function_v1_defaults,
         )
 
 

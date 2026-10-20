@@ -118,6 +118,10 @@ class OptimizerArgs(NamedTuple):
                                 # convention where alpha means learning rate).
     ema_beta: float = 0.99      # EMA decay for momentum1 (g²)
     min_shrinkage: float = 0.1  # floor on the decay multiplier; 0.0 = full soft-reset
+    # PER_ROW_WARMUP knobs (ignored by other optimizers; defaults are
+    # backwards-compatible with existing OptimizerArgs(...) call sites).
+    warmup_steps: int = 0
+    warmup_start_value: float = 0.0
 
 
 class Momentum(NamedTuple):
