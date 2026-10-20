@@ -2328,7 +2328,7 @@ class FP8Tests(unittest.TestCase):
     @given(
         G=st.sampled_from([1, 4, 16]),
         M=st.sampled_from([16, 2048, 3584]),
-        N=st.sampled_from([16, 256, 1024, 6144]),
+        N=st.sampled_from([16, *GROUPED_GEMM_N_VALUES]),
         K=st.sampled_from([16, 256, 512, 3584]),
         use_cudagraph=st.booleans(),
     )
