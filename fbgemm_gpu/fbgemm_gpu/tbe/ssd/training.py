@@ -23,6 +23,7 @@ from math import floor, log2
 from typing import Any, ClassVar, Optional
 import torch  # usort:skip
 import weakref
+from typing_extensions import Self  # usort:skip
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
@@ -54,7 +55,6 @@ from fbgemm_gpu.tbe.monitoring import (
     TBEStatsReporter,
     TBEStatsReporterConfig,
 )
-
 from .ssd_config import BackendType, EvictionPolicy, KVZCHParams  # usort:skip
 from torch import distributed as dist, nn, Tensor  # usort:skip
 import sys
@@ -63,8 +63,27 @@ from dataclasses import dataclass
 from torch.autograd.profiler import record_function
 
 from ..cache import get_unique_indices_v2
-from .common import ASSOC, pad4, tensor_pad4
+from .common import get_cache_assoc, pad4, tensor_pad4
 from .utils.partially_materialized_tensor import PartiallyMaterializedTensor
+
+
+def _normalize_device(device: torch.device | int | None) -> torch.device:
+    if device is None or isinstance(device, int):
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "GPU runtime must be available to construct SSD training TBE"
+            )
+        index = torch.cuda.current_device() if device is None else device
+        return torch.device(torch.accelerator.current_accelerator().type, index)
+    if device.type == "cpu" or device.type == "meta":
+        raise ValueError("SSD training TBE requires a GPU device")
+    if device.index is None:
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "GPU runtime must be available to construct SSD training TBE"
+            )
+        return torch.device(device.type, torch.cuda.current_device())
+    return device
 
 
 def _log_rank() -> int:
@@ -610,6 +629,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         use_rowwise_bias_correction: bool = False,  # For Adam use
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
         pg: dist.ProcessGroup | None = None,
+        device: torch.device | int | None = None,
     ) -> None:
         super().__init__()
 
@@ -758,8 +778,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Direct mode bypasses the generic associative L1. Retain one set as
             # structural scaffolding for existing TBE state and checkpoint APIs.
             cache_sets = 1
-        # pyre-fixme[8]: Attribute has type `device`; used as `int`.
-        self.current_device: torch.device = torch.cuda.current_device()
+        self.current_device: torch.device = _normalize_device(device)
+        self.cache_assoc: int = get_cache_assoc(self.current_device)
 
         self.enable_raw_embedding_streaming = enable_raw_embedding_streaming
         self._enable_ssd_raw_embedding_streaming: bool = (
@@ -870,7 +890,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert (
             element_size == 4 or element_size == 2
         ), f"Invalid element size {element_size}"
-        cache_size = cache_sets * ASSOC * element_size * self.cache_row_dim
+        cache_size = cache_sets * self.cache_assoc * element_size * self.cache_row_dim
         logging.info(
             f"Using cache for SSD with admission algorithm "
             f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_rocksdb_shards} shards, "
@@ -888,13 +908,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ).fill_(-1),
         )
         self.register_buffer(
             "lru_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ),
         )
 
@@ -918,7 +944,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "lxu_cache_locking_counter",
                 torch.zeros(
                     cache_sets,
-                    ASSOC,
+                    self.cache_assoc,
                     device=self.current_device,
                     dtype=torch.int32,
                 ),
@@ -946,7 +972,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         device=self.current_device,
                         dtype=cache_dtype,
                     ),
-                    [cache_sets * ASSOC, self.cache_row_dim],
+                    [cache_sets * self.cache_assoc, self.cache_row_dim],
                     is_host_mapped=self.uvm_host_mapped,
                 ),
             )
@@ -954,7 +980,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.register_buffer(
                 "lxu_cache_weights",
                 torch.zeros(
-                    cache_sets * ASSOC,
+                    cache_sets * self.cache_assoc,
                     self.cache_row_dim,
                     device=self.current_device,
                     dtype=cache_dtype,
@@ -1503,13 +1529,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # pyre-fixme[20]: Argument `self` expected.
         low_priority, high_priority = torch.cuda.Stream.priority_range()
         # GPU stream for SSD cache eviction
-        self.ssd_eviction_stream = torch.cuda.Stream(priority=low_priority)
+        self.ssd_eviction_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         # GPU stream for SSD memory copy (also reused for feature score D2H)
-        self.ssd_memcpy_stream = torch.cuda.Stream(priority=low_priority)
+        self.ssd_memcpy_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         # GPU stream for async metadata operation
-        self.feature_score_stream = torch.cuda.Stream(priority=low_priority)
+        self.feature_score_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         # GPU stream for embedding cache
-        self.enrichment_query_stream = torch.cuda.Stream(priority=low_priority)
+        self.enrichment_query_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
 
         # SSD get completion event
         self.ssd_event_get = torch.cuda.Event()
@@ -1949,6 +1983,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def _feature_is_enabled(self, feature: FeatureGateName) -> bool:
         return FeatureGate.is_enabled(feature)
 
+    def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
+        target_device = fn(torch.empty(0, device=self.current_device)).device
+        if target_device != self.current_device:
+            raise RuntimeError(
+                "SSDTableBatchedEmbeddingBags cannot be moved after construction "
+                "because its CUDA streams, events, and SSD backend are "
+                "device-bound; pass device= to the constructor instead"
+            )
+        return super()._apply(fn, recurse)
+
     @cached_property
     def cache_row_dim(self) -> int:
         """
@@ -2056,7 +2100,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             row_count,
             self.cache_row_dim,
             dtype=self.weights_precision.as_dtype(),
-            device=torch.accelerator.current_accelerator(),
+            # Citrine C3: allocate directly on the owning GPU.
+            device=self.current_device,
         )
         cpu_tensor = torch.empty_like(chunk_tensor, device="cpu")
         for row_offset in range(0, total_dim0, row_count):
@@ -2399,7 +2444,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self._enrichment_enabled:
                 return
 
-            current_stream = torch.cuda.current_stream()
+            current_stream = torch.cuda.current_stream(self.current_device)
             current_stream.record_event(self.ssd_event_backward)
 
             assert (
@@ -2588,7 +2633,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         prefetch_stream = self.prefetch_stream
         if prefetch_stream is not None:
             # Ensure that prefetch is done
-            torch.cuda.current_stream().wait_stream(prefetch_stream)
+            torch.cuda.current_stream(self.current_device).wait_stream(prefetch_stream)
 
         assert self.current_iter_data is not None, "current_iter_data must be set"
 
@@ -2771,7 +2816,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     def _direct_enrichment_lookup(self, indices: torch.Tensor) -> torch.Tensor:
         indices = indices.to(dtype=torch.int64)
-        current_stream = torch.cuda.current_stream()
+        current_stream = torch.cuda.current_stream(self.current_device)
         owner_cache = self._direct_enrichment_cache
         if owner_cache is None:
             output = self._read_direct_backend_rows(indices)
@@ -2811,7 +2856,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # forward. This synchronized comparison is only the exceptional
         # different-storage path; the steady pipeline stays on the pointer fast
         # path above. A semantic mismatch must fall back to a canonical lookup.
-        expected.record_stream(torch.cuda.current_stream())
+        expected.record_stream(torch.cuda.current_stream(expected.device))
         return torch.equal(expected, actual)
 
     def _consume_direct_enrichment_prefetch(
@@ -2825,7 +2870,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             expected_indices, indices
         ):
             return None
-        output.record_stream(torch.cuda.current_stream())
+        output.record_stream(torch.cuda.current_stream(self.current_device))
         return output
 
     def _advance_direct_enrichment_iteration(self) -> None:
@@ -2842,7 +2887,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 return
             self._prefetched_direct_backend_output = None
             self._prefetched_direct_backend_indices = None
-        current_stream = torch.cuda.current_stream()
+        current_stream = torch.cuda.current_stream(self.current_device)
         indices.record_stream(current_stream)
         self._advance_direct_enrichment_iteration()
         with torch.no_grad(), record_function(
@@ -2860,7 +2905,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         pending_indices = self._pending_direct_cache_fill_indices
         if owner_cache is None or pending_indices is None:
             return None
-        current_stream = torch.cuda.current_stream()
+        current_stream = torch.cuda.current_stream(self.current_device)
         current_stream.wait_event(self.prefetch_complete_event)
         pending_indices.record_stream(current_stream)
         rows, found_mask = self._read_direct_backend_rows_with_found_mask(
@@ -2882,7 +2927,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def reset_enrichment_cache(self) -> None:
         if not self._direct_backend_gather:
             return
-        current_stream = torch.cuda.current_stream()
+        current_stream = torch.cuda.current_stream(self.current_device)
         current_stream.wait_event(self.prefetch_complete_event)
         current_stream.wait_event(self._direct_cache_insert_complete_event)
         current_stream.wait_stream(self.enrichment_query_stream)
@@ -2908,12 +2953,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             return
         if self.prefetch_stream is None and forward_stream is not None:
             # Set the prefetch stream to the current stream
-            self.prefetch_stream = torch.cuda.current_stream()
+            self.prefetch_stream = torch.cuda.current_stream(self.current_device)
             assert (
                 self.prefetch_stream != forward_stream
             ), "prefetch_stream and forward_stream should not be the same stream"
 
-            current_stream = torch.cuda.current_stream()
+            current_stream = torch.cuda.current_stream(self.current_device)
             # Record tensors on the current stream
             indices.record_stream(current_stream)
             offsets.record_stream(current_stream)
@@ -2944,7 +2989,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Wait for any ongoing direct_write_embedding operations to complete
         # Moving this from forward() to _prefetch() is more logical as direct_write
         # operations affect the same cache structures that prefetch interacts with
-        current_stream = torch.cuda.current_stream()
+        current_stream = torch.cuda.current_stream(self.current_device)
         if self._embedding_cache_mode:
             current_stream.wait_event(self.direct_write_l1_complete_event)
             current_stream.wait_event(self.direct_write_sp_complete_event)
@@ -3224,9 +3269,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     current_stream.record_event(self.ssd_event_sp_idxq_lookup)
 
                     # Transfer sp_prev_curr_map_cpu to GPU
-                    sp_prev_curr_map_gpu = sp_prev_curr_map_cpu.cuda(non_blocking=True)
+                    # Citrine C7: target the owning device explicitly.
+                    sp_prev_curr_map_gpu = sp_prev_curr_map_cpu.to(
+                        self.current_device, non_blocking=True
+                    )
                     # Transfer sp_curr_prev_map_cpu to GPU
-                    sp_curr_prev_map_gpu = sp_curr_prev_map_cpu.cuda(non_blocking=True)
+                    sp_curr_prev_map_gpu = sp_curr_prev_map_cpu.to(
+                        self.current_device, non_blocking=True
+                    )
 
                     # Previously actions_count_gpu was recorded on another
                     # stream. Thus, we need to record it on this stream
@@ -3569,7 +3619,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             with self._recording_to_timer(
                 self.ssd_prefetch_read_timer,
                 context=self.step,
-                stream=torch.cuda.current_stream(),
+                stream=torch.cuda.current_stream(self.current_device),
             ), self._recording_to_timer(
                 self.ssd_prefetch_evict_timer,
                 context=self.step,
@@ -4363,7 +4413,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         start_time = time.time()
         # Force device synchronize for now
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(self.current_device)
         snapshot_handle = None
         checkpoint_handle = None
         if self.backend_type == BackendType.SSD:
@@ -5074,9 +5124,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         active_weights_cpu = active_weights_gpu.cpu()
         active_ids_cpu = active_ids_gpu.cpu()
 
-        torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
+        torch.cuda.current_stream(self.current_device).wait_stream(
+            self.ssd_eviction_stream
+        )
 
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(self.current_device)
         self.ssd_db.set(
             active_ids_cpu,
             active_weights_cpu,
@@ -5174,10 +5226,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # Make sure nothing is still reading or writing the cache on another
         # stream before we retag every slot as empty.
-        torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
+        torch.cuda.current_stream(self.current_device).wait_stream(
+            self.ssd_eviction_stream
+        )
         if self.prefetch_stream is not None:
-            torch.cuda.current_stream().wait_stream(self.prefetch_stream)
-        torch.cuda.synchronize()
+            torch.cuda.current_stream(self.current_device).wait_stream(
+                self.prefetch_stream
+            )
+        torch.cuda.synchronize(self.current_device)
 
         # -1 marks a slot as empty; this is the same invalidation the
         # inference module does in load_snapshot().
@@ -5186,7 +5242,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.lru_state.zero_()
         if self.prefetch_pipeline:
             self.lxu_cache_locking_counter.zero_()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(self.current_device)
         # DEBUG: the duration is reported as `l1=<n>s` on the caller's single
         # switch line. What is here and not there is the slot count and byte
         # figure bounding how much was dropped, both free from shape metadata.
@@ -5330,7 +5386,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # A lookup's backend read runs as a host callback when its stream gets
         # to it, so one already queued would otherwise read the new view.
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(self.current_device)
         # Blocks until every read issued against the retiring view has
         # finished, so this duration is the drain.
         drain_start = time.time()
@@ -6617,7 +6673,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         with torch.no_grad():
             # Wait for any ongoing prefetch operations to complete before starting direct_write
-            current_stream = torch.cuda.current_stream()
+            current_stream = torch.cuda.current_stream(self.current_device)
             current_stream.wait_event(self.prefetch_complete_event)
 
             # Create local step events for internal sequential execution
@@ -6916,7 +6972,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self._enrichment_enabled
         ), "Must be in _enrichment_enabled to support direct_write_embedding method."
         dedup_linear_indices = torch.empty(0, dtype=torch.long, device=indices.device)
-        source_stream = torch.cuda.current_stream()
+        source_stream = torch.cuda.current_stream(self.current_device)
         with record_function(f"## enrichment_query_id_{self.tbe_unique_id} ##"):
             with torch.no_grad():
                 # Run all GPU operations on enrichment_query_stream to avoid

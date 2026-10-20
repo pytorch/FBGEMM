@@ -41,6 +41,14 @@ VIRTUAL_TABLE_ROWS = int(
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommon):
+    def test_rejects_post_construction_device_migration(self) -> None:
+        emb = SSDTableBatchedEmbeddingBags.__new__(SSDTableBatchedEmbeddingBags)
+        torch.nn.Module.__init__(emb)
+        emb.current_device = torch.device("cpu")
+
+        with self.assertRaisesRegex(RuntimeError, "cannot be moved after construction"):
+            emb.to("meta")
+
     def get_physical_table_arg_indices_(self, feature_table_map: list[int]):
         """
         Get the physical table arg indices for the reference and TBE.  The
