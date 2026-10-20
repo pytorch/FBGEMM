@@ -4928,7 +4928,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ]
 
             # Write chunk to KVTensor
-            kvt.set_weights_and_ids(chunk_buffer, id_tensor[i : i + length, :].view(-1))
+            kvt.set_weights_and_ids(
+                chunk_buffer,
+                id_tensor[i : i + length, :].view(-1),
+                weights_include_metaheader=False,
+            )
 
     @torch.jit.ignore
     def enable_load_state_dict_mode(self) -> None:

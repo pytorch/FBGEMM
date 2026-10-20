@@ -452,6 +452,40 @@ TEST(SSDTableBatchedEmbeddingsTest, TestGetKvZchEvictionMetadataBySnapshot) {
 
 TEST(
     SSDTableBatchedEmbeddingsTest,
+    TestEvictionMetadataFoundMaskDistinguishesStoredZero) {
+  auto mock_embedding_rocks = getMockEmbeddingRocksDB(
+      /*num_shards=*/1,
+      "metadataCfStoredZero",
+      /*enable_raw_embedding_streaming=*/false,
+      /*table_names=*/{},
+      /*table_offsets=*/{},
+      /*table_sizes=*/{},
+      /*enable_metadata_cf=*/true,
+      /*metadata_dim=*/kMetadataDimFp32);
+
+  const auto stored_indices = at::tensor({11L}, at::kLong);
+  const auto zero_metadata = at::zeros({1, kMetadataDimFp32}, at::kFloat);
+  const auto stored_count = at::tensor({1L}, at::kLong);
+  mock_embedding_rocks
+      ->set_kv_metadata_async(stored_indices, zero_metadata, stored_count)
+      .wait();
+
+  const auto query_indices = at::tensor({11L, 22L}, at::kLong);
+  const auto query_count = at::tensor({2L}, at::kLong);
+  auto [metadata, found] =
+      mock_embedding_rocks
+          ->get_kv_zch_eviction_metadata_and_found_mask_by_snapshot(
+              query_indices,
+              query_count,
+              /*snapshot_handle=*/nullptr);
+
+  EXPECT_TRUE(at::equal(metadata, at::zeros({2}, at::kLong)));
+  const auto expected_found = at::tensor({1, 0}, at::kByte).to(at::kBool);
+  EXPECT_TRUE(at::equal(found, expected_found));
+}
+
+TEST(
+    SSDTableBatchedEmbeddingsTest,
     TestGetKvDbMetadataOnlyReadsMetadataColumnFamily) {
   auto mock_embedding_rocks = getMockEmbeddingRocksDB(
       /*num_shards=*/1,

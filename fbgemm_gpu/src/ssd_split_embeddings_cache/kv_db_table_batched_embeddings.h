@@ -511,6 +511,23 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
+  virtual at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& /* count */,
+      const ssd::SnapshotHandle* /* snapshot_handle */) {
+    return at::zeros_like(indices, at::kLong);
+  }
+
+  virtual std::pair<at::Tensor, at::Tensor>
+  get_kv_zch_eviction_metadata_and_found_mask_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const ssd::SnapshotHandle* snapshot_handle) {
+    auto metadata = get_kv_zch_eviction_metadata_by_snapshot(
+        indices, count, snapshot_handle);
+    return {metadata, metadata.ne(0)};
+  }
+
   virtual std::vector<double> get_dram_kv_perf(
       const int64_t /* step */,
       const int64_t /* interval */) {

@@ -286,9 +286,9 @@ namespace ssd {
 inline void replace_weights_id(
     at::Tensor& weights,
     const at::Tensor& linearized_ids) {
-  // Calculate how many bytes we need to copy
+  const auto int64_ids = linearized_ids.to(at::ScalarType::Long).contiguous();
   auto weights_dtype_id_2d =
-      linearized_ids.view({-1, 1}).view(weights.dtype().toScalarType());
+      int64_ids.view({-1, 1}).view(weights.dtype().toScalarType());
   auto weights_first_cols = weights.slice(1, 0, weights_dtype_id_2d.size(1));
   weights_first_cols.copy_(weights_dtype_id_2d);
 }
@@ -436,7 +436,7 @@ std::string KVTensorWrapper::serialize() const {
 }
 
 void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
-  std::lock_guard<std::mutex> lock(mtx);
+  std::scoped_lock lock(mtx);
   if (readonly_db_ != nullptr) {
     LOG(INFO) << "deleting checkpoint dir for " << checkpoint_uuid;
     readonly_db_->delete_rocksdb_checkpoint_dir();
@@ -614,8 +614,10 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
       CHECK(t.is_contiguous());
       return t;
     } else {
-      at::Tensor sliced_ids =
-          sorted_indices_.value().slice(0, start, start + length);
+      at::Tensor sliced_ids = sorted_indices_.value()
+                                  .slice(0, start, start + length)
+                                  .to(at::ScalarType::Long)
+                                  .reshape({-1});
       auto weights = get_weights_by_ids(sliced_ids);
 
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
@@ -650,7 +652,7 @@ void KVTensorWrapper::set_range(
     return;
   }
   // Mutex lock for disabling concurrent writes to the same KVTensor
-  std::lock_guard<std::mutex> lock(mtx);
+  std::scoped_lock lock(mtx);
   CHECK_EQ(weights.device(), at::kCPU);
   CHECK(db_) << "EmbeddingRocksDB must be a valid pointer to call set_range";
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
@@ -666,8 +668,10 @@ void KVTensorWrapper::set_range(
     TORCH_CHECK(
         sorted_indices_.has_value(),
         "sorted_indices_ must be valid to set range when backend returns whole row");
-    at::Tensor sliced_ids =
-        sorted_indices_.value().slice(0, start, start + length);
+    at::Tensor sliced_ids = sorted_indices_.value()
+                                .slice(0, start, start + length)
+                                .to(at::ScalarType::Long)
+                                .reshape({-1});
     auto linearized_ids = sliced_ids + row_offset_;
     replace_weights_id(weights, linearized_ids);
   }
@@ -692,7 +696,8 @@ void KVTensorWrapper::set_range(
 
 void KVTensorWrapper::set_weights_and_ids(
     const at::Tensor& weights,
-    const at::Tensor& ids) {
+    const at::Tensor& ids,
+    bool weights_include_metaheader) {
   if (read_only_) {
     XLOG(INFO)
         << "KVTensorWrapper is read only, set_weights_and_ids() is no-op";
@@ -700,10 +705,58 @@ void KVTensorWrapper::set_weights_and_ids(
   }
   CHECK_EQ(weights.device(), at::kCPU);
   CHECK_TRUE(db_ != nullptr);
+  std::scoped_lock lock(mtx);
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
-  auto linearized_ids = ids + row_offset_;
+  auto linearized_ids =
+      ids.to(at::ScalarType::Long).reshape({-1}) + row_offset_;
+  if (db_->get_backend_return_whole_row()) {
+    const int64_t metaheader_width = db_->get_metaheader_width_in_front();
+    const int64_t storage_width = db_->get_max_D() + metaheader_width;
+    if (!weights_include_metaheader) {
+      if (weights.size(0) > 0 && weights.size(1) >= metaheader_width) {
+        const auto first_row = weights[0].contiguous();
+        if (kv_mem::FixedBlockPool::get_key(first_row.data_ptr()) ==
+            linearized_ids.const_data_ptr<int64_t>()[0]) {
+          TORCH_CHECK(
+              false,
+              "weights contain complete rows; pass "
+              "weights_include_metaheader=True to preserve their metadata");
+        }
+      }
+      TORCH_CHECK(
+          weights.size(1) <= db_->get_max_D(),
+          "weights exceed the payload width for whole-row KV storage");
+      auto padded_weights =
+          torch::constant_pad_nd(
+              weights, {0, db_->get_max_D() - weights.size(1)}, 0)
+              .contiguous();
+      const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+      db_->set_kv_db_async(
+             linearized_ids,
+             padded_weights,
+             count,
+             kv_db::RocksdbWriteMode::STREAM)
+          .get();
+      return;
+    }
+
+    TORCH_CHECK(
+        weights.size(1) >= metaheader_width && weights.size(1) <= storage_width,
+        "whole-row weights must include a complete metaheader and fit KV storage");
+    auto weights_with_metaheader =
+        torch::constant_pad_nd(weights, {0, storage_width - weights.size(1)}, 0)
+            .contiguous();
+    replace_weights_id(weights_with_metaheader, linearized_ids);
+    db_->set_kv_to_storage(linearized_ids, weights_with_metaheader);
+    return;
+  }
+
+  TORCH_CHECK(
+      !weights_include_metaheader,
+      "weights_include_metaheader=True requires whole-row KV storage");
+
   int pad_right =
       db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
@@ -817,7 +870,8 @@ at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
       "snapshot handler must be valid for rocksdb (incl. DRAM_SSD) and nullptr for emb kvdb");
   auto weights =
       at::empty(c10::IntArrayRef({ids.size(0), shape_[1]}), options_);
-  auto linearized_ids = ids + row_offset_;
+  auto linearized_ids =
+      ids.to(at::ScalarType::Long).reshape({-1}) + row_offset_;
   db_->get_kv_from_storage_by_snapshot(
       linearized_ids,
       weights,
@@ -1589,7 +1643,13 @@ static auto kv_tensor_wrapper =
             {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
         .def("logss", &KVTensorWrapper::logss)
         .def("set_range", &KVTensorWrapper::set_range)
-        .def("set_weights_and_ids", &KVTensorWrapper::set_weights_and_ids)
+        .def(
+            "set_weights_and_ids",
+            &KVTensorWrapper::set_weights_and_ids,
+            "Write complete rows, or payloads when weights_include_metaheader is false.",
+            {torch::arg("weights"),
+             torch::arg("ids"),
+             torch::arg("weights_include_metaheader") = false})
         .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property("device_str", &KVTensorWrapper::device_str)

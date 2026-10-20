@@ -1513,25 +1513,40 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   at::Tensor get_kv_zch_eviction_metadata_by_snapshot(
       const at::Tensor& indices,
       const at::Tensor& count,
-      const SnapshotHandle* snapshot_handle) {
+      const SnapshotHandle* snapshot_handle) override {
+    return get_kv_zch_eviction_metadata_and_found_mask_by_snapshot(
+               indices, count, snapshot_handle)
+        .first;
+  }
+
+  std::pair<at::Tensor, at::Tensor>
+  get_kv_zch_eviction_metadata_and_found_mask_by_snapshot(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const SnapshotHandle* snapshot_handle) override {
     if (!enable_metadata_cf_) {
       // no op for the case when metadata cf is not enable, i.e. non DRAM_SSD
       // ZCH
-      return at::zeros_like(indices, at::kLong);
+      return {
+          at::zeros_like(indices, at::kLong),
+          at::zeros_like(indices, at::kBool)};
     }
     auto count_ = count.scalar_type() == at::ScalarType::Long
         ? *(count.data_ptr<int64_t>())
         : *(count.data_ptr<int32_t>());
-    auto numel = indices.size(0);
+    auto normalized_indices = indices.to(at::kLong).contiguous();
+    auto numel = normalized_indices.size(0);
     auto metadata = at::zeros({numel}, at::kLong);
+    auto found = at::zeros({numel}, at::kBool);
     if (count_ <= 0 || metadata_dim_ <= 0) {
       LOG(INFO) << "get_kv_zch_eviction_metadata_by_snapshot: early return,"
                 << " count=" << count_ << ", metadata_dim_=" << metadata_dim_
                 << ", max_D_=" << max_D_;
-      return metadata;
+      return {metadata, found};
     }
-    auto* idx_ptr = indices.data_ptr<int64_t>();
+    auto* idx_ptr = normalized_indices.data_ptr<int64_t>();
     auto* md_ptr = metadata.mutable_data_ptr<int64_t>();
+    auto* found_ptr = found.mutable_data_ptr<bool>();
 
     std::vector<folly::Future<folly::Unit>> futures;
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
@@ -1578,15 +1593,26 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         int64_t metadata_read_found = 0;
         int64_t metadata_read_missing = 0;
         for (size_t j = 0; j < keys.size(); ++j) {
-          if (statuses[j].ok() && values[j].size() >= 16) {
-            memcpy(
-                &md_ptr[key_pos[j]],
-                values[j].data() + sizeof(int64_t),
-                sizeof(int64_t));
-            ++metadata_read_found;
-          } else {
+          if (statuses[j].IsNotFound()) {
             ++metadata_read_missing;
+            continue;
           }
+          TORCH_CHECK(
+              statuses[j].ok(),
+              "Failed to read eviction metadata for key ",
+              idx_ptr[key_pos[j]],
+              ": ",
+              statuses[j].ToString());
+          if (values[j].size() < 2 * sizeof(int64_t)) {
+            ++metadata_read_missing;
+            continue;
+          }
+          memcpy(
+              &md_ptr[key_pos[j]],
+              values[j].data() + sizeof(int64_t),
+              sizeof(int64_t));
+          found_ptr[key_pos[j]] = true;
+          ++metadata_read_found;
         }
         LOG(INFO) << "Metadata CF read: shard=" << shard
                   << ", keys_queried=" << keys.size()
@@ -1595,8 +1621,11 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       });
       futures.emplace_back(std::move(f));
     }
-    folly::collect(futures).wait();
-    return metadata;
+    auto results = folly::collectAll(futures).get();
+    for (auto& result : results) {
+      result.throwIfFailed();
+    }
+    return {metadata, found};
   }
 
   void get_range_from_snapshot(
