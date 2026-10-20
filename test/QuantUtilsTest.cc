@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstring>
 #include <limits>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <type_traits>
@@ -775,10 +777,8 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
   }
 }
 
-// Only the reference implementation handles the scale-bias-front layout; the
-// vectorized kernels assume scale and bias sit at the end of the row. Check
-// that the public entry point honours the flag rather than decoding the
-// leading scale and bias as quantized data.
+// Check that the public entry point honours the front-layout flag rather than
+// decoding the leading scale and bias as quantized data.
 TEST_P(EmbeddingQuantizeTest, embeddingHalfScaleBiasFrontTest) {
   auto [bit_rate, rows, cols] = GetParam();
 
@@ -830,6 +830,53 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfScaleBiasFrontTest) {
   FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<float>(
       bit_rate, scaleBiasLast.data(), rows, out_cols, lastTest.data());
   EXPECT_EQ(lastTest, frontRef);
+}
+
+// Exact-sized allocations expose tail overreads under ASan. Exercise every
+// even packed tail size, including multiple full SIMD blocks, for all outputs.
+TEST(QuantUtilsTest, NBitScaleBiasFrontTails) {
+  auto check = []<typename OutputType>() {
+    for (int bit_rate : {2, 4, 8}) {
+      for (int rows : {0, 1, 3}) {
+        for (int packed_cols = 0; packed_cols <= 34; packed_cols += 2) {
+          SCOPED_TRACE(
+              testing::Message() << "bit_rate=" << bit_rate << " rows=" << rows
+                                 << " packed_cols=" << packed_cols
+                                 << " output_bytes=" << sizeof(OutputType));
+          const int input_cols = packed_cols + 2 * sizeof(float16);
+          const int output_cols = packed_cols * (8 / bit_rate);
+          auto input = std::make_unique<uint8_t[]>(rows * input_cols);
+          for (int row = 0; row < rows; ++row) {
+            const float16 params[] = {
+                cpu_float2half_rn(0.5f), cpu_float2half_rn(-1.0f - row)};
+            auto* data = input.get() + row * input_cols;
+            std::memcpy(data, params, sizeof(params));
+            for (int col = 0; col < packed_cols; ++col) {
+              data[sizeof(params) + col] = (col * 37 + row * 13) & 255;
+            }
+          }
+          const auto sentinel = []() -> OutputType {
+            if constexpr (std::is_same_v<OutputType, float>) {
+              return -123.0f;
+            } else {
+              return from_float<OutputType>(-123.0f);
+            }
+          }();
+          vector<OutputType> expected(rows * output_cols + 32, sentinel);
+          vector<OutputType> actual(expected);
+          FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
+              bit_rate, input.get(), rows, input_cols, expected.data(), false);
+          FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<OutputType>(
+              bit_rate, input.get(), rows, input_cols, actual.data(), false);
+          // These scale/bias values are exactly representable in every dtype.
+          EXPECT_EQ(expected, actual);
+        }
+      }
+    }
+  };
+  check.template operator()<float>();
+  check.template operator()<float16>();
+  check.template operator()<bfloat16>();
 }
 
 // Scale and bias are of type float

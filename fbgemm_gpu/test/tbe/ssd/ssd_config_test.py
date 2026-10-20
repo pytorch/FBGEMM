@@ -164,6 +164,41 @@ class KVZCHParamsValidateTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             params.validate()
 
+    def test_direct_enrichment_owner_cache_config_validates(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
+
+        params = KVZCHParams(
+            enrichment_policy=EnrichmentPolicy(
+                direct_backend_gather=True,
+                owner_cache_size_mb=1024,
+                owner_cache_read_populate=True,
+                owner_cache_read_populate_max_lookups=8,
+            )
+        )
+        params.validate()
+
+    def test_owner_cache_requires_direct_backend_gather(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
+
+        params = KVZCHParams(
+            enrichment_policy=EnrichmentPolicy(owner_cache_size_mb=1024)
+        )
+        with self.assertRaises(AssertionError):
+            params.validate()
+
+    def test_bounded_population_requires_read_population(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
+
+        params = KVZCHParams(
+            enrichment_policy=EnrichmentPolicy(
+                direct_backend_gather=True,
+                owner_cache_size_mb=1024,
+                owner_cache_read_populate_max_lookups=8,
+            )
+        )
+        with self.assertRaises(AssertionError):
+            params.validate()
+
     def test_backend_return_whole_row_requires_optimizer_offloading(self) -> None:
         from fbgemm_gpu.tbe.ssd import KVZCHParams
 

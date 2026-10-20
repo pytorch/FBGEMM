@@ -173,6 +173,13 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     int input_columns,
     OutputType* output);
 
+template <typename OutputType, int BIT_RATE, bool scale_bias_last>
+void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
+    const std::uint8_t* input,
+    size_t input_rows,
+    int input_columns,
+    OutputType* output);
+
 template <
     typename OutputType,
     bool scale_bias_last = true,

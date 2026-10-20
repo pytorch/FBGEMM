@@ -801,14 +801,12 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
         bit_rate, input, input_rows, input_columns, output, scale_bias_last);
   };
 
-  // The vectorized kernels below all assume scale and bias sit at the end of
-  // the row; only the reference implementation handles the front layout.
+#if HAVE_SVE
+  // The NEON kernels still require scale and bias at the end of the row.
   if (!scale_bias_last) {
     ref_fallback();
     return;
   }
-
-#if HAVE_SVE
   switch (bit_rate) {
     case 2:
       FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon<OutputType, 2>(
@@ -828,18 +826,26 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
 #else
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+    auto dispatch = [&]<int BitRate>() {
+      if (scale_bias_last) {
+        FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<OutputType, BitRate>(
+            input, input_rows, input_columns, output);
+      } else {
+        FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<
+            OutputType,
+            BitRate,
+            false>(input, input_rows, input_columns, output);
+      }
+    };
     switch (bit_rate) {
       case 2:
-        FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<OutputType, 2>(
-            input, input_rows, input_columns, output);
+        dispatch.template operator()<2>();
         break;
       case 4:
-        FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<OutputType, 4>(
-            input, input_rows, input_columns, output);
+        dispatch.template operator()<4>();
         break;
       case 8:
-        FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<OutputType, 8>(
-            input, input_rows, input_columns, output);
+        dispatch.template operator()<8>();
         break;
       default:
         ref_fallback();

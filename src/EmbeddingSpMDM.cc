@@ -1722,6 +1722,8 @@ INSTANTIATE_SPMDM_INDEX_T(float16)
 INSTANTIATE_SPMDM_INDEX_T(bfloat16)
 INSTANTIATE_SPMDM_INDEX_T(uint8_t)
 
+// FP8 always has byte input; instantiate its floating-point output types
+// separately from the ordinary FP32/FP16/BF16 input matrix.
 #define INSTANTIATE_SPMDMFP8_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
   INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
   INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \

@@ -265,6 +265,14 @@ class EnrichmentPolicy(NamedTuple):
     # ID is cached only when every key hits. Set this or laser_key_suffix, not
     # both.
     laser_key_suffixes: tuple[str, ...] = ()
+    # Read enrichment rows directly from the DRAM backend in prefetch/forward.
+    direct_backend_gather: bool = False
+    # HBM budget for the direct-mapped owner-local cache. Zero disables it.
+    owner_cache_size_mb: int = 0
+    # Populate the owner-local cache with rows fetched on the read path.
+    owner_cache_read_populate: bool = False
+    # Limit read-path population to this many lookups. Zero means unlimited.
+    owner_cache_read_populate_max_lookups: int = 0
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -272,16 +280,29 @@ class EnrichmentPolicy(NamedTuple):
             f"{self.laser_key_suffix!r} and {self.laser_key_suffixes!r}"
         )
         num_suffixes = len(self.laser_key_suffixes)
-        if num_suffixes <= 1:
-            return
-        assert self.enrichment_type == EnrichmentType.IGR_LASER_EMBEDDING, (
-            "multiple laser_key_suffixes are only supported for "
-            f"IGR_LASER_EMBEDDING, actual {self.enrichment_type}"
-        )
-        assert self.enrichment_dim % num_suffixes == 0, (
-            "enrichment_dim must split evenly across laser_key_suffixes, "
-            f"actual {self.enrichment_dim} for {num_suffixes} suffixes"
-        )
+        if num_suffixes > 1:
+            assert self.enrichment_type == EnrichmentType.IGR_LASER_EMBEDDING, (
+                "multiple laser_key_suffixes are only supported for "
+                f"IGR_LASER_EMBEDDING, actual {self.enrichment_type}"
+            )
+            assert self.enrichment_dim % num_suffixes == 0, (
+                "enrichment_dim must split evenly across laser_key_suffixes, "
+                f"actual {self.enrichment_dim} for {num_suffixes} suffixes"
+            )
+        assert self.owner_cache_size_mb >= 0, "owner_cache_size_mb must be nonnegative"
+        assert (
+            self.owner_cache_read_populate_max_lookups >= 0
+        ), "owner_cache_read_populate_max_lookups must be nonnegative"
+        assert (
+            not self.owner_cache_size_mb or self.direct_backend_gather
+        ), "owner_cache_size_mb requires direct_backend_gather"
+        assert (
+            not self.owner_cache_read_populate or self.owner_cache_size_mb > 0
+        ), "owner_cache_read_populate requires owner_cache_size_mb"
+        assert (
+            self.owner_cache_read_populate_max_lookups == 0
+            or self.owner_cache_read_populate
+        ), "bounded owner-cache population requires owner_cache_read_populate"
 
 
 class KVZCHParams(NamedTuple):
@@ -313,11 +334,11 @@ class KVZCHParams(NamedTuple):
             f"actual {offsets} vs {sizes}"
         )
         self.eviction_policy.validate()
-        if self.enrichment_policy is not None:
-            self.enrichment_policy.validate()
         assert (
             not self.backend_return_whole_row or self.enable_optimizer_offloading
         ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
+        if self.enrichment_policy is not None:
+            self.enrichment_policy.validate()
 
 
 class KVZCHTBEConfig(NamedTuple):
