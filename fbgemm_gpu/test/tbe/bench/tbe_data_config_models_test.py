@@ -26,7 +26,6 @@ def rand_int(min_value: int, max_value: int) -> int:
 
 
 class TBEDataConfigModelsTest(unittest.TestCase):
-    # pyre-ignore[56]
     @given(
         dtype=st.sampled_from([torch.float32, torch.float64]),
     )
@@ -54,7 +53,6 @@ class TBEDataConfigModelsTest(unittest.TestCase):
         params1 = PoolingParams(rand_int(10, 100), rand_int(10, 100), "normal")
         assert PoolingParams.from_json(params1.json()) == params1
 
-    # pyre-ignore[56]
     @given(
         dtype=st.sampled_from([torch.float32, torch.float64]),
     )

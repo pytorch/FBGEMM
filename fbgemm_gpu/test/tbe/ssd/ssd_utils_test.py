@@ -94,7 +94,6 @@ class SSDUtilsTest(unittest.TestCase):
         # Compare results
         assert torch.equal(output_ref, output)
 
-    # pyre-ignore [56]
     @given(
         num_indices=st.integers(min_value=10, max_value=100),
         D=st.integers(min_value=2, max_value=256),
@@ -122,14 +121,12 @@ class SSDUtilsTest(unittest.TestCase):
             num_value_rows=num_indices,
             num_output_rows=num_output_rows,
             dtype=dtype,
-            # pyre-fixme[6]: For 7th argument expected `(Tensor, Tensor, Tensor,
             #  Tensor, bool) -> Tensor` but got `OpOverloadPacket`.
             test_fn=torch.ops.fbgemm.masked_index_put,
             is_index_put=True,
             use_pipeline=use_pipeline,
         )
 
-    # pyre-ignore [56]
     @given(
         num_indices=st.integers(min_value=10, max_value=100),
         D=st.integers(min_value=2, max_value=256),
@@ -157,7 +154,6 @@ class SSDUtilsTest(unittest.TestCase):
             num_value_rows=num_value_rows,
             num_output_rows=num_indices,
             dtype=dtype,
-            # pyre-fixme[6]: For 7th argument expected `(Tensor, Tensor, Tensor,
             #  Tensor, bool) -> Tensor` but got `OpOverloadPacket`.
             test_fn=torch.ops.fbgemm.masked_index_select,
             is_index_put=False,
@@ -317,7 +313,6 @@ class SSDUtilsTest(unittest.TestCase):
             ]
         )
 
-    # pyre-ignore [56]
     @given(
         hash_size=st.integers(min_value=10, max_value=100),
         iters=st.integers(min_value=1, max_value=5),

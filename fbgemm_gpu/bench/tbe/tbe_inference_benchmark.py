@@ -548,7 +548,6 @@ def nbit_device(  # noqa C901
         )
 
     with context_factory(
-        # pyre-ignore[6]
         lambda p: time_dict.update(
             kernel_time=kineto_trace_profiler(p, trace_info, print_kernel_summary)
         )
@@ -1000,7 +999,6 @@ def nbit_device_with_spec(  # noqa C901
             )
 
         with context_factory(
-            # pyre-ignore[6]
             lambda p: time_dict.update(
                 kernel_time=kineto_trace_profiler(p, trace_info, print_kernel_summary)
             )
@@ -1428,7 +1426,6 @@ def nbit_uvm_compare_direct_mapped(
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
-        # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
         Ds: list[int] = [D] * T
@@ -1764,10 +1761,7 @@ def nbit_cache(  # noqa C901
         old_lxu_cache_state = cast(torch.Tensor, emb.lxu_cache_state).clone()
         emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
-            # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
-            (emb.lxu_cache_state != old_lxu_cache_state)
-            .sum()
-            .item()
+            (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
         )
         cache_misses.append(
             (emb.lxu_cache_locations_list.top() == NOT_FOUND).sum().item()

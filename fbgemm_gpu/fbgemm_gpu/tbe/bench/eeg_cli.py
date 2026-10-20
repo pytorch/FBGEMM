@@ -41,7 +41,6 @@ def estimate(indices: str) -> None:
     )
 
     params = IndicesParams(
-        # pyrefly: ignore [missing-attribute]
         heavy_hitters=heavy_hitters,
         zipf_q=q,
         zipf_s=s,

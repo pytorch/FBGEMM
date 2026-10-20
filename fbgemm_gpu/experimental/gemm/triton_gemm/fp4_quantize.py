@@ -374,22 +374,14 @@ def triton_quantize_mx4_unpack(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
     )
 
@@ -786,20 +778,13 @@ def triton_silu_quantize_mx4_unpack(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
     )
     scale = scale.view(torch.float8_e8m0fnu)
@@ -1209,22 +1194,14 @@ def triton_rms_quantize_mx4_unpack(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         EPS=EPS,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
     )
     scale = scale.view(torch.float8_e8m0fnu)
@@ -1603,26 +1580,16 @@ def triton_scale_nvfp4_quant(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         EPS=EPS,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
-        # pyre-ignore[6]
         USE_E8M0_SCALE=use_e8m0_scale,
     )
 
@@ -1957,22 +1924,14 @@ def triton_scale_nvfp4_quant_silu(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
     )
 
@@ -2320,24 +2279,15 @@ def triton_scale_nvfp4_quant_rms(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         EPS=EPS,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
     )
 
@@ -2706,24 +2656,15 @@ def triton_nvfp4_quant_stacked(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         EPS=EPS,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
     )
 
@@ -3942,24 +3883,15 @@ def mega_fp4_quantize_kernel(
             GROUPS_PER_ROW=groups_per_row,
             GROUPS_PER_THREAD=groups_per_thread,
             ROW_PADDING=padding,
-            # pyre-ignore[6]
             EPS=EPS,
-            # pyre-ignore[6]
             GROUP_SIZE=group_size,
-            # pyre-ignore[6]
             EBITS=ebits,
-            # pyre-ignore[6]
             MBITS=mbits,
-            # pyre-ignore[6]
             ROUNDING_MODE=rounding_mode,
-            # pyre-ignore[6]
             STOCHASTIC_CASTING=stochastic_casting,
             FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-            # pyre-ignore[6]
             GROUP_LOAD=GROUP_LOAD,
-            # pyre-ignore[6]
             USE_INT64=use_int64,
-            # pyre-ignore[6]
             SCALE_K=rounded_K,
         )
     else:
@@ -3979,24 +3911,15 @@ def mega_fp4_quantize_kernel(
             GROUPS_PER_ROW=groups_per_row,
             GROUPS_PER_THREAD=groups_per_thread,
             ROW_PADDING=padding,
-            # pyre-ignore[6]
             EPS=EPS,
-            # pyre-ignore[6]
             GROUP_SIZE=group_size,
-            # pyre-ignore[6]
             EBITS=ebits,
-            # pyre-ignore[6]
             MBITS=mbits,
-            # pyre-ignore[6]
             ROUNDING_MODE=rounding_mode,
-            # pyre-ignore[6]
             STOCHASTIC_CASTING=stochastic_casting,
             FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-            # pyre-ignore[6]
             GROUP_LOAD=GROUP_LOAD,
-            # pyre-ignore[6]
             USE_INT64=use_int64,
-            # pyre-ignore[6]
             SCALE_K=rounded_K,
         )
     scale = scale.flatten()
@@ -4124,24 +4047,15 @@ def triton_nvfp4_quant_stacked_silu(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         EPS=EPS,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
     )
 
@@ -4535,24 +4449,15 @@ def triton_nvfp4_quant_stacked_rms(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         EPS=EPS,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
     )
 
@@ -5012,11 +4917,8 @@ def mega_fp4_pack(
             GROUPS_PER_ROW=groups_per_row,
             GROUPS_PER_THREAD=groups_per_thread,
             ROW_PADDING=padding,
-            # pyre-ignore[6]
             GROUP_SIZE=group_size,
-            # pyre-ignore[6]
             GROUP_LOAD=GROUP_LOAD,
-            # pyre-ignore[6]
             USE_INT64=use_int64,
         )
     else:
@@ -5039,11 +4941,8 @@ def mega_fp4_pack(
             num_segments=num_segments,
             prefix_num=triton.next_power_of_2(num_segments),
             ROW_PADDING=padding,
-            # pyre-ignore[6]
             GROUP_SIZE=group_size,
-            # pyre-ignore[6]
             GROUP_LOAD=GROUP_LOAD,
-            # pyre-ignore[6]
             USE_INT64=use_int64,
         )
     return out.view(list(orig_shape[:-1]) + [-1])
@@ -5366,13 +5265,9 @@ def mega_fp4_unpack(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
-        # pyre-ignore[6]
         SCALE_K=rounded_K,
     )
     scale = scale.flatten()
@@ -5590,10 +5485,8 @@ def calculate_group_max(
         search_padded_power=search_padded_power,
         ELEMENTS_PER_THREAD=elements_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
     )
     return out, tensor_idx
@@ -5611,15 +5504,12 @@ def get_nvfp4_global_scales_naive(
     w_global_scales = []
 
     for x, w in zip(xs, ws):
-        # pyre-ignore
         x_global_scale: torch.Tensor = (448.0 * 6.0) / torch.amax(
             torch.abs(x.flatten()), dim=-1
         ).to(torch.float32)
-        # pyre-ignore
         w_global_scale: torch.Tensor = (448.0 * 6.0) / torch.amax(
             torch.abs(w.flatten()), dim=-1
         ).to(torch.float32)
-        # pyre-ignore
         global_scale: torch.Tensor = 1 / (x_global_scale * w_global_scale)
 
         global_scales.append(global_scale)

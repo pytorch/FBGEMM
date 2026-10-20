@@ -24,7 +24,6 @@ else:
 
 
 class JaggedDenseElementwiseAddTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
         D=st.integers(1, 100),

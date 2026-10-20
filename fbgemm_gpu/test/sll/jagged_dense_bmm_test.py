@@ -25,7 +25,6 @@ else:
 # pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_on_rocm)
 class JaggedDenseBMMTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
         D=st.integers(1, 256),
@@ -73,7 +72,6 @@ class JaggedDenseBMMTest(unittest.TestCase):
         else:
             assert torch.allclose(ref, ret, 1e-5)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
         D=st.integers(1, 256),

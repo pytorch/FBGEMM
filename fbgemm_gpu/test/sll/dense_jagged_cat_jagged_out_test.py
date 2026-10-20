@@ -25,7 +25,6 @@ class DenseJaggedCatJaggedOutTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*running_on_rocm)
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),

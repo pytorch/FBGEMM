@@ -23,7 +23,6 @@ else:
 
 
 class JaggedFlashAttentionBasicTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 10),
         max_L=st.integers(1, 100),

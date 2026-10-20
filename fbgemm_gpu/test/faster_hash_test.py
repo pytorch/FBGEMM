@@ -9,7 +9,6 @@
 import unittest
 from enum import IntEnum
 
-# pyre-ignore[21]
 import fbgemm_gpu  # noqa: F401
 import torch
 from hypothesis import given, settings, strategies as st
@@ -1641,7 +1640,6 @@ class FasterHashTest(unittest.TestCase):
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     @settings(deadline=None)
-    # pyre-ignore [56]
     @given(
         eviction_policy=st.sampled_from(
             [

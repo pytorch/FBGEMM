@@ -23,7 +23,6 @@ from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402
 
-# pyre-fixme[21]: Could not find name `open_source` in
 #  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 from .mx.common import (
@@ -36,7 +35,6 @@ from .mx.common import (
     check_diff_quantize,
 )
 
-# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable, MI350_ARCH, skipIfRocmArch
@@ -153,7 +151,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
         MI350_ARCH,
         "Native MX4 quantization intermittently disagrees with the reference on MI350",
     )
-    # pyre-fixme[56]:
     @given(
         power=st.integers(min_value=5, max_value=8),
         sizes=st.integers(min_value=4, max_value=12),
@@ -238,7 +235,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]:
     @given(
         shape=st.sampled_from(
             [
@@ -295,7 +291,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]:
     @given(
         output_dtype=st.sampled_from([None, SparseType.FP32, SparseType.BF16]),
         use_triton=st.booleans(),
@@ -356,7 +351,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
                 output.cpu(), output_fp32_as_bf16.cpu(), rtol=0.0, atol=0.0
             )
 
-    # pyre-fixme[56]:
     @unittest.skipIf(
         not (
             torch.cuda.is_available() and torch.cuda.mem_get_info()[0] / (1024**3) >= 32
@@ -377,7 +371,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
         ),
         "Test requires a gpu with at least 64GB of memory.",
     )
-    # pyre-fixme[56]:
     @given(
         shape=st.sampled_from([[1024 * 1024, 2020]]),
         group_size=st.sampled_from([32]),

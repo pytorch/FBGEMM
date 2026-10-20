@@ -512,7 +512,6 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
             # Compare momentum2 values: (1 - beta2) * dL^2
             m2_ref = (ref_grad.pow(2).mean(dim=1)) * (1.0 - beta2)
             # Get only the subset of rows based on bucket_asc_ids_list[t]
-            # pyre-ignore [16]
             m2_ref = m2_ref[bucket_asc_ids_list[t].view(-1)]
             self.assert_close_(m2, m2_ref)
 
@@ -720,7 +719,6 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
             # Compare momentum2 values: (1 - beta2) * dL^2
             m2_ref = (ref_grad.pow(2).mean(dim=1)) * (1.0 - beta2)
             # Get only the subset of rows based on bucket_asc_ids_list[t]
-            # pyre-ignore [16]
             m2_ref = m2_ref[bucket_asc_ids_list[t].view(-1)]
             m2_tensor = m2.full_tensor().view(m2_dtype.as_dtype())
             if m2_tensor.shape[1] > 1:

@@ -25,7 +25,6 @@ if torch.cuda.is_available():
 
 
 class ArrayJaggedBmmJaggedTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),
@@ -152,7 +151,6 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
 
         assert torch.allclose(jagged_C_ref, jagged_C_test)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),
@@ -241,7 +239,6 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         torch.testing.assert_close(array_x1.grad, array_x2.grad, rtol=1e-4, atol=1e-5)
         torch.testing.assert_close(jagged_y1.grad, jagged_y2.grad, rtol=1e-4, atol=1e-5)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),

@@ -13,13 +13,9 @@ import sys
 from copy import deepcopy
 
 try:
-    # pyre-fixme[21]: Could not find name `ArgType` in
     #  `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
-    # pyre-fixme[21]: Could not find name `OptimItem` in
     #  `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
-    # pyre-fixme[21]: Could not find name `OptimizerArgsSet` in
     #  `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
-    # pyre-fixme[21]: Could not find name `generate_optimized_grad_sum_loop_access`
     #  in `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
     from .optimizers import *
     from .common import CodeTemplate

@@ -16,7 +16,6 @@ from hypothesis import assume, given, settings
 
 from . import common  # noqa E402
 
-# pyre-fixme[21]: Could not find name `open_source` in
 #  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import (
     bytes_to_half_floats,
@@ -25,7 +24,6 @@ from .common import (
     open_source,
 )
 
-# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
@@ -46,7 +44,6 @@ no_long_tests: bool = False
 
 @optests.generate_opcheck_tests(fast=True)
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
@@ -144,7 +141,6 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                 quantized_data_numpy[:, :ncols], reference[:, :ncols]
             )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
@@ -354,7 +350,6 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             # compare quantized data
             torch.testing.assert_close(dequantized_data_gpu.cpu(), reference)
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),

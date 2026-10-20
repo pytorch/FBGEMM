@@ -56,7 +56,6 @@ def triton_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     # callable GPU kernel.
     #
     # Pass meta-parameters as keywords arguments.
-    # pyre-ignore
     triton_add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE=1024)
 
     # We return a handle to z but, since `torch.cuda.synchronize()` hasn't been

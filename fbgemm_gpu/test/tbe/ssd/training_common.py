@@ -527,7 +527,6 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.float() for emb in emb_ref]
 
-        # pyre-fixme[7]
         return emb, emb_ref, Es, Ds, bucket_offsets, bucket_sizes
 
     def generate_ssd_tbes(
@@ -688,7 +687,6 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.float() for emb in emb_ref]
 
-        # pyre-fixme[7]: Expected `tuple[SSDTableBatchedEmbeddingBags,
         #  list[EmbeddingBag]]` but got `tuple[SSDTableBatchedEmbeddingBags,
         #  list[Embedding | EmbeddingBag] | list[Embedding] |
         #  list[EmbeddingBag]]`.

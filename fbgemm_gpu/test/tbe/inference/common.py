@@ -300,7 +300,6 @@ class NBitFowardTestCommon(unittest.TestCase):
                 bs[t].weight.detach(),
                 weights_ty_list[t],
                 use_cpu=use_cpu,
-                # pyre-fixme[61]: `fp8_config` is undefined, or not always defined.
                 fp8_config=fp8_config if has_fp8_weight else None,
             )
 

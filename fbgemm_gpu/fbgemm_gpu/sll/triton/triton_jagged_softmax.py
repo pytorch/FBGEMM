@@ -75,9 +75,7 @@ def jagged_softmax_(x: torch.Tensor, x_offsets: torch.Tensor, max_seq_len: int):
         x.stride(1),
         y.stride(0),
         y.stride(1),
-        # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
         max_seq_len,
-        # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
         BLOCK_SIZE,
     )
 
@@ -175,7 +173,6 @@ class JaggedSoftmax(torch.autograd.Function):
             grad.stride(0),
             grad.stride(1),
             max_seq_len,
-            # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
             BLOCK_SIZE,
         )
 
@@ -399,7 +396,6 @@ class Jagged2Softmax(torch.autograd.Function):
             transpose,  # transpose
             max_seq_len_row,
             max_seq_len_head,
-            # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
             BLOCK_SIZE,
         )
 
@@ -435,7 +431,6 @@ class Jagged2Softmax(torch.autograd.Function):
             transpose=ctx.transpose,  # transpose
             max_seq_len_row=max_seq_len_row,
             max_seq_len_col=max_seq_len_head,
-            # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
             BLOCK_SIZE=BLOCK_SIZE,
         )
 

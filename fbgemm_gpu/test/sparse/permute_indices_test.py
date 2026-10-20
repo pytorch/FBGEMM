@@ -99,7 +99,6 @@ class PermuteIndicesTest(unittest.TestCase):
                 for w in range(W):
                     # pyre-fixme[61]: `batch_sizes` is undefined, or not always defined.
                     for b in range(batch_sizes[w]):
-                        # pyre-fixme[61]: `batch_sizes` is undefined, or not always
                         #  defined.
                         permute_list.append(offset_w[w] + t * batch_sizes[w] + b)
         else:
@@ -1135,7 +1134,6 @@ class PermuteIndicesTest(unittest.TestCase):
         )
         if has_weight:
             self.assertIsNotNone(permuted_weights_cpu)
-            # pyre-ignore[16]
             self.assertTrue(
                 permuted_weights_cpu.data_ptr()
                 # pyre-ignore[16]
@@ -1197,7 +1195,6 @@ class PermuteIndicesTest(unittest.TestCase):
             )
             if has_weight:
                 self.assertIsNotNone(permuted_weights_gpu)
-                # pyre-ignore[16]
                 self.assertTrue(
                     permuted_weights_gpu.data_ptr()
                     # pyre-ignore[16]
@@ -1274,7 +1271,6 @@ class PermuteIndicesTest(unittest.TestCase):
                 inv_permute.long(),
             )
             self.assertIsNotNone(weights.grad)
-            # pyre-ignore[16]
             torch.testing.assert_close(weights.grad.cpu(), expected_grad)
 
         check("cpu")

@@ -38,7 +38,6 @@ except Exception:
 
 
 # Relative tolerances
-# pyre-fixme[5]: Global expression must be annotated.
 TOLERANCE_REL = {
     torch.float32: 1e-4,
     torch.float16: 1e-2,
@@ -46,7 +45,6 @@ TOLERANCE_REL = {
 }
 
 # Absolute tolerances
-# pyre-fixme[5]: Global expression must be annotated.
 TOLERANCE_ABS = {
     torch.float32: 1e-4,
     torch.float16: 1e-2,
@@ -103,7 +101,6 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         offset = 0
         for _ in range(batch_size):
             n_indices = 1
-            # pyre-fixme[6]: For 1st argument expected `Iterable[typing.Any]` but
             #  got `float`.
             indices += np.round(
                 np.random.random(n_indices) * (num_embeddings - 1)

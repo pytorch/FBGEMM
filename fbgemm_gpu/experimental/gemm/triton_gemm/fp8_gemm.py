@@ -32,7 +32,6 @@ logger: logging.Logger = logging.getLogger(__name__)
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
 try:
-    # pyre-ignore[21]
     from triton.fb.compat import disable_bufferops  # @manual
 except ModuleNotFoundError:
     # Ensure we can call disable_bufferops if compat is not included (e.g. opensource)
@@ -1343,7 +1342,6 @@ def _kernel_matmul_fp8_row_tma_persistent_ws_cooperative(
         # pyre-ignore
         tl.assume(tl.cdiv(K, BLOCK_K) > 0)
         for _ in range(0, tl.cdiv(K, BLOCK_K)):
-            # pyre-ignore
             with tl.async_task([0]):
                 a = tl._experimental_descriptor_load(
                     A_ptr,
@@ -1364,7 +1362,6 @@ def _kernel_matmul_fp8_row_tma_persistent_ws_cooperative(
 
             offs_k += BLOCK_K
 
-        # pyre-ignore
         with tl.async_task([1, NUM_CONSUMER_GROUPS]):
             # Invert scaling.
             rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
@@ -1629,7 +1626,6 @@ def matmul_fp8_row(
         if bias is not None:
             bias_dtype_triton = map_dtype_to_triton(bias.dtype)
 
-        # pyre-ignore
         torch._library.capture_triton(
             _kernel_matmul_fp8_row_tma_persistent_ws_cooperative
         )[persistent_grid_tma_ws](
@@ -3094,17 +3090,16 @@ def quantize_fp8_packed_row(
     if scale_ub is not None:
         row_max = torch.clamp(row_max, min=eps, max=scale_ub.item())
     else:
-        # pyre-ignore[6]: Incompatible parameter type [6]
         row_max = torch.clamp(row_max, min=eps)
     a_scale = torch.empty((a.shape[:-1]), dtype=torch.float32, device=output_device)
-    a_scale = max_fp8 / row_max.to(torch.float32)  # pyre-ignore
-    a_scale[a_scale == float("inf")] = 1.0  # pyre-ignore
-    a_fp8 = a * a_scale[..., None]  # pyre-ignore
+    a_scale = max_fp8 / row_max.to(torch.float32)
+    a_scale[a_scale == float("inf")] = 1.0
+    a_fp8 = a * a_scale[..., None]
     # Cast and move data to output device (for cpu weight loading).
     a_fp8 = a_fp8.to(device=output_device, dtype=pt_dtype)
-    a_scale = a_scale.to(output_device)  # pyre-ignore
+    a_scale = a_scale.to(output_device)
     del a
-    return a_fp8, (1 / a_scale).view(a_shape[:-1])  # pyre-ignore
+    return a_fp8, (1 / a_scale).view(a_shape[:-1])
 
 
 @torch.library.custom_op("triton::quantize_fp8_packed_row_raw", mutates_args=())
@@ -3193,17 +3188,16 @@ def quantize_fp8_row(
     if scale_ub is not None:
         row_max = torch.clamp(row_max, min=eps, max=scale_ub.item())
     else:
-        # pyre-ignore[6]: Incompatible parameter type [6]
         row_max = torch.clamp(row_max, min=eps)
     a_scale = torch.empty((a.shape[:-1]), dtype=torch.float32, device=output_device)
-    a_scale = max_fp8 / row_max.to(torch.float32)  # pyre-ignore
-    a_scale[a_scale == float("inf")] = 1.0  # pyre-ignore
-    a_fp8 = a * a_scale[..., None]  # pyre-ignore
+    a_scale = max_fp8 / row_max.to(torch.float32)
+    a_scale[a_scale == float("inf")] = 1.0
+    a_fp8 = a * a_scale[..., None]
     # Cast and move data to output device (for cpu weight loading).
     a_fp8 = a_fp8.to(device=output_device, dtype=pt_dtype)
-    a_scale = a_scale.to(output_device)  # pyre-ignore
+    a_scale = a_scale.to(output_device)
     del a
-    return a_fp8, (1 / a_scale).view(a_shape[:-1])  # pyre-ignore
+    return a_fp8, (1 / a_scale).view(a_shape[:-1])
 
 
 @quantize_fp8_row.register_fake
@@ -3484,19 +3478,12 @@ def triton_quantize_fp8_block(
         x_fp8.stride(1),
         x_scale.stride(0),
         x_scale.stride(1),
-        # pyre-ignore[6]: Incompatible parameter type [6]
         TL_FP8_DTYPE=tl_dtype,
-        # pyre-ignore[6]: Incompatible parameter type [6]
         MAX_FP8=max_fp8,
-        # pyre-ignore[6]: Incompatible parameter type [6]
         EPS=eps,
-        # pyre-ignore[6]: Incompatible parameter type [6]
         CLAMP_MAX=scale_ub is not None,
-        # pyre-ignore[6]: Incompatible parameter type [6]
         BLOCK_M=block_m,
-        # pyre-ignore[6]: Incompatible parameter type [6]
         BLOCK_K=block_k,
-        # pyre-ignore[6]: Incompatible parameter type [6]
         K_MAJOR=k_major,
     )
 
@@ -3567,22 +3554,20 @@ def quantize_fp8_block(
     else:
         block_max = torch.clamp(block_max, min=eps)
     x_scale = torch.empty((grid_m, grid_k), dtype=torch.float32, device=output_device)
-    x_scale = max_fp8 / block_max.to(torch.float32)  # pyre-ignore
-    # pyre-ignore[16]: Undefined attribute [16]
+    x_scale = max_fp8 / block_max.to(torch.float32)
     x_scale[x_scale == float("inf")] = 1.0
     x_fp8 = (
         x_padded
-        # pyre-ignore[16]: Undefined attribute [16]
         * x_scale.repeat_interleave(block_m, dim=0).repeat_interleave(block_k, dim=1)
     )[:M, :K]
 
     # Cast and move data to output device (for cpu weight loading).
     x_fp8 = x_fp8.to(device=output_device, dtype=pt_dtype)
-    x_scale = x_scale.to(output_device)  # pyre-ignore
+    x_scale = x_scale.to(output_device)
     del x, x_padded
     if not k_major:
         x_scale = x_scale.t().contiguous()
-    return x_fp8.view(x_shape), 1 / x_scale  # pyre-ignore
+    return x_fp8.view(x_shape), 1 / x_scale
 
 
 @triton.autotune(
@@ -3868,17 +3853,15 @@ def quantize_fp8_group(
         else torch.clamp(group_max, min=eps)
     )
     x_scale = torch.empty((M, k_groups), dtype=torch.float32, device=output_device)
-    x_scale = max_fp8 / group_max  # pyre-ignore
-    # pyre-ignore[16]: Undefined attribute [16]
+    x_scale = max_fp8 / group_max
     x_scale[x_scale == float("inf")] = 1.0
-    # pyre-ignore[16]: Undefined attribute [16]
     x_fp8 = x.view(-1, k_groups, group_size) * x_scale.unsqueeze(2)
     # Cast and move data to output device (for cpu weight loading).
     x_fp8 = x_fp8.to(device=output_device, dtype=pt_dtype)
-    x_scale = x_scale.to(output_device)  # pyre-ignore
+    x_scale = x_scale.to(output_device)
     if not k_major:
         x_scale = x_scale.t().contiguous()
-    return x_fp8.view(x_shape), 1 / x_scale  # pyre-ignore
+    return x_fp8.view(x_shape), 1 / x_scale
 
 
 def need_split_k(SIZE_M, SIZE_N, SIZE_K):
@@ -4557,7 +4540,7 @@ def dequantize_fp8_block(
 
     with torch.cuda.device(xq.device.index):
         _kernel_dequantize_fp8_block[grid](
-            xq, x_scale, x_dequant, M, K, BLOCK_M=block_m, BLOCK_K=block_k  # pyre-ignore[6]
+            xq, x_scale, x_dequant, M, K, BLOCK_M=block_m, BLOCK_K=block_k
         )
     return x_dequant
 

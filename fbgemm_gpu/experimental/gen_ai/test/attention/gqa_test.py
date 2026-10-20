@@ -151,7 +151,6 @@ class Int4GQATest(unittest.TestCase):
         "Skip when CUDA is not available or CUDA compute capability is less than 8",
     )
     @settings(verbosity=VERBOSITY, max_examples=40, deadline=None)
-    # pyre-ignore
     @given(
         int4_kv=st.booleans(),
         num_groups=st.sampled_from([1, 4]),
@@ -255,7 +254,6 @@ class Int4GQATest(unittest.TestCase):
         torch.version.hip is not None,
         "gqa_attn_splitk with use_tensor_cores=True is not supported on ROCm",
     )
-    # pyre-fixme[56]
     @unittest.skipIf(
         not torch.cuda.is_available()
         or torch.cuda.get_device_capability()[0] < 8

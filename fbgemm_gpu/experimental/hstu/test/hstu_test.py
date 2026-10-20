@@ -412,7 +412,7 @@ def generate_input(
             for i in range(batch_size):
                 lengths_q[i] = torch.randint(
                     1,
-                    min(max_seq_len_q, lengths_k[i]) + 1,  # pyre-ignore[6]
+                    min(max_seq_len_q, lengths_k[i]) + 1,
                     size=(1,),
                     device=torch.accelerator.current_accelerator("cuda"),
                 )

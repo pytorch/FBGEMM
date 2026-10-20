@@ -30,7 +30,6 @@ if torch.cuda.is_available():
     "Test fails in OSS mode, see https://github.com/triton-lang/triton/issues/5435",
 )
 class MultiHeadJaggedFlashAttentionTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 5),
         max_L=st.integers(1, 100),

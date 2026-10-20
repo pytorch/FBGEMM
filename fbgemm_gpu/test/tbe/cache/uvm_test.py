@@ -16,7 +16,6 @@ import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings, Verbosity
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
@@ -26,7 +25,6 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
 
 if gpu_available:
-    # pyre-ignore[16, 21]
     from fbgemm_gpu.tbe.cache.uvm import (
         cudaMemAdvise,
         cudaMemoryAdvise,
@@ -67,7 +65,6 @@ class UvmTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     def test_enum(self) -> None:
-        # pyre-ignore[16]
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
 
     @unittest.skipIf(*gpu_unavailable)

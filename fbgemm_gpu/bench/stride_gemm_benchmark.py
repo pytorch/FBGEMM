@@ -104,8 +104,8 @@ def stride_gemm(
         trace_name = f"stride_gemm_m{m}_b{batch_size}_n{n}_k{k}"
         with torch.profiler.profile(
             activities=[
-                torch.profiler.ProfilerActivity.CPU,  # pyre-ignore[16]
-                torch.profiler.ProfilerActivity.CUDA,  # pyre-ignore[16]
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
             ],
             record_shapes=True,
         ) as prof:

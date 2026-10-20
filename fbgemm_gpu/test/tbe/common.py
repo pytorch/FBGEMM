@@ -24,7 +24,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
 from hypothesis import HealthCheck, settings, Verbosity
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
@@ -254,7 +253,7 @@ def recompute_output_vbe_cpu(
             D = D_offsets[t + 1].item() - int(D_offsets[t].item())
             b_begin = B_offsets_rank_per_feature[t][r].item()
             b_end = B_offsets_rank_per_feature[t][r + 1].item()
-            assert o_end - o_begin == (b_end - b_begin) * D  # pyre-ignore[6]
+            assert o_end - o_begin == (b_end - b_begin) * D
             output_new[o_begin:o_end] = output[
                 b_begin:b_end, D_offset : D_offset + D
             ].flatten()
@@ -568,7 +567,6 @@ def v1_lookup(
 
         # Increment the iteration counter
         iter_int = int(emb_op.iter_cpu.add_(1).item())  # used for local computation
-        # pyrefly: ignore [not-callable]
         emb_op.iter.add_(1)  # used for checkpointing
         iter = int(emb_op.iter_cpu.item())
 
@@ -580,10 +578,8 @@ def v1_lookup(
                 # pyrefly: ignore [not-callable]
                 row_counter_dev = emb_op.row_counter_dev.detach()
                 if row_counter_dev.numel() > 0:
-                    # pyrefly: ignore [unsupported-operation]
                     emb_op.max_counter[0] = torch.max(row_counter_dev).cpu().item() + 1
                 else:
-                    # pyrefly: ignore [unsupported-operation]
                     emb_op.max_counter[0] = 1
 
     common_kwargs: dict[str, Any] = {
@@ -674,7 +670,6 @@ def v1_lookup(
             "row_counter_offsets": emb_op.row_counter_offsets,
             "row_counter_placements": emb_op.row_counter_placements,
             "learning_rate": emb_op.learning_rate_tensor.item(),
-            # pyrefly: ignore [not-callable]
             "max_counter": emb_op.max_counter.item(),
             "use_rowwise_adagrad_with_counter": emb_op._used_rowwise_adagrad_with_counter,
             # optimizer_args fields

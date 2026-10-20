@@ -830,7 +830,6 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.ssd_db.flush()
 
             # 2. Open a new RocksDB instance at the new snapshot path.
-            # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
                 ssd_storage_directory,
                 ssd_shards,

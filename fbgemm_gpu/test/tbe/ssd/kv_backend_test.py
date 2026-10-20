@@ -395,12 +395,10 @@ class SSDCheckpointTest(unittest.TestCase):
         event = threading.Event()
         get_sleep_ms = 50
 
-        # pyre-ignore
         def trigger_get() -> None:
             event.set()
             emb.ssd_db.get(indices.clone(), weights_out, count, get_sleep_ms)
 
-        # pyre-ignore
         def trigger_set() -> None:
             event.wait()
             time.sleep(

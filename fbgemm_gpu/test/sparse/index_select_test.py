@@ -704,7 +704,6 @@ class IndexSelectTest(unittest.TestCase):
         small_output_gpu.sum().backward()
 
         torch.testing.assert_close(small_output_gpu.cpu(), small_output_cpu)
-        # pyre-ignore[16]
         torch.testing.assert_close(
             small_input_gpu.grad.cpu(), small_input_cpu_clone.grad
         )

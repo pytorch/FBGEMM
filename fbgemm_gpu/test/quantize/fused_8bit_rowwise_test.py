@@ -16,7 +16,6 @@ from hypothesis import assume, given, settings
 
 from . import common  # noqa E402
 
-# pyre-fixme[21]: Could not find name `open_source` in
 #  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import (
     fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference,
@@ -25,7 +24,6 @@ from .common import (
     open_source,
 )
 
-# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available, optests
@@ -41,7 +39,6 @@ no_long_tests: bool = False
 
 @optests.generate_opcheck_tests(fast=True)
 class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
     @given(
@@ -325,7 +322,6 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                     dequantized_data_trimmed.bfloat16(), reference.bfloat16()
                 )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.sampled_from([32, 128, 256, 384, 512, 1024]),
@@ -350,7 +346,6 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
             nrows, ncols, output_dtype, quant_padding_float_type, test_generic_op, False
         )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.sampled_from([32, 128, 256, 384, 512, 1024]),

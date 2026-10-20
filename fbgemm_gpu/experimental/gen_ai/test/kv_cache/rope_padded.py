@@ -383,7 +383,6 @@ def rope_padded(
     assert internal_dtype in ["", "f32", "f64"]
     # experiment with the order of dims here.
     with torch.cuda.device(xq.device.index):
-        # pyre-fixme[28]: Unexpected keyword argument `num_warps`.
         _rope_padded_kernel[
             (logical_bsz, attn_bias.q_seqinfo.max_seqlen, n_total_heads)
         ](
@@ -415,18 +414,12 @@ def rope_padded(
             seqlenk.stride(0),
             out_q.stride(1),
             out_q.stride(2),
-            # pyrefly: ignore [bad-argument-type]
             _INTERNAL_DTYPE_MAP[internal_dtype],
-            # pyrefly: ignore [bad-argument-type]
             const_batch_strides=False,
             cache_padding_length=0,
-            # pyrefly: ignore [bad-argument-type]
             seqlenk_shift=0,
-            # pyrefly: ignore [bad-argument-type]
             BLOCK_SIZE=BLOCK_SIZE,
-            # pyrefly: ignore [bad-argument-type]
             adjacents=adjacents,
-            # pyrefly: ignore [unexpected-keyword]
             num_warps=num_warps,
         )
     return out_q

@@ -63,7 +63,6 @@ def dense_jagged_cat_jagged_out(
         b_offsets,
         c_offsets,
         max_seq_len,
-        # pyre-fixme[6]: For 7th argument expected `constexpr` but got `int`.
         BLOCK_SIZE,
     )
 

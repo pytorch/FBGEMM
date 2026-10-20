@@ -304,7 +304,6 @@ def ssd_training(  # noqa C901
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
-        # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
         Ds: list[int] = [D] * T
@@ -366,7 +365,6 @@ def ssd_training(  # noqa C901
             embedding_specs=[(E, d) for d in Ds],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
             # and canonical package; resolves once D103477971 unifies the classes via re-export.
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
@@ -604,10 +602,8 @@ def nbit_ssd(
         ssd_uniform_init_lower=-0.1,
         ssd_uniform_init_upper=0.1,
         ssd_shards=2,
-        # pyre-fixme[6]: Type-identity mismatch on PoolingMode between shell and
         # canonical package; resolves once D103477971 unifies the classes via re-export.
         pooling_mode=PoolingMode.SUM,
-        # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
         # and canonical package; resolves once D103477971 unifies the classes via re-export.
         ssd_cache_location=ssd_cache_location,  # adjust the cache locations
     ).cuda()

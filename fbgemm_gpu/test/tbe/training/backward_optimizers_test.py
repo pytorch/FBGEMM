@@ -588,11 +588,9 @@ class BackwardOptimizersTest(unittest.TestCase):
                             weight_decay,
                         )
                     else:  # WeightDecayMode.L2 or WeightDecayMode.NONE
-                        # pyre-fixme[58]: `/` is not supported for operand types `float`
                         #  and `Tensor`.
                         weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                 else:
-                    # pyre-fixme[58]: `/` is not supported for operand types `float`
                     #  and `Tensor`.
                     weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                 torch.testing.assert_close(
@@ -857,7 +855,6 @@ class BackwardOptimizersTest(unittest.TestCase):
 
                 torch.testing.assert_close(
                     m1.index_select(dim=0, index=xs[t].view(-1)).cpu(),
-                    # pyre-fixme[16]: `float` has no attribute `index_select`.
                     m1_ref.index_select(dim=0, index=xs[t].view(-1).cpu()),
                     atol=1.0e-4,
                     rtol=1.0e-4,

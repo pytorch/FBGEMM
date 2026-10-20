@@ -283,7 +283,6 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         if force_flush or flush_location == FlushLocation.BEFORE_TRAINING:
             emb.flush()
 
-        # pyre-ignore[53]
         def _prefetch(b_it: int) -> int:
             if not explicit_prefetch or b_it >= num_iterations:
                 return b_it + 1
@@ -823,7 +822,6 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         emb2.enable_load_state_dict_mode()
         self.assertIsNotNone(emb2._cached_kvzch_data)
         for i, _ in enumerate(emb.embedding_specs):
-            # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_weight_tensor_per_table[i].copy_(
                 # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
                 emb_state_dict_list[i].full_tensor()
@@ -831,16 +829,13 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             # NOTE: The [0] index is a hack since the test is fixed to use
             # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
             # be upgraded in the future to support multiple optimizers
-            # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_optimizer_states_per_table[i][0].copy_(
                 split_optimizer_states[i][0]
             )
-            # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_id_tensor_per_table[i].copy_(
                 # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
                 bucket_asc_ids_list[i]
             )
-            # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_bucket_splits[i].copy_(
                 num_active_id_per_bucket_list[i]
             )
@@ -874,7 +869,6 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             torch.testing.assert_close(
                 # pyre-ignore [16]
                 emb_state_dict_list[t].full_tensor()[sorted_ids.indices],
-                # pyre-ignore [16]
                 emb_state_dict_list2[t].full_tensor()[sorted_ids2.indices],
                 atol=tolerance,
                 rtol=tolerance,

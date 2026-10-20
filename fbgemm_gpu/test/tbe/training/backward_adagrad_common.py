@@ -260,11 +260,8 @@ def execute_backward_adagrad(  # noqa C901
         bs = [b.half() for b in bs]
 
     # Get optimizer parameters - use tbe_op's values if provided, otherwise use defaults
-    # pyrefly: ignore [not-callable]
     lr = tbe_op.get_learning_rate() if tbe_op else 0.5
-    # pyrefly: ignore [not-callable]
     eps = tbe_op.optimizer_args.eps if tbe_op else 0.2
-    # pyrefly: ignore [not-callable]
     max_norm = tbe_op.optimizer_args.max_norm if tbe_op else max_norm
 
     optimizer = (
@@ -291,11 +288,7 @@ def execute_backward_adagrad(  # noqa C901
             output_dtype=requested_output_dtype,
         )
 
-    cc = (
-        tbe_op
-        if tbe_op  # pyrefly: ignore [not-callable]
-        else create_embedding_op(output_dtype)
-    )
+    cc = tbe_op if tbe_op else create_embedding_op(output_dtype)
     validate_rocm_bf16_output = (
         TEST_WITH_ROCM
         and tbe_op is None

@@ -69,7 +69,6 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
                 dequantized_data_gpu.cpu(), reference_data, rtol=rtol, atol=atol
             )
 
-    # pyre-ignore [56]
     @given(
         nrows=st.integers(min_value=1, max_value=100),
         ncols=st.integers(min_value=1, max_value=100),

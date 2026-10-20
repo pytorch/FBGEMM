@@ -62,9 +62,9 @@ def silu_mul(
         stride_0,
         stride_1,
         valid_token_count,
-        D,  # pyre-ignore
-        BLOCK_D_OUTER,  # pyre-ignore
-        BLOCK_D_INNER,  # pyre-ignore
+        D,
+        BLOCK_D_OUTER,
+        BLOCK_D_INNER,
     )
     return out
 
@@ -122,12 +122,12 @@ def silu_mul_quant(
         stride_1,
         valid_token_count,
         T,
-        D,  # pyre-ignore
+        D,
         BLOCK_T,
-        TL_FP8_DTYPE=tl_dtype,  # pyre-ignore
-        MAX_FP8=max_fp8,  # pyre-ignore
-        EPS=eps,  # pyre-ignore
-        CLAMP_MAX=scale_ub is not None,  # pyre-ignore
+        TL_FP8_DTYPE=tl_dtype,
+        MAX_FP8=max_fp8,
+        EPS=eps,
+        CLAMP_MAX=scale_ub is not None,
     )
     return out, out_inv_scale
 

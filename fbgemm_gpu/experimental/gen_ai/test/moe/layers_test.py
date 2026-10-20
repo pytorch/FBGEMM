@@ -28,8 +28,6 @@ if torch.cuda.is_available():
 
 from torch.distributed import launcher
 from torch.distributed.launcher.api import LaunchConfig
-
-# pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.
 from torch.profiler import profile, ProfilerActivity
 
 from .parallelism import (
@@ -195,7 +193,6 @@ def run_demo(cmd_args: argparse.Namespace) -> None:
                 for _ in range(WARM_UP_ITERS):
                     _ = moe.forward(tokens, use_static_shape=use_static_shape)
                 with profile(
-                    # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
                     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                     on_trace_ready=partial(
                         kineto_trace_handler,

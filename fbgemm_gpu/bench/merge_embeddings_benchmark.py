@@ -24,14 +24,11 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 )
 from fbgemm_gpu.tbe.config.embedding_config import BoundsCheckMode, EmbeddingLocation
 from torch import Tensor
-
-# pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.
 from torch.profiler import profile, ProfilerActivity
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -461,7 +458,6 @@ def benchmark(  # noqa C901
                     data_type,
                 )
         else:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             with profile(activities=[ProfilerActivity.CUDA]) as prof:
                 pool_func_with_quantization(
                     batch_indices,

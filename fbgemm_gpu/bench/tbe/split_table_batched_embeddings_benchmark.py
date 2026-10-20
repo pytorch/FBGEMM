@@ -450,7 +450,6 @@ def device(  # noqa C901
             embedding_specs=[(E, d) for d in Ds],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
             # and canonical package; resolves once D103477971 unifies the classes via re-export.
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
@@ -476,7 +475,6 @@ def device(  # noqa C901
     emb = emb.to(get_device())
 
     if weights_precision in [SparseType.INT8, SparseType.NFP8]:
-        # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
         #  min_val: float, max_val: float) -> None, (self:
         #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
         #  None, Tensor, Module]` is not a function.
@@ -879,7 +877,6 @@ def uvm(  # noqa: C901
             emb_uvm.lxu_cache_locations_list.append(locations)
             emb_uvm.timesteps_prefetched.append(it)
 
-    # pyre-ignore[53]
     def run_bench(
         indices: Tensor, offsets: Tensor, per_sample_weights: Tensor | None
     ) -> Tensor:
@@ -1166,10 +1163,7 @@ def cache(  # noqa C901
         old_lxu_cache_state = cast(Tensor, emb.lxu_cache_state).clone()
         emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
-            # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
-            (emb.lxu_cache_state != old_lxu_cache_state)
-            .sum()
-            .item()
+            (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
         )
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
         emb.forward(indices, offsets)
@@ -1737,7 +1731,6 @@ def vbe(  # noqa: C901
             [(E, D) for E, D in zip(Es, Ds)],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
             # and canonical package; resolves once D103477971 unifies the classes via re-export.
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
@@ -1790,7 +1783,6 @@ def vbe(  # noqa: C901
             all_requests["offsets"][i].append(offsets)
             all_requests["weights"][i].append(weights)
 
-    # pyre-ignore[53]
     def _kineto_trace_handler(
         p: profile, emb_op_type: str = "vbe", print_summary: bool = False
     ) -> None:
