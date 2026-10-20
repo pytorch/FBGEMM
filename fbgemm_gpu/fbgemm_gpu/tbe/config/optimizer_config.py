@@ -131,6 +131,11 @@ class UserEnabledConfigDefinition:
     use_writeback_bwd_prehook: bool = False
     writeback_first_feature_only: bool = False
     precompute_writeback: bool = False
+    # Frequency-adaptive lr for ROWWISE_RMSPROP_AR: rarely accessed rows take
+    # smaller steps. `use_falr` requires falr_ref_gap > 0.
+    use_falr: bool = False
+    falr_ref_gap: float = 0.0
+    falr_floor: float = 0.1
 
 
 @dataclass(frozen=True)

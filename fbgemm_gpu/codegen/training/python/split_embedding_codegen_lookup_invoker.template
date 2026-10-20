@@ -317,6 +317,12 @@ def invoke(
     {%- if "min_shrinkage" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     dict_optim_float["min_shrinkage"] = optimizer_args.min_shrinkage
     {%- endif %}
+    {%- if "falr_ref_gap" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_float["falr_ref_gap"] = optimizer_args.falr_ref_gap
+    {%- endif %}
+    {%- if "falr_floor" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_float["falr_floor"] = optimizer_args.falr_floor
+    {%- endif %}
 
     {%- if "momentum1" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     {{ pack_tensors("momentum1") }}
@@ -332,15 +338,25 @@ def invoke(
     {%- endif %}
     {%- if "row_counter" in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
 
-    if optimizer_args.use_rowwise_bias_correction and row_counter is not None:
+    if row_counter is not None:
+        {%- if has_cpu_support %}
+        row_counter_host = row_counter.host
+        {%- else %}
         row_counter_host = None # not supported on CPU
+        {%- endif %}
         row_counter_dev = row_counter.dev
         row_counter_uvm = row_counter.uvm
         row_counter_offsets = row_counter.offsets
         row_counter_placements = row_counter.placements
-    elif optimizer_args.use_rowwise_bias_correction:
-        assert False, "`use_rowwise_bias_correction` is set, `row_counter` cannot be None"
     else:
+        assert (
+            not optimizer_args.use_rowwise_bias_correction
+        ), "`use_rowwise_bias_correction` is set, `row_counter` cannot be None"
+        {%- if "falr_ref_gap" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+        assert (
+            optimizer_args.falr_ref_gap <= 0.0
+        ), "`falr_ref_gap` > 0 requires `row_counter`"
+        {%- endif %}
         row_counter_host = None
         row_counter_dev = None
         row_counter_uvm = None
