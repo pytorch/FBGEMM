@@ -717,6 +717,187 @@ class SSDCheckpointTest(unittest.TestCase):
         checkpoint_handle = emb._ssd_db.get_active_checkpoint_uuid(0)
         assert checkpoint_handle is not None, f"{checkpoint_handle=}"
 
+    def _check_payload_write_preserves_metadata(
+        self, precision: SparseType, row_offset: int
+    ) -> None:
+        dtype = precision.as_dtype()
+        header_width = 16 // (precision.bit_rate() // 8)
+        ids = torch.tensor([1001, 1003], dtype=torch.int64)
+        payload = torch.arange(16, dtype=dtype).view(8, 2).t()
+        db = self.generate_fbgemm_kv_backend(
+            max_D=8,
+            weight_precision=precision,
+            enable_l2=False,
+            feature_dims=torch.tensor([8]),
+            hash_size_cumsum=torch.tensor([0, 4096]),
+            backend_type=BackendType.DRAM,
+            backend_return_whole_row=True,
+            disable_random_init=True,
+        )
+        writer = torch.classes.fbgemm.KVTensorWrapper(
+            [2, 8], dtype, row_offset, None, ids
+        )
+        writer.set_dram_db_wrapper(db)
+        writer.set_weights_and_ids(payload, ids, weights_include_metaheader=False)
+        reader = torch.classes.fbgemm.KVTensorWrapper(
+            [2, header_width + 8], dtype, row_offset, None, ids
+        )
+        reader.set_dram_db_wrapper(db)
+        rows = reader.get_weights_by_ids(ids)
+        torch.testing.assert_close(rows[:, header_width:], payload)
+        torch.testing.assert_close(
+            rows[:, : header_width // 2].contiguous().view(torch.int64).view(-1),
+            ids + row_offset,
+        )
+        rows.view(torch.uint8)[:, 8:16] = torch.arange(8, dtype=torch.uint8)
+        reader.set_weights_and_ids(rows, ids, weights_include_metaheader=True)
+        before = reader.get_weights_by_ids(ids)
+        replacement = torch.full((2, 4), 7, dtype=dtype)
+        writer.set_weights_and_ids(replacement, ids, weights_include_metaheader=False)
+        after = reader.get_weights_by_ids(ids)
+        self.assertTrue(
+            torch.equal(
+                before.view(torch.uint8)[:, 8:16],
+                after.view(torch.uint8)[:, 8:16],
+            )
+        )
+        torch.testing.assert_close(
+            after[:, header_width : header_width + 4], replacement
+        )
+        torch.testing.assert_close(
+            after[:, header_width + 4 :], torch.zeros(2, 4, dtype=dtype)
+        )
+
+    def _check_complete_row_roundtrip(
+        self, precision: SparseType, row_offset: int
+    ) -> None:
+        dtype = precision.as_dtype()
+        header_width = 16 // (precision.bit_rate() // 8)
+        ids = torch.tensor([1001, 1003], dtype=torch.int64)
+        db = self.generate_fbgemm_kv_backend(
+            max_D=8,
+            weight_precision=precision,
+            enable_l2=False,
+            feature_dims=torch.tensor([8]),
+            hash_size_cumsum=torch.tensor([0, 4096]),
+            backend_type=BackendType.DRAM,
+            backend_return_whole_row=True,
+            disable_random_init=True,
+        )
+        reader = torch.classes.fbgemm.KVTensorWrapper(
+            [2, header_width + 8], dtype, row_offset, None, ids
+        )
+        reader.set_dram_db_wrapper(db)
+        payload_writer = torch.classes.fbgemm.KVTensorWrapper(
+            [2, 8], dtype, row_offset, None, ids
+        )
+        payload_writer.set_dram_db_wrapper(db)
+        payload_writer.set_weights_and_ids(
+            torch.arange(1, 17, dtype=dtype).view(2, 8), ids
+        )
+        rows = reader.get_weights_by_ids(ids)
+        rows.view(torch.uint8)[:, 8:16] = torch.arange(8, dtype=torch.uint8)
+        original = rows.clone()
+        reader.set_weights_and_ids(rows, ids, weights_include_metaheader=True)
+        self.assertTrue(torch.equal(rows.view(torch.uint8), original.view(torch.uint8)))
+        checkpoint_rows = reader.narrow(0, 0, 2)
+        torch.testing.assert_close(
+            checkpoint_rows[:, : header_width // 2]
+            .contiguous()
+            .view(torch.int64)
+            .view(-1),
+            ids,
+        )
+        smaller_rows = checkpoint_rows[:, : header_width + 4].contiguous()
+        reader.set_weights_and_ids(smaller_rows, ids, weights_include_metaheader=True)
+        roundtrip = reader.narrow(0, 0, 2)
+        torch.testing.assert_close(roundtrip[:, : header_width + 4], smaller_rows)
+        torch.testing.assert_close(
+            roundtrip[:, header_width + 4 :],
+            torch.zeros((2, 4), dtype=dtype),
+        )
+
+    def test_whole_row_write_preserves_metadata_and_global_ids(self) -> None:
+        for precision in (SparseType.FP32, SparseType.FP16):
+            for row_offset in (-100, 500):
+                with self.subTest(precision=precision, row_offset=row_offset):
+                    self._check_payload_write_preserves_metadata(precision, row_offset)
+                    self._check_complete_row_roundtrip(precision, row_offset)
+
+    def test_dram_ssd_complete_row_write_updates_dram(self) -> None:
+        ids = torch.tensor([11, 13], dtype=torch.int32)
+        payload = torch.arange(16, dtype=torch.float32).view(2, 8)
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            db = self.generate_fbgemm_kv_backend(
+                max_D=8,
+                weight_precision=SparseType.FP32,
+                enable_l2=False,
+                feature_dims=torch.tensor([8]),
+                hash_size_cumsum=torch.tensor([0, 32]),
+                backend_type=BackendType.DRAM_SSD,
+                ssd_directory=ssd_directory,
+                backend_return_whole_row=True,
+                disable_random_init=True,
+            )
+            payload_writer = torch.classes.fbgemm.KVTensorWrapper(
+                [2, 8], torch.float32, 0, None, ids
+            )
+            payload_writer.set_dram_ssd_db_wrapper(db)
+            payload_writer.set_weights_and_ids(payload, ids)
+            row_writer = torch.classes.fbgemm.KVTensorWrapper(
+                [2, 12], torch.float32, 0, None, ids
+            )
+            row_writer.set_dram_ssd_db_wrapper(db)
+            rows = torch.zeros((2, 12), dtype=torch.float32)
+            rows.view(torch.uint8)[:, 8:16] = torch.tensor(
+                [1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.uint8
+            )
+            rows[:, 4:] = 9
+            row_writer.set_weights_and_ids(rows, ids, weights_include_metaheader=True)
+            stored_payload = torch.empty_like(payload)
+            db.get(ids.to(torch.int64), stored_payload, torch.tensor([ids.numel()]))
+            torch.testing.assert_close(
+                stored_payload,
+                torch.full((2, 8), 9, dtype=torch.float32),
+            )
+            db.flush()
+            keys_in_ssd = db.get_keys_in_range_by_snapshot(0, 32, 0, None)
+            self.assertEqual(sorted(keys_in_ssd.flatten().tolist()), ids.tolist())
+            snapshot = db.create_snapshot()
+            snapshot_reader = torch.classes.fbgemm.KVTensorWrapper(
+                [2, 12], torch.float32, 0, snapshot, ids
+            )
+            snapshot_reader.set_dram_ssd_db_wrapper(db)
+            persisted_rows = snapshot_reader.narrow(0, 0, ids.numel())
+            expected_rows = rows.clone()
+            expected_rows.view(torch.uint8)[:, :8] = (
+                ids.to(torch.int64).view(torch.uint8).view(2, 8)
+            )
+            expected_rows.view(torch.uint8)[:, 15] |= 0x80
+            self.assertTrue(
+                torch.equal(
+                    expected_rows.view(torch.uint8), persisted_rows.view(torch.uint8)
+                )
+            )
+
+    def test_complete_row_write_requires_whole_row_backend(self) -> None:
+        ids = torch.tensor([1], dtype=torch.int64)
+        db = self.generate_fbgemm_kv_backend(
+            max_D=8,
+            weight_precision=SparseType.FP32,
+            enable_l2=False,
+            backend_type=BackendType.DRAM,
+            backend_return_whole_row=False,
+        )
+        writer = torch.classes.fbgemm.KVTensorWrapper(
+            [1, 8], torch.float32, 0, None, ids
+        )
+        writer.set_dram_db_wrapper(db)
+        with self.assertRaisesRegex(RuntimeError, "requires whole-row KV storage"):
+            writer.set_weights_and_ids(
+                torch.zeros((1, 8)), ids, weights_include_metaheader=True
+            )
+
     @given(
         E=st.integers(min_value=1000, max_value=10000),
         num_buckets=st.integers(min_value=10, max_value=15),
@@ -1509,7 +1690,9 @@ class SSDCheckpointTest(unittest.TestCase):
                 snapshot_handle=None,
             )
             tensor_wrapper.set_dram_db_wrapper(emb.ssd_db)
-            tensor_wrapper.set_weights_and_ids(padded_weights, indices)
+            tensor_wrapper.set_weights_and_ids(
+                padded_weights, indices, weights_include_metaheader=False
+            )
 
             # reset KVT's shape to full dim to get whole row
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(

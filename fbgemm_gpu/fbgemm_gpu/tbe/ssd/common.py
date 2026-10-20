@@ -20,11 +20,26 @@ try:
 except Exception:
     pass
 
-# Match cache associativity to hardware warp/wavefront width:
-# NVIDIA warp = 32 lanes, AMD wavefront = 64 lanes.
-# C++ kernels use kWarpSize for cache set indexing, so Python-side
-# tensor shapes must agree.
-ASSOC: int = 32 if torch.version.hip is None else 64
+# Preserve the historical value for callers that only use ASSOC as a static
+# compatibility constant.  Device-bound SSD operators must call
+# get_cache_assoc() instead: gfx1250 is wave32 even though older ROCm devices
+# are wave64, and querying the current device while importing this module makes
+# the result stale on heterogeneous hosts.
+ASSOC: int = 64 if torch.version.hip is not None else 32
+
+
+def get_cache_assoc(device: torch.device | int | None = None) -> int:
+    """Return the cache associativity for ``device`` without import-time I/O."""
+    if isinstance(device, torch.device) and device.type == "cpu":
+        return ASSOC
+    if not torch.cuda.is_available():
+        if device is not None:
+            raise RuntimeError(
+                "GPU runtime must be available to determine device cache associativity"
+            )
+        return ASSOC
+    selected_device = torch.cuda.current_device() if device is None else device
+    return int(torch.cuda.get_device_properties(selected_device).warp_size)
 
 
 def pad4(value: int) -> int:

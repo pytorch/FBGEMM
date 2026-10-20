@@ -105,7 +105,10 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const int64_t length,
       at::Tensor& weights);
 
-  void set_weights_and_ids(const at::Tensor& weights, const at::Tensor& ids);
+  void set_weights_and_ids(
+      const at::Tensor& weights,
+      const at::Tensor& ids,
+      bool weights_include_metaheader = false);
 
   at::Tensor get_weights_by_ids(const at::Tensor& ids);
 
