@@ -1384,16 +1384,15 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
 }
 
 template <typename indxType, typename offsetType, typename outType>
-  requires(!FbgemmFP8Type<indxType>)
 typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     Type
-    GenerateEmbeddingSpMDMFP8WithStrides(
+    detail::GenerateEmbeddingSpMDMFP8WithStridesBytes(
         const int64_t block_size,
         bool normalize_by_lengths,
         bool is_weight_positional,
         bool use_offsets,
-        int64_t output_stride /*=-1*/,
-        int64_t input_stride /*=-1*/,
+        int64_t output_stride,
+        int64_t input_stride,
         int exponent_bits,
         int exponent_bias) {
   if (output_stride == -1) {
@@ -1632,20 +1631,23 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       bool scale_bias_last,                                   \
       bool no_bag);
 
-#define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)       \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<              \
-      uint8_t,                                                             \
-      INDEX_TYPE,                                                          \
-      OFFSET_TYPE,                                                         \
-      OUT_TYPE>::Type                                                      \
-  GenerateEmbeddingSpMDMFP8WithStrides<INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>( \
-      const int64_t block_size,                                            \
-      bool normalize_by_lengths,                                           \
-      bool is_weight_positional,                                           \
-      bool use_offsets,                                                    \
-      int64_t output_stride,                                               \
-      int64_t input_stride,                                                \
-      int exponent_bits,                                                   \
+#define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<        \
+      uint8_t,                                                       \
+      INDEX_TYPE,                                                    \
+      OFFSET_TYPE,                                                   \
+      OUT_TYPE>::Type                                                \
+  detail::GenerateEmbeddingSpMDMFP8WithStridesBytes<                 \
+      INDEX_TYPE,                                                    \
+      OFFSET_TYPE,                                                   \
+      OUT_TYPE>(                                                     \
+      const int64_t block_size,                                      \
+      bool normalize_by_lengths,                                     \
+      bool is_weight_positional,                                     \
+      bool use_offsets,                                              \
+      int64_t output_stride,                                         \
+      int64_t input_stride,                                          \
+      int exponent_bits,                                             \
       int exponent_bias);
 
 #define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
