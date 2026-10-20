@@ -200,9 +200,6 @@ function(fbgemm_get_warning_flags)
     ${_cc_suppressions_clang_base}
     ${_cc_suppressions_clang_gt17})
 
-  set(_cc_suppressions_gcc
-    -Wno-error=maybe-uninitialized)
-
   # Host-compiler-conditional suppression set for the CXX path. The version gates
   # are preserved exactly as before this refactor.
   set(_cc_suppressions ${_cc_suppressions_common})
@@ -214,9 +211,6 @@ function(fbgemm_get_warning_flags)
       list(APPEND _cc_suppressions ${_cc_suppressions_clang_gt17})
     endif()
 
-  # GNU-specific
-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL GNU)
-    list(APPEND _cc_suppressions ${_cc_suppressions_gcc})
   endif()
 
   # NOTE: ARG_EXTRA_CC_FLAGS stays FIRST, preserving the pre-refactor behaviour
