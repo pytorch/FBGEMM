@@ -28,6 +28,7 @@ from typing import Any, Dict, List
 from deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizer_args import (
     make_lookup_function_args,
     OptimItem,
+    OptimizerArgsSet,
     PT2ArgsSet,
 )
 from deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.torch_type_utils import ArgType
@@ -305,6 +306,27 @@ class OptimizerCompatibilityTest(unittest.TestCase):
         self.assertEqual(
             "optim_bool.size() > 0 ? optim_bool[0] : true", reads["new_bool"]
         )
+
+    def test_v1_defaults(self) -> None:
+        args = OptimizerArgsSet.create(
+            [
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.INT, "new_int", 7),
+                OptimItem(ArgType.FLOAT, "new_float", 0.25),
+                OptimItem(ArgType.BOOL, "new_bool", True),
+            ],
+            {"v1": "Tensor momentum1, float eps = 0, float learning_rate = 0"},
+        )
+
+        expected = [
+            "const int64_t new_int = 7;",
+            "const double new_float = 0.25;",
+            "const bool new_bool = true;",
+        ]
+        self.assertEqual(expected, args.cpu.split_function_v1_defaults)
+        self.assertEqual(expected, args.cuda.split_function_v1_defaults)
 
     def test_frontend_defaults(self) -> None:
         cases = [

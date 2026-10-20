@@ -1164,6 +1164,9 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     auto learning_rate_tensor = at::empty({1}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
     learning_rate_tensor.fill_(learning_rate);
     {%- endif %}
+    {%- for declaration in args.split_function_v1_defaults %}
+    {{ declaration }}
+    {%- endfor %}
 
     {%- if not dense %}
     // Load the config value from JK once

@@ -666,6 +666,38 @@ def make_split_function_args_v1(args_str: str) -> str:
     )
 
 
+def make_split_function_v1_defaults(
+    split_arg_spec: list[OptimItem], v1_args_str: str
+) -> list[str]:
+    """
+    Declare the scalar optimizer arguments that a V1 lookup function does not take.
+
+    V1 signatures are frozen, so scalar arguments appended to an optimizer spec
+    after V1 was frozen are forwarded to autograd with their spec defaults.
+
+    Parameters:
+        split_arg_spec (list[OptimItem]): Frontend argument items (tensors extended
+            for cpu/cuda)
+        v1_args_str (str): V1 function args with tensors extended, e.g.,
+            "Tensor momentum1_host, float eps = 0"
+
+    Returns:
+        C++ declarations, e.g., ["const int64_t new_int = 7;"]
+    """
+    v1_names = {arg.split("=")[0].split()[-1] for arg in v1_args_str.split(",")}
+    cpp_types = {
+        ArgType.INT: "int64_t",
+        ArgType.SYM_INT: "c10::SymInt",
+        ArgType.FLOAT: "double",
+        ArgType.BOOL: "bool",
+    }
+    return [
+        f"const {cpp_types[s.ty]} {s.name} = {make_default_literal(s.default)};"
+        for s in split_arg_spec
+        if s.ty in cpp_types and s.name not in v1_names
+    ]
+
+
 def make_ivalue_cast(ty: ArgType) -> str:
     return {
         ArgType.INT: "toInt",
@@ -1053,6 +1085,7 @@ class OptimizerArgs:
     split_function_args_no_defaults_by_surface: dict[str, list[str]]
     split_function_args_v1: str | None = None
     split_function_schemas_v1: str | None = None
+    split_function_v1_defaults: list[str] = field(default_factory=list)
 
     @staticmethod
     # pyre-ignore[3]
@@ -1159,6 +1192,7 @@ class OptimizerArgs:
         # is not none`) skip V1 entirely instead of emitting an empty arg list.
         split_function_args_v1 = None
         split_function_schemas_v1 = None
+        split_function_v1_defaults = []
         if additional_spec is not None and additional_spec.get("v1"):
             if len(split_saved_tensors) > 0:
                 extended_args_str = extend_tensors_args_from_str(
@@ -1168,6 +1202,9 @@ class OptimizerArgs:
                 extended_args_str = additional_spec["v1"]
             split_function_args_v1 = make_split_function_args_v1(extended_args_str)
             split_function_schemas_v1 = extended_args_str
+            split_function_v1_defaults = make_split_function_v1_defaults(
+                frontend_split_arg_spec, extended_args_str
+            )
 
         # pyre-fixme[28]: Unexpected keyword argument `placeholder_type_combos`.
         return OptimizerArgs(
@@ -1287,6 +1324,7 @@ class OptimizerArgs:
             split_saved_tensors_optional=split_saved_tensors_optional,
             split_function_args_v1=split_function_args_v1,
             split_function_schemas_v1=split_function_schemas_v1,
+            split_function_v1_defaults=split_function_v1_defaults,
         )
 
 
