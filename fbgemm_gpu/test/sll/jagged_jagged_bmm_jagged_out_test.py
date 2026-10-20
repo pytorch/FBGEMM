@@ -26,7 +26,6 @@ if torch.cuda.is_available():
 
 
 class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),
@@ -99,7 +98,6 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
 
         assert torch.allclose(jagged_C_ref, jagged_C_test)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers(10, 512)` to decorator factory
     #  `hypothesis.given`.
     @given(

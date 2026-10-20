@@ -21,7 +21,6 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, RoundingMode
 from torch import Tensor
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:

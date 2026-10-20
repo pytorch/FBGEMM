@@ -120,7 +120,6 @@ class SparseArch(nn.Module):
 
 
 class QuantizedSplitEmbeddingsTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
     #  10)` to decorator factory `hypothesis.given`.
     @given(
@@ -238,7 +237,6 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*on_arm_platform)
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*running_on_github)
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.booleans() if test_utils.gpu_available else
     #  hypothesis.strategies.just(True)` to decorator factory `hypothesis.given`.
     @given(
@@ -326,7 +324,6 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                 rtol=1.0e-1,
             )
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
     #  10)` to decorator factory `hypothesis.given`.
     @given(

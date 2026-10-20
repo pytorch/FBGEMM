@@ -14,11 +14,9 @@ from hypothesis import given, settings
 
 from . import common  # noqa E402
 
-# pyre-fixme[21]: Could not find name `open_source` in
 #  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 
-# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_memory_lt_gb, gpu_unavailable
@@ -29,7 +27,6 @@ else:
 class TestMSFPQuantizationConversion(unittest.TestCase):
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),

@@ -127,9 +127,7 @@ def jagged2_to_padded_dense_fwd(
         output_dense.stride(1),
         output_dense.stride(2),
         max_length,
-        # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
         BLOCK_M,
-        # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
         BLOCK_N,
     )
 
@@ -161,9 +159,7 @@ def padded_dense_to_jagged2_fwd(
         values.stride(1),
         values.stride(2),
         max_length,
-        # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
         BLOCK_M,
-        # pyre-fixme[6]: Incompatible parameter type [6]: expected `constexpr` but got `int`.
         BLOCK_N,
     )
 

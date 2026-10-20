@@ -86,10 +86,7 @@ def jagged_dense_flash_attention_fwd_kernel(
 
         # Load a block of K into [BLOCK_L, BLOCK_D]
         qj_ptrs = (
-            q_start_ptr
-            # pyre-fixme[16]: `int` has no attribute `__getitem__`.
-            + offs_l[:, None] * stride_ql
-            + offs_d[None, :] * stride_qd
+            q_start_ptr + offs_l[:, None] * stride_ql + offs_d[None, :] * stride_qd
         )
 
         qj = tl.load(
@@ -228,10 +225,9 @@ def jagged_dense_flash_attention_fwd(
         attn_out.stride(2),
         D,
         T,
-        # pyrefly: ignore [bad-argument-type]
         allow_tf32,
-        BLOCK_T,  # pyre-ignore
-        BLOCK_L,  # pyre-ignore
+        BLOCK_T,
+        BLOCK_L,
         BLOCK_D,
     )
 
@@ -691,7 +687,7 @@ def jagged_dense_flash_attention_bwd(
         do.stride(0),
         do.stride(1),
         do.stride(2),
-        BLOCK_T,  # pyre-ignore
+        BLOCK_T,
         BLOCK_D,
     )
 
@@ -735,10 +731,9 @@ def jagged_dense_flash_attention_bwd(
         do.stride(1),
         do.stride(2),
         T,
-        BLOCK_T,  # pyre-ignore
-        BLOCK_L,  # pyre-ignore
+        BLOCK_T,
+        BLOCK_L,
         BLOCK_D,
-        # pyrefly: ignore [bad-argument-type]
         allow_tf32,
     )
 
@@ -779,10 +774,9 @@ def jagged_dense_flash_attention_bwd(
         do.stride(2),
         D,
         T,
-        BLOCK_T,  # pyre-ignore
-        BLOCK_L,  # pyre-ignore
+        BLOCK_T,
+        BLOCK_L,
         BLOCK_D,
-        # pyrefly: ignore [bad-argument-type]
         allow_tf32,
     )
 

@@ -86,9 +86,9 @@ def gather_scale_dense_tokens(
         stride_t,
         stride_e,
         valid_token_count,
-        D,  # pyre-ignore
-        BLOCK_D_OUTER,  # pyre-ignore
-        BLOCK_D_INNER,  # pyre-ignore
+        D,
+        BLOCK_D_OUTER,
+        BLOCK_D_INNER,
     )
     return out
 
@@ -220,9 +220,9 @@ def scatter_add_dense_tokens(
         in_tokens,
         token_indices,
         valid_token_count,
-        D,  # pyre-ignore
-        BLOCK_D_OUTER,  # pyre-ignore
-        BLOCK_D_INNER,  # pyre-ignore
+        D,
+        BLOCK_D_OUTER,
+        BLOCK_D_INNER,
     )
 
 

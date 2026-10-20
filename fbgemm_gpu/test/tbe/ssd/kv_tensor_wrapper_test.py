@@ -85,7 +85,6 @@ class KvTensorWrapperTest(TestCase):
                 enable_async_update=False,
             )
 
-    # pyre-ignore[56]
     @given(
         precision=st.sampled_from(
             [
@@ -162,7 +161,6 @@ class KvTensorWrapperTest(TestCase):
                 # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
-    # pyre-ignore[56]
     @given(
         precision=st.sampled_from(
             [
@@ -259,7 +257,6 @@ class KvTensorWrapperTest(TestCase):
                 # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
-    # pyre-ignore[56]
     @given(
         precision=st.sampled_from(
             [
@@ -368,7 +365,6 @@ class KvTensorWrapperTest(TestCase):
                 # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
-    # pyre-ignore[56]
     @given(
         precision=st.sampled_from(
             [
@@ -461,7 +457,6 @@ class KvTensorWrapperTest(TestCase):
                 # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
-    # pyre-ignore[56]
     @given(
         precision=st.sampled_from(
             [

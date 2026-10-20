@@ -117,7 +117,6 @@ def maybe_unused_args(args_str: str, apply: bool = True) -> str:
 
 @dataclass
 class OptimizerArgsSetItem:
-    # pyre-fixme[11]: Annotation `ArgType` is not defined as a type.
     ty: ArgType  # type
     name: str
     default: float | ArgType = 0  # DEFAULT_ARG_VAL
@@ -973,7 +972,6 @@ class OptimizerArgs:
     split_variables: list[str]
     split_ref_kernel_args: list[str]
     placeholder_tensor_names: list[str]
-    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
     placeholder_type_combos: list[dict[str, TensorType]] | list[None]
     unified_pt2: PT2ArgsSet
     split_kernel_arg_names: list[str]
@@ -1009,7 +1007,6 @@ class OptimizerArgs:
         kernel_split_arg_spec = split_arg_spec.copy()
         for i, s in enumerate(kernel_split_arg_spec):
             if s.name == "learning_rate_tensor":
-                # pyre-ignore[6]
                 kernel_split_arg_spec[i] = OptimItem(
                     ArgType.FLOAT, "learning_rate", unused_on=s.unused_on
                 )
@@ -1105,7 +1102,6 @@ class OptimizerArgs:
             split_function_args_v1 = make_split_function_args_v1(extended_args_str)
             split_function_schemas_v1 = extended_args_str
 
-        # pyre-fixme[28]: Unexpected keyword argument `placeholder_type_combos`.
         return OptimizerArgs(
             # GPU kernel args
             split_kernel_args=[
@@ -1251,7 +1247,6 @@ class OptimizerArgsSet:
                 s.ty in (ArgType.FLOAT, ArgType.INT, ArgType.SYM_INT, ArgType.BOOL)
                 or s.name == "learning_rate_tensor"
             ):
-                # pyre-fixme[19]: Expected 1 positional argument.
                 split_arg_spec.append(
                     OptimItem(s.ty, s.name, s.default, unused_on=s.unused_on)
                 )
@@ -1268,7 +1263,6 @@ class OptimizerArgsSet:
         is_optional = spec.is_optional
         unused_on = spec.unused_on
         return [
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.TENSOR,
                 f"{name}_host",
@@ -1276,7 +1270,6 @@ class OptimizerArgsSet:
                 is_optional=is_optional,
                 unused_on=unused_on,
             ),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.INT_TENSOR,
                 f"{name}_placements",
@@ -1288,7 +1281,6 @@ class OptimizerArgsSet:
                 # signature uniform and never dereferences it.
                 unused_on=unused_on | {DeclSurface.CPU_KERNEL},
             ),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.LONG_TENSOR,
                 f"{name}_offsets",
@@ -1307,11 +1299,8 @@ class OptimizerArgsSet:
         is_optional = spec.is_optional
         unused_on = spec.unused_on
         return [
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_dev", default, ph_tys, is_optional, unused_on),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_uvm", default, ph_tys, is_optional, unused_on),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.INT_TENSOR,
                 f"{name}_placements",
@@ -1319,7 +1308,6 @@ class OptimizerArgsSet:
                 is_optional=is_optional,
                 unused_on=unused_on,
             ),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.LONG_TENSOR,
                 f"{name}_offsets",
@@ -1338,7 +1326,6 @@ class OptimizerArgsSet:
         is_optional = spec.is_optional
         unused_on = spec.unused_on
         return [
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.TENSOR,
                 f"{name}_host",
@@ -1346,7 +1333,6 @@ class OptimizerArgsSet:
                 is_optional=is_optional,
                 unused_on=unused_on | {DeclSurface.PT2_CUDA},
             ),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ty,
                 f"{name}_dev",
@@ -1355,7 +1341,6 @@ class OptimizerArgsSet:
                 is_optional=is_optional,
                 unused_on=unused_on | {DeclSurface.PT2_CPU},
             ),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ty,
                 f"{name}_uvm",
@@ -1364,7 +1349,6 @@ class OptimizerArgsSet:
                 is_optional=is_optional,
                 unused_on=unused_on | {DeclSurface.PT2_CPU},
             ),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.INT_TENSOR,
                 f"{name}_placements",
@@ -1372,7 +1356,6 @@ class OptimizerArgsSet:
                 is_optional=is_optional,
                 unused_on=unused_on,
             ),
-            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(
                 ArgType.LONG_TENSOR,
                 f"{name}_offsets",

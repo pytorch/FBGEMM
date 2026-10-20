@@ -19,7 +19,6 @@ import numpy.typing as npt
 import torch
 from hypothesis import HealthCheck, settings
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -127,7 +126,6 @@ def generate_jagged_tensor(
             # not 0/1 anyway (if so, they'll be recompiled)
             low=0 if not mark_dynamic else 1,
             high=max_lengths[d] * 2,
-            # pyre-fixme[6]: For 3rd param expected `list[int] | Size |
             #  tuple[int, ...]` but got `tuple[bool | float | int]`.
             size=(num_lengths,),
             device=device,
@@ -139,7 +137,6 @@ def generate_jagged_tensor(
         num_lengths = x_offsets[-1][-1].item()
 
     x_values = torch.rand(
-        # pyre-fixme[6]: For 1st param expected `list[int] | Size |
         #  tuple[int, ...]` but got `Tensor`.
         x_offsets[-1][-1] * inner_dense_size,
         dtype=dtype,
@@ -182,7 +179,6 @@ def to_padded_dense(
                 begin = offsets[d][cur_offset].item()
                 # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
                 end = offsets[d][cur_offset + 1].item()
-                # pyre-fixme[6]: For 1st param expected `int` but got
                 #  `bool | float | int`.
                 if jagged_coord[d] >= end - begin:
                     is_zero = True

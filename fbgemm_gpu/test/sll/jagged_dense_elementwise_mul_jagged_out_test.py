@@ -25,7 +25,6 @@ else:
 # pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_on_rocm)
 class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         L=st.integers(1, 200),
@@ -93,7 +92,6 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
             ref = a * b
             assert torch.equal(result[offsets_a[i] : offsets_a[i + 1]], ref.flatten())
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         L=st.integers(1, 200),
@@ -158,7 +156,6 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
         # pyrefly: ignore [bad-argument-type]
         assert torch.allclose(jagged_A_ref.grad, jagged_A.grad)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
         L=st.integers(1, 200),

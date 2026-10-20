@@ -21,7 +21,6 @@ def rand_int(min_value: int, max_value: int) -> int:
 
 
 class TBEIndicesGeneratorTest(unittest.TestCase):
-    # pyre-ignore[56]
     @given(
         zipf_q=st.sampled_from([0.0001, 0.001, 0.01, 0.1, 0.5, 0.7]),
         zipf_s=st.sampled_from([0.0001, 0.001, 0.01, 0.1, 0.5, 0.7]),

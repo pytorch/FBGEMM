@@ -251,9 +251,9 @@ def _export_kineto_trace(
     Runs each variant under torch.profiler and saves to JSON files
     that can be loaded in chrome://tracing or Perfetto.
     """
-    activities = [torch.profiler.ProfilerActivity.CPU]  # pyre-fixme[16]
+    activities = [torch.profiler.ProfilerActivity.CPU]
     if device != "cpu" and torch.cuda.is_available():
-        activities.append(torch.profiler.ProfilerActivity.CUDA)  # pyre-fixme[16]
+        activities.append(torch.profiler.ProfilerActivity.CUDA)
 
     for impl_name, impl_fn in variants:
         with torch.profiler.profile(

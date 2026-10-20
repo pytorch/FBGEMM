@@ -17,11 +17,9 @@ from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402
 
-# pyre-fixme[21]: Could not find name `open_source` in
 #  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 
-# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable, optests
@@ -46,7 +44,6 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]:
     @given(
         batched=st.booleans(),
         bs=st.integers(min_value=1, max_value=100),
@@ -139,7 +136,6 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]:
     @given(
         m=st.integers(min_value=1, max_value=1000),
         n1=st.integers(min_value=1, max_value=1000),

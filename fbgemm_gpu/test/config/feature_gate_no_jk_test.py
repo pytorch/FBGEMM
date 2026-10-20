@@ -9,11 +9,9 @@
 
 import unittest
 
-# pyre-fixme[21]
 import fbgemm_gpu
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:

@@ -22,14 +22,12 @@ from torch._utils_internal import get_file_path_2
 
 from .utils import infer_schema
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     from test_utils import TestSuite  # pyre-fixme[21]
 
 else:
-    # pyre-fixme[21]
     from fbgemm_gpu.test.test_utils import TestSuite
 
 
@@ -56,7 +54,6 @@ def _check_schema_compatibility(
     msg = ""
     if not fwd_compatible:
         msg += f"Schema of {schema} is not forward compatible with {ref_schema}\n"
-    # pyre-fixme[16]
     if not bwd_compatible:
         msg += f"Schema of {schema} is not backward compatible with {ref_schema}"
     assert fwd_compatible and bwd_compatible, msg
@@ -78,7 +75,6 @@ def check_schema_compatibility(
         None
     """
     op_schema = infer_schema(op, mutates_args={})
-    # pyre-fixme[16]
     op_name = op.__name__
     # Create schema string
     schema_str = f"{op_name}{op_schema}"
@@ -193,7 +189,7 @@ class StableRelease(TestSuite):  # pyre-ignore[11]
             pass
 
         # Expect to fail
-        with self.assertRaises(AssertionError):  # pyre-fixme[16]
+        with self.assertRaises(AssertionError):
             check_schema_compatibility(
                 dummy_func,
                 op_dict["dummy_func"],

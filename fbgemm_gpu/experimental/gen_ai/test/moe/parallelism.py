@@ -119,7 +119,6 @@ def init_parallel(
             # ProcessGroup here. Narrow it so the Optional[ProcessGroup] global assigns.
             assert isinstance(group, ProcessGroup)
             if global_rank in ranks:
-                # pyrefly: ignore [bad-assignment]
                 _ROUTED_EXPERTS_MP_GROUP = group
 
     global _EP_GROUP
@@ -134,5 +133,4 @@ def init_parallel(
         # ProcessGroup here. Narrow it so the Optional[ProcessGroup] global assigns.
         assert isinstance(group, ProcessGroup)
         if global_rank in ranks:
-            # pyrefly: ignore [bad-assignment]
             _EP_GROUP = group

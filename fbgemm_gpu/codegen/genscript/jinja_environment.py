@@ -573,9 +573,7 @@ def replace_pta_namespace(pta_str_list: list[str]) -> list[str]:
 
 
 def replace_placeholder_types(
-    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
     arg_str_list: list[str],
-    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
     type_combo: dict[str, TensorType] | None,
 ) -> list[str]:
     """

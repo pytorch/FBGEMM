@@ -141,7 +141,6 @@ class QuantizedCommCodecTest(unittest.TestCase):
         "Skip when no GPU is available",
     )
     @settings(deadline=None)
-    # pyre-ignore
     @given(
         comm_precisions_loss_scale=st.sampled_from(
             [

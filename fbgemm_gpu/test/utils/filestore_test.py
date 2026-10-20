@@ -18,7 +18,6 @@ from typing import BinaryIO
 import fbgemm_gpu
 import torch
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 

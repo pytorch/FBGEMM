@@ -26,7 +26,6 @@ from torch.profiler import profile, schedule
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -203,10 +202,8 @@ def batch_reuse_index_select_device(
             return
         total_iters = num_warmup + num_active
         is_cuda = device != "cpu"
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         with profile(
             activities=activities,
@@ -365,10 +362,8 @@ def jagged_index_select_2d_bench(
             return
         total_iters = num_warmup + num_active
         is_cuda = device != "cpu"
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         with profile(
             activities=activities,
@@ -729,10 +724,8 @@ def group_index_select_2d_bench(
             return
         total_iters = num_warmup + num_active
         is_cuda = device != "cpu"
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         with profile(
             activities=activities,
@@ -765,8 +758,6 @@ def group_index_select_2d_bench(
         time, output_group = benchmark_torch_function(
             torch.ops.fbgemm.group_index_select_dim0,
             (input_group, indices_group),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
         logging.info(f"forward group_index_select_dim0: {time:.5f} sec")
@@ -784,7 +775,6 @@ def group_index_select_2d_bench(
     # )
 
     # Benchmark backward
-    # pyre-fixme[6]: For 1st argument expected `Union[list[Tensor],
     #  typing.tuple[Tensor, ...]]` but got `Tensor`.
     cat_output = torch.cat(output_group, dim=1)
     grad = torch.rand_like(cat_output)
@@ -799,8 +789,6 @@ def group_index_select_2d_bench(
         time, _ = benchmark_torch_function(
             functools.partial(cat_output.backward, retain_graph=True),
             (grad,),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
         logging.info(f"backward group_index_select_dim0: {time:.5f} sec")
@@ -1484,8 +1472,6 @@ def index_select_bench(
         time_pyt, out_pyt = benchmark_torch_function(
             index_select_fwd_ref,
             (inputs, indices),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -1498,16 +1484,12 @@ def index_select_bench(
                 input_rows,
                 input_columns,
             ),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
         time_gis, out_gis = benchmark_torch_function(
             group_index_select_fwd,
             (gis_inputs, indices),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -1523,8 +1505,6 @@ def index_select_bench(
         time_bwd_pyt, _ = benchmark_torch_function(
             index_select_bwd_ref,
             (out_pyt, grads),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -1535,8 +1515,6 @@ def index_select_bench(
                 concat_grads,
                 optim_batch,
             ),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -1547,8 +1525,6 @@ def index_select_bench(
                 concat_grads,
                 optim_group,
             ),
-            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
-            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 

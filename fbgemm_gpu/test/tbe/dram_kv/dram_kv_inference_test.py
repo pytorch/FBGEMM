@@ -16,7 +16,6 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.utils.loader import load_torch_module
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -376,7 +375,7 @@ class DramKvInferenceTest(unittest.TestCase):
 
         reader_failed_event = threading.Event()
 
-        def reader_thread() -> None:  # pyre-ignore
+        def reader_thread() -> None:
             itr = 0
             reader_start_event.wait()
             try:

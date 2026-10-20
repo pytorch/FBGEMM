@@ -19,7 +19,6 @@ import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from torch.profiler import profile
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -170,7 +169,6 @@ def cli(
         d_weight_ref.append(emb.weight.grad)
     d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, -1)
     d_weight = unary_emb.weight.grad
-    # pyre-fixme[16]: Optional type has no attribute `squeeze`.
     torch.testing.assert_close(d_weight_ref, d_weight.squeeze())
 
     # Kineto trace helpers

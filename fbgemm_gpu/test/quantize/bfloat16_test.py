@@ -18,7 +18,6 @@ from . import common  # noqa E402
 
 
 class SparseNNOperatorsGPUTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.sampled_from(["BF16"])` to decorator factory
     #  `hypothesis.given`.
     @given(
@@ -57,7 +56,6 @@ def bfloat_dequantize(x_bfloat: np.uint16) -> float:
 
 
 class TestBfloat16QuantizationConversion(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
     @given(
@@ -84,7 +82,6 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             quantized_data_numpy = quantized_data_gpu.view(torch.uint16).cpu().numpy()
             np.testing.assert_allclose(quantized_data_numpy, reference)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
     @given(
@@ -123,7 +120,6 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.sampled_from([(65540, 256), (256, 65540)])` to decorator
     #  factory `hypothesis.given`.
     @given(

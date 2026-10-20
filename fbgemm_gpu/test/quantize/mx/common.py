@@ -141,7 +141,6 @@ def _get_format_params(  # noqa
 
     min_norm = _get_min_norm(ebits)
 
-    # pyre-fixme[6]: For 1st argument expected `ElemFormat` but got `Union[None,
     #  ElemFormat, int]`.
     _FORMAT_CACHE[fmt] = (ebits, mbits, emax, max_norm, min_norm)
 

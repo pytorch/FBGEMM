@@ -60,7 +60,6 @@ def _multi_stream_event_amortized_timing(
     duration_ms_list: list[float] = []
 
     @torch.inference_mode()
-    # pyre-ignore[53]
     def forward(idx: int) -> None:
         stream = torch.cuda.Stream()
         f_temp = f_list[idx]
@@ -193,7 +192,6 @@ def _prepare_wall_clock_streams(
 
 
 @torch.inference_mode()
-# pyre-ignore[53]
 def _run_wall_clock_worker_safely(
     idx: int,
     f_list: list[Any],

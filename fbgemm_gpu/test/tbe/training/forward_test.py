@@ -1872,7 +1872,6 @@ class ForwardTest(unittest.TestCase):
                     cc.total_cache_hash_size,
                 )
 
-                # pyre-fixme[9]: Comparison returns Tensor, not bool
                 cache_hit_mask: torch.Tensor = lxu_cache_locations >= 0
 
                 # Collect cache hit indices from MANAGED_CACHING tables

@@ -40,14 +40,12 @@ from .. import common  # noqa E402
 from ..common import running_in_oss
 
 try:
-    # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
     open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 except Exception:
     open_source: bool = False
 
 
 class TestTBEBenchmarkParamsReporter(unittest.TestCase):
-    # pyre-ignore[56]
     @given(
         T=st.integers(1, 10),
         E=st.integers(100, 10000),
@@ -147,7 +145,6 @@ class TestTBEBenchmarkParamsReporter(unittest.TestCase):
             == tbeconfig.indices_params.offset_dtype
         ), "Extracted config does not match the original TBEDataConfig"
 
-    # pyre-ignore[56]
     @given(
         T=st.integers(1, 10),
         E=st.integers(100, 10000),

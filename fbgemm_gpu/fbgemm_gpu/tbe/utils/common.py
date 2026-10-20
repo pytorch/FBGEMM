@@ -32,11 +32,8 @@ def get_device() -> torch.device:
 
 def to_device(t: Deviceable, use_cpu: bool) -> Deviceable:
     if use_cpu:
-        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor, torch.nn.EmbeddingBag]`.
         return t.cpu()
     elif torch.cuda.is_available():
-        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor, torch.nn.EmbeddingBag]`.
         return t.cuda()
     else:
-        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor, torch.nn.EmbeddingBag]`.
         return t.to(device="mtia")

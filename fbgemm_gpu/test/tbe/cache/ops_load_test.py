@@ -15,7 +15,6 @@ import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
@@ -32,7 +31,7 @@ class OpsLoadTest(TestSuite):  # pyre-ignore[11]
     )
     @settings(deadline=None)
     def test_cpu_ops(self, device: torch.device, host_mapped: bool) -> None:
-        with self.assertNotRaised(Exception):  # pyre-ignore[16]
+        with self.assertNotRaised(Exception):
             torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(1, device=device, dtype=torch.float),
                 [1000],

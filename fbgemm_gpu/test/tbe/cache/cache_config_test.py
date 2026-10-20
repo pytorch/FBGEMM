@@ -87,7 +87,6 @@ class CacheStateConstructTest(unittest.TestCase):
 class CacheConfigJITTest(unittest.TestCase):
     """Verify cache types don't break JIT scripting of TBE with caching."""
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `not torch.cuda.is_available()` to decorator factory `unittest.skipIf`.
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA required")
     def test_tbe_managed_caching_jit_script(self) -> None:

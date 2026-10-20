@@ -16,11 +16,9 @@ from hypothesis import given, settings
 
 from . import common  # noqa E402
 
-# pyre-fixme[21]: Could not find name `open_source` in
 #  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 
-# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
@@ -46,7 +44,6 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
     @given(
@@ -69,7 +66,6 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
     @given(
@@ -92,7 +88,6 @@ class TestMixedDimInt8DequantizationConversion(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
     #  100)` to decorator factory `hypothesis.given`.
     @given(

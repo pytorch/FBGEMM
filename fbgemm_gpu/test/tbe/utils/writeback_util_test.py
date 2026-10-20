@@ -236,7 +236,6 @@ class WritebackUtilsTest(unittest.TestCase):
             # else: leave as zero (duplicate within the same table)
         self.assertTrue(torch.equal(result[0], expected))
 
-    # pyre-ignore[56]
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=256),

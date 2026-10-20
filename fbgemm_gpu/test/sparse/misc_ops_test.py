@@ -145,7 +145,6 @@ class MiscOpsTest(unittest.TestCase):
                 indices.cuda(),
                 bucketize_pos,
                 2,
-                # pyre-fixme[16]: `Optional` has no attribute `cuda`.
                 weights.cuda() if has_weight else None,
             )
             torch.testing.assert_close(

@@ -25,28 +25,28 @@ from .ssd_config import (  # noqa: F401
 # submodule, so a real circular / "cannot import name" error isn't masked (D107684315).
 # Eager (not a lazy `__getattr__`) so the symbols resolve under torch.package.
 try:
-    # pyre-ignore[21]: `.common` is only present in the heavy target.
+    # pyrefly: ignore [missing-import]
     from .common import ASSOC  # noqa: F401
 except ModuleNotFoundError as e:
     if e.name != "fbgemm_gpu.tbe.ssd.common":
         raise
 
 try:
-    # pyre-ignore[21]: fbgemm_gpu C extensions are not analyzed by Pyre.
+    # pyrefly: ignore [missing-import]
     from .inference import SSDIntNBitTableBatchedEmbeddingBags  # noqa: F401
 except ModuleNotFoundError as e:
     if e.name != "fbgemm_gpu.tbe.ssd.inference":
         raise
 
 try:
-    # pyre-ignore[21]: fbgemm_gpu C extensions are not analyzed by Pyre.
+    # pyrefly: ignore [missing-import]
     from .inference_serving import TurboSSDInferenceModule  # noqa: F401
 except ModuleNotFoundError as e:
     if e.name != "fbgemm_gpu.tbe.ssd.inference_serving":
         raise
 
 try:
-    # pyre-ignore[21]: fbgemm_gpu C extensions are not analyzed by Pyre.
+    # pyrefly: ignore [missing-import]
     from .training import DramKvPerfStat, SSDTableBatchedEmbeddingBags  # noqa: F401
 except ModuleNotFoundError as e:
     if e.name != "fbgemm_gpu.tbe.ssd.training":

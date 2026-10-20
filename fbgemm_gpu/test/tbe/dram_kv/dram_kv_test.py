@@ -252,14 +252,12 @@ class DRAMKVTest(unittest.TestCase):
             indices.numel(), max_D, dtype=weights_precision.as_dtype()
         )
         count = torch.as_tensor([indices.numel()])
-        # pyre-ignore[29]
         dram_kv.set_cuda(indices, weights, count, 1)
         torch.cuda.synchronize()
 
         median = torch.median(indices)
         max_val = torch.max(indices)
         filtered_indices_input = indices[(indices >= median) & (indices < max_val)]
-        # pyre-ignore[29]
         ids_in_range = dram_kv.get_keys_in_range(median, max_val)
         ids_in_range = torch.sort(ids_in_range.flatten()).values
 

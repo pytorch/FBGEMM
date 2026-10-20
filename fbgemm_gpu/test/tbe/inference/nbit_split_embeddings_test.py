@@ -298,12 +298,10 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             # cache status; we use the exact same logic, but still assigning ways in a associative cache can be
             # arbitrary. We compare sum along ways in each set, instead of expecting exact tensor match.
             cache_weights_ref = torch.reshape(
-                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
                 #  `Tensor | Module`.
                 cc_ref.lxu_cache_weights,
                 [-1, associativity],
             )
-            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
             #  `Tensor | Module`.
             cache_weights = torch.reshape(cc.lxu_cache_weights, [-1, associativity])
             torch.testing.assert_close(

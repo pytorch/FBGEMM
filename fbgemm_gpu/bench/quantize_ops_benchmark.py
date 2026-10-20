@@ -19,14 +19,11 @@ import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
 from hypothesis import given, settings
-
-# pyre-ignore[21]
 from torch.profiler import profile, ProfilerActivity
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -166,7 +163,6 @@ def bench_impl(
 
 
 @settings(max_examples=10, deadline=None)
-# pyre-ignore
 @given(
     num_columns=st.sampled_from([2**n for n in range(4, 10)]),
     num_rows=st.sampled_from([2**n for n in range(4, 10)]),
@@ -253,7 +249,6 @@ def bench_mx4(
         end = 24
 
     if trace_cuda_only:
-        # pyre-ignore[16]
         activities = [ProfilerActivity.CUDA]
     else:
         activities = None
@@ -285,7 +280,6 @@ def bench_mx4(
 
         def _create_profile(
             enable_trace_profile: bool,
-            # pyre-ignore[11]
             activities: Iterable[ProfilerActivity] | None,
             text: str,
             input_size: int,

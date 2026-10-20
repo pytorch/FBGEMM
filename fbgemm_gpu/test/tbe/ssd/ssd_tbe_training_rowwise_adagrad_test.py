@@ -428,7 +428,6 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             # pyre-fixme[16]: Optional type has no attribute `float`
             ref_optimizer_state = emb_ref[f].weight.grad.float().to_dense().pow(2)
 
-            # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
             ref_opt_mean = ref_optimizer_state[bucket_asc_ids_list[t].view(-1)].mean(
                 dim=1
             )
@@ -651,7 +650,6 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
                     table_input_id_range[t][1], emb_ref[f].weight.size(0)
                 )
             ]
-            # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
             ref_kv_opt = ref_optimizer_state[bucket_asc_ids_list[t]].view(-1)
             torch.testing.assert_close(
                 # NOTE: The [0] index is a hack since the test is fixed to use
@@ -884,7 +882,6 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
                     table_input_id_range[t][1], emb_ref[f].weight.size(0)
                 )
             ]
-            # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
             ref_kv_opt = ref_optimizer_state[bucket_asc_ids_list[t]].view(-1)
             opt = (
                 # NOTE: The [0] index is a hack since the test is fixed to use

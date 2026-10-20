@@ -87,7 +87,6 @@ from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -250,9 +249,9 @@ def _export_kineto_trace(lengths: torch.Tensor, trace_name: str, device: str) ->
     Runs both implementations under torch.profiler and saves to JSON files
     that can be loaded in chrome://tracing or Perfetto.
     """
-    activities = [torch.profiler.ProfilerActivity.CPU]  # pyre-fixme[16]
+    activities = [torch.profiler.ProfilerActivity.CPU]
     if device != "cpu" and torch.cuda.is_available():
-        activities.append(torch.profiler.ProfilerActivity.CUDA)  # pyre-fixme[16]
+        activities.append(torch.profiler.ProfilerActivity.CUDA)
 
     impls: list[tuple[str, typing.Callable[[torch.Tensor], torch.Tensor]]] = [
         ("pytorch", repeat_arange_pytorch)

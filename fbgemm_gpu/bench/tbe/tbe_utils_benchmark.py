@@ -41,7 +41,6 @@ from fbgemm_gpu.tbe.config.embedding_config import (
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch.profiler import profile
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 logging.basicConfig(level=logging.DEBUG)

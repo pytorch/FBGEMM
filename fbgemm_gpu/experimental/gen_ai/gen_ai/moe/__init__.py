@@ -17,7 +17,6 @@ try:
 except Exception:
     open_source: bool = False
 
-# pyre-ignore[16]
 if open_source:
     torch.ops.load_library(
         os.path.join(

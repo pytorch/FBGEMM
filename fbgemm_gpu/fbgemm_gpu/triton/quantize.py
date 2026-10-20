@@ -464,20 +464,13 @@ def triton_quantize_mx4(
         GROUPS_PER_ROW=groups_per_row,
         GROUPS_PER_THREAD=groups_per_thread,
         ROW_PADDING=padding,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         EBITS=ebits,
-        # pyre-ignore[6]
         MBITS=mbits,
-        # pyre-ignore[6]
         ROUNDING_MODE=rounding_mode,
-        # pyre-ignore[6]
         STOCHASTIC_CASTING=stochastic_casting,
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
     )
     # Inputs are now fully quantized and ready to return.
@@ -657,11 +650,8 @@ def triton_dequantize_mx4(
         out,
         a.numel(),
         GROUPS_PER_THREAD=groups_per_thread,
-        # pyre-ignore[6]
         GROUP_SIZE=group_size,
-        # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
-        # pyre-ignore[6]
         USE_INT64=use_int64,
     )
 

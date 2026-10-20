@@ -26,7 +26,6 @@ else:
 # pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_on_rocm)
 class JaggedSoftmaxTest(unittest.TestCase):
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
         N=st.integers(1, 1000),
@@ -93,7 +92,6 @@ class JaggedSoftmaxTest(unittest.TestCase):
         # pyre-fixme[6]: In call `torch._C._VariableFunctions.allclose`, for 1st positional argument, expected `Tensor` but got `Optional[Tensor]`.Pyre
         assert torch.allclose(x1.grad, x2.grad, 1e-5)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 10),
         N=st.integers(10, 100),
@@ -156,7 +154,6 @@ class JaggedSoftmaxTest(unittest.TestCase):
 
         torch.testing.assert_close(x.grad, x_ref.grad, rtol=1e-5, atol=1e-5)
 
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers(10, 512)` to decorator factory
     #  `hypothesis.given`.
     @given(

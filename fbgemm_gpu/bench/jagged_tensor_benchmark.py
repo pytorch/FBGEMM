@@ -25,7 +25,6 @@ from torch.profiler import profile, schedule
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
@@ -312,7 +311,6 @@ def bench_jagged_dense_dense_elementwise_add_jagged_output(jten: JaggedTensor) -
 def bench_jagged_1d_to_dense(jten: JaggedTensor) -> None:
     logging.info("######## Jagged (1D) to Dense ########")
 
-    # pyre-fixme[6]: For 1st param expected `Union[list[int], Size,
     #  typing.tuple[int, ...]]` but got `bool | float | int`.
     # Place values on the same device as offsets to respect the --device flag
     jten.values = torch.rand(jten.total_lengths, device=jten.offsets.device)
@@ -347,7 +345,6 @@ def bench_dense_to_jagged_1d(jten: JaggedTensor) -> None:
     # NOTE: This always uses float32 regardless of --elem-type, because
     # torch.rand() defaults to float32.  The tritonbench port
     # (dense_to_jagged_1d) fixes this by properly supporting --elem-type.
-    # pyre-fixme[6]: For 1st param expected `Union[list[int], Size,
     #  typing.tuple[int, ...]]` but got `bool | float | int`.
     jten.values = torch.rand(jten.total_lengths, device=jten.offsets.device)
     dense_values = jten.to_dense()
@@ -456,10 +453,8 @@ def device(
             if is_cuda:
                 torch.cuda.synchronize(device)
 
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         with profile(
             activities=activities,
@@ -507,7 +502,6 @@ def device(
         dense_2d = jtensor.to_dense()
         dense_2d_squared = dense_2d * dense_2d
         jtensor_1d_values = torch.rand(
-            # pyre-fixme[6]: For 1st param expected `Union[list[int], Size,
             #  typing.tuple[int, ...]]` but got `bool | float | int`.
             jtensor.total_lengths,
             device=jtensor.offsets.device,
@@ -625,9 +619,6 @@ def batched_dense_vec_jagged_2d_mul(
     if export_trace:
         is_cuda = device != "cpu"
 
-        # pyre-fixme[53]: Captured variable `dense` is not annotated.
-        # pyre-fixme[53]: Captured variable `values_2d` is not annotated.
-        # pyre-fixme[53]: Captured variable `offsets` is not annotated.
         def fn() -> torch.Tensor:
             return torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
                 dense, values_2d, offsets
@@ -637,10 +628,8 @@ def batched_dense_vec_jagged_2d_mul(
             fn()
             if is_cuda:
                 torch.cuda.synchronize(device)
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         num_active = 5
         with profile(
@@ -742,8 +731,6 @@ def jagged_1d_to_truncated_values(
 
     if export_trace:
 
-        # pyre-fixme[53]: Captured variable `values` is not annotated.
-        # pyre-fixme[53]: Captured variable `lengths` is not annotated.
         def fn() -> torch.Tensor:
             return torch.ops.fbgemm.jagged_1d_to_truncated_values(
                 values, lengths, max_len
@@ -751,7 +738,6 @@ def jagged_1d_to_truncated_values(
 
         for _ in range(100):
             fn()
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         num_active = 5
         with profile(
@@ -843,9 +829,6 @@ def masked_select_jagged_1d(
 
     if export_trace:
 
-        # pyre-fixme[53]: Captured variable `values` is not annotated.
-        # pyre-fixme[53]: Captured variable `lengths` is not annotated.
-        # pyre-fixme[53]: Captured variable `mask` is not annotated.
         def fn() -> tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.masked_select_jagged_1d(values, lengths, mask)
 
@@ -855,7 +838,6 @@ def masked_select_jagged_1d(
         for _ in range(num_warmup):
             fn()
 
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         with profile(
             activities=activities,
@@ -1207,9 +1189,6 @@ def jagged_slice_cpu(
 
     if export_trace:
 
-        # pyre-fixme[53]: Captured variable `values` is not annotated.
-        # pyre-fixme[53]: Captured variable `lengths` is not annotated.
-        # pyre-fixme[53]: Captured variable `start` is not annotated.
         def fn() -> tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.jagged_slice(values, lengths, start, slice_length)
 
@@ -1219,7 +1198,6 @@ def jagged_slice_cpu(
         for _ in range(num_trace_warmup):
             fn()
 
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         with profile(
             activities=activities,
@@ -1235,9 +1213,7 @@ def jagged_slice_cpu(
     else:
         profiler = profile(
             activities=[
-                # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
                 torch.profiler.ProfilerActivity.CPU,
-                # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
                 torch.profiler.ProfilerActivity.CUDA,
             ],
             schedule=torch.profiler.schedule(
@@ -1426,11 +1402,6 @@ def permute_pooled_embs_bench(
     if export_trace:
         is_cuda = device == "cuda"
 
-        # pyre-fixme[53]: Captured variable `values` is not annotated.
-        # pyre-fixme[53]: Captured variable `offsets_t` is not annotated.
-        # pyre-fixme[53]: Captured variable `permutes_t` is not annotated.
-        # pyre-fixme[53]: Captured variable `inv_offsets_t` is not annotated.
-        # pyre-fixme[53]: Captured variable `inv_permutes_t` is not annotated.
         def fn() -> torch.Tensor:
             return torch.ops.fbgemm.permute_pooled_embs_auto_grad(
                 values,
@@ -1448,10 +1419,8 @@ def permute_pooled_embs_bench(
             if is_cuda:
                 torch.cuda.synchronize(device)
 
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         with profile(
             activities=activities,
@@ -1613,8 +1582,6 @@ def jagged_acc_weights_and_counts_bench(
         )
         optimized_times = [time_optimized * 1e3]  # convert to ms
 
-        # pyre-fixme[53]: Captured variable `weights_1d` is not annotated.
-        # pyre-fixme[53]: Captured variable `reverse_indices` is not annotated.
         def _ref() -> torch.Tensor:
             ref = torch.zeros((num_unique_indices, 2), device=device)
             wf = weights_1d.float()
@@ -1649,8 +1616,6 @@ def jagged_acc_weights_and_counts_bench(
 
     if export_trace:
 
-        # pyre-fixme[53]: Captured variable `weights_1d` is not annotated.
-        # pyre-fixme[53]: Captured variable `reverse_indices` is not annotated.
         def fn() -> torch.Tensor:
             return torch.ops.fbgemm.jagged_acc_weights_and_counts(
                 weights_1d, reverse_indices, num_unique_indices
@@ -1664,10 +1629,8 @@ def jagged_acc_weights_and_counts_bench(
             if is_cuda:
                 torch.cuda.synchronize(device)
 
-        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
-            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         with profile(
             activities=activities,

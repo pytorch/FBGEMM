@@ -589,7 +589,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ],
             learning_rate=0.1,
-            **hyperparameters,  # pyre-ignore[6]
+            **hyperparameters,
         )
 
         # Update hyperparameters

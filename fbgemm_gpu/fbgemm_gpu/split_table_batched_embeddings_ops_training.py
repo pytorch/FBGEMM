@@ -320,7 +320,6 @@ def apply_split_helper(
         dev_buffer = torch.zeros(
             split.dev_size,
             device=dev_device,
-            # pyre-fixme[6]
             dtype=dtype,
         )
         dev_buffer = (
@@ -362,7 +361,6 @@ def apply_split_helper(
             host_buffer = torch.zeros(
                 split.host_size,
                 device=current_device,
-                # pyre-fixme[6]: Expected `type[torch._dtype] | None` for
                 #  3rd param but got `type[type[torch._dtype]]`.
                 dtype=dtype,
             )
@@ -398,7 +396,6 @@ def apply_split_helper(
                 torch.zeros(
                     split.uvm_size,
                     device=current_device,
-                    # pyre-fixme[6]: Expected `type[torch._dtype] | None` for
                     #  3rd param but got `type[type[torch._dtype]]`.
                     dtype=dtype,
                 ),
@@ -410,7 +407,6 @@ def apply_split_helper(
                     split.uvm_size,
                     device=current_device,
                     out=torch.ops.fbgemm.new_unified_tensor(
-                        # pyre-fixme[6]: Expected `type[torch._dtype] | None`
                         #  for 3rd param but got `type[type[torch._dtype]]`.
                         torch.zeros(1, device=current_device, dtype=dtype),
                         [split.uvm_size],
@@ -473,8 +469,6 @@ def res_bitmap_compact(selected: Tensor) -> tuple[Tensor, Tensor]:
     return rows, selected.sum()  # 3
 
 
-# pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
-# pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
 class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table Batched Embedding (TBE) operator.  Looks up one or more embedding
@@ -1539,7 +1533,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     # resolution past 2^24 iterations. Opt-in until every
                     # backend package can read int64; see
                     # `GlobalWeightDecayDefinition.use_int64_prev_iter`.
-                    # pyre-fixme[6]: Expected `type[type[torch._dtype]]` for 3rd param
                     #  but got `dtype`.
                     dtype=(
                         torch.int64 if self.gwd_use_int64_prev_iter else torch.float32
@@ -1795,7 +1788,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(
                     1,
                     device=self.current_device,
-                    # pyre-ignore Incompatible parameter type [6]: In call `torch._C._VariableFunctions.empty`, for argument `dtype`, expected `dtype | None` but got `Module | dtype | Tensor`
                     dtype=self.lxu_cache_weights.dtype,
                 ),
                 self.lxu_cache_weights.shape,
@@ -4887,7 +4879,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 per_sample_weights (Tensor | None): Input per
                     sample weights
             """
-            # pyre-fixme[29]: `Union[(self: TensorBase, other: Union[bool, complex,
             #  float, int, Tensor]) -> Tensor, Module, Tensor]` is not a function.
             if self.debug_step % 100 == 0:
                 # Get number of features (T) and batch size (B)
@@ -4974,9 +4965,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         avg_seglen_cta_per_row_mth,
                     )
                 )
-            # pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no
             #  attribute `debug_step`.
-            # pyre-fixme[29]: `Union[(self: TensorBase, other: Union[bool, complex,
             #  float, int, Tensor]) -> Tensor, Module, Tensor]` is not a function.
             self.debug_step += 1
 
@@ -5518,7 +5507,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 SparseType.BF16,
             ], "Fused pooled embedding quantization only supported for cuda."
 
-        # pyre-fixme[8]: Attribute has type `device`; used as `int | device`.
         self.current_device: torch.device = (
             torch.device("cpu")
             if self.use_cpu

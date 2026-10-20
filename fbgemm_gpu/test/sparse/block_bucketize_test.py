@@ -1073,7 +1073,6 @@ class BlockBucketizeTest(unittest.TestCase):
                 sequence,
                 block_sizes.cuda(),
                 my_size,
-                # pyre-fixme[16]: `Optional` has no attribute `cuda`.
                 weights.cuda() if has_weight else None,
             )
             torch.testing.assert_close(
@@ -1888,7 +1887,6 @@ class BlockBucketizeTest(unittest.TestCase):
             0,
             my_size * bucket_size,
             (total_len,),
-            # pyre-ignore [6]
             dtype=index_type,
         )
         weights = (
@@ -1922,7 +1920,6 @@ class BlockBucketizeTest(unittest.TestCase):
             sequence,
             block_sizes.cuda(),
             my_size,
-            # pyre-fixme[16]: `Optional` has no attribute `cuda`.
             weights.cuda() if has_weight else None,
         )
 

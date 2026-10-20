@@ -25,7 +25,6 @@ from fbgemm_gpu.tbe.cache.kv_embedding_ops_inference import (
 from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
 from fbgemm_gpu.tbe.utils import generate_requests
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 
@@ -166,7 +165,6 @@ class KVEmbeddingTest(TestCase):
                 )
 
         kv_emb_cpu = KVEmbeddingInference(
-            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
             # and canonical package; resolves once D103477971 unifies the classes via re-export.
             [
                 (

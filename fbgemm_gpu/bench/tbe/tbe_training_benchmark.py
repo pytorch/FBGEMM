@@ -169,7 +169,6 @@ def device(  # noqa C901
             embedding_specs=[(tbeconfig.E, d) for d in Ds],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
             # and canonical package; resolves once D103477971 unifies the classes via re-export.
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
@@ -202,7 +201,6 @@ def device(  # noqa C901
     embedding_op = embedding_op.to(get_device())
 
     if embconfig.weights_dtype == SparseType.INT8:
-        # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
         #  min_val: float, max_val: float) -> None, (self:
         #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
         #  None, Tensor, Module]` is not a function.
@@ -242,7 +240,6 @@ def device(  # noqa C901
 
     requests = generate_requests(tbeconfig, benchconfig.num_requests)
 
-    # pyre-ignore[53]
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         if benchconfig.trace_url is not None:
             trace_path = benchconfig.trace_url.format(
@@ -252,7 +249,6 @@ def device(  # noqa C901
         else:
             logger.warning("Cannot export trace: trace_url is None")
 
-    # pyre-ignore[53]
     def _context_factory(
         on_trace_ready: Callable[[profile], None],
     ) -> tuple[Any, profile | None]:
@@ -552,7 +548,6 @@ def device_with_speclist(  # noqa C901
             embedding_specs=[(e, d) for e, d in zip(_Es, _Ds)],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
             # and canonical package; resolves once D103477971 unifies the classes via re-export.
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
@@ -582,7 +577,6 @@ def device_with_speclist(  # noqa C901
     embedding_op = embedding_op.to(get_device())
 
     if embconfig.weights_dtype == SparseType.INT8:
-        # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
         #  min_val: float, max_val: float) -> None, (self:
         #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
         #  None, Tensor, Module]` is not a function.
@@ -636,7 +630,6 @@ def device_with_speclist(  # noqa C901
             tbeconfig, benchconfig.num_requests, batch_size_per_feature_per_rank
         )
 
-    # pyre-ignore[53]
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(
             # pyrefly: ignore [missing-attribute]

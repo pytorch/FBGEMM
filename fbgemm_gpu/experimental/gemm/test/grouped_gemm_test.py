@@ -45,7 +45,7 @@ class TestGroupedGEMM(unittest.TestCase):
         fuse_scatter_add=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
-    @unittest.skipIf(  # pyre-ignore [56]
+    @unittest.skipIf(
         (not torch.cuda.is_available())
         or (torch.version.hip is None)
         and (torch.cuda.get_device_properties(0).major < 9),
@@ -163,7 +163,7 @@ class TestGroupedGEMM(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     # TODO(shikaili): Re-enable the test for SM80 after fixing TMA issues.
-    @unittest.skipIf(  # pyre-ignore [56]
+    @unittest.skipIf(
         (not torch.cuda.is_available())
         or (torch.version.hip is None)
         and (torch.cuda.get_device_properties(0).major < 9),

@@ -33,7 +33,6 @@ MAX_EXAMPLES = 20
 class LayoutTransformOpsTest(unittest.TestCase):
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -61,7 +60,6 @@ class LayoutTransformOpsTest(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]
     @given(
         B=st.integers(min_value=1, max_value=20),
         W=st.integers(min_value=1, max_value=20),
@@ -105,7 +103,6 @@ class LayoutTransformOpsTest(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-fixme[56]
     @given(
         B=st.integers(min_value=1, max_value=20),
         W=st.integers(min_value=1, max_value=20),
@@ -127,9 +124,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
             )
             for i in range(W)
         ]
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         dim_sum_per_rank_tensor = torch.cuda.LongTensor(dim_sum_per_rank)
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         cumsum_dim_sum_per_rank_tensor = torch.cuda.LongTensor(
             np.cumsum([0] + dim_sum_per_rank)[:-1]
         )
@@ -167,9 +162,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
             )
             for i in range(W)
         ]
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         dim_sum_per_rank_tensor = torch.cuda.LongTensor(dim_sum_per_rank)
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         cumsum_dim_sum_per_rank_tensor = torch.cuda.LongTensor(
             np.cumsum([0] + dim_sum_per_rank)[:-1]
         )

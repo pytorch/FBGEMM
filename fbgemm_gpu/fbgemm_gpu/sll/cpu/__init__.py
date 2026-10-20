@@ -25,7 +25,6 @@ from fbgemm_gpu.sll.cpu.cpu_sll import (  # noqa F401
     cpu_jagged_softmax,
 )
 
-# pyre-ignore[5]
 op_registrations = {
     "sll_jagged_dense_bmm": {
         "CPU": cpu_jagged_dense_bmm,
