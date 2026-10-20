@@ -209,7 +209,6 @@ __global__ inline void _FP8rowwise_to_float_cuda_kernel(
 } // namespace
 
 // revising INT8 rowwise template for FP8 rowwise quantization
-template <typename input_t>
 Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
@@ -353,14 +352,7 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
 /// `SparseType::FP16`, or `SparseType::BF16`).
 DLL_PUBLIC Tensor
 _float_to_FP8rowwise_gpu(const Tensor& input, const bool forward) {
-  auto input_type = input.dtype();
-  if (input_type == at::kHalf) {
-    return _float_to_FP8rowwise_gpu_t<half>(input, forward);
-  } else if (input_type == at::kBFloat16) {
-    return _float_to_FP8rowwise_gpu_t<__nv_bfloat16>(input, forward);
-  } else {
-    return _float_to_FP8rowwise_gpu_t<float>(input, forward);
-  }
+  return _float_to_FP8rowwise_gpu_t(input, forward);
 }
 
 Tensor _FP8rowwise_to_float_gpu_t(
