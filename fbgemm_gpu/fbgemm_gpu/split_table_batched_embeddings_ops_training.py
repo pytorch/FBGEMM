@@ -1269,6 +1269,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             raise AssertionError(
                 "Need to set weight_decay_mode=WeightDecayMode.COWCLIP together with valid cowclip_regularization"
             )
+        if (
+            counter_based_regularization is not None
+            and counter_based_regularization.learning_rate_mode
+            == LearningRateMode.PER_ROW_WARMUP
+        ):
+            counter_weight_decay_mode = (
+                counter_based_regularization.counter_weight_decay_mode
+            )
+            counter_halflife = counter_based_regularization.counter_halflife
+            # L2/DECOUPLE scale the decay by counter_halflife / row_counter, which
+            # turns into weight growth for raw (negative-halflife) counters.
+            if (
+                counter_weight_decay_mode
+                in (CounterWeightDecayMode.L2, CounterWeightDecayMode.DECOUPLE)
+                and counter_halflife < 0
+            ):
+                raise ValueError(
+                    "PER_ROW_WARMUP is incompatible with counter_weight_decay_mode="
+                    f"{counter_weight_decay_mode.name} and counter_halflife="
+                    f"{counter_halflife}."
+                )
 
         self._used_rowwise_adagrad_with_counter: bool = (
             optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
@@ -1336,17 +1357,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     counter_based_regularization.counter_weight_decay_mode
                 )
                 counter_halflife = counter_based_regularization.counter_halflife
+                # `getattr` because a model packaged before these fields existed can
+                # unpickle a CounterBasedRegularizationDefinition that lacks them.
+                warmup_steps = getattr(counter_based_regularization, "warmup_steps", 0)
+                warmup_start_value = getattr(
+                    counter_based_regularization, "warmup_start_value", 0.0
+                )
             else:
                 opt_arg_weight_decay_mode = (
                     cowclip_regularization.counter_weight_decay_mode
                 )
                 counter_halflife = cowclip_regularization.counter_halflife
+                warmup_steps = 0
+                warmup_start_value = 0.0
         else:
             opt_arg_weight_decay_mode = weight_decay_mode
             # Default: -1, no decay applied, as a placeholder for OptimizerArgs
             # which should not be effective when CounterBasedRegularizationDefinition
             # and CowClipDefinition are not used
             counter_halflife = -1
+            warmup_steps = 0
+            warmup_start_value = 0.0
 
         if extra_optimizer_config is None:
             extra_optimizer_config = UserEnabledConfigDefinition()
@@ -1401,6 +1432,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ar_alpha=ar_alpha,
             ema_beta=ema_beta,
             min_shrinkage=min_shrinkage,
+            warmup_steps=warmup_steps,
+            warmup_start_value=warmup_start_value,
         )
 
         if optimizer != OptimType.NONE:

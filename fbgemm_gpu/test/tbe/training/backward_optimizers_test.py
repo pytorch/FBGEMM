@@ -9,6 +9,7 @@
 
 # pyre-ignore-all-errors[56]
 
+import dataclasses
 import math
 import unittest
 from typing import Any
@@ -39,7 +40,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import given, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -109,6 +110,9 @@ class BackwardOptimizersTest(unittest.TestCase):
         counter_weight_decay_mode: CounterWeightDecayMode | None = None,
         counter_halflife: int = -1,
         use_api_v1: bool = False,
+        per_row_warmup: bool = False,
+        warmup_steps: int = 0,
+        warmup_start_value: float = 0.0,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
 
@@ -304,6 +308,13 @@ class BackwardOptimizersTest(unittest.TestCase):
                         learning_rate_mode=LearningRateMode.EQUAL,
                         grad_sum_decay=GradSumDecay.NO_DECAY,
                         tail_id_threshold=TailIdThreshold(val=1000, is_ratio=False),
+                    )
+                if per_row_warmup:
+                    counter_based_regularization = dataclasses.replace(
+                        counter_based_regularization,
+                        learning_rate_mode=LearningRateMode.PER_ROW_WARMUP,
+                        warmup_steps=warmup_steps,
+                        warmup_start_value=warmup_start_value,
                     )
                 # fmt: off
                 optimizer_kwargs["counter_based_regularization"] = (
@@ -1024,6 +1035,18 @@ class BackwardOptimizersTest(unittest.TestCase):
                     adjusted_multiplier = adjusted_multiplier * lazy_multiplier
                     exp_reg_correction = exp_reg_correction * lazy_multiplier
 
+        if (
+            learning_rate_mode == LearningRateMode.PER_ROW_WARMUP
+            and counter_based_regularization.warmup_steps > 0
+        ):
+            warmup_scale = counter_based_regularization.warmup_start_value + (
+                1.0 - counter_based_regularization.warmup_start_value
+            ) * torch.minimum(
+                torch.ones_like(row_counter),
+                row_counter / counter_based_regularization.warmup_steps,
+            )
+            adjusted_multiplier = adjusted_multiplier * warmup_scale
+
         weights = exp_reg_correction * weights - adjusted_multiplier * dense_cpu_grad
         return weights
 
@@ -1411,6 +1434,91 @@ class BackwardOptimizersTest(unittest.TestCase):
             True,  # use_cpu
             weight_decay_mode,
             counter_weight_decay_mode=counter_weight_decay_mode,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=2, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=use_cpu_strategy(),
+        counter_weight_decay_mode=st.sampled_from(
+            [
+                CounterWeightDecayMode.NONE,
+                CounterWeightDecayMode.L2,
+                CounterWeightDecayMode.DECOUPLE,
+                CounterWeightDecayMode.ADAGRADW,
+            ]
+        ),
+        counter_halflife=st.sampled_from([-1, -2]),
+        warmup_steps=st.integers(min_value=0, max_value=100),
+        warmup_start_value=st.floats(min_value=0.0, max_value=1.0),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_backward_optimizers_adagrad_with_counter_per_row_warmup(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        use_cpu: bool,
+        counter_weight_decay_mode: CounterWeightDecayMode,
+        counter_halflife: int,
+        warmup_steps: int,
+        warmup_start_value: float,
+    ) -> None:
+        # Skip the combinations that execute_backward_optimizers_ returns early
+        # on, so that every example checks the warmup.
+        assume(
+            not use_cpu or (T * B * L * D <= 2048 and pooling_mode != PoolingMode.NONE)
+        )
+        if pooling_mode != PoolingMode.SUM:
+            weighted = False
+        if pooling_mode == PoolingMode.NONE:
+            mixed = False
+        if use_cpu or pooling_mode == PoolingMode.NONE:
+            mixed_B = False
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            WeightDecayMode.COUNTER,
+            counter_weight_decay_mode=counter_weight_decay_mode,
+            counter_halflife=counter_halflife,
+            per_row_warmup=True,
+            warmup_steps=warmup_steps,
+            warmup_start_value=warmup_start_value,
         )
 
     @given(
