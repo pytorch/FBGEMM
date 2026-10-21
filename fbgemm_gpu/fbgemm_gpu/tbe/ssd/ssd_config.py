@@ -273,6 +273,12 @@ class EnrichmentPolicy(NamedTuple):
     owner_cache_read_populate: bool = False
     # Limit read-path population to this many lookups. Zero means unlimited.
     owner_cache_read_populate_max_lookups: int = 0
+    # Store owner-cache rows as row-wise INT8 (D codes + fp32 scale and bias)
+    # instead of weights_precision. Requires an enrichment_dim divisible by 4.
+    owner_cache_int8: bool = False
+    # With owner_cache_int8 and an FP32 output_dtype, dequantize straight into
+    # FP32 in one kernel instead of gathering weights_precision rows and casting.
+    owner_cache_int8_fused_float: bool = False
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -303,6 +309,12 @@ class EnrichmentPolicy(NamedTuple):
             self.owner_cache_read_populate_max_lookups == 0
             or self.owner_cache_read_populate
         ), "bounded owner-cache population requires owner_cache_read_populate"
+        assert (
+            not self.owner_cache_int8 or self.owner_cache_size_mb > 0
+        ), "owner_cache_int8 requires owner_cache_size_mb"
+        assert (
+            not self.owner_cache_int8_fused_float or self.owner_cache_int8
+        ), "owner_cache_int8_fused_float requires owner_cache_int8"
 
 
 class KVZCHParams(NamedTuple):

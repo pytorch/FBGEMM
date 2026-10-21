@@ -305,9 +305,8 @@ class SSDUtilsTest(unittest.TestCase):
         winning_row = collision_rows[collision_keys.index(winning_key)]
         torch.testing.assert_close(cache_weights[slot], winning_row)
 
-    def _unique_slot_keys(
-        self, cache_sets: int, num_keys: int, start: int = 0
-    ) -> list[int]:
+    @staticmethod
+    def _unique_slot_keys(cache_sets: int, num_keys: int, start: int = 0) -> list[int]:
         used_slots: set[int] = set()
         keys: list[int] = []
         key = start
@@ -879,3 +878,120 @@ class SSDUtilsTest(unittest.TestCase):
             assert torch.equal(
                 idx, comp_idx
             ), "Mismatch compact indices for index tensor # {t}"
+
+
+# pyrefly: ignore [bad-argument-type]
+@unittest.skipIf(*running_in_oss)
+# pyrefly: ignore [bad-argument-type]
+@unittest.skipIf(*gpu_unavailable)
+class DirectMappedEnrichmentCacheInt8Test(unittest.TestCase):
+    @staticmethod
+    def _cache(
+        fused_float_gather: bool,
+        output_dtype: torch.dtype,
+        int8: bool = True,
+        read_populate: bool = False,
+    ):  # noqa: ANN205
+        from fbgemm_gpu.tbe.ssd.training import _DirectMappedEnrichmentCache
+
+        device = torch.accelerator.current_accelerator(True)
+        assert device is not None
+        return _DirectMappedEnrichmentCache(
+            embedding_dim=128,
+            total_hash_size=1 << 20,
+            cache_dtype=torch.float16,
+            device=device,
+            cache_size_mb=1,
+            read_populate=read_populate,
+            read_populate_max_lookups=0,
+            int8=int8,
+            fused_float_gather=fused_float_gather,
+            output_dtype=output_dtype,
+        )
+
+    @staticmethod
+    def _backend(
+        table: torch.Tensor,
+    ) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None]:
+        def read_backend_into(
+            action_indices_cpu: torch.Tensor,
+            rows: torch.Tensor,
+            count_cpu: torch.Tensor,
+        ) -> None:
+            torch.accelerator.synchronize()
+            count = int(count_cpu[0])
+            keys = action_indices_cpu[:count].to(table.device)
+            rows[:count].copy_(table[keys])
+
+        return read_backend_into
+
+    def test_int8_lookup_matches_backend_rows(self) -> None:
+        cache = self._cache(fused_float_gather=False, output_dtype=torch.float16)
+        self.assertEqual(cache.cache_weights.dtype, torch.uint8)
+        self.assertEqual(cache.cache_weights.shape[1], 128 + 8)
+        device = torch.accelerator.current_accelerator(True)
+        table = (torch.randn(4096, 128, device=device) * 3 + 1).half()
+        resident = torch.arange(0, 4096, 2, device=device)
+        cache.populate_from_write(resident, table[resident])
+        indices = torch.randint(0, 4096, (50000,), device=device)
+        output = cache.lookup(indices, self._backend(table))
+        hits, queries = cache.last_hit_counts()
+        self.assertGreater(hits, 0)
+        self.assertLess(hits, queries)
+        self.assertEqual(output.dtype, torch.float16)
+        expected = table[indices].float()
+        row_range = expected.amax(dim=1) - expected.amin(dim=1)
+        max_err = (output.float() - expected).abs().amax(dim=1)
+        self.assertTrue(bool((max_err <= row_range / 255 * 0.5 + 1e-2).all()))
+        misses = (indices % 2) == 1
+        torch.testing.assert_close(output[misses], table[indices[misses]])
+
+    def test_fused_float_gather_is_bit_identical(self) -> None:
+        cache = self._cache(fused_float_gather=True, output_dtype=torch.float32)
+        self.assertTrue(cache._fused_float_gather)
+        device = torch.accelerator.current_accelerator(True)
+        table = (torch.randn(4096, 128, device=device) * 3 + 1).half()
+        resident = torch.arange(0, 4096, 2, device=device)
+        cache.populate_from_write(resident, table[resident])
+        indices = torch.randint(0, 4096, (50000,), device=device)
+        fused = cache.lookup(indices, self._backend(table))
+        cache._fused_float_gather = False
+        unfused = cache.lookup(indices, self._backend(table))
+        self.assertEqual(fused.dtype, torch.float32)
+        self.assertEqual(unfused.dtype, torch.float16)
+        torch.testing.assert_close(
+            fused.view(torch.int32),
+            unfused.to(torch.float32).view(torch.int32),
+            rtol=0,
+            atol=0,
+        )
+
+    def test_lookup_read_population_for_fp_and_int8(self) -> None:
+        device = torch.accelerator.current_accelerator(True)
+        table = (torch.randn(4096, 128, device=device) * 3 + 1).half()
+        for int8 in (False, True):
+            with self.subTest(int8=int8):
+                cache = self._cache(
+                    fused_float_gather=False,
+                    output_dtype=torch.float16,
+                    int8=int8,
+                    read_populate=True,
+                )
+                keys = SSDUtilsTest._unique_slot_keys(cache.cache_state.size(0), 32)
+                indices = torch.tensor(keys, dtype=torch.int64, device=device)
+                first = cache.lookup(indices, self._backend(table))
+                self.assertEqual(cache.last_hit_counts(), (0, 32))
+                torch.testing.assert_close(first, table[indices], rtol=0, atol=0)
+                second = cache.lookup(indices, self._backend(table))
+                self.assertEqual(cache.last_hit_counts(), (32, 32))
+                if int8:
+                    expected = table[indices].float()
+                    row_range = expected.amax(dim=1) - expected.amin(dim=1)
+                    error = (second.float() - expected).abs().amax(dim=1)
+                    self.assertTrue(bool((error <= row_range / 510 + 1e-2).all()))
+                else:
+                    torch.testing.assert_close(second, first, rtol=0, atol=0)
+
+    def test_fused_float_gather_requires_fp32_output(self) -> None:
+        cache = self._cache(fused_float_gather=True, output_dtype=torch.bfloat16)
+        self.assertFalse(cache._fused_float_gather)
