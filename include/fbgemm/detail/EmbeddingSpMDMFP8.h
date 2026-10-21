@@ -89,8 +89,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType,
-    typename Decode,
-    typename Record>
+    typename Decode>
 inline bool embedding_spmdm_fp8(
     const int64_t block_size,
     const int64_t output_size,
@@ -107,8 +106,7 @@ inline bool embedding_spmdm_fp8(
     const int64_t output_stride,
     const int64_t input_stride,
     Decode decode,
-    Record record,
-    bool prefetch) {
+    bool use_autovec) {
   static_assert(sizeof(InType) == 1);
   if (data_size < 0) {
     return false;
@@ -124,14 +122,11 @@ inline bool embedding_spmdm_fp8(
     buf = heap_storage.get();
   }
 
-  // Prefetch up to 16 rows, tuned for Neoverse-V2.
-  // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
-  // size
+  // Prefetch up to 16 rows within a 4 KiB budget, tuned for Neoverse-V2.
   constexpr int64_t max_prefetch_bytes = 4096;
-  // 16 is manually tuned for Neoverse-V2 for best performance
   constexpr int64_t max_initial_prefetch_rows = 16;
   const int64_t rows_to_prefetch =
-      prefetch && input_stride > 0
+      use_autovec && input_stride > 0
           ? std::min(
                 max_initial_prefetch_rows, max_prefetch_bytes / input_stride)
           : 0;
@@ -158,7 +153,14 @@ inline bool embedding_spmdm_fp8(
       return false;
     }
 
-    record(data_size, block_size, output_size, len);
+    if (use_autovec) {
+      constexpr auto output_kind = std::is_same_v<OutType, float>
+          ? FP8OutputKind::Float
+          : (std::is_same_v<OutType, bfloat16> ? FP8OutputKind::BFloat
+                                            : FP8OutputKind::Half);
+      record_fp8_embedding_pattern(
+          data_size, block_size, output_size, len, output_kind);
+    }
 
     const float* weights_addr =
         weights != nullptr
@@ -170,7 +172,7 @@ inline bool embedding_spmdm_fp8(
         return false;
       }
 
-      if (prefetch) {
+      if (use_autovec) {
         [[maybe_unused]] int64_t prefetch_idx =
             indices[std::min(current + prefetch_stride, index_size - 1)];
 

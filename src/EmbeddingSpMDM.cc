@@ -1431,11 +1431,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
   }
 
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
-  if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
-  if ((is_autovec_forced() || fbgemmHasArmSve2Support()) &&
-      !is_autovec_disabled()) {
+  if (detail::use_fp8_autovec()) {
     return GenerateEmbeddingSpMDMFP8WithStrides_autovec<
         /*IndexType=*/indxType,
         /*OffsetType=*/offsetType,

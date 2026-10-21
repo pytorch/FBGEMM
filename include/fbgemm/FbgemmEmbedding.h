@@ -247,17 +247,6 @@ auto GenerateEmbeddingSpMDMFP8WithStrides(
         output_stride,
         input_stride,
         [](InType value) { return to_float(value); },
-        [=](int64_t rows, int64_t dims, int64_t batch, int64_t length) {
-          if (use_autovec) {
-            constexpr auto kind = std::is_same_v<OutType, float>
-                                      ? detail::FP8OutputKind::Float
-                                      : (std::is_same_v<OutType, bfloat16>
-                                             ? detail::FP8OutputKind::BFloat
-                                             : detail::FP8OutputKind::Half);
-            detail::record_fp8_embedding_pattern(
-                rows, dims, batch, length, kind);
-          }
-        },
         use_autovec);
   };
 }

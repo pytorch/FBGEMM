@@ -1913,11 +1913,6 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
         [=](uint8_t value) {
           return detail::hfp8_to_float(value, mantissa_bits, multiplier);
         },
-        [](int64_t rows, int64_t dims, int64_t batch, int64_t length) {
-          EmbeddingStatsTracker::getInstance().recordPattern(
-              rows, dims, EmbeddingStatsTracker::DataType::FP8,
-              get_output_type<OutType>(), batch, length);
-        },
         true);
   };
 }
