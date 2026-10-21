@@ -196,9 +196,8 @@ Functions</h2></td></tr>
 <tr class="memitem:aa4e2948ec5f9097f552de8a0458d49e1 template"><td class="memItemLeft">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#aa4e2948ec5f9097f552de8a0458d49e1">GenerateEmbeddingSpMDMNBit</a> (int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="memitem:a07b7b11c69215f11045cc7f602190ac2" id="r_a07b7b11c69215f11045cc7f602190ac2"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
 <tr class="memitem:a07b7b11c69215f11045cc7f602190ac2 template"><td class="memItemLeft">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#a07b7b11c69215f11045cc7f602190ac2">GenerateEmbeddingSpMDMNBitWithStrides</a> (const int input_bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, bool scale_bias_last=true, const bool no_bag=false, int output_bit_rate=-1)</td></tr>
-<tr class="memitem:ad48886fce4046e9e72be95f17bbb09c3" id="r_ad48886fce4046e9e72be95f17bbb09c3"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float&gt; <br />
-requires (!FbgemmFP8Type&lt;IndexType&gt;)</td></tr>
-<tr class="memitem:ad48886fce4046e9e72be95f17bbb09c3 template"><td class="memItemLeft">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#ad48886fce4046e9e72be95f17bbb09c3">GenerateEmbeddingSpMDMFP8WithStrides</a> (const std::int64_t block_size, bool normalize_by_lengths, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, int exponent_bits=4, int exponent_bias=7)</td></tr>
+<tr class="memitem:add7a5b7f7d1b3b5d633b98971bbbf9f0" id="r_add7a5b7f7d1b3b5d633b98971bbbf9f0"><td class="memTemplParams" colspan="2">template&lt;FbgemmFP8Type InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float&gt; </td></tr>
+<tr class="memitem:add7a5b7f7d1b3b5d633b98971bbbf9f0 template"><td class="memItemLeft">auto&#160;</td><td class="memItemRight"><a class="el" href="#add7a5b7f7d1b3b5d633b98971bbbf9f0">GenerateEmbeddingSpMDMFP8WithStrides</a> (const std::int64_t block_size, bool normalize_by_lengths, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1)</td></tr>
 <tr class="memitem:a6d6fe14c3ad83011adb500625ecbff01" id="r_a6d6fe14c3ad83011adb500625ecbff01"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t&gt; </td></tr>
 <tr class="memitem:a6d6fe14c3ad83011adb500625ecbff01 template"><td class="memItemLeft">EmbeddingSpMDMRowWiseSparseKernelSignature&lt; InType, IndexType, OffsetType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#a6d6fe14c3ad83011adb500625ecbff01">GenerateEmbeddingSpMDMRowWiseSparse</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="memitem:aa7d2220ddfc7d5c9820fd03b73101d37" id="r_aa7d2220ddfc7d5c9820fd03b73101d37"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t&gt; </td></tr>
@@ -1888,17 +1887,16 @@ template&lt;typename InType, typename IndexType, typename OffsetType = std::int3
 
 </div>
 </div>
-<a id="ad48886fce4046e9e72be95f17bbb09c3" name="ad48886fce4046e9e72be95f17bbb09c3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad48886fce4046e9e72be95f17bbb09c3">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMFP8WithStrides()</h2>
+<a id="add7a5b7f7d1b3b5d633b98971bbbf9f0" name="add7a5b7f7d1b3b5d633b98971bbbf9f0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#add7a5b7f7d1b3b5d633b98971bbbf9f0">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMFP8WithStrides()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float&gt; <br />
-requires (!FbgemmFP8Type&lt;IndexType&gt;)</div>
+template&lt;FbgemmFP8Type InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float&gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type GenerateEmbeddingSpMDMFP8WithStrides </td>
+          <td class="memname">auto GenerateEmbeddingSpMDMFP8WithStrides </td>
           <td>(</td>
           <td class="paramtype">const std::int64_t</td>          <td class="paramname"><span class="paramname"><em>block_size</em></span>, </td>
         </tr>
@@ -1925,29 +1923,11 @@ requires (!FbgemmFP8Type&lt;IndexType&gt;)</div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::int64_t</td>          <td class="paramname"><span class="paramname"><em>input_stride</em></span><span class="paramdefsep"> = </span><span class="paramdefval">-1</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>exponent_bits</em></span><span class="paramdefsep"> = </span><span class="paramdefval">4</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>exponent_bias</em></span><span class="paramdefsep"> = </span><span class="paramdefval">7</span>&#160;)</td>
+          <td class="paramtype">std::int64_t</td>          <td class="paramname"><span class="paramname"><em>input_stride</em></span><span class="paramdefsep"> = </span><span class="paramdefval">-1</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">output_stride</td><td>If -1, output_stride is same as block_size </td></tr>
-    <tr><td class="paramname">input_stride</td><td>in Bytes. If -1, input_stride is same as block_size / num_elem_per_byte + 2 * sizeof(float16) </td></tr>
-    <tr><td class="paramname">exponent_bits</td><td>is the number of exponent bits in the FP8 encode (normally 4 or 5) </td></tr>
-    <tr><td class="paramname">exponent_bias</td><td>is subtracted from the exponent to obtain the actual exponent for the floating-point number </td></tr>
-  </table>
-  </dd>
-</dl>
+<p>Generate an FP8 embedding kernel whose format is determined by InType. Input and output strides are measured in elements; -1 means block_size. </p>
 
 </div>
 </div>
