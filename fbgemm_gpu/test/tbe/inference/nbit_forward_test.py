@@ -17,7 +17,7 @@ from typing import Any
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
@@ -44,7 +44,12 @@ from fbgemm_gpu.tbe.utils import (
 from hypothesis import assume, example, given, settings, Verbosity
 
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
-from .common import get_nbit_weights_ty, NBitFowardTestCommon
+from .common import (
+    FP8_EXPONENT_BIAS,
+    FP8_EXPONENT_BITS,
+    get_nbit_weights_ty,
+    NBitFowardTestCommon,
+)
 
 if open_source:
     # pyre-ignore[21]
@@ -1966,6 +1971,11 @@ class NBitLongLNobagTest(unittest.TestCase):
         generator = torch.Generator().manual_seed(seed)
         T = len(weights_tys)
         num_bags = T * B
+        fp8_config = (
+            FP8QuantizationConfig(FP8_EXPONENT_BITS, FP8_EXPONENT_BIAS)
+            if SparseType.FP8 in weights_tys
+            else None
+        )
 
         op = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[("", E, D, ty, location) for ty in weights_tys],
@@ -1975,6 +1985,8 @@ class NBitLongLNobagTest(unittest.TestCase):
             device=device,
             indices_dtype=indices_dtype,
             row_alignment=row_alignment,
+            fp8_exponent_bits=FP8_EXPONENT_BITS if fp8_config is not None else None,
+            fp8_exponent_bias=FP8_EXPONENT_BIAS if fp8_config is not None else None,
         )
         op.fill_random_weights()
 
@@ -1982,11 +1994,16 @@ class NBitLongLNobagTest(unittest.TestCase):
         tables = []
         for t, ty in enumerate(weights_tys):
             table = torch.rand(E, D, generator=generator) * 2 - 1
-            quant_weights, quant_scale_shift = quantize_embs(table, ty)
+            quant_weights, quant_scale_shift = quantize_embs(table, ty, fp8_config)
             # Decodes integer types into `table`; float types are encoded from
             # it instead, so `table` holds the reference rows either way.
             fake_quantize_embs(
-                quant_weights, quant_scale_shift, table, ty, use_cpu=True
+                quant_weights,
+                quant_scale_shift,
+                table,
+                ty,
+                use_cpu=True,
+                fp8_config=fp8_config,
             )
             weights, scale_shift = op.split_embedding_weights()[t]
             weights.copy_(quant_weights)
@@ -2149,6 +2166,64 @@ class NBitLongLNobagTest(unittest.TestCase):
                     seed=seed,
                     **config,
                 )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        weights_tys=st.lists(
+            st.sampled_from(
+                [
+                    SparseType.INT4,
+                    SparseType.INT2,
+                    SparseType.INT8,
+                    SparseType.FP8,
+                    SparseType.FP16,
+                    SparseType.FP32,
+                ]
+            ),
+            min_size=2,
+            max_size=6,
+        ).filter(
+            lambda tys: SparseType.INT4 in tys
+            and any(ty != SparseType.INT4 for ty in tys)
+        ),
+        E=st.integers(min_value=1, max_value=2000),
+        B=st.integers(min_value=1, max_value=LONG_L_MAX_BAGS // 6),
+        mean_L=st.sampled_from([LONG_L_MIN_ROWS_PER_BAG, 64, 512]),
+        empty_bag_prob=st.sampled_from([0.0, 0.25]),
+        pruned_prob=st.sampled_from([0.0, 0.1]),
+        num_trailing=st.sampled_from([0, 1, 37]),
+        seed=st.integers(min_value=0, max_value=2**31 - 1),
+    )
+    @settings(
+        verbosity=VERBOSITY, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None
+    )
+    def test_int4_d64_long_l_gfx942_mixed_types(
+        self,
+        weights_tys: list[SparseType],
+        E: int,
+        B: int,
+        mean_L: int,
+        empty_bag_prob: float,
+        pruned_prob: float,
+        num_trailing: int,
+        seed: int,
+    ) -> None:
+        """INT4 tables mixed with any other weight type keep every row correct.
+
+        Apart from the weight types, every case satisfies the specialization's
+        guard, so on gfx942 the INT4 rows take the long-L path, which skips the
+        rows of other tables, while those tables run their own kernels.
+        """
+        self._check_long_l_nobag(
+            weights_tys,
+            E,
+            B,
+            mean_L,
+            empty_bag_prob,
+            pruned_prob,
+            num_trailing,
+            seed,
+        )
 
 
 if __name__ == "__main__":
