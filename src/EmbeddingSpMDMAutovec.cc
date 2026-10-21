@@ -1301,7 +1301,8 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     const bool use_offsets,
     const int64_t output_stride,
     const int64_t input_stride,
-    Decode decode) {
+    Decode decode,
+    int64_t max_prefetch_bytes) {
   if (data_size < 0) {
     return false;
   }
@@ -1321,9 +1322,6 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
   // reach better of its potential. 16 is tuned for Neoverse-V2.
 
   // more prefetch
-  // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
-  // size
-  constexpr int64_t max_prefetch_bytes = 4096;
   // 16 is manually tuned for Neoverse-V2 for best performance
   constexpr int64_t max_initial_prefetch_rows = 16;
   const int64_t rows_to_prefetch =
@@ -2076,6 +2074,7 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
     input_stride = block_size;
   }
   const int mantissa_bits = 7 - exponent_bits;
+  const int64_t prefetch_bytes = detail::fp8_prefetch_budget();
   const float multiplier =
       std::bit_cast<float>(uint32_t(254 - exponent_bias) << 23);
   return [=](int64_t output_size,
@@ -2103,7 +2102,8 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
         input_stride,
         [=](uint8_t value) {
           return detail::hfp8_to_float(value, mantissa_bits, multiplier);
-        });
+        },
+        prefetch_bytes);
   };
 }
 

@@ -15,9 +15,20 @@
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmConvert.h"
 #include "src/RefImplementations.h" // @manual
+#include "src/EmbeddingSpMDMPrefetch.h"
 
 using namespace std;
 using namespace fbgemm;
+
+TEST(EmbeddingSpMDMTest, FP8PrefetchCacheBudget) {
+  EXPECT_EQ(detail::fp8_prefetch_budget_for_l1(0), 4096);
+  EXPECT_EQ(detail::fp8_prefetch_budget_for_l1(16 * 1024), 1024);
+  EXPECT_EQ(detail::fp8_prefetch_budget_for_l1(32 * 1024), 2048);
+  EXPECT_EQ(detail::fp8_prefetch_budget_for_l1(64 * 1024), 4096);
+  EXPECT_EQ(detail::fp8_prefetch_budget_for_l1(128 * 1024), 4096);
+  EXPECT_GT(detail::fp8_prefetch_budget(), 0);
+  EXPECT_LE(detail::fp8_prefetch_budget(), 4096);
+}
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {

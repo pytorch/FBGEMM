@@ -10,12 +10,38 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cpuinfo.h>
 
 #include "fbgemm/Utils.h"
 
 // Shared software-prefetch helpers for the TBE CPU kernels (SVE + autovec)
 
 namespace fbgemm {
+
+namespace detail {
+// Limit look-ahead rows to 1/16 of L1D without exceeding the existing 4 KiB
+// ceiling. Unknown cache sizes retain the original budget.
+constexpr int64_t fp8_prefetch_budget_for_l1(uint32_t cache_bytes) {
+  return cache_bytes == 0 ? 4096 : std::min<int64_t>(4096, cache_bytes / 16);
+}
+
+inline int64_t fp8_prefetch_budget() {
+  static const int64_t budget = [] {
+    int64_t bytes = fp8_prefetch_budget_for_l1(0);
+    if (cpuinfo_initialize()) {
+      // Use the smallest cache on heterogeneous CPUs: kernels may migrate.
+      for (uint32_t i = 0; i < cpuinfo_get_l1d_caches_count(); ++i) {
+        const auto* cache = cpuinfo_get_l1d_cache(i);
+        if (cache != nullptr && cache->size != 0) {
+          bytes = std::min(bytes, fp8_prefetch_budget_for_l1(cache->size));
+        }
+      }
+    }
+    return bytes;
+  }();
+  return budget;
+}
+} // namespace detail
 
 // Tuning constants (Neoverse-V2 / CG1).
 constexpr int64_t CACHE_LINE_SIZE = 64;
