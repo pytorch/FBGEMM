@@ -28,6 +28,7 @@
 */#}
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
+#include <cstdlib>
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations and dispatchers
@@ -1199,7 +1200,14 @@ static torch::autograd::variable_list backward(
 #else
       // NVIDIA GPUs all have warpSize 32; no runtime query needed.
       BT_block_size = 32;
-      max_segment_length_per_warp = 32;
+      // Runs longer than this go to the cta_per_row kernel;
+      // FBGEMM_BWD_MAX_SEGMENT_LENGTH_PER_WARP raises it.
+      static const int32_t max_segment_length_per_warp_env = [] {
+        const char* v = std::getenv("FBGEMM_BWD_MAX_SEGMENT_LENGTH_PER_WARP");
+        const int32_t parsed = (v == nullptr || v[0] == '\0') ? 0 : std::atoi(v);
+        return parsed > 0 ? parsed : 32;
+      }();
+      max_segment_length_per_warp = max_segment_length_per_warp_env;
 #endif
     } else {
 #ifdef USE_ROCM

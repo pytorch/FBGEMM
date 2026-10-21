@@ -1249,8 +1249,31 @@ Tensor {{ embedding_cuda_op }}(
                         work_group_size = kMaxThreads;
                     }
                     {%- else %}
-                    int32_t num_cta_per_row_groups = kMaxThreads / cta_warp_size;
-                    const int32_t work_group_size = kMaxThreads;
+                    // A 1024-thread CTA holds a whole SM's register file at 50
+                    // regs/thread (50% occupancy) and spends most of a short
+                    // long-run on cross-warp reduction. FBGEMM_BWD_CTA_THREADS
+                    // (a power of two in [64, kMaxThreads]) shrinks it.
+                    static const int32_t cta_threads = []() -> int32_t {
+                      const char* v = std::getenv("FBGEMM_BWD_CTA_THREADS");
+                      if (v == nullptr || v[0] == '\0') {
+                        return kMaxThreads;
+                      }
+                      const int32_t parsed = std::atoi(v);
+                      // The cta_per_row cross-warp smem reduction only folds a
+                      // power-of-two number of warps; other counts would drop
+                      // the upper warps' partial gradients.
+                      if (parsed >= 64 && parsed <= kMaxThreads &&
+                          (parsed & (parsed - 1)) == 0) {
+                        return parsed;
+                      }
+                      TORCH_WARN_ONCE(
+                          "FBGEMM_BWD_CTA_THREADS=", v,
+                          " ignored: must be a power of two in [64, ",
+                          kMaxThreads, "]; using ", kMaxThreads, " threads.");
+                      return kMaxThreads;
+                    }();
+                    int32_t num_cta_per_row_groups = cta_threads / cta_warp_size;
+                    const int32_t work_group_size = cta_threads;
                     {%- endif %}{# /*if is_rocm*/ #}
 
                     // Compute shared memory size for cta_per_row. These smem-sizing
