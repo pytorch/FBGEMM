@@ -55,7 +55,7 @@ def evaluate_platform_supports_fp8():
         if torch.version.hip:
             return torch.cuda.get_device_properties(
                 torch.cuda.current_device()
-            ).gcnArchName.split(":")[0] in ("gfx942", "gfx950")
+            ).gcnArchName.split(":")[0] in ("gfx942", "gfx950", "gfx1250")
         else:
             # Only SM90 or later is supported
             return torch.cuda.get_device_capability() >= (9, 0)
@@ -99,6 +99,16 @@ SUPPORTS_NVFP4 = evaluate_platform_supports_nvfp4()
 SUPPORTS_MXFP4 = evaluate_platform_supports_mxfp4()
 
 SUPPORTS_FP8 = evaluate_platform_supports_fp8()
+
+IS_MI45X = bool(
+    torch.cuda.is_available()
+    and torch.version.hip
+    and torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName.split(
+        ":"
+    )[0]
+    == "gfx1250"
+)
+SUPPORTS_FP8_GEMM = SUPPORTS_FP8 and not IS_MI45X
 
 SUPPORTS_MXFP8 = evaluate_platform_supports_mxfp8()
 
@@ -376,14 +386,174 @@ class FP8TorchExportTests(unittest.TestCase):
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available()
-    or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
-    "Skip when MI300 or H100 is not available",
+    not SUPPORTS_FP8,
+    "FP8 quantization is not supported on this GPU",
 )
 class FP8Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.device = torch.accelerator.current_accelerator()
+
+    @unittest.skipUnless(IS_MI45X, "Tests CK rejection on gfx1250")
+    def test_ck_gemm_rejected_on_mi45x(self) -> None:
+        cpu_q = torch.empty((128, 128), dtype=torch.float8_e4m3fn, device="cpu")
+        cpu_scale = torch.empty(128, device="cpu")
+        for name, args in (
+            ("f8f8bf16_tensorwise", (cpu_q, cpu_q, 1.0)),
+            ("f8f8bf16_rowwise", (cpu_q, cpu_q, cpu_scale, cpu_scale)),
+        ):
+            with self.subTest(cpu_model_creation=name):
+                output = getattr(torch.ops.fbgemm, name)(*args)
+                self.assertEqual(output.device.type, "cpu")
+                self.assertEqual(output.shape, (128, 128))
+                self.assertEqual(output.dtype, torch.bfloat16)
+
+        x = torch.ones((128, 128), dtype=torch.bfloat16, device=self.device)
+        q = x.to(fp8_e4m3)
+        scale = torch.ones(128, device=self.device)
+        block_scale = torch.ones((1, 1), device=self.device)
+        sizes = torch.tensor([128], dtype=torch.int64, device=self.device)
+        offsets = torch.tensor([128], dtype=torch.int32, device=self.device)
+        output = torch.full((128, 128), -7.0, dtype=torch.bfloat16, device=self.device)
+        grouped_x = torch.ones((128, 512), dtype=torch.bfloat16, device=self.device)
+        grouped_w = torch.ones((512, 512), dtype=torch.bfloat16, device=self.device)
+        grouped_xq = grouped_x.to(fp8_e4m3)
+        grouped_wq = grouped_w.to(fp8_e4m3)
+        grouped_w_scale = torch.ones(512, device=self.device)
+        grouped_args = (
+            grouped_xq,
+            grouped_wq.unsqueeze(0),
+            scale,
+            grouped_w_scale.unsqueeze(0),
+        )
+        grouped_output = torch.full(
+            (1, 128, 128), -7.0, dtype=torch.bfloat16, device=self.device
+        )
+        row_args = (q, q, scale, scale)
+        cases = {
+            "f8f8bf16_blockwise": (q, q, block_scale, block_scale),
+            "f8f8bf16_tensorwise": (q, q, 1.0),
+            "f8f8bf16_rowwise": row_args,
+            "f8f8f16_rowwise": row_args,
+            "f8f8bf16_rowwise_preshuffle": row_args,
+            "f8f8f16_rowwise_preshuffle": row_args,
+            "f8f8bf16_rowwise_out": (*row_args, output),
+            "f8f8bf16_rowwise_batched": (
+                q.unsqueeze(0),
+                q.unsqueeze(0),
+                scale.unsqueeze(0),
+                scale.unsqueeze(0),
+            ),
+            "f8f8bf16_rowwise_grouped": (
+                [grouped_xq],
+                [grouped_wq],
+                [scale],
+                [grouped_w_scale],
+            ),
+            "f8f8bf16_rowwise_grouped_cat": (
+                [grouped_xq],
+                [grouped_wq],
+                [scale],
+                [grouped_w_scale],
+            ),
+            "f8f8bf16_rowwise_grouped_stacked": (*grouped_args, sizes),
+            "f8f8bf16_rowwise_grouped_dynamic": (
+                grouped_xq.unsqueeze(0),
+                grouped_wq.unsqueeze(0),
+                scale.unsqueeze(0),
+                grouped_w_scale.unsqueeze(0),
+                sizes,
+            ),
+            "f8f8bf16_rowwise_grouped_mm": (
+                q.unsqueeze(0),
+                q.unsqueeze(0),
+                scale.unsqueeze(0),
+                scale.unsqueeze(0),
+                None,
+                grouped_output,
+            ),
+            "bf16bf16bf16_grouped": ([grouped_x], [grouped_w]),
+            "bf16bf16bf16_grouped_cat": ([grouped_x], [grouped_w]),
+            "bf16bf16bf16_grouped_dynamic": (x.unsqueeze(0), x.unsqueeze(0), sizes),
+            "bf16bf16bf16_grouped_stacked": (grouped_x, grouped_w.unsqueeze(0), sizes),
+            "flush_icache_hip": (),
+        }
+        for name, args in cases.items():
+            with self.subTest(operator=name):
+                with self.assertRaisesRegex(RuntimeError, "not supported on gfx1250"):
+                    getattr(torch.ops.fbgemm, name)(*args)
+                torch.cuda.synchronize()
+        with self.assertRaisesRegex(RuntimeError, "not supported on gfx1250"):
+            torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+                *row_args, offsets, grouped_output
+            )
+        torch.testing.assert_close(
+            grouped_output, torch.full_like(grouped_output, -7.0), atol=0, rtol=0
+        )
+        torch.testing.assert_close(
+            output, torch.full_like(output, -7.0), atol=0, rtol=0
+        )
+        if torch.cuda.device_count() > 1:
+            current_device = torch.cuda.current_device()
+            other_device = (current_device + 1) % torch.cuda.device_count()
+            other_x = x.to(
+                torch.device(torch.accelerator.current_accelerator().type, other_device)
+            )
+            other_q = other_x.to(fp8_e4m3)
+            other_scale = scale.to(other_x.device)
+            with self.assertRaisesRegex(RuntimeError, "not supported on gfx1250"):
+                torch.ops.fbgemm.f8f8bf16_rowwise(
+                    other_q, other_q, other_scale, other_scale
+                )
+            self.assertEqual(torch.cuda.current_device(), current_device)
+            for name in (
+                "quantize_fp8_per_row",
+                "quantize_fp8_per_tensor",
+                "quantize_fp8_per_col",
+            ):
+                other_quantized, other_scales = getattr(torch.ops.fbgemm, name)(other_x)
+                self.assertEqual(other_quantized.device, other_x.device)
+                if name == "quantize_fp8_per_row":
+                    other_scales = other_scales.unsqueeze(-1)
+                torch.testing.assert_close(
+                    other_quantized.float() * other_scales,
+                    other_x.float(),
+                    atol=0,
+                    rtol=0,
+                )
+                self.assertEqual(torch.cuda.current_device(), current_device)
+            fixed_scale = torch.ops.fbgemm.get_fp8_per_tensor_scale(other_x)
+            fixed = torch.ops.fbgemm.quantize_fp8_per_tensor_fixed_scale(
+                other_x, fixed_scale
+            )
+            torch.testing.assert_close(
+                fixed.float() * fixed_scale, other_x.float(), atol=0, rtol=0
+            )
+            int8_x = other_x.flatten()
+            int8_static = torch.ops.fbgemm.per_tensor_quantize_i8(int8_x, 1.0)
+            int8_dynamic, dynamic_scale = (
+                torch.ops.fbgemm.per_tensor_dynamic_quantize_i8(int8_x)
+            )
+            torch.testing.assert_close(
+                int8_static, int8_x.to(torch.int8), atol=0, rtol=0
+            )
+            torch.testing.assert_close(
+                int8_dynamic.float() * dynamic_scale.float(),
+                int8_x.float(),
+                atol=0.01,
+                rtol=0.01,
+            )
+            int8_silu = torch.ops.fbgemm.silu_mul_quantize_i8(other_x, other_x, 1.0)
+            torch.testing.assert_close(
+                int8_silu, torch.ones_like(int8_silu), atol=0, rtol=0
+            )
+            self.assertEqual(torch.cuda.current_device(), current_device)
+
+        quantized, scales = torch.ops.fbgemm.quantize_fp8_per_row(x)
+        self.assertEqual(quantized.dtype, fp8_e4m3)
+        torch.testing.assert_close(
+            quantized.float() * scales.unsqueeze(-1), x.float(), atol=0, rtol=0
+        )
 
     def test_fp8_python(self) -> None:
         # Citrine C7: create test tensors directly on the GPU.
@@ -455,6 +625,7 @@ class FP8Tests(unittest.TestCase):
         "Skip if no GPU is present.",
     )
     @settings(deadline=None)
+    @unittest.skipIf(IS_MI45X, "CK GEMM is not supported on gfx1250")
     @given(
         B_T=st.sampled_from([0, 2048, 4096]),
         D=st.sampled_from([128, 256]),
@@ -1768,7 +1939,7 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
-    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @unittest.skipIf(not SUPPORTS_FP8_GEMM, "FP8 GEMM is not supported on this GPU")
     @settings(deadline=None)
     @given(
         B=st.sampled_from([1, 4]),
@@ -1929,7 +2100,7 @@ class FP8Tests(unittest.TestCase):
                 rtol=1e-2 if dtype == torch.float16 else 8e-3,
             )
 
-    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @unittest.skipIf(not SUPPORTS_FP8_GEMM, "FP8 GEMM is not supported on this GPU")
     @settings(deadline=None)
     @given(
         G=st.sampled_from([1, 4, 5, 16]),
@@ -2103,7 +2274,7 @@ class FP8Tests(unittest.TestCase):
                     out_bf16[i], out_ref[i], atol=atol_bf16, rtol=rtol_bf16
                 )
 
-    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @unittest.skipIf(not SUPPORTS_FP8_GEMM, "FP8 GEMM is not supported on this GPU")
     @settings(deadline=None)
     @given(
         G=st.sampled_from([1, 4, 16]),
@@ -2397,7 +2568,7 @@ class FP8Tests(unittest.TestCase):
         not torch.version.hip,
         "Only AMD supports torch 3D-2D grouped gemm API",
     )
-    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @unittest.skipIf(not SUPPORTS_FP8_GEMM, "FP8 GEMM is not supported on this GPU")
     @settings(deadline=None)
     @given(
         G=st.sampled_from([1, 4, 16]),
@@ -2446,7 +2617,7 @@ class FP8Tests(unittest.TestCase):
         not torch.version.hip,
         "Only AMD supports torch 2D-2D grouped gemm API",
     )
-    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @unittest.skipIf(not SUPPORTS_FP8_GEMM, "FP8 GEMM is not supported on this GPU")
     @settings(deadline=None)
     @given(
         G=st.sampled_from([1, 4, 16]),
@@ -2829,6 +3000,9 @@ class FP8Tests(unittest.TestCase):
             self.assertEqual(eager.dtype, fp8_e4m3)
             self.assertEqual(compiled.dtype, eager.dtype)
 
+        if IS_MI45X:
+            return
+
         # GEMM ops.
         torch.compile(torch.ops.fbgemm.f8f8bf16_blockwise)(
             XQ, WQ, block_scale, block_scale
@@ -2968,6 +3142,7 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=9.0e-2, rtol=9.0e-2)
 
+    @unittest.skipIf(torch.version.hip, "Convolution requires CUDA kernels")
     @unittest.skipIf(
         not torch.cuda.is_available()
         or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 10,
@@ -3548,9 +3723,8 @@ class MXFP4Tests(unittest.TestCase):
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available()
-    or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
-    "Skip when MI300 or H100 is not available",
+    not SUPPORTS_FP8,
+    "Skip when MI300, MI350, MI450, or H100 is not available",
 )
 class BF16Tests(unittest.TestCase):
     @classmethod

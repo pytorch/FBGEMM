@@ -90,7 +90,8 @@ namespace fbgemm_gpu {
 // each warp compute sum(t_subset) P[t] * V[t_subset, d]
 // outputs are of size float[D]
 
-#if defined(__gfx950__) || (HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ)
+#if defined(__gfx950__) || defined(__gfx1250__) || \
+    defined(__gfx1250_strict__) || (HIP_FP8_TYPE_OCP && !HIP_FP8_TYPE_FNUZ)
 #define FBGEMM_GENAI_DEVICE_OCP_FP8 1
 #else
 #define FBGEMM_GENAI_DEVICE_OCP_FP8 0
