@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/EmbeddingSpMDMFP8.h"
 #include "fbgemm/Types.h"
 
 namespace fbgemm {
@@ -211,20 +212,15 @@ auto GenerateEmbeddingSpMDMFP8WithStrides(
     bool use_offsets = true,
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1) {
-  auto kernel = detail::GenerateEmbeddingSpMDMFP8WithStridesBytes<
-      IndexType,
-      OffsetType,
-      OutType>(
-      block_size,
-      normalize_by_lengths,
-      is_weight_positional,
-      use_offsets,
-      output_stride,
-      input_stride,
-      InType::exponent_bits,
-      InType::exponent_bias);
-  return [kernel = std::move(kernel)](
-             std::int64_t output_size,
+  static_assert(std::is_same_v<OutType, float> || FbgemmHalfType<OutType>);
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+  if (input_stride == -1) {
+    input_stride = block_size;
+  }
+  const bool use_autovec = detail::use_fp8_autovec();
+  return [=](std::int64_t output_size,
              std::int64_t index_size,
              std::int64_t data_size,
              const InType* input,
@@ -232,15 +228,34 @@ auto GenerateEmbeddingSpMDMFP8WithStrides(
              const OffsetType* offsets_or_lengths,
              const float* weights,
              OutType* out) {
-    return kernel(
+    return detail::embedding_spmdm_fp8(
+        block_size,
         output_size,
         index_size,
         data_size,
-        reinterpret_cast<const std::uint8_t*>(input),
+        input,
         indices,
         offsets_or_lengths,
         weights,
-        out);
+        out,
+        is_weight_positional,
+        normalize_by_lengths,
+        use_offsets,
+        output_stride,
+        input_stride,
+        [](InType value) { return to_float(value); },
+        [=](int64_t rows, int64_t dims, int64_t batch, int64_t length) {
+          if (use_autovec) {
+            constexpr auto kind = std::is_same_v<OutType, float>
+                                      ? detail::FP8OutputKind::Float
+                                      : (std::is_same_v<OutType, bfloat16>
+                                             ? detail::FP8OutputKind::BFloat
+                                             : detail::FP8OutputKind::Half);
+            detail::record_fp8_embedding_pattern(
+                rows, dims, batch, length, kind);
+          }
+        },
+        use_autovec);
   };
 }
 
