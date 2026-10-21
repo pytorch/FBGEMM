@@ -2160,8 +2160,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // TODO: assert there isn't any eviction including paused
   }
 
-  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights)
-      override {
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
     if (backend_return_whole_row_) {
       set_kv_with_metaheader_to_storage(weights);
     } else {

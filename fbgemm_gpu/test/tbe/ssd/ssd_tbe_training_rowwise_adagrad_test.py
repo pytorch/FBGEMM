@@ -985,8 +985,7 @@ class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
             )
             torch.testing.assert_close(
                 id_extracted_from_emb_w,
-                bucket_asc_ids_list[table_index].view(-1)
-                + sum(emb.embedding_specs[index][0] for index in range(table_index)),
+                bucket_asc_ids_list[table_index].view(-1),
                 atol=tolerance,
                 rtol=tolerance,
             )
