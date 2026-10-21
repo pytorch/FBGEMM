@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-strict
 # flake8: noqa F401
 
 import itertools
@@ -23,7 +22,11 @@ try:
     #  in `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
     from .optimizers import *
     from .common import CodeTemplate
-    from .optimizer_args import annotation_dict, OptimizerArgsSet
+    from .optimizer_args import (
+        annotation_dict,
+        make_lookup_function_args,
+        OptimizerArgsSet,
+    )
     from .scripts_argsparse import args
 except ImportError:
     # pyrefly: ignore [missing-import]
@@ -33,7 +36,7 @@ except ImportError:
     from common import CodeTemplate
 
     # pyre-ignore[21]
-    from optimizer_args import annotation_dict
+    from optimizer_args import annotation_dict, make_lookup_function_args
 
     # pyre-ignore[21]
     from scripts_argsparse import args
@@ -323,6 +326,9 @@ class BackwardSplitGenerator:
     def generate_backward_split(**kwargs: Any) -> None:
         gen_args = kwargs["args"]
         kwargs["args_pt2"] = gen_args.any
+        kwargs["lookup_args"] = make_lookup_function_args(
+            gen_args.any.unified_pt2, kwargs["optimizer"]
+        )
 
         kwargs["args"] = gen_args.cuda
         BackwardSplitGenerator.generate_backward_split_gpu(**kwargs)
