@@ -68,7 +68,6 @@ class IndexSelectGenerator:
                 is_index_select=True,
                 gen_once=False,
                 kdesc="batch_index_select",
-                grad_types=["float", "at::Half", "at::BFloat16"],
                 args=optargs.cuda,
             )
 

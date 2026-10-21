@@ -1010,7 +1010,7 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
 {%- endmacro %}
 
 {%- macro bulk_template_instantiations(kFixedMaxVecsPerThread, kSubwarpDivisor, kUseVecBlocking, hip_mixed_d_only=False) %}
-    {%- for grad_type in grad_types | default(['float', 'at::Half', 'at::BFloat16']) %}
+    {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for index_type in ['int32_t', 'int64_t'] %}
@@ -1330,7 +1330,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
 {%- endmacro %}
 
 {%- macro hip_bulk_template_instantiations(kFixedMaxVecsPerThread, kSubwarpDivisor, kUseVecBlocking) %}
-    {%- for grad_type in grad_types | default(['float', 'at::Half', 'at::BFloat16']) %}
+    {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for index_type in ['int32_t', 'int64_t'] %}
