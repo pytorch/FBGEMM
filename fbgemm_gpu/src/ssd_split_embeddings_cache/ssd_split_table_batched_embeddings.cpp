@@ -55,6 +55,32 @@ Tensor kvzch_direct_cache_insert_cuda(
     Tensor rows,
     const std::optional<Tensor>& count);
 
+Tensor kvzch_direct_cache_lookup_int8_cuda(
+    Tensor indices,
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor action_indices,
+    Tensor actions_count,
+    Tensor inserted_rows,
+    Tensor row_addresses);
+
+Tensor kvzch_direct_cache_insert_int8_cuda(
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor indices,
+    Tensor rows,
+    const std::optional<Tensor>& count);
+
+Tensor kvzch_direct_cache_gather_int8_cuda(
+    Tensor output,
+    Tensor row_addresses,
+    at::ScalarType row_dtype);
+
+Tensor kvzch_direct_cache_gather_int8_float_cuda(
+    Tensor output,
+    Tensor row_addresses,
+    at::ScalarType row_dtype);
+
 /// @ingroup embedding-ssd
 ///
 /// @brief Similar to `torch.Tensor.index_put` but ignore `indices < 0`
@@ -1656,6 +1682,24 @@ Tensor kvzch_direct_cache_insert_meta(
   return cache_weights;
 }
 
+Tensor kvzch_direct_cache_gather_int8_meta(
+    Tensor output,
+    Tensor /*row_addresses*/,
+    at::ScalarType row_dtype) {
+  TORCH_CHECK(
+      output.scalar_type() == row_dtype,
+      "kvzch_direct_cache_gather_int8 requires output.dtype == row_dtype; "
+      "use kvzch_direct_cache_gather_int8_float to widen rows to float32");
+  return output;
+}
+
+Tensor kvzch_direct_cache_gather_int8_float_meta(
+    Tensor output,
+    Tensor /*row_addresses*/,
+    at::ScalarType /*row_dtype*/) {
+  return output;
+}
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "ssd_gather_from_row_addresses("
@@ -1688,6 +1732,54 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       ") -> Tensor(b!)");
   DISPATCH_TO_CUDA("kvzch_direct_cache_insert", kvzch_direct_cache_insert_cuda);
   DISPATCH_TO_META("kvzch_direct_cache_insert", kvzch_direct_cache_insert_meta);
+  m.def(
+      "kvzch_direct_cache_lookup_int8("
+      "    Tensor indices, "
+      "    Tensor cache_state, "
+      "    Tensor cache_weights, "
+      "    Tensor(b!) action_indices, "
+      "    Tensor(c!) actions_count, "
+      "    Tensor inserted_rows, "
+      "    Tensor(d!) row_addresses"
+      ") -> Tensor(d!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_direct_cache_lookup_int8", kvzch_direct_cache_lookup_int8_cuda);
+  DISPATCH_TO_META(
+      "kvzch_direct_cache_lookup_int8", kvzch_direct_cache_lookup_meta);
+  m.def(
+      "kvzch_direct_cache_insert_int8("
+      "    Tensor(a!) cache_state, "
+      "    Tensor(b!) cache_weights, "
+      "    Tensor indices, "
+      "    Tensor rows, "
+      "    Tensor? count=None"
+      ") -> Tensor(b!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_direct_cache_insert_int8", kvzch_direct_cache_insert_int8_cuda);
+  DISPATCH_TO_META(
+      "kvzch_direct_cache_insert_int8", kvzch_direct_cache_insert_meta);
+  m.def(
+      "kvzch_direct_cache_gather_int8("
+      "    Tensor(a!) output, "
+      "    Tensor row_addresses, "
+      "    ScalarType row_dtype"
+      ") -> Tensor(a!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_direct_cache_gather_int8", kvzch_direct_cache_gather_int8_cuda);
+  DISPATCH_TO_META(
+      "kvzch_direct_cache_gather_int8", kvzch_direct_cache_gather_int8_meta);
+  m.def(
+      "kvzch_direct_cache_gather_int8_float("
+      "    Tensor(a!) output, "
+      "    Tensor row_addresses, "
+      "    ScalarType row_dtype"
+      ") -> Tensor(a!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_direct_cache_gather_int8_float",
+      kvzch_direct_cache_gather_int8_float_cuda);
+  DISPATCH_TO_META(
+      "kvzch_direct_cache_gather_int8_float",
+      kvzch_direct_cache_gather_int8_float_meta);
 
   m.def(
       "create_kv_tensor_wrapper_from_serialized("
