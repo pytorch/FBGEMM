@@ -634,14 +634,8 @@ def v1_lookup(
                 "is_experimental": emb_op.is_experimental,
                 "use_uniq_cache_locations_bwd": emb_op.use_uniq_cache_locations_bwd,
                 "use_homogeneous_placements": emb_op.use_homogeneous_placements,
-                "uvm_cache_stats": (
-                    emb_op.local_uvm_cache_stats
-                    if (
-                        emb_op.gather_uvm_cache_stats
-                        # Unique conflict misses are only collected when using CacheAlgorithm.LRU
-                        and emb_op.cache_algorithm == CacheAlgorithm.LRU
-                    )
-                    else None
+                "uvm_cache_stats": emb_op._pop_prefetched_uvm_cache_stats(
+                    emb_op.lxu_cache_locations
                 ),
                 "prev_iter_dev": (
                     emb_op.prev_iter_dev if optimizer != OptimType.NONE else None
