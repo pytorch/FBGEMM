@@ -54,3 +54,6 @@ else:
             )
         except OSError:
             pass
+
+if hasattr(torch.ops.fbgemm, "quantize_fp8_per_tensor"):
+    from . import quantize_ops  # noqa: F401

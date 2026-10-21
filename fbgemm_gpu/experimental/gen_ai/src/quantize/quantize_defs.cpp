@@ -92,12 +92,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("silu_mul_quantize_i8(Tensor X1, Tensor X2, float scale) -> Tensor");
 
   m.def(
-      "quantize_fp8_per_tensor(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, bool stochastic_rounding=False) -> Tensor[]");
+      "quantize_fp8_per_tensor(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, bool stochastic_rounding=False, ScalarType? output_dtype=None) -> Tensor[]");
   m.def(
       "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None, bool stochastic_rounding = False) -> Tensor[] ");
 
   m.def(
-      "quantize_fp8_per_col(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]");
+      "quantize_fp8_per_col(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None) -> Tensor[]");
 
   m.def(
       "get_fp8_per_tensor_scale(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor");
