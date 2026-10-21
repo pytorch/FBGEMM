@@ -213,6 +213,11 @@ FBGEMM_API bool fbgemmHasArmSveSupport();
 FBGEMM_API bool fbgemmHasArmSve2Support();
 
 /**
+ * @brief Are we running on a ARM Neon with FP16 arithmetic supported cpu?
+ */
+FBGEMM_API bool fbgemmHasArmNeonFp16Support();
+
+/**
  * @brief Retrieve current CPU instruction set
  */
 FBGEMM_API inst_set_t fbgemmInstructionSet();

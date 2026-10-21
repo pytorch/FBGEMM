@@ -330,6 +330,10 @@ bool fbgemmHasArmSve2Support() {
   return cpuinfo_has_arm_sve2();
 }
 
+bool fbgemmHasArmNeonFp16Support() {
+  return cpuinfo_has_arm_neon_fp16_arith();
+}
+
 void fbgemmPartition1D(
     int thread_id,
     int num_threads,
