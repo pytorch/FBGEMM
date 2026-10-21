@@ -187,6 +187,7 @@ Functions</h2></td></tr>
 <tr class="memitem:afc22ec6e38a38c7f41484f844dbfbeac" id="r_afc22ec6e38a38c7f41484f844dbfbeac"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#afc22ec6e38a38c7f41484f844dbfbeac">Float16ToFloat_ref</a> (const float16 *src, float *dst, size_t size)</td></tr>
 <tr class="memitem:a53a50b113345c09b89b45834f31d52df" id="r_a53a50b113345c09b89b45834f31d52df"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a53a50b113345c09b89b45834f31d52df">FloatToFloat16_simd</a> (const float *src, float16 *dst, size_t size, bool do_clip=false)</td></tr>
 <tr class="memitem:af066434e23720ecd4ddcc51d7a616aef" id="r_af066434e23720ecd4ddcc51d7a616aef"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#af066434e23720ecd4ddcc51d7a616aef">Float16ToFloat_simd</a> (const float16 *src, float *dst, size_t size)</td></tr>
+<tr class="memitem:a36e2ef6fea3636a1cc807f8639942c6c" id="r_a36e2ef6fea3636a1cc807f8639942c6c"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a36e2ef6fea3636a1cc807f8639942c6c">FloatToFloat16_neon</a> (const float *src, float16 *dst, size_t size, bool do_clip=false)</td></tr>
 <tr class="memitem:a0ec1ab9494500537621b1f44878b2a24" id="r_a0ec1ab9494500537621b1f44878b2a24"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
 <tr class="memitem:a0ec1ab9494500537621b1f44878b2a24 template"><td class="memItemLeft">EmbeddingSpMDMKernelSignature&lt; InType, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memItemRight"><a class="el" href="#a0ec1ab9494500537621b1f44878b2a24">GenerateEmbeddingSpMDM</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="memitem:a497a84e1ac884e3cfa6497f6a5a6abb0" id="r_a497a84e1ac884e3cfa6497f6a5a6abb0"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
@@ -1455,6 +1456,45 @@ template&lt;typename InputType&gt; </div>
       </table>
 </div><div class="memdoc">
 <p>@ Transform all entries in a matrix from fp32 to bfloat16: simd implementation. </p>
+
+</div>
+</div>
+<a id="a36e2ef6fea3636a1cc807f8639942c6c" name="a36e2ef6fea3636a1cc807f8639942c6c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a36e2ef6fea3636a1cc807f8639942c6c">&#9670;&#160;</a></span>FloatToFloat16_neon()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void FloatToFloat16_neon </td>
+          <td>(</td>
+          <td class="paramtype">const float *</td>          <td class="paramname"><span class="paramname"><em>src</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">float16 *</td>          <td class="paramname"><span class="paramname"><em>dst</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>size</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>do_clip</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>NEON implementation to convert fp32 numbers to fp16 numbers. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">do_clip</td><td>if true we saturate to fp16 min and max instead of generating infinities. </td></tr>
+  </table>
+  </dd>
+</dl>
 
 </div>
 </div>
