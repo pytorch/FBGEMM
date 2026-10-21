@@ -6,12 +6,18 @@
  * LICENSE file in the root directory of this source tree.
  */
 #undef __HIP_NO_HALF_CONVERSIONS__
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include <ATen/core/Tensor.h>
+#include <c10/hip/HIPException.h>
 #include <c10/hip/HIPStream.h>
 
 #ifdef HIPIFY_V2
@@ -55,6 +61,61 @@ using D1DataType = float;
 using DsDataType = ck::Tuple<D0DataType, D1DataType>;
 using EDataType = ck::bhalf_t;
 constexpr int kGroupSetupThreads = 256;
+constexpr int kZeroingThreads = 256;
+constexpr uint32_t kMaxZeroingBlocks = 65535;
+
+template <auto Kernel>
+void check_single_cta_group_count(
+    int64_t group_count,
+    const char* operation) {
+  TORCH_CHECK(group_count > 0, operation, " requires at least one group.");
+  static std::mutex cache_mutex;
+  static std::vector<std::optional<int>> max_threads_per_device;
+  const int device = at::cuda::current_device();
+  const auto device_index = static_cast<size_t>(device);
+  int max_threads_per_block;
+  {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    if (max_threads_per_device.size() <= device_index) {
+      max_threads_per_device.resize(device_index + 1);
+    }
+    auto& cached = max_threads_per_device[device_index];
+    if (!cached.has_value()) {
+      hipFuncAttributes attributes;
+      C10_CUDA_CHECK(hipFuncGetAttributes(
+          &attributes, reinterpret_cast<const void*>(Kernel)));
+      cached = attributes.maxThreadsPerBlock;
+    }
+    max_threads_per_block = cached.value();
+  }
+  TORCH_CHECK(
+      group_count <= max_threads_per_block,
+      operation,
+      " requires one thread per group in a single CTA, but G (",
+      group_count,
+      ") exceeds the setup kernel's maxThreadsPerBlock (",
+      max_threads_per_block,
+      ").");
+}
+
+uint64_t check_product(
+    uint64_t lhs,
+    uint64_t rhs,
+    const char* expression) {
+  TORCH_CHECK(
+      rhs == 0 || lhs <= std::numeric_limits<uint64_t>::max() / rhs,
+      expression,
+      " overflows uint64_t");
+  return lhs * rhs;
+}
+
+uint32_t zeroing_block_count(uint64_t num_chunks) {
+  const auto blocks = num_chunks == 0
+      ? uint64_t{1}
+      : (num_chunks - 1) / kZeroingThreads + 1;
+  return static_cast<uint32_t>(
+      std::min<uint64_t>(blocks, kMaxZeroingBlocks));
+}
 
 TuningCache& getTuningCache() {
   // This kernel has multiple APIs templated based on InputType, so we use this
@@ -222,54 +283,75 @@ __global__ void set_kernel_args(
     // M_sizes API implies 2D-3D inputs
     if (M_sizes != nullptr) {
       M_group = M_sizes[thread_idx];
+      int64_t offset_M = 0;
+      CUDA_KERNEL_ASSERT_MSG(
+          M_group >= 0 && M_group <= std::numeric_limits<int>::max(),
+          "M_sizes values must be non-negative and fit in int32");
+      // Offset is computed by finding the sum of previous group Ms.
+      for (int i = 0; i < thread_idx; i++) {
+        offset_M += M_sizes[i];
+      }
       if (M_group > 0) {
-        // Offset is computed by finding the sum of previous group Ms.
-        int64_t offset_M = 0;
-        for (int i = 0; i < thread_idx; i++) {
-          offset_M += M_sizes[i];
-        }
-
         XQ_offset = offset_M * K;
         WQ_offset = thread_idx * N * K;
         x_scale_offset = offset_M;
         w_scale_offset = thread_idx * N;
         output_offset = offset_M * N;
       }
+      if (thread_idx == group_count - 1) {
+        CUDA_KERNEL_ASSERT_MSG(
+            offset_M + M_group == M,
+            "M_sizes must sum to XQ.size(0) (total_M)");
+      }
     } else {
-      if (input_type == GroupedGemmInputType::_2D3D) {
-        const int32_t offset_M = thread_idx == 0 ? 0 : offsets[thread_idx - 1];
-        M_group = offsets[thread_idx] - offset_M;
-
-        XQ_offset = offset_M * K;
-        WQ_offset = thread_idx * N * K;
-        x_scale_offset = offset_M;
-        w_scale_offset = thread_idx * N;
-        output_offset = offset_M * N;
-      } else if (input_type == GroupedGemmInputType::_3D2D) {
-        const int32_t offset_N = thread_idx == 0 ? 0 : offsets[thread_idx - 1];
-        N_group = offsets[thread_idx] - offset_N;
-
+      if (input_type == GroupedGemmInputType::_3D3D) {
         XQ_offset = thread_idx * M * K;
-        WQ_offset = offset_N * K;
-        x_scale_offset = thread_idx * M;
-        w_scale_offset = offset_N;
-        // Offset of offset_N as the N dimension of the output is across the input gemm problems.
-        output_offset = offset_N;
-      } else if (input_type == GroupedGemmInputType::_2D2D) {
-        const int32_t offset_K = thread_idx == 0 ? 0 : offsets[thread_idx - 1];
-        K_group = offsets[thread_idx] - offset_K;
-
-        XQ_offset = offset_K;
-        WQ_offset = offset_K;
+        WQ_offset = thread_idx * N * K;
         x_scale_offset = thread_idx * M;
         w_scale_offset = thread_idx * N;
         output_offset = thread_idx * M * N;
       } else {
-        XQ_offset = thread_idx * M * K;
-        WQ_offset = thread_idx * N * K;
-        x_scale_offset = thread_idx * M;
-        w_scale_offset = thread_idx * N;
-        output_offset = thread_idx * M * N;
+        const int32_t current_offset = offsets[thread_idx];
+        const int32_t previous_offset =
+            thread_idx == 0 ? 0 : offsets[thread_idx - 1];
+        CUDA_KERNEL_ASSERT_MSG(
+            current_offset >= previous_offset,
+            "offsets must be non-negative and non-decreasing");
+        if (input_type == GroupedGemmInputType::_2D3D) {
+          M_group = current_offset - previous_offset;
+
+          XQ_offset = previous_offset * K;
+          WQ_offset = thread_idx * N * K;
+          x_scale_offset = previous_offset;
+          w_scale_offset = thread_idx * N;
+          output_offset = previous_offset * N;
+          CUDA_KERNEL_ASSERT_MSG(
+              thread_idx != group_count - 1 || current_offset == M,
+              "offsets must end at XQ.size(0) (total_M)");
+        } else if (input_type == GroupedGemmInputType::_3D2D) {
+          N_group = current_offset - previous_offset;
+
+          XQ_offset = thread_idx * M * K;
+          WQ_offset = previous_offset * K;
+          x_scale_offset = thread_idx * M;
+          w_scale_offset = previous_offset;
+          // Offset of offset_N as the N dimension of the output is across the input gemm problems.
+          output_offset = previous_offset;
+          CUDA_KERNEL_ASSERT_MSG(
+              thread_idx != group_count - 1 || current_offset == N,
+              "offsets must end at WQ.size(0) (total_N)");
+        } else {
+          K_group = current_offset - previous_offset;
+
+          XQ_offset = previous_offset;
+          WQ_offset = previous_offset;
+          x_scale_offset = thread_idx * M;
+          w_scale_offset = thread_idx * N;
+          output_offset = thread_idx * M * N;
+          CUDA_KERNEL_ASSERT_MSG(
+              thread_idx != group_count - 1 || current_offset == K,
+              "offsets must end at XQ.size(1) (total_K)");
+        }
       }
     }
 
@@ -318,6 +400,10 @@ __global__ void set_kernel_args_fixed_nk_kernel(
        thread_idx += group_stride) {
     // Compute offsets for this group.
     int64_t group_M = prepad_M[thread_idx];
+    CUDA_KERNEL_ASSERT_MSG(
+        group_M >= 0 && group_M <= M &&
+            group_M <= std::numeric_limits<int>::max(),
+        "zero_start_index_M values must be within [0, M] and fit in int32");
     KernelArguments kernel_group_args = {
         XQ + (thread_idx * M * K),
         WQ + (thread_idx * N * K),
@@ -362,50 +448,26 @@ void launch_set_kernel_args_fixed_nk(
       group_count);
 }
 
-__global__ void set_kernel_args_fixed_nk_kernel_zeroing(
-    KernelArguments* kernel_args,
-    ADataType* XQ,
-    BDataType* WQ,
-    D0DataType* w_scale,
-    D1DataType* x_scale,
+template <typename IndexT>
+__global__ void zero_padded_output_kernel(
     EDataType* output,
-    int64_t* prepad_M,
-    int64_t M,
-    int64_t N,
-    int64_t K,
-    int64_t group_count) {
-  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each thread is responsible for setting up the arguments for one group.
-  if (thread_idx < group_count) {
-    // Compute offsets for this group.
-    int64_t group_M = prepad_M[thread_idx];
-    KernelArguments kernel_group_args = {
-        XQ + (thread_idx * M * K),
-        WQ + (thread_idx * N * K),
-        {w_scale + (thread_idx * N), x_scale + (thread_idx * M)},
-        output + (thread_idx * M * N),
-        int(group_M),
-        int(N),
-        int(K),
-        int(K),
-        int(K),
-        {0, 0},
-        int(N)};
-    // Write kernel args to memory.
-    kernel_args[thread_idx] = kernel_group_args;
-  }
-
-  // Figure out where in memory we are.
-  // Each thread sets one float 4 which corresponds to 8 bf16 values.
-  int output_offset = (thread_idx * 8);
-  int current_group = output_offset / (M * N);
-  // Skip if outside of valid groups.
-  if (current_group < group_count) {
-    int nonzeros = prepad_M[current_group];
-    int current_M = (output_offset % (M * N)) / N;
-    // Only write zeros if we're currently in a sparse row.
+    const int64_t* prepad_M,
+    IndexT chunks_per_group,
+    IndexT chunks_per_row,
+    IndexT zero_chunks) {
+  const uint64_t first_chunk =
+      static_cast<uint64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const uint64_t chunk_stride =
+      static_cast<uint64_t>(gridDim.x) * blockDim.x;
+  for (uint64_t chunk_offset = first_chunk; chunk_offset < zero_chunks;
+       chunk_offset += chunk_stride) {
+    const IndexT chunk = static_cast<IndexT>(chunk_offset);
+    const auto current_group = chunk / chunks_per_group;
+    const int64_t nonzeros = prepad_M[current_group];
+    const int64_t current_M = static_cast<int64_t>(
+        (chunk % chunks_per_group) / chunks_per_row);
     if (current_M >= nonzeros) {
-      // Write out a block of 8 output values via vectorized float4.
+      const uint64_t output_offset = static_cast<uint64_t>(chunk) * 8;
       float4* output_block = reinterpret_cast<float4*>(output + output_offset);
       *output_block = {0, 0, 0, 0};
     }
@@ -424,26 +486,36 @@ void set_dynamic_kernel_args(
     bool zeroing_output_tensor) {
   // Get current cuda stream.
   auto stream = at::cuda::getCurrentHIPStream().stream();
-  int64_t group_count;
+  const int64_t group_count = WQ.size(0);
+  TORCH_CHECK(group_count > 0, "Grouped GEMM requires at least one group.");
   // Check provided tensors are valid.
   TORCH_CHECK(
       zero_start_index_M.has_value() != M_sizes.has_value(),
       "One of zero_start_index_M or M_sizes must be provided.");
   if (zero_start_index_M.has_value()) {
-    group_count = zero_start_index_M.value().size(0);
+    const auto& group_sizes = zero_start_index_M.value();
     TORCH_CHECK(
-        XQ.device() == zero_start_index_M.value().device(),
+        XQ.device() == group_sizes.device(),
         "zero_start_index_M and inputs must be on the same device.");
     TORCH_CHECK(
-        zero_start_index_M.value().dtype() == at::kLong,
+        group_sizes.dtype() == at::kLong,
         "zero_start_index_M must be int64.");
+    TORCH_CHECK(
+        group_sizes.dim() == 1 && group_sizes.size(0) == group_count,
+        "zero_start_index_M must contain exactly one size per input group.");
+    TORCH_CHECK(
+        group_sizes.is_contiguous(), "zero_start_index_M must be contiguous.");
   }
   if (M_sizes.has_value()) {
-    group_count = M_sizes.value().size(0);
+    const auto& group_sizes = M_sizes.value();
     TORCH_CHECK(
-        XQ.device() == M_sizes.value().device(),
+        XQ.device() == group_sizes.device(),
         "M_sizes and inputs must be on the same device.");
-    TORCH_CHECK(M_sizes.value().dtype() == at::kLong, "M_sizes must be int64.");
+    TORCH_CHECK(group_sizes.dtype() == at::kLong, "M_sizes must be int64.");
+    TORCH_CHECK(
+        group_sizes.dim() == 1 && group_sizes.size(0) == group_count,
+        "M_sizes must contain exactly one size per input group.");
+    TORCH_CHECK(group_sizes.is_contiguous(), "M_sizes must be contiguous.");
   }
 
   // When m_sizes is used XQ is shape [tota_M, K]. When zero_start_index_M is
@@ -454,6 +526,8 @@ void set_dynamic_kernel_args(
 
   // Depending on the mode, use appropriate setup kernel.
   if (M_sizes.has_value()) {
+    check_single_cta_group_count<set_kernel_args>(
+        group_count, "set_dynamic_kernel_args");
     set_kernel_args<<<1, group_count, 0, stream>>>(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
@@ -468,20 +542,21 @@ void set_dynamic_kernel_args(
         K,
         group_count);
   } else if (zeroing_output_tensor) {
-    // Launch a kernel that sets kernel argument memory and zeros the output.
-    // Each thread sets one float4 which corresponds to 8 bf16 values.
-    const int64_t BLOCK_SIZE = 8;
+    constexpr uint64_t kElementsPerChunk = 8;
     TORCH_CHECK(
-        N % BLOCK_SIZE == 0, "N must be divisible 8 for dynamic grouped gemm.");
-    int block_factor =
-        std::max(group_count, (group_count * M * N) / BLOCK_SIZE);
-    int blockSize = std::min(512, block_factor);
-    int numBlocks = (block_factor + blockSize - 1) / blockSize;
-    set_kernel_args_fixed_nk_kernel_zeroing<<<
-        numBlocks,
-        blockSize,
-        0,
-        stream>>>(
+        N % kElementsPerChunk == 0,
+        "N must be divisible 8 for dynamic grouped gemm.");
+    const auto elements_per_group = check_product(
+        static_cast<uint64_t>(M), static_cast<uint64_t>(N), "M * N");
+    const auto total_elements = check_product(
+        static_cast<uint64_t>(group_count),
+        elements_per_group,
+        "G * M * N");
+    const auto chunks_per_group = elements_per_group / kElementsPerChunk;
+    const auto chunks_per_row = static_cast<uint64_t>(N) / kElementsPerChunk;
+    const auto zero_chunks = total_elements / kElementsPerChunk;
+
+    launch_set_kernel_args_fixed_nk(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
         reinterpret_cast<BDataType*>(WQ.data_ptr()),
@@ -492,7 +567,33 @@ void set_dynamic_kernel_args(
         M,
         N,
         K,
-        group_count);
+        group_count,
+        stream);
+
+    const auto zeroing_blocks = zeroing_block_count(zero_chunks);
+    if (zero_chunks <= std::numeric_limits<uint32_t>::max()) {
+      zero_padded_output_kernel<uint32_t><<<
+          zeroing_blocks,
+          kZeroingThreads,
+          0,
+          stream>>>(
+          reinterpret_cast<EDataType*>(output.data_ptr()),
+          reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
+          static_cast<uint32_t>(chunks_per_group),
+          static_cast<uint32_t>(chunks_per_row),
+          static_cast<uint32_t>(zero_chunks));
+    } else {
+      zero_padded_output_kernel<uint64_t><<<
+          zeroing_blocks,
+          kZeroingThreads,
+          0,
+          stream>>>(
+          reinterpret_cast<EDataType*>(output.data_ptr()),
+          reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
+          chunks_per_group,
+          chunks_per_row,
+          zero_chunks);
+    }
   } else {
     launch_set_kernel_args_fixed_nk(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
@@ -658,6 +759,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int64_t group_count = M_sizes.size(0);
+  TORCH_CHECK(group_count > 0, "Grouped GEMM requires at least one group.");
   // XQ is expected to be shape [total_M, K].
   int64_t total_M = XQ.size(0);
   // WQ is expected to be shape [G, N, K].
@@ -709,6 +811,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int64_t group_count = XQ.size(0);
+  TORCH_CHECK(group_count > 0, "Grouped GEMM requires at least one group.");
   int64_t M = XQ.size(1);
   int64_t N = WQ.size(1);
   int64_t K = WQ.size(2);
@@ -767,6 +870,14 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
     std::optional<at::Tensor> offsets, // int32
     at::Tensor& out) {
   validate_inputs_common(XQ, WQ, x_scale, w_scale);
+  if (offsets.has_value()) {
+    TORCH_CHECK(offsets->dtype() == at::kInt, "offsets must be int32.");
+    TORCH_CHECK(
+        offsets->device() == XQ.device(),
+        "offsets and inputs must be on the same device.");
+    TORCH_CHECK(offsets->dim() == 1, "offsets must be 1D.");
+    TORCH_CHECK(offsets->is_contiguous(), "offsets must be contiguous.");
+  }
 
   // M, N, K could be the "total" dimension in the case of 2D inputs.
   int64_t G;
@@ -777,7 +888,6 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
 
   if (XQ.dim() == 2 && WQ.dim() == 3) {
     TORCH_CHECK(offsets.has_value(), "Must pass offsets for 2D input XQ.");
-    TORCH_CHECK(offsets->dtype() == at::kInt, "offsets must be int32.");
 
     G = offsets->size(0);
     M = XQ.size(0);
@@ -791,7 +901,6 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
     TORCH_CHECK(out.dim() == 2 && out.size(0) == M && out.size(1) == N, "out shape must be (total_M, N).");
   } else if (XQ.dim() == 3 && WQ.dim() == 2) {
     TORCH_CHECK(offsets.has_value(), "Must pass offsets for 2D input WQ.");
-    TORCH_CHECK(offsets->dtype() == at::kInt, "offsets must be int32.");
 
     G = offsets->size(0);
     M = XQ.size(1);
@@ -818,7 +927,6 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
     TORCH_CHECK(out.dim() == 3 && out.size(0) == G && out.size(1) == M && out.size(2) == N, "out shape must be (G, M, N).");
   } else if (XQ.dim() == 2 && WQ.dim() == 2) {
     TORCH_CHECK(offsets.has_value(), "Must pass offsets for 2D inputs XQ and WQ.");
-    TORCH_CHECK(offsets->dtype() == at::kInt, "offsets must be int32.");
 
     G = offsets->size(0);
     M = XQ.size(0);
@@ -850,6 +958,8 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
       XQ.options().dtype(at::kByte));
 
   auto stream = at::cuda::getCurrentHIPStream().stream();
+  check_single_cta_group_count<set_kernel_args>(
+      G, "f8f8bf16_rowwise_grouped_mm");
   set_kernel_args<<<1, G, 0, stream>>>(
       reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
       reinterpret_cast<ADataType*>(XQ.data_ptr()),
