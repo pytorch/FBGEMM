@@ -109,7 +109,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmBuild.h",
         "include/fbgemm/FbgemmConvert.h",
         "include/fbgemm/FbgemmEmbedding.h",
-        "include/fbgemm/EmbeddingSpMDMFP8.h",
+        "include/fbgemm/detail/EmbeddingSpMDMFP8.h",
         "include/fbgemm/FbgemmFP16.h",
         "include/fbgemm/FbgemmFP32.h",
         "include/fbgemm/FbgemmFPCommon.h",

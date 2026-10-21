@@ -12,7 +12,7 @@
 #include <utility>
 
 #include "fbgemm/FbgemmBuild.h"
-#include "fbgemm/EmbeddingSpMDMFP8.h"
+#include "fbgemm/detail/EmbeddingSpMDMFP8.h"
 #include "fbgemm/Types.h"
 
 namespace fbgemm {
