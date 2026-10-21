@@ -16,6 +16,111 @@ using Tensor = at::Tensor;
 
 namespace nbit {
 
+{% if is_rocm and nobag and not weighted and emb_weight_type.enum_name == "INT4" %}
+__device__ __forceinline__ int32_t find_nobag_for_output_row_int4_d64(
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        offsets,
+    const int32_t output_row,
+    const int32_t num_bags) {
+  constexpr int32_t kLanesPerRow = 8;
+  // shfl_sync broadcasts within physical lane groups of a wave, so each
+  // kLanesPerRow subgroup must not straddle a wave boundary.
+  static_assert(kWarpSize % kLanesPerRow == 0);
+  int32_t bag = 0;
+  if (threadIdx.x % kLanesPerRow == 0) {
+    int32_t first = 0;
+    int32_t count = num_bags;
+    while (count > 0) {
+      const int32_t step = count / 2;
+      const int32_t candidate = first + step;
+      if (offsets[candidate + 1] <= output_row) {
+        first = candidate + 1;
+        count -= step + 1;
+      } else {
+        count = step;
+      }
+    }
+    bag = first;
+  }
+  return shfl_sync(bag, 0, kLanesPerRow);
+}
+
+__launch_bounds__(4 * 64)
+__global__ void
+INT4_split_embedding_nobag_codegen_forward_unweighted_kernel_long_L_d64_gfx942(
+    const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits>
+        dev_weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        weights_offsets,
+    const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
+        weights_tys,
+    const int32_t B,
+    const int32_t total_L,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        offsets,
+    pta::PackedTensorAccessor32<at::Half, 2, at::RestrictPtrTraits> output) {
+  constexpr int32_t kWarpsPerBlock = 4;
+  // The host launches blockDim.x == 64, the gfx942 wave size, which differs
+  // from kWarpSize in the device passes of wave32 targets.
+  constexpr int32_t kWaveSize = 64;
+  constexpr int32_t kLanesPerRow = 8;
+  constexpr int32_t kRowsPerWave = kWaveSize / kLanesPerRow;
+  constexpr int32_t kRowsPerBlock = kWarpsPerBlock * kRowsPerWave;
+  constexpr int32_t kOutputsPerThread = 8;
+  // The host dispatch only selects this kernel for D == 64 and
+  // row_alignment == 16. A row is a half2 shift/scale followed by D / 2 bytes
+  // of INT4 data, padded to row_alignment; each lane reads one uint32_t of it.
+  constexpr int32_t kD = 64;
+  constexpr int32_t kRowAlignment = 16;
+  constexpr int32_t kShiftScaleBytes = sizeof(half2);
+  constexpr int32_t kRowBytes =
+      (kShiftScaleBytes + kD / 2 + kRowAlignment - 1) / kRowAlignment *
+      kRowAlignment;
+  static_assert(kLanesPerRow * kOutputsPerThread == kD);
+  static_assert(kLanesPerRow * sizeof(uint32_t) == kD / 2);
+  static_assert(kRowBytes == 48);
+
+  const int32_t T = weights_offsets.size(0);
+  const int32_t num_bags = T * B;
+  // Indices past offsets[num_bags] (allowed by WARNING_ALLOW_TRAILING_INDICES)
+  // belong to no bag, so their rows are left unwritten like in the generic
+  // kernels.
+  const int32_t num_rows = min(total_L, offsets[num_bags]);
+  const auto row_in_wave = threadIdx.x / kLanesPerRow;
+  const auto lane_in_row = threadIdx.x % kLanesPerRow;
+  const uint32_t row_idx =
+      blockIdx.x * kRowsPerBlock + threadIdx.y * kRowsPerWave + row_in_wave;
+  const uint32_t row_stride = gridDim.x * kRowsPerBlock;
+
+  for (uint32_t output_row = row_idx; output_row < num_rows;
+       output_row += row_stride) {
+    const int32_t bag = find_nobag_for_output_row_int4_d64(
+        offsets, output_row, num_bags);
+    const int32_t t = bag / B;
+    if (static_cast<SparseType>(weights_tys[t]) != SparseType::INT4) {
+      continue;
+    }
+
+    uint32_t value = 0;
+    half2 shift_scale{};
+    const int32_t idx = indices[output_row];
+    if (idx != -1) {
+      const uint8_t* weight_row =
+          &dev_weights
+              [weights_offsets[t] + static_cast<int64_t>(idx) * kRowBytes];
+      shift_scale = *reinterpret_cast<const half2*>(weight_row);
+      value = reinterpret_cast<const uint32_t*>(weight_row)[lane_in_row + 1];
+    }
+    VecNT<kOutputsPerThread, PrimitiveType::INT> acc(value, shift_scale);
+    acc.store(
+        &output[output_row][lane_in_row * kOutputsPerThread],
+        kOutputsPerThread);
+  }
+}
+{% endif %}
+
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly, bool PackedMode>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
