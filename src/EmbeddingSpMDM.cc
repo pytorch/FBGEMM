@@ -20,6 +20,7 @@
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h"
+#include "./EmbeddingStatsTracker.h"
 #include "./JitPerfMap.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
@@ -28,6 +29,33 @@
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
+
+bool detail::use_fp8_autovec() {
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  return (is_autovec_forced() || fbgemmHasArmSve2Support()) &&
+      !is_autovec_disabled();
+#else
+  return false;
+#endif
+}
+
+void detail::record_fp8_embedding_pattern(
+    int64_t rows,
+    int64_t dims,
+    int64_t batch,
+    int64_t length,
+    FP8OutputKind output_kind) {
+  const auto dtype = output_kind == FP8OutputKind::Float
+      ? EmbeddingStatsTracker::DataType::FP32
+      : (output_kind == FP8OutputKind::BFloat
+             ? EmbeddingStatsTracker::DataType::BF16
+             : EmbeddingStatsTracker::DataType::FP16);
+  EmbeddingStatsTracker::getInstance().recordPattern(
+      rows, dims, EmbeddingStatsTracker::DataType::FP8, dtype, batch, length);
+}
 
 namespace {
 
