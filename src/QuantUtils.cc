@@ -18,6 +18,7 @@
 
 #include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
+#include "./RefImplementations.h"
 
 namespace fbgemm {
 
@@ -777,13 +778,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
       quantized &= (1 << bit_rate) - 1;
       float output_value =
           static_cast<float>(double(scale) * quantized + double(bias));
-      if constexpr (std::is_same_v<OutputType, float>) {
-        output_row[col] = output_value;
-      } else if constexpr (std::is_same_v<OutputType, bfloat16>) {
-        output_row[col] = from_float<OutputType>(output_value);
-      } else {
-        output_row[col] = cpu_float2half_rn(output_value);
-      }
+      output_row[col] = convert_from_float_ref<OutputType>(output_value);
     }
   }
 }
@@ -887,13 +882,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     for (int col = 0; col < output_columns; ++col) {
       float output_value =
           static_cast<float>(double(input_row[col]) * scale + double(bias));
-      if constexpr (std::is_same_v<OutputType, float>) {
-        output_row[col] = output_value;
-      } else if constexpr (std::is_same_v<OutputType, bfloat16>) {
-        output_row[col] = from_float<OutputType>(output_value);
-      } else {
-        output_row[col] = cpu_float2half_rn(output_value);
-      }
+      output_row[col] = convert_from_float_ref<OutputType>(output_value);
     }
   }
 }
