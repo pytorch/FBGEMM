@@ -101,9 +101,39 @@ if(FBGEMM_AARCH64_BUILD_NATIVE)
       "The selected compiler does not support -mcpu=native")
   endif()
 
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    execute_process(
+      COMMAND ${CMAKE_CXX_COMPILER} -mcpu=native -Q --help=target
+      OUTPUT_VARIABLE FBGEMM_AARCH64_NATIVE_COMPILER_OUTPUT)
+    string(REGEX MATCH
+      "-mcpu=[ \t]+([^ \t\r\n]+)"
+      FBGEMM_AARCH64_NATIVE_CPU_MATCH
+      "${FBGEMM_AARCH64_NATIVE_COMPILER_OUTPUT}")
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    execute_process(
+      COMMAND ${CMAKE_CXX_COMPILER} -mcpu=native "-###" -x c++ -c /dev/null
+      ERROR_VARIABLE FBGEMM_AARCH64_NATIVE_COMPILER_ERROR)
+    string(REGEX MATCH
+      [[ "-target-cpu" "([^"]+)" ]]
+      FBGEMM_AARCH64_NATIVE_CPU_MATCH
+      "${FBGEMM_AARCH64_NATIVE_COMPILER_ERROR}")
+  endif()
+
   set(FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS "-mcpu=native")
   message(STATUS
     "FBGEMM_AARCH64_BUILD_NATIVE=ON: compiling FBGEMM AArch64 targets for the build host CPU")
+
+  if(FBGEMM_AARCH64_NATIVE_CPU_MATCH)
+    set(FBGEMM_AARCH64_NATIVE_CPU "${CMAKE_MATCH_1}")
+    message(STATUS "Compiler native CPU target: ${FBGEMM_AARCH64_NATIVE_CPU}")
+    string(TOLOWER "${FBGEMM_AARCH64_NATIVE_CPU}" FBGEMM_AARCH64_NATIVE_CPU_LOWER)
+    if(FBGEMM_AARCH64_NATIVE_CPU_LOWER STREQUAL "generic")
+      message(FATAL_ERROR
+        "-mcpu=native resolved to a generic CPU target.\n"
+        "The compiler may not recognize the host CPU.\n"
+        "Consider upgrading your compiler.")
+    endif()
+  endif()
 endif()
 
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
