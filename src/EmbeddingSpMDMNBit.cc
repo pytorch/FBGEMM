@@ -1006,8 +1006,7 @@ template <
     typename indxType,
     typename offsetType,
     typename outType>
-typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
-    Type
+EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>
     GenerateEmbeddingSpMDMNBitWithStrides_SveFp16(
         const int64_t block_size,
         const bool normalize_by_lengths,
@@ -1082,8 +1081,7 @@ template <
     typename offsetType,
     typename outType,
     bool THREAD_LOCAL>
-typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
-    Type
+EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>
     GenerateEmbeddingSpMDMNBitWithStrides(
         const int input_bit_rate,
         const int64_t block_size,
@@ -1300,11 +1298,11 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
 }
 
 template <typename IndexType, typename OffsetType, typename OutType>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+FBGEMM_API EmbeddingSpMDMKernelSignature<
     std::uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 GenerateEmbeddingSpMDMNBit(
     int bit_rate,
     const std::int64_t block_size,
@@ -1506,11 +1504,11 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
 
 #define INSTANTIATE_SPMDM_BASE(                               \
     INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL)          \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature< \
+  template FBGEMM_API EmbeddingSpMDMKernelSignature< \
       uint8_t,                                                \
       INDEX_TYPE,                                             \
       OFFSET_TYPE,                                            \
-      OUT_TYPE>::Type                                         \
+      OUT_TYPE>                                         \
   GenerateEmbeddingSpMDMNBitWithStrides<                      \
       INDEX_TYPE,                                             \
       OFFSET_TYPE,                                            \
@@ -1532,11 +1530,11 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
 #define INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)        \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)         \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<             \
+  template FBGEMM_API EmbeddingSpMDMKernelSignature<             \
       uint8_t,                                                            \
       INDEX_TYPE,                                                         \
       OFFSET_TYPE,                                                        \
-      OUT_TYPE>::Type                                                     \
+      OUT_TYPE>                                                     \
   GenerateEmbeddingSpMDMNBit<INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>(          \
       int bit_rate,                                                       \
       const int64_t block_size,                                           \
