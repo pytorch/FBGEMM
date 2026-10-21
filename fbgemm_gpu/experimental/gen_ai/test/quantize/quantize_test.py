@@ -7,9 +7,11 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
+import math
 import os
 import unittest
 from typing import Optional, Union
+from unittest.mock import patch
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
@@ -246,6 +248,61 @@ def generate_jagged_offs(E, M, multiple_of=16, dtype=torch.int32, device="cuda")
     return selected_values.to(dtype).to(device)
 
 
+@unittest.skipUnless(
+    hasattr(torch.ops.fbgemm, "quantize_fp8_per_tensor"),
+    "Quantize schemas are absent in CPU-only builds",
+)
+class QuantizeMetaTests(unittest.TestCase):
+    def test_cpu_fake_quantizers_without_accelerator(self) -> None:
+        from fbgemm_gpu.experimental.gen_ai import quantize_ops
+
+        x = torch.empty((2, 3, 4), device="cpu", dtype=torch.bfloat16)
+        with (
+            patch.object(torch.accelerator, "current_accelerator", return_value=None),
+            patch.object(torch.cuda, "is_available", return_value=False),
+            torch.device("meta"),
+        ):
+            for op, scale_shape in (
+                (quantize_ops.quantize_fp8_per_tensor, ()),
+                (quantize_ops.quantize_fp8_per_col, (3, 4)),
+            ):
+                q, scale = op(x)
+                self.assertEqual(q.device, x.device)
+                self.assertEqual(scale.device, x.device)
+                self.assertEqual(q.shape, x.shape)
+                self.assertEqual(scale.shape, scale_shape)
+                self.assertEqual(q.dtype, torch.float8_e4m3fn)
+                self.assertEqual(scale.dtype, torch.float32)
+
+    def test_quantizer_meta_shapes_and_dtypes(self) -> None:
+        with patch.object(
+            torch.cuda,
+            "get_device_properties",
+            side_effect=AssertionError("Meta inference queried a GPU"),
+        ):
+            for shape in ((37, 128), (2, 37, 128), (0, 0)):
+                x = torch.empty(shape, device="meta", dtype=torch.bfloat16)
+                for name, scale_shape in (
+                    ("quantize_fp8_per_tensor", ()),
+                    ("quantize_fp8_per_row", (math.prod(shape[:-1]),)),
+                    ("quantize_fp8_per_col", shape[1:]),
+                ):
+                    default_q, _ = getattr(torch.ops.fbgemm, name)(x)
+                    self.assertEqual(default_q.dtype, torch.float8_e4m3fn)
+                    for dtype in (torch.float8_e4m3fn, torch.float8_e4m3fnuz):
+                        with self.subTest(shape=shape, operator=name, dtype=dtype):
+                            q, scale = getattr(torch.ops.fbgemm, name)(
+                                x, output_dtype=dtype
+                            )
+                            self.assertEqual(q.shape, x.shape)
+                            self.assertEqual(q.dtype, dtype)
+                            self.assertEqual(q.device.type, "meta")
+                            self.assertEqual(scale.shape, scale_shape)
+                            self.assertEqual(scale.dtype, torch.float32)
+                    with self.assertRaisesRegex(RuntimeError, "output_dtype"):
+                        getattr(torch.ops.fbgemm, name)(x, output_dtype=torch.float32)
+
+
 @unittest.skipIf(
     not torch.cuda.is_available(),
     "Skip when no GPU is available. This test is only for GPU.",
@@ -259,18 +316,28 @@ class FP8TorchExportTests(unittest.TestCase):
             def __init__(self) -> None:
                 super().__init__()
 
-            def forward(self, x: torch.Tensor) -> torch.Tensor:
+            def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, ...]:
                 # let's go trough all our cuda quantize operations here
-                _, _ = torch.ops.fbgemm.quantize_fp8_per_row(x)
-                _, _ = torch.ops.fbgemm.quantize_fp8_per_col(x)
-                o, _ = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-                return o
+                return (
+                    *torch.ops.fbgemm.quantize_fp8_per_row(x),
+                    *torch.ops.fbgemm.quantize_fp8_per_col(x),
+                    *torch.ops.fbgemm.quantize_fp8_per_tensor(x),
+                )
 
         model = TestModule().cuda()
         # bf16 required here
-        _ = torch.export.export(
-            model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),), strict=True
-        )
+        for shape in ((37, 128), (2, 37, 128)):
+            x = torch.randn(
+                shape,
+                dtype=torch.bfloat16,
+                device=torch.accelerator.current_accelerator(),
+            )
+            exported = torch.export.export(model, (x,), strict=True)
+            actual = exported.module()(x)
+            expected = model(x)
+            for a, e in zip(actual, expected):
+                self.assertEqual(a.dtype, e.dtype)
+                torch.testing.assert_close(a.float(), e.float(), atol=0, rtol=0)
 
     def test_f8f8bf16_export(self) -> None:
         class TestModule(torch.nn.Module):
@@ -1212,6 +1279,62 @@ class FP8Tests(unittest.TestCase):
             ):
                 call()
             self.assertEqual(torch.cuda.current_device(), current)
+
+    @unittest.skipIf(not torch.version.hip, "Requires AMD CK kernels")
+    def test_ck_fp8_native_dtype(self) -> None:
+        arch = torch.cuda.get_device_properties(self.device).gcnArchName.split(":")[0]
+        if arch not in ("gfx942", "gfx950"):
+            self.skipTest("CK FP8 kernels require gfx942 or gfx950")
+        native_dtype = (
+            torch.float8_e4m3fn if arch == "gfx950" else torch.float8_e4m3fnuz
+        )
+        wrong_dtype = torch.float8_e4m3fnuz if arch == "gfx950" else torch.float8_e4m3fn
+        q = torch.ones((512, 512), device=self.device, dtype=torch.bfloat16).to(
+            native_dtype
+        )
+        wrong = q.float().to(wrong_dtype)
+        row_scale = torch.ones(512, device=self.device)
+        block_scale = torch.ones((4, 4), device=self.device)
+        cases = (
+            ("f8f8bf16_tensorwise", q, (1.0,)),
+            ("f8f8bf16_blockwise", q, (block_scale, block_scale)),
+            ("f8f8bf16_rowwise", q, (row_scale, row_scale)),
+            ("f8f8f16_rowwise", q, (row_scale, row_scale)),
+            ("f8f8bf16_rowwise_preshuffle", q, (row_scale, row_scale)),
+            (
+                "f8f8bf16_rowwise_batched",
+                q.unsqueeze(0),
+                (row_scale.unsqueeze(0), row_scale.unsqueeze(0)),
+            ),
+        )
+        for name, input_q, scales in cases:
+            with self.subTest(operator=name):
+                op = getattr(torch.ops.fbgemm, name)
+                if name in (
+                    "f8f8bf16_blockwise",
+                    "f8f8bf16_rowwise_preshuffle",
+                ):
+                    empty = input_q[:0].contiguous()
+                    output = op(empty, input_q, scales[0][:0], scales[1])
+                    self.assertEqual(output.shape, (0, 512))
+                    self.assertEqual(output.dtype, torch.bfloat16)
+                    self.assertEqual(output.device, input_q.device)
+                else:
+                    output = op(input_q, input_q, *scales)
+                    torch.testing.assert_close(
+                        output.float(),
+                        torch.full_like(output.float(), 512),
+                        atol=0,
+                        rtol=0,
+                    )
+                invalid = wrong.reshape(input_q.shape)
+                for left, right in ((invalid, input_q), (input_q, invalid)):
+                    with self.assertRaisesRegex(RuntimeError, "native dtype"):
+                        op(left, right, *scales)
+                if torch.cuda.device_count() > 1:
+                    other = (input_q.device.index + 1) % torch.cuda.device_count()
+                    with self.assertRaisesRegex(RuntimeError, "share a device"):
+                        op(input_q, input_q.to(f"cuda:{other}"), *scales)
 
     def test_quantizer_cpu_bridge_auxiliaries(self) -> None:
         x = torch.ones((2, 128), dtype=torch.bfloat16)
@@ -2628,6 +2751,46 @@ class FP8Tests(unittest.TestCase):
         y_ref = torch.bmm(x, w.transpose(1, 2))
         torch.testing.assert_close(y_ref, y_int4, atol=1e-1, rtol=8.0e-2)
 
+    @unittest.skipIf(open_source, "Temporarily disabled in OSS.")
+    def test_quantizer_compile_shapes_and_dtypes(self) -> None:
+        for shape in ((37, 128), (2, 37, 128)):
+            x = torch.randn(shape, device=self.device, dtype=torch.bfloat16)
+            for name in (
+                "quantize_fp8_per_tensor",
+                "quantize_fp8_per_row",
+                "quantize_fp8_per_col",
+            ):
+                torch._dynamo.reset()
+                op = getattr(torch.ops.fbgemm, name)
+                for output_dtype in (None, fp8_e4m3):
+                    kwargs = (
+                        {} if output_dtype is None else {"output_dtype": output_dtype}
+                    )
+                    expected = op(x, **kwargs)
+                    actual = torch.compile(op, fullgraph=True)(x, **kwargs)
+                    self.assertEqual(
+                        expected[0].dtype,
+                        fp8_e4m3 if output_dtype is None else output_dtype,
+                    )
+                    self.assertEqual(actual[0].dtype, expected[0].dtype)
+                    torch.testing.assert_close(
+                        actual[0].float(), expected[0].float(), atol=0, rtol=0
+                    )
+                    torch.testing.assert_close(actual[1], expected[1], atol=0, rtol=0)
+                wrong_dtype = (
+                    torch.float8_e4m3fn
+                    if fp8_e4m3 == torch.float8_e4m3fnuz
+                    else torch.float8_e4m3fnuz
+                )
+                with self.assertRaises(RuntimeError):
+                    op(x, output_dtype=wrong_dtype)
+                with self.assertRaises(
+                    (RuntimeError, torch._dynamo.exc.TorchRuntimeError)
+                ):
+                    torch.compile(op, fullgraph=True)(x, output_dtype=wrong_dtype)
+
+        torch._dynamo.reset()
+
     @unittest.skipIf(
         ((not torch.version.cuda) and (not torch.version.hip)),
         "Skip if no GPU is present.",
@@ -2754,8 +2917,18 @@ class FP8Tests(unittest.TestCase):
             device=self.device,
         )
         wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+        self.assertEqual(wq.dtype, fp8_e4m3)
         torch.testing.assert_close(w.shape, wq.shape)
         torch.testing.assert_close(w_scale.shape, w_scale_ref.shape)
+
+        for name in ("quantize_fp8_per_tensor", "quantize_fp8_per_col"):
+            with self.subTest(operator=name):
+                q, scale = getattr(torch.ops.fbgemm, name)(w)
+                self.assertEqual(q.shape, w.shape)
+                self.assertEqual(q.dtype, fp8_e4m3)
+                expected_shape = () if name == "quantize_fp8_per_tensor" else (K,)
+                self.assertEqual(scale.shape, expected_shape)
+                self.assertEqual(scale.dtype, torch.float32)
 
     @unittest.skipIf(torch.version.hip, "Skip on AMD: fp8 lite op is yet suported.")
     @settings(deadline=None)

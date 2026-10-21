@@ -1122,7 +1122,8 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
-    bool stochastic_rounding) {
+    bool stochastic_rounding,
+    std::optional<c10::ScalarType> output_dtype) {
   TORCH_CHECK(
       input.dim() == 2 || input.dim() == 3,
       "Invalid dim. The dim of input should be 2 or 3");
@@ -1141,11 +1142,15 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
         bs.has_value() ? std::optional<at::Tensor>(bs->cuda()) : std::nullopt,
         scale_ub.has_value() ? std::optional<at::Tensor>(scale_ub->cuda())
                              : std::nullopt,
-        stochastic_rounding);
+        stochastic_rounding,
+        output_dtype);
     return {outputs[0].cpu(), outputs[1].cpu()};
   }
   CUDA_DEVICE_GUARD(input);
   const auto native_dtype = getNFP8ScalarType(input.get_device());
+  TORCH_CHECK(
+      !output_dtype || *output_dtype == native_dtype,
+      "output_dtype must match the device native E4M3 dtype");
   int64_t rows = 1;
   for (int64_t dim = 0; dim < input.dim() - 1; ++dim) {
     rows *= input.size(dim);
@@ -1998,7 +2003,8 @@ std::vector<at::Tensor> quantize_fp8_per_row(
 std::vector<at::Tensor> quantize_fp8_per_col(
     at::Tensor input,
     [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) {
+    std::optional<at::Tensor> scale_ub,
+    std::optional<c10::ScalarType> output_dtype) {
   TORCH_CHECK(
       input.dim() == 2 || input.dim() == 3,
       "Invalid dim. The dim of input should be 2 or 3");
@@ -2011,11 +2017,15 @@ std::vector<at::Tensor> quantize_fp8_per_col(
         input.cuda(),
         bs.has_value() ? std::optional<at::Tensor>(bs->cuda()) : std::nullopt,
         scale_ub.has_value() ? std::optional<at::Tensor>(scale_ub->cuda())
-                             : std::nullopt);
+                             : std::nullopt,
+        output_dtype);
     return {outputs[0].cpu(), outputs[1].cpu()};
   }
   CUDA_DEVICE_GUARD(input);
   const auto native_dtype = getNFP8ScalarType(input.get_device());
+  TORCH_CHECK(
+      !output_dtype || *output_dtype == native_dtype,
+      "output_dtype must match the device native E4M3 dtype");
   if (scale_ub.has_value()) {
     TORCH_CHECK(
         scale_ub->scalar_type() == at::kFloat, "scale_ub must be float32");
@@ -2923,7 +2933,9 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
     [[maybe_unused]] at::Tensor input,
     [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
     [[maybe_unused]] std::optional<at::Tensor> scale_ub,
-    [[maybe_unused]] bool stochastic_rounding) { // scale upperbound
+    [[maybe_unused]] bool stochastic_rounding,
+    [[maybe_unused]] std::optional<c10::ScalarType>
+        output_dtype) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -2958,7 +2970,9 @@ at::Tensor get_fp8_per_tensor_scale(
 std::vector<at::Tensor> quantize_fp8_per_col(
     [[maybe_unused]] at::Tensor input,
     [[maybe_unused]] std::optional<at::Tensor> bs, // batch size
-    [[maybe_unused]] std::optional<at::Tensor> scale_ub) { // scale upperbound
+    [[maybe_unused]] std::optional<at::Tensor> scale_ub,
+    [[maybe_unused]] std::optional<c10::ScalarType>
+        output_dtype) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

@@ -15,6 +15,7 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+#include <fbgemm_gpu/quantize/fp8_dtype.h>
 #include <c10/core/DeviceGuard.h>
 #include <c10/hip/HIPStream.h>
 
@@ -505,13 +506,12 @@ at::Tensor f8f8_rowwise_wrapper(
     std::optional<at::Tensor> bias,
     bool use_fast_accum,
     std::optional<at::Tensor> output = std::nullopt) {
+  check_ck_fp8_inputs(XQ, WQ);
   TORCH_CHECK(
-      XQ.is_cuda() && WQ.is_cuda() && x_scale.is_cuda() &&
-          w_scale.is_cuda(),
+      x_scale.is_cuda() && w_scale.is_cuda(),
       "Inputs and scales must be CUDA tensors.");
   TORCH_CHECK(
-      XQ.device() == WQ.device() && XQ.device() == x_scale.device() &&
-          XQ.device() == w_scale.device(),
+      XQ.device() == x_scale.device() && XQ.device() == w_scale.device(),
       "Inputs and scales must be on the same device.");
   if (output.has_value()) {
     TORCH_CHECK(
@@ -519,13 +519,6 @@ at::Tensor f8f8_rowwise_wrapper(
         "Output must be on the input device.");
   }
   c10::DeviceGuard device_guard{XQ.device()};
-  const auto native_dtype = at::detail::getCUDAHooks().isGPUArch(
-                                {"gfx94", "gfx90a"}, XQ.get_device())
-      ? at::kFloat8_e4m3fnuz
-      : at::kFloat8_e4m3fn;
-  TORCH_CHECK(
-      XQ.dtype() == native_dtype && WQ.dtype() == native_dtype,
-      "Inputs must use the native FP8 E4M3 type.");
   TORCH_CHECK(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");

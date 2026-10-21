@@ -576,7 +576,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 {% set has_asmjit = use_base or use_nbit %}
                 {% set kernel_name = "GenerateEmbeddingSpMDMWithStrides"
                     if use_base else ("GenerateEmbeddingSpMDMNBitWithStrides"
-                    if use_nbit else "GenerateEmbeddingSpMDMFP8WithStrides")
+                    if use_nbit else "detail::GenerateEmbeddingSpMDMFP8WithStridesBytes")
                  %}
                 using fbgemm_out_t = {{ "base_fbgemm_out_t" if use_base or use_nbit else "other_fbgemm_out_t" }};
                 {% if use_nbit %}

@@ -90,6 +90,9 @@ Tensor fusednbitrowwise_to_float_or_half_meta(
     case SparseType::FP16:
       return at::empty_symint(
           {nrows, output_columns}, input.options().dtype(at::kHalf));
+    case SparseType::BF16:
+      return at::empty_symint(
+          {nrows, output_columns}, input.options().dtype(at::kBFloat16));
     default:
       TORCH_CHECK(false, "Unsupported output dtype ");
   }

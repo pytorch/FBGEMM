@@ -29,10 +29,6 @@ def default_compiler_flags():
             # Buck exposes Folly as non-system headers, where its intentional
             # `__int128` use triggers the `-pedantic` diagnostic.
             "-Wno-error=pedantic",
-            # These two lines mirror the complete CMake GCC-specific list.
-            # Remove each line when its warning count is zero.
-            "-Wno-error=array-bounds",
-            "-Wno-error=maybe-uninitialized",
             "-fno-trapping-math",
         ]
         + select({
@@ -245,11 +241,15 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
         return srcs
 
 def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
-    intrinsics_srcs = ["src/UtilsNeon.cc"]
+    intrinsics_srcs = [
+        "src/UtilsNeon.cc",
+        "src/FbgemmFloat16ConvertNEON.cc",
+    ]
 
     # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
         "src/UtilsNeon.cc",
+        "src/FbgemmFloat16ConvertNEON.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
         "src/fp32/KleidiAIFP32UKernelsNeon.cc",
         "src/QuantUtilsNeon.cc",
