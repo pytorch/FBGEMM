@@ -136,8 +136,17 @@ class SwitchStats:
     snapshot_count: int
 
 
+# fp32 scale and bias after the codes of each INT8 owner-cache row.
+_INT8_ROWWISE_QPARAMS_BYTES = 8
+
+
 class _DirectMappedEnrichmentCache(nn.Module):
-    """Owner-local HBM cache used by the direct enrichment read path."""
+    """Owner-local HBM cache used by the direct enrichment read path.
+
+    With ``int8``, slots hold ``embedding_dim`` uint8 codes followed by an fp32
+    scale and bias, and lookups return ``cache_dtype`` rows (or FP32 rows from
+    one fused kernel when ``fused_float_gather`` and ``output_dtype`` is FP32).
+    """
 
     def __init__(
         self,
@@ -148,9 +157,28 @@ class _DirectMappedEnrichmentCache(nn.Module):
         cache_size_mb: int,
         read_populate: bool,
         read_populate_max_lookups: int,
+        int8: bool = False,
+        fused_float_gather: bool = False,
+        output_dtype: torch.dtype | None = None,
     ) -> None:
         super().__init__()
-        row_bytes = embedding_dim * torch.empty((), dtype=cache_dtype).element_size()
+        if int8 and embedding_dim % 4 != 0:
+            raise ValueError(
+                "owner_cache_int8 requires an enrichment dim divisible by 4, "
+                f"actual {embedding_dim}"
+            )
+        self._int8 = int8
+        self._fused_float_gather: bool = (
+            int8 and fused_float_gather and output_dtype == torch.float32
+        )
+        self._embedding_dim = embedding_dim
+        self._storage_dtype = cache_dtype
+        if int8:
+            row_bytes = embedding_dim + _INT8_ROWWISE_QPARAMS_BYTES
+        else:
+            row_bytes = (
+                embedding_dim * torch.empty((), dtype=cache_dtype).element_size()
+            )
         tag_bytes = torch.empty((), dtype=torch.int64).element_size()
         cache_sets = max(
             1,
@@ -176,7 +204,11 @@ class _DirectMappedEnrichmentCache(nn.Module):
         )
         self.register_buffer(
             "cache_weights",
-            torch.empty((cache_sets, embedding_dim), dtype=cache_dtype, device=device),
+            torch.empty(
+                (cache_sets, row_bytes) if int8 else (cache_sets, embedding_dim),
+                dtype=torch.uint8 if int8 else cache_dtype,
+                device=device,
+            ),
             persistent=False,
         )
         # Citrine C3: keep the limiter on the cache device.
@@ -187,11 +219,14 @@ class _DirectMappedEnrichmentCache(nn.Module):
         )
         logging.info(
             "Direct enrichment owner cache has %d rows (%.2f GiB); "
-            "read_populate=%s; read_populate_max_lookups=%d",
+            "read_populate=%s; read_populate_max_lookups=%d; storage=%s; "
+            "fused_float_gather=%s",
             cache_sets,
             cache_sets * (row_bytes + tag_bytes) / (1024**3),
             read_populate,
             read_populate_max_lookups,
+            "int8_rowwise" if int8 else str(cache_dtype),
+            self._fused_float_gather,
         )
 
     def _grow_workspaces(self, required_capacity: int) -> None:
@@ -199,6 +234,12 @@ class _DirectMappedEnrichmentCache(nn.Module):
             self._action_indices is None
             or self._action_indices.numel() < required_capacity
         ):
+            if self._action_indices is not None:
+                # Freeing a host-mapped tensor unmaps its pages immediately,
+                # without waiting for the stream, so a gather or backend callback
+                # still reading the old workspace would hit an illegal address.
+                torch.cuda.synchronize(self.cache_weights.device)
+                required_capacity += required_capacity // 4
             self._action_indices = torch.ops.fbgemm.new_unified_tensor(
                 torch.empty(1, dtype=torch.int64, device=self.cache_weights.device),
                 (required_capacity,),
@@ -208,10 +249,10 @@ class _DirectMappedEnrichmentCache(nn.Module):
             self._inserted_rows = torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(
                     1,
-                    dtype=self.cache_weights.dtype,
+                    dtype=self._storage_dtype,
                     device=self.cache_weights.device,
                 ),
-                (required_capacity, self.cache_weights.size(1)),
+                (required_capacity, self._embedding_dim),
                 is_host_mapped=True,
             )
             self._row_addresses = torch.empty(
@@ -260,8 +301,10 @@ class _DirectMappedEnrichmentCache(nn.Module):
             self._last_query_count = 0
             self._last_miss_count = None
             return torch.empty(
-                (0, self.cache_weights.size(1)),
-                dtype=self.cache_weights.dtype,
+                (0, self._embedding_dim),
+                dtype=(
+                    torch.float32 if self._fused_float_gather else self._storage_dtype
+                ),
                 device=indices.device,
             )
         (
@@ -272,7 +315,12 @@ class _DirectMappedEnrichmentCache(nn.Module):
             inserted_rows,
             row_addresses,
         ) = self._get_workspaces(indices.numel())
-        torch.ops.fbgemm.kvzch_direct_cache_lookup(
+        lookup_op = (
+            torch.ops.fbgemm.kvzch_direct_cache_lookup_int8
+            if self._int8
+            else torch.ops.fbgemm.kvzch_direct_cache_lookup
+        )
+        lookup_op(
             indices,
             self.cache_state,
             self.cache_weights,
@@ -283,13 +331,29 @@ class _DirectMappedEnrichmentCache(nn.Module):
         )
         read_backend_into(action_indices_cpu, inserted_rows, actions_count_cpu)
         output = torch.empty(
-            (indices.numel(), self.cache_weights.size(1)),
-            dtype=self.cache_weights.dtype,
+            (indices.numel(), self._embedding_dim),
+            dtype=torch.float32 if self._fused_float_gather else self._storage_dtype,
             device=indices.device,
         )
-        torch.ops.fbgemm.ssd_gather_from_row_addresses(output, row_addresses)
+        if self._fused_float_gather:
+            torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
+                output, row_addresses, self._storage_dtype
+            )
+        elif self._int8:
+            torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+                output, row_addresses, self._storage_dtype
+            )
+        else:
+            torch.ops.fbgemm.ssd_gather_from_row_addresses(output, row_addresses)
+        # Gather before inserting: a miss can evict a slot that another index
+        # in this batch still reads through a hit address.
         if self._read_populate:
-            torch.ops.fbgemm.kvzch_direct_cache_insert(
+            insert_op = (
+                torch.ops.fbgemm.kvzch_direct_cache_insert_int8
+                if self._int8
+                else torch.ops.fbgemm.kvzch_direct_cache_insert
+            )
+            insert_op(
                 self.cache_state,
                 self.cache_weights,
                 action_indices,
@@ -320,11 +384,20 @@ class _DirectMappedEnrichmentCache(nn.Module):
             return
         if rows.dim() != 2 or rows.size(0) != indices.numel():
             raise ValueError("owner-local direct cache write rows must match indices")
-        embedding_dim = self.cache_weights.size(1)
+        embedding_dim = self._embedding_dim
         if rows.size(1) > embedding_dim:
             raise ValueError("owner-local direct cache write rows are too wide")
         if rows.size(1) < embedding_dim:
             rows = torch.nn.functional.pad(rows, (0, embedding_dim - rows.size(1)))
+        if self._int8:
+            torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
+                self.cache_state,
+                self.cache_weights,
+                indices.contiguous(),
+                rows.contiguous(),
+                None,
+            )
+            return
         torch.ops.fbgemm.kvzch_direct_cache_insert(
             self.cache_state,
             self.cache_weights,
@@ -644,6 +717,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._owner_cache_size_mb: int = 0
         self._owner_cache_read_populate: bool = False
         self._owner_cache_read_populate_max_lookups: int = 0
+        self._owner_cache_int8: bool = False
+        self._owner_cache_int8_fused_float: bool = False
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -700,6 +775,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
                 self._owner_cache_read_populate_max_lookups = (
                     enrichment_policy.owner_cache_read_populate_max_lookups
+                )
+                self._owner_cache_int8 = enrichment_policy.owner_cache_int8
+                self._owner_cache_int8_fused_float = (
+                    enrichment_policy.owner_cache_int8_fused_float
                 )
             if self.load_ckpt_without_opt:
                 if (
@@ -1549,6 +1628,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 cache_size_mb=self._owner_cache_size_mb,
                 read_populate=self._owner_cache_read_populate,
                 read_populate_max_lookups=(self._owner_cache_read_populate_max_lookups),
+                int8=self._owner_cache_int8,
+                fused_float_gather=self._owner_cache_int8_fused_float,
+                output_dtype=self._direct_enrichment_output_dtype,
             )
 
         if self.prefetch_pipeline:
@@ -2798,13 +2880,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         expected.record_stream(torch.cuda.current_stream())
         return torch.equal(expected, actual)
 
+    def get_prefetched_direct_backend_output(self) -> torch.Tensor | None:
+        """Return the pending direct-gather rows without consuming them."""
+        return self._prefetched_direct_backend_output
+
+    def clear_prefetched_direct_backend_output(self) -> None:
+        """Drop pending direct-gather rows without resetting the owner cache."""
+        self._prefetched_direct_backend_output = None
+        self._prefetched_direct_backend_indices = None
+
     def _consume_direct_enrichment_prefetch(
         self, indices: torch.Tensor
     ) -> torch.Tensor | None:
         output = self._prefetched_direct_backend_output
         expected_indices = self._prefetched_direct_backend_indices
-        self._prefetched_direct_backend_output = None
-        self._prefetched_direct_backend_indices = None
+        self.clear_prefetched_direct_backend_output()
         if output is None or not self._same_direct_prefetch_indices(
             expected_indices, indices
         ):
@@ -2824,8 +2914,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._prefetched_direct_backend_indices, indices
             ):
                 return
-            self._prefetched_direct_backend_output = None
-            self._prefetched_direct_backend_indices = None
+            self.clear_prefetched_direct_backend_output()
         current_stream = torch.cuda.current_stream()
         indices.record_stream(current_stream)
         self._advance_direct_enrichment_iteration()
@@ -2876,8 +2965,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self._direct_enrichment_cache.reset()
             current_stream.record_event(self._direct_cache_insert_complete_event)
         self._pending_direct_cache_fill_indices = None
-        self._prefetched_direct_backend_output = None
-        self._prefetched_direct_backend_indices = None
+        self.clear_prefetched_direct_backend_output()
 
     def prefetch(
         self,
