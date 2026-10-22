@@ -260,66 +260,83 @@ __global__ void dequantize_mx4_to_float_kernel(
     const int group_size,
     const int64_t total_quant_elems,
     pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> output) {
-  const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
-  const auto linear_tid = linear_group_id * group_size + threadIdx.x;
-  if (linear_tid >= total_quant_elems)
+#ifdef USE_ROCM
+  const auto num_groups = (total_quant_elems + group_size - 1) / group_size;
+  const auto num_blocks =
+      (num_groups + static_cast<int64_t>(blockDim.y) - 1) / blockDim.y;
+  for (int64_t virtual_block_id = blockIdx.x; virtual_block_id < num_blocks;
+       virtual_block_id += gridDim.x) {
+    const auto linear_group_id = virtual_block_id * blockDim.y + threadIdx.y;
+#else
+  const auto linear_group_id = blockIdx.x * blockDim.y + threadIdx.y;
+#endif
+    const auto linear_tid = linear_group_id * group_size + threadIdx.x;
+    if (linear_tid >= total_quant_elems) {
+#ifdef USE_ROCM
+      continue;
+#else
     return;
+#endif
+    }
 
-  const uint32_t sub_group_size = group_size / 4;
-  const uint32_t half_group_size = group_size / 2;
-  const uint32_t output_idx = linear_tid * 4;
-  const uint32_t group_id = uint32_t(linear_tid / sub_group_size);
-  const uint32_t start_offset = linear_tid * 2 + group_id;
+    const uint32_t sub_group_size = group_size / 4;
+    const uint32_t half_group_size = group_size / 2;
+    const uint32_t output_idx = linear_tid * 4;
+    const uint32_t group_id = uint32_t(linear_tid / sub_group_size);
+    const uint32_t start_offset = linear_tid * 2 + group_id;
 
-  const uint8_t elem = input[start_offset];
-  const uint8_t elem2 = input[start_offset + 1];
-  // shared_exp is stored at [half_group_size + offset]
-  // e.g., if group_size=32, data size per group is 16+1=17
-  // shared_exp_indices are 16, 16+17=33, 16+34=50, ...
-  const uint32_t shared_exp_idx =
-      half_group_size + ((half_group_size + 1) * group_id);
-  const uint8_t shared_exp = input[shared_exp_idx];
+    const uint8_t elem = input[start_offset];
+    const uint8_t elem2 = input[start_offset + 1];
+    // shared_exp is stored at [half_group_size + offset]
+    // e.g., if group_size=32, data size per group is 16+1=17
+    // shared_exp_indices are 16, 16+17=33, 16+34=50, ...
+    const uint32_t shared_exp_idx =
+        half_group_size + ((half_group_size + 1) * group_id);
+    const uint8_t shared_exp = input[shared_exp_idx];
 
-  constexpr uint8_t upper_4bit_mask = 0xF0;
-  constexpr uint8_t lower_4bit_mask = 0x0F;
+    constexpr uint8_t upper_4bit_mask = 0xF0;
+    constexpr uint8_t lower_4bit_mask = 0x0F;
 
-  // each threads takes care of 8 bits
-  // first 4 bits
-  const uint8_t high_1 = (elem & lower_4bit_mask);
-  const uint8_t low_1 = (elem & upper_4bit_mask) >> 4;
-  const uint8_t high_2 = (elem2 & lower_4bit_mask);
-  const uint8_t low_2 = (elem2 & upper_4bit_mask) >> 4;
+    // each threads takes care of 8 bits
+    // first 4 bits
+    const uint8_t high_1 = (elem & lower_4bit_mask);
+    const uint8_t low_1 = (elem & upper_4bit_mask) >> 4;
+    const uint8_t high_2 = (elem2 & lower_4bit_mask);
+    const uint8_t low_2 = (elem2 & upper_4bit_mask) >> 4;
 
-  // last 4 bits
+    // last 4 bits
 
-  // Disabled assert condition: low < 16 && elem < 16 && low_2 < 16 && elem2
-  // < 16.
-  const int exp = shared_exp - FLOAT32_EXP_BIAS;
+    // Disabled assert condition: low < 16 && elem < 16 && low_2 < 16 && elem2
+    // < 16.
+    const int exp = shared_exp - FLOAT32_EXP_BIAS;
 
-  // Use vectorized stores based on output type
-  // Uses vectorized stores: float4 (FP32), __nv_bfloat162 (BF16)
-  if constexpr (std::is_same_v<T, float>) {
-    // FP32: Single 128-bit vectorized store
-    float4* output_ptr = reinterpret_cast<float4*>(&output[output_idx]);
-    float4 deq;
-    deq.x = scalbn(MX4_values[low_1], exp);
-    deq.y = scalbn(MX4_values[high_1], exp);
-    deq.z = scalbn(MX4_values[low_2], exp);
-    deq.w = scalbn(MX4_values[high_2], exp);
-    *output_ptr = deq;
-  } else if constexpr (std::is_same_v<T, at::BFloat16>) {
-    // BF16: Scalar stores
-    // Using paired intrinsics could be more efficient but have caused platform
-    // compatibility issues with hip/rocm
-    output[output_idx] =
-        static_cast<at::BFloat16>(scalbn(MX4_values[low_1], exp));
-    output[output_idx + 1] =
-        static_cast<at::BFloat16>(scalbn(MX4_values[high_1], exp));
-    output[output_idx + 2] =
-        static_cast<at::BFloat16>(scalbn(MX4_values[low_2], exp));
-    output[output_idx + 3] =
-        static_cast<at::BFloat16>(scalbn(MX4_values[high_2], exp));
-  }
+    // Use vectorized stores based on output type
+    // Uses vectorized stores: float4 (FP32), __nv_bfloat162 (BF16)
+    if constexpr (std::is_same_v<T, float>) {
+      // FP32: Single 128-bit vectorized store
+      float4* output_ptr = reinterpret_cast<float4*>(&output[output_idx]);
+      float4 deq;
+      deq.x = scalbn(MX4_values[low_1], exp);
+      deq.y = scalbn(MX4_values[high_1], exp);
+      deq.z = scalbn(MX4_values[low_2], exp);
+      deq.w = scalbn(MX4_values[high_2], exp);
+      *output_ptr = deq;
+    } else if constexpr (std::is_same_v<T, at::BFloat16>) {
+      // BF16: Scalar stores
+      // Using paired intrinsics could be more efficient but have caused
+      // platform compatibility issues with hip/rocm
+      output[output_idx] =
+          static_cast<at::BFloat16>(scalbn(MX4_values[low_1], exp));
+      output[output_idx + 1] =
+          static_cast<at::BFloat16>(scalbn(MX4_values[high_1], exp));
+      output[output_idx + 2] =
+          static_cast<at::BFloat16>(scalbn(MX4_values[low_2], exp));
+      output[output_idx + 3] =
+          static_cast<at::BFloat16>(scalbn(MX4_values[high_2], exp));
+    }
+#ifdef USE_ROCM
+  } // for virtual_block_id
+#endif
 }
 
 #endif
