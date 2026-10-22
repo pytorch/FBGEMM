@@ -24,7 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
 from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation
 from fbgemm_gpu.tbe.utils import generate_requests, round_up
-from hypothesis import assume, given, settings, Verbosity
+from hypothesis import assume, example, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
@@ -56,6 +56,15 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class NBitSplitEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
+    @example(
+        T=2,
+        D=32,
+        B=4,
+        log_E=3,
+        L=3,
+        weights_ty=SparseType.INT8,
+        output_dtype=SparseType.BF16,
+    )
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -97,11 +106,16 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         D_alignment = max(weights_ty.align_size() for t in range(T))
         D_alignment = max(D_alignment, output_dtype.align_size())
         D = round_up(D, D_alignment)
-        # BF16 output only works for CUDA device sm80+ (e.g., A100)
+        # ROCm kernels support BF16 output; CUDA kernels require sm80+.
         assume(
-            torch.cuda.is_available()
-            and torch.cuda.get_device_capability() >= (8, 0)
-            or not output_dtype == SparseType.BF16
+            output_dtype != SparseType.BF16
+            or (
+                torch.cuda.is_available()
+                and (
+                    torch.version.hip is not None
+                    or torch.cuda.get_device_capability() >= (8, 0)
+                )
+            )
         )
         Ds = [
             round_up(
