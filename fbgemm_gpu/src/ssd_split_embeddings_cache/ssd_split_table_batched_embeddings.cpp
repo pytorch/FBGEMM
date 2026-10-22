@@ -315,9 +315,6 @@ inline void replace_weights_id(
   TORCH_CHECK(weights.device().is_cpu(), "weights must be a CPU tensor");
   TORCH_CHECK(
       linearized_ids.device().is_cpu(), "linearized_ids must be a CPU tensor");
-  TORCH_CHECK(
-      linearized_ids.scalar_type() == at::kLong,
-      "linearized_ids must have dtype int64");
   TORCH_CHECK(weights.dim() == 2, "weights must be a 2D tensor");
   TORCH_CHECK(
       linearized_ids.dim() == 1 ||
@@ -332,9 +329,9 @@ inline void replace_weights_id(
   TORCH_CHECK(
       sizeof(int64_t) % weights.element_size() == 0,
       "weights element size must divide the 8-byte ID header");
-
+  const auto int64_ids = linearized_ids.to(at::ScalarType::Long).contiguous();
   auto weights_dtype_id_2d =
-      linearized_ids.reshape({-1, 1}).view(weights.dtype().toScalarType());
+      int64_ids.reshape({-1, 1}).view(weights.dtype().toScalarType());
   auto weights_first_cols = weights.slice(1, 0, weights_dtype_id_2d.size(1));
   weights_first_cols.copy_(weights_dtype_id_2d);
 }
@@ -567,7 +564,7 @@ std::string KVTensorWrapper::serialize() const {
 }
 
 void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
-  std::lock_guard<std::mutex> lock(mtx);
+  std::scoped_lock lock(mtx);
   if (readonly_db_ != nullptr) {
     LOG(INFO) << "deleting checkpoint dir for " << checkpoint_uuid;
     readonly_db_->delete_rocksdb_checkpoint_dir();
@@ -753,8 +750,10 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
       }
       return t;
     } else {
-      at::Tensor sliced_ids =
-          sorted_indices_.value().slice(0, start, start + length);
+      at::Tensor sliced_ids = sorted_indices_.value()
+                                  .slice(0, start, start + length)
+                                  .to(at::ScalarType::Long)
+                                  .reshape({-1});
       auto weights = get_weights_by_ids(sliced_ids);
 
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
@@ -787,7 +786,7 @@ void KVTensorWrapper::set_range(
     return;
   }
   // Mutex lock for disabling concurrent writes to the same KVTensor
-  std::lock_guard<std::mutex> lock(mtx);
+  std::scoped_lock lock(mtx);
   CHECK_EQ(weights.device(), at::kCPU);
   CHECK(db_) << "EmbeddingRocksDB must be a valid pointer to call set_range";
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
@@ -887,6 +886,7 @@ void KVTensorWrapper::set_weights_and_ids_impl(
   }
   CHECK_EQ(weights.device(), at::kCPU);
   CHECK_TRUE(db_ != nullptr);
+  std::scoped_lock lock(mtx);
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
@@ -1038,7 +1038,8 @@ at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
       "snapshot handler must be valid for rocksdb (incl. DRAM_SSD) and nullptr for emb kvdb");
   auto weights =
       at::empty(c10::IntArrayRef({ids.size(0), shape_[1]}), options_);
-  auto linearized_ids = ids + row_offset_;
+  auto linearized_ids =
+      ids.to(at::ScalarType::Long).reshape({-1}) + row_offset_;
   db_->get_kv_from_storage_by_snapshot(
       linearized_ids,
       weights,

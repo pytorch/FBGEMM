@@ -551,6 +551,29 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return metadata_tensor;
   }
 
+  at::Tensor get_missing_mask(
+      const at::Tensor& indices,
+      const at::Tensor& count) {
+    TORCH_CHECK(indices.is_contiguous(), "indices must be contiguous");
+    auto missing = at::zeros(
+        {indices.size(0)}, at::TensorOptions().dtype(at::ScalarType::Bool));
+    auto shardid_to_indexes = shard_input(indices, count);
+    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+        indices.scalar_type(), "dram_kv_missing_mask", [&] {
+          using index_t = scalar_t;
+          const auto* indices_ptr = indices.const_data_ptr<index_t>();
+          auto* missing_ptr = missing.mutable_data_ptr<bool>();
+          for (const auto& [shard_id, indexes] : shardid_to_indexes) {
+            auto rlmap = kv_store_.by(shard_id).rlock();
+            for (const auto index : indexes) {
+              missing_ptr[index] =
+                  rlmap->find(int64_t(indices_ptr[index])) == rlmap->end();
+            }
+          }
+        });
+    return missing;
+  }
+
   /// insert embeddings into kvstore.
   /// current underlying memory management is done through F14FastMap
   /// key value pair will be sharded into multiple shards to increase
@@ -570,20 +593,122 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       const kv_db::RocksdbWriteMode w_mode =
           kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ /*unused*/) override {
+    if (w_mode == kv_db::RocksdbWriteMode::STREAM) {
+      auto pause_state = pause_for_stream_write();
+      SCOPE_EXIT {
+        resume_after_stream_write(pause_state);
+      };
+      set_kv_db_async_impl(indices, weights, count, w_mode).get();
+      return folly::makeSemiFuture(std::vector<folly::Unit>());
+    }
+    return set_kv_db_async_impl(indices, weights, count, w_mode);
+  }
+
+  struct StreamPauseState {
+    bool laser_suspended{false};
+    bool eviction_suspended{false};
+  };
+
+  StreamPauseState pause_for_stream_write() {
+    StreamPauseState state;
+    try {
+      if (is_training_) {
+        std::unique_lock<std::mutex> lock(laser_write_mutex_);
+        if (stream_laser_suspensions_++ == 0) {
+          laser_write_epoch_.fetch_add(1);
+        }
+        laser_write_interrupt_.store(true);
+        state.laser_suspended = true;
+        laser_write_cv_.wait(
+            lock, [this] { return active_laser_writers_ == 0; });
+      }
+      if (feature_evict_config_.has_value() &&
+          feature_evict_config_.value()->trigger_mode_ !=
+              EvictTriggerMode::DISABLED &&
+          feature_evict_) {
+        feature_evict_->suspend_triggers();
+        state.eviction_suspended = true;
+      }
+    } catch (...) {
+      resume_after_stream_write(state);
+      throw;
+    }
+    return state;
+  }
+
+  void resume_after_stream_write(const StreamPauseState& state) {
+    if (state.laser_suspended) {
+      std::unique_lock<std::mutex> lock(laser_write_mutex_);
+      CHECK_GT(stream_laser_suspensions_, 0);
+      if (--stream_laser_suspensions_ == 0) {
+        laser_write_epoch_.fetch_add(1);
+        if (!laser_paused_for_forward_) {
+          laser_write_interrupt_.store(false);
+          laser_write_cv_.notify_all();
+        }
+      }
+    }
+    if (state.eviction_suspended && feature_evict_) {
+      feature_evict_->resume_triggers();
+    }
+  }
+
+  folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async_with_metadata(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& metadata,
+      const at::Tensor& count,
+      const kv_db::RocksdbWriteMode w_mode,
+      bool manage_pause = true) {
+    TORCH_CHECK(metadata.is_contiguous(), "metadata must be contiguous");
+    TORCH_CHECK(
+        metadata.size(0) == indices.size(0),
+        "metadata and indices must have the same number of rows");
+    TORCH_CHECK(
+        metadata.size(1) == FixedBlockPool::get_metaheader_dim<weight_type>(),
+        "metadata must contain one complete metaheader per row");
+    if (!manage_pause) {
+      return set_kv_db_async_impl(indices, weights, count, w_mode, &metadata);
+    }
+    auto pause_state = pause_for_stream_write();
+    SCOPE_EXIT {
+      resume_after_stream_write(pause_state);
+    };
+    set_kv_db_async_impl(indices, weights, count, w_mode, &metadata).get();
+    return folly::makeSemiFuture(std::vector<folly::Unit>());
+  }
+
+  folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async_impl(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      const kv_db::RocksdbWriteMode w_mode,
+      const at::Tensor* metadata = nullptr) {
     auto start_ts = perf_now_usec();
-    pause_ongoing_eviction();
+    if (w_mode != kv_db::RocksdbWriteMode::STREAM) {
+      pause_ongoing_eviction();
+    }
     std::vector<
         folly::Future<std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>>
         futures;
     auto before_shard_ts = perf_now_usec();
     auto shardid_to_indexes = shard_input(indices, count);
+    const auto* metadata_ptr =
+        metadata == nullptr ? nullptr : metadata->const_data_ptr<weight_type>();
+    const auto metadata_width = metadata == nullptr ? 0 : metadata->size(1);
     write_sharding_total_duration_ += perf_now_usec() - before_shard_ts;
 
     for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       futures.emplace_back(
           folly::via(executor_.get())
-              .thenValue([this, shard_id, indexes, &indices, &weights](
-                             folly::Unit) {
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          &indices,
+                          &weights,
+                          w_mode,
+                          metadata_ptr,
+                          metadata_width](folly::Unit) {
                 int64_t local_write_allocate_total_duration = 0;
                 int64_t local_write_cache_copy_total_duration = 0;
                 int64_t local_write_lookup_cache_total_duration = 0;
@@ -597,6 +722,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                      indexes,
                      &indices,
                      &weights,
+                     w_mode,
+                     metadata_ptr,
+                     metadata_width,
                      &local_write_allocate_total_duration,
                      &local_write_cache_copy_total_duration,
                      &local_write_lookup_cache_total_duration,
@@ -619,6 +747,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           auto id = int64_t(indices_data_ptr[id_index]);
                           // use mempool
                           weight_type* block = nullptr;
+                          bool newly_allocated = false;
+                          bool restored_eviction_metadata = false;
                           // First check if the key already exists
                           auto before_lookup_cache_ts = perf_now_usec();
                           auto it = wlmap->find(id);
@@ -629,9 +759,23 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           } else {
                             // Key doesn't exist, allocate new block and insert.
                             local_write_missing_load++;
+                            newly_allocated = true;
                             auto before_alloc_ts = perf_now_usec();
                             block = pool->template allocate_t<weight_type>();
+                            const auto* stored_metadata =
+                                metadata_ptr == nullptr
+                                ? nullptr
+                                : metadata_ptr + id_index * metadata_width;
+                            if (stored_metadata != nullptr &&
+                                FixedBlockPool::get_used(stored_metadata)) {
+                              restored_eviction_metadata = true;
+                              std::copy(
+                                  stored_metadata,
+                                  stored_metadata + metadata_width,
+                                  block);
+                            }
                             FixedBlockPool::set_key(block, id);
+                            FixedBlockPool::set_used(block, true);
                             wlmap->insert({id, block});
                             local_write_allocate_total_duration +=
                                 perf_now_usec() - before_alloc_ts;
@@ -646,7 +790,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               }
                             }
                           }
-                          if (is_eviction_enabled()) {
+                          if (is_eviction_enabled() &&
+                              (w_mode != kv_db::RocksdbWriteMode::STREAM ||
+                               (newly_allocated &&
+                                !restored_eviction_metadata))) {
                             feature_evict_->update_feature_statistics(block);
                           }
                           auto before_copy_ts = perf_now_usec();
@@ -656,10 +803,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               weights_data_ptr + id_index * stride,
                               weights_data_ptr + (id_index + 1) * stride,
                               data_ptr);
-                          // TODO: skip FixedBlockPool set_dirty here. This
-                          // DRAM_SSD embedding cache path only handles
-                          // backfill, where data already exists in SSD, so
-                          // marking dirty would trigger a redundant flush.
+                          if (enable_ssd_backend_ &&
+                              w_mode !=
+                                  kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) {
+                            pool->set_dirty(block, true);
+                          }
                           local_write_cache_copy_total_duration +=
                               perf_now_usec() - before_copy_ts;
                         }
@@ -743,7 +891,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   set_kv_db_async_on_enrichment_executor(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) {
+      const at::Tensor& count,
+      uint64_t write_epoch) {
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
@@ -755,12 +904,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const auto indexes = iter->second;
       futures.emplace_back(
           folly::via(enrichment_executor_.get())
-              .thenValue([this, shard_id, indexes, indices, weights](
-                             folly::Unit) {
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          indices,
+                          weights,
+                          write_epoch](folly::Unit) {
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kv_set_laser",
-                    [this, shard_id, indexes, &indices, &weights] {
+                    [this, shard_id, indexes, &indices, &weights, write_epoch] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -775,8 +928,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       size_t cursor = 0;
                       size_t total = indexes.size();
                       while (cursor < total) {
-                        // Wait until resume if paused (like eviction pattern)
-                        wait_until_laser_write_resume();
+                        if (!begin_laser_write(write_epoch)) {
+                          return;
+                        }
+                        SCOPE_EXIT {
+                          end_laser_write();
+                        };
 
                         // Process batch while holding lock
                         {
@@ -997,12 +1154,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const char* log_prefix,
       FetchFn fetchFn,
       PrepareFn prepareFn) {
+    const auto write_epoch = laser_write_epoch_.load();
     folly::coro::co_invoke(
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-capturing-lambda-coroutines)
         [this,
          hashed_ids = std::move(hashed_ids),
          unhashed_ids = std::move(unhashed_ids),
          log_prefix,
+         write_epoch,
          fetchFn = std::move(fetchFn),
          prepareFn =
              std::move(prepareFn)]() mutable -> folly::coro::Task<void> {
@@ -1029,7 +1188,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             auto result = prepareFn(hashed_ids, unhashed_ids, payloads);
             if (result.has_value()) {
               set_kv_db_async_on_enrichment_executor(
-                  result->indices, result->weights, result->count)
+                  result->indices, result->weights, result->count, write_epoch)
                   .via(enrichment_executor_.get())
                   .thenValue([this, result](const std::vector<folly::Unit>&) {
                     // Stream enriched embeddings to TrainingPsProcess for
@@ -2125,6 +2284,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const int64_t start,
       const int64_t length) override {
     if (backend_return_whole_row_) {
+      auto pause_state = pause_for_stream_write();
+      SCOPE_EXIT {
+        resume_after_stream_write(pause_state);
+      };
       set_kv_with_metaheader_to_storage(weights);
     } else {
       const auto seq_indices = at::arange(
@@ -2163,6 +2326,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights)
       override {
     if (backend_return_whole_row_) {
+      auto pause_state = pause_for_stream_write();
+      SCOPE_EXIT {
+        resume_after_stream_write(pause_state);
+      };
       set_kv_with_metaheader_to_storage(weights);
     } else {
       const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
@@ -2323,25 +2490,39 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// Pause laser write operations (called before forward/backward)
   void pause_laser_write() {
     std::unique_lock<std::mutex> lock(laser_write_mutex_);
+    laser_paused_for_forward_ = true;
     laser_write_interrupt_.store(true);
   }
 
   /// Resume laser write operations (called after forward/backward)
   void resume_laser_write() {
     std::unique_lock<std::mutex> lock(laser_write_mutex_);
+    laser_paused_for_forward_ = false;
+    if (stream_laser_suspensions_ > 0) {
+      return;
+    }
     laser_write_interrupt_.store(false);
     laser_write_cv_.notify_all();
   }
 
   /// Wait until laser write is resumed if paused (like eviction pattern)
   /// Returns immediately if not interrupted, otherwise waits for resume
-  void wait_until_laser_write_resume() {
+  bool begin_laser_write(uint64_t write_epoch) {
     std::unique_lock<std::mutex> lock(laser_write_mutex_);
-    if (!laser_write_interrupt_.load()) {
-      return; // Not interrupted, continue immediately
-    }
     laser_write_cv_.wait(
         lock, [this] { return !laser_write_interrupt_.load(); });
+    if (laser_write_epoch_.load() != write_epoch) {
+      return false;
+    }
+    ++active_laser_writers_;
+    return true;
+  }
+
+  void end_laser_write() {
+    std::scoped_lock lock(laser_write_mutex_);
+    CHECK_GT(active_laser_writers_, 0);
+    --active_laser_writers_;
+    laser_write_cv_.notify_all();
   }
 
   /// Check if laser write is interrupted (used in inner loop)
@@ -3275,6 +3456,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::atomic<bool> laser_write_interrupt_{false};
   std::mutex laser_write_mutex_;
   std::condition_variable laser_write_cv_;
+  int64_t stream_laser_suspensions_{0};
+  bool laser_paused_for_forward_{false};
+  int64_t active_laser_writers_{0};
+  std::atomic<uint64_t> laser_write_epoch_{0};
 
   // Dedicated executor for enrichment (separate from main executor)
   std::unique_ptr<folly::CPUThreadPoolExecutor> enrichment_executor_;

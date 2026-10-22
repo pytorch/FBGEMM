@@ -8,12 +8,17 @@
 
 #pragma once
 
-#include <folly/MPMCQueue.h>
+#include <folly/ScopeGuard.h>
+#include <folly/Synchronized.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/logging/xlog.h>
+#include <condition_variable>
+#include <deque>
 #include <functional>
+#include <mutex>
+#include <shared_mutex>
 #include <thread>
 
 #include "dram_kv_embedding_cache.h"
@@ -23,6 +28,7 @@ namespace kv_db {
 /// A batch of dirty blocks evicted from DRAM, to be written to SSD.
 struct WriteBatchItem {
   std::vector<std::pair<int64_t, std::string>> blocks; // key -> serialized
+  int retry_count{0};
 };
 
 /// @ingroup KVMemEmbedding
@@ -59,10 +65,12 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
             /*ele_size_bytes=*/sizeof(weight_type)),
         dram_cache_(std::move(dram_cache)),
         rocksdb_backend_(std::move(rocksdb_backend)),
-        writeback_queue_(writeback_queue_size),
+        writeback_queue_size_(writeback_queue_size),
         writeback_batch_size_(writeback_batch_size),
         metaheader_dim_(
             kv_mem::FixedBlockPool::get_metaheader_dim<weight_type>()) {
+    TORCH_CHECK(
+        writeback_queue_size_ > 0, "writeback_queue_size must be positive");
     TORCH_CHECK(
         dram_cache_->get_backend_return_whole_row(),
         "DramSsdKVEmbeddingCache requires the DRAM cache to be constructed "
@@ -126,6 +134,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
+    const auto read_epoch = exclusive_write_epoch_.load();
     // Phase 1: DRAM lookup
     dram_cache_->get_kv_db_async(indices, weights, count).wait();
 
@@ -255,17 +264,66 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
       auto dram_cache = dram_cache_;
       folly::via(
           backfill_executor_.get(),
-          [dram_cache,
+          [this,
+           dram_cache,
+           read_epoch,
            bf_idx = std::move(bf_idx_tensor),
            bf_wts = std::move(bf_weights),
            bf_cnt = std::move(bf_count_tensor)]() {
+            std::shared_lock lock(writeback_pause_mutex_);
+            if (exclusive_write_epoch_.load() != read_epoch ||
+                read_epoch % 2 != 0) {
+              return;
+            }
             dram_cache->set_kv_db_async(bf_idx, bf_wts, bf_cnt).wait();
-            ;
           });
     }
 
     return folly::makeSemiFuture(std::vector<folly::Unit>());
   }
+
+  class ExclusiveWriteGuard {
+   public:
+    ExclusiveWriteGuard(
+        DramSsdKVEmbeddingCache& owner,
+        const char* failure_message)
+        : owner_(owner),
+          pause_state_(owner_.dram_cache_->pause_for_stream_write()),
+          failure_message_(failure_message) {
+      try {
+        pause_lock_ = std::unique_lock(owner_.writeback_pause_mutex_);
+        owner_.exclusive_write_epoch_.fetch_add(1);
+        owner_.pause_writeback_consumer();
+        consumer_paused_ = true;
+        TORCH_CHECK(
+            !owner_.writeback_failed_.load() && owner_.drain_writeback_queue(),
+            failure_message_);
+      } catch (...) {
+        if (consumer_paused_) {
+          owner_.resume_writeback_consumer();
+        }
+        if (pause_lock_.owns_lock()) {
+          owner_.exclusive_write_epoch_.fetch_add(1);
+        }
+        owner_.dram_cache_->resume_after_stream_write(pause_state_);
+        throw;
+      }
+    }
+
+    ~ExclusiveWriteGuard() {
+      owner_.exclusive_write_epoch_.fetch_add(1);
+      owner_.resume_writeback_consumer();
+      owner_.dram_cache_->resume_after_stream_write(pause_state_);
+    }
+
+   private:
+    DramSsdKVEmbeddingCache& owner_;
+    typename kv_mem::DramKVEmbeddingCache<weight_type>::StreamPauseState
+        pause_state_;
+    const char* failure_message_;
+    std::unique_lock<std::shared_mutex> pause_lock_;
+    bool consumer_paused_{false};
+  };
 
   /// Checkpoint restore writes directly to SSD, bypassing DRAM allocation.
   /// For KVZCH (backend_return_whole_row), the correct linearized IDs are
@@ -277,6 +335,8 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
       const at::Tensor& weights_with_metaheader,
       const int64_t /*start*/,
       const int64_t /*length*/) override {
+    ExclusiveWriteGuard guard(
+        *this, "complete-row restore failed to drain pending SSD writebacks");
     // Extract keys from the embedded IDs in the first 8 bytes of each row
     // (set by replace_weights_id in KVTensorWrapper::set_range).
     // Follows the same pattern as write_blocks_to_ssd().
@@ -293,12 +353,38 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
         indices, weights_with_metaheader, count));
   }
 
+  void set_kv_to_storage(
+      const at::Tensor& ids,
+      const at::Tensor& weights_with_metaheader) override {
+    ExclusiveWriteGuard guard(
+        *this, "complete-row write failed to drain pending SSD writebacks");
+    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+    rocksdb_backend_->set_kv_db_async(ids, weights_with_metaheader, count)
+        .get();
+    dram_cache_->set_kv_to_storage(ids, weights_with_metaheader);
+  }
+
   folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
       const RocksdbWriteMode w_mode =
           RocksdbWriteMode::FWD_ROCKSDB_READ) override {
+    if (w_mode == RocksdbWriteMode::STREAM) {
+      ExclusiveWriteGuard guard(
+          *this, "STREAM write failed to drain pending SSD writebacks");
+      auto metadata = build_stream_metadata(indices, count);
+      dram_cache_
+          ->set_kv_db_async_with_metadata(
+              indices,
+              weights,
+              metadata,
+              count,
+              w_mode,
+              /*manage_pause=*/false)
+          .get();
+      return folly::makeSemiFuture(std::vector<folly::Unit>());
+    }
     return dram_cache_->set_kv_db_async(indices, weights, count, w_mode);
   }
 
@@ -485,6 +571,9 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
   /// dirty bit. SSD backfill paths skip set_dirty since SSD already
   /// has the data.
   void flush() {
+    ExclusiveWriteGuard guard(
+        *this,
+        "DramSsdKVEmbeddingCache flush failed to drain pending writebacks");
     auto flush_start_us = facebook::WallClockUtil::NowInUsecFast();
     int64_t num_shards = dram_cache_->get_num_shards();
     auto& kv_store = dram_cache_->get_kv_store();
@@ -506,6 +595,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     // writes.
     // After dirty blocks, also flush ALL metadata for this shard to SSD.
     std::atomic<int64_t> total_metadata_keys{0};
+    std::atomic<bool> flush_succeeded{true};
     std::vector<std::thread> workers;
     workers.reserve(num_shards);
     for (int64_t shard_id = 0; shard_id < num_shards; ++shard_id) {
@@ -518,6 +608,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
                             &shard_metadata_read_us,
                             &shard_metadata_write_us,
                             &shard_total_keys,
+                            &flush_succeeded,
                             shard_id,
                             block_size]() {
         ShardData shard;
@@ -527,18 +618,17 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
           auto rlock_start = facebook::WallClockUtil::NowInUsecFast();
           auto rlmap = kv_store.by(shard_id).rlock();
           auto* pool = kv_store.pool_by(shard_id);
-          shard.keys.reserve(rlmap->size());
-          shard.blocks.reserve(rlmap->size());
+          shard.item.blocks.reserve(rlmap->size());
           non_dirty_keys.reserve(rlmap->size());
           non_dirty_metadata.reserve(rlmap->size() * metaheader_dim_);
           auto metadata_snapshot_start =
               facebook::WallClockUtil::NowInUsecFast();
           for (auto& [key, block] : *rlmap) {
             if (pool->get_dirty(block)) {
-              shard.keys.push_back(key);
-              shard.blocks.emplace_back(
-                  reinterpret_cast<const char*>(block), block_size);
-              pool->clear_dirty(block);
+              shard.item.blocks.emplace_back(
+                  key,
+                  std::string(
+                      reinterpret_cast<const char*>(block), block_size));
             } else {
               non_dirty_keys.push_back(key);
               const auto metadata_offset = non_dirty_metadata.size();
@@ -555,12 +645,25 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
           shard_rlock_us[shard_id] =
               facebook::WallClockUtil::NowInUsecFast() - rlock_start;
         }
-        shard_total_keys[shard_id] =
-            static_cast<int64_t>(shard.keys.size() + non_dirty_keys.size());
-        shard_entry_counts[shard_id] = shard.keys.size();
-        if (!shard.keys.empty()) {
+        shard_total_keys[shard_id] = static_cast<int64_t>(
+            shard.item.blocks.size() + non_dirty_keys.size());
+        shard_entry_counts[shard_id] = shard.item.blocks.size();
+        if (!shard.item.blocks.empty()) {
           auto write_start = facebook::WallClockUtil::NowInUsecFast();
-          write_blocks_to_ssd(shard.keys, shard.blocks);
+          if (write_blocks_to_ssd(shard.item)) {
+            auto rlmap = kv_store.by(shard_id).rlock();
+            auto* pool = kv_store.pool_by(shard_id);
+            for (const auto& [key, serialized_block] : shard.item.blocks) {
+              auto it = rlmap->find(key);
+              if (it != rlmap->end() &&
+                  std::memcmp(
+                      it->second, serialized_block.data(), block_size) == 0) {
+                pool->clear_dirty(it->second);
+              }
+            }
+          } else {
+            flush_succeeded.store(false);
+          }
           shard_dirty_write_us[shard_id] =
               facebook::WallClockUtil::NowInUsecFast() - write_start;
         }
@@ -578,26 +681,36 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
           if (after_metadata_snapshot_hook_for_testing_) {
             after_metadata_snapshot_hook_for_testing_(shard_id);
           }
-          auto num_keys = static_cast<int64_t>(non_dirty_keys.size());
-          auto indices = at::from_blob(
-                             non_dirty_keys.data(),
-                             {num_keys},
-                             at::TensorOptions().dtype(at::kLong))
-                             .clone();
-          auto count = at::tensor({num_keys}, at::ScalarType::Long);
-          auto metadata = at::from_blob(
-                              non_dirty_metadata.data(),
-                              {num_keys, metaheader_dim_},
-                              at::TensorOptions().dtype(
-                                  c10::CppTypeToScalarType<weight_type>::value))
-                              .clone();
+          try {
+            auto num_keys = static_cast<int64_t>(non_dirty_keys.size());
+            auto indices = at::from_blob(
+                               non_dirty_keys.data(),
+                               {num_keys},
+                               at::TensorOptions().dtype(at::kLong))
+                               .clone();
+            auto count = at::tensor({num_keys}, at::ScalarType::Long);
+            auto metadata =
+                at::from_blob(
+                    non_dirty_metadata.data(),
+                    {num_keys, metaheader_dim_},
+                    at::TensorOptions().dtype(
+                        c10::CppTypeToScalarType<weight_type>::value))
+                    .clone();
 
-          auto md_write_start = facebook::WallClockUtil::NowInUsecFast();
-          rocksdb_backend_->set_kv_metadata_async(indices, metadata, count)
-              .wait();
-          shard_metadata_write_us[shard_id] =
-              facebook::WallClockUtil::NowInUsecFast() - md_write_start;
-          total_metadata_keys.fetch_add(num_keys);
+            auto md_write_start = facebook::WallClockUtil::NowInUsecFast();
+            rocksdb_backend_->set_kv_metadata_async(indices, metadata, count)
+                .wait();
+            shard_metadata_write_us[shard_id] =
+                facebook::WallClockUtil::NowInUsecFast() - md_write_start;
+            total_metadata_keys.fetch_add(num_keys);
+          } catch (const std::exception& e) {
+            XLOG(ERR) << "[DramSsdKVEmbeddingCache] metadata flush failed: "
+                      << e.what();
+            flush_succeeded.store(false);
+          } catch (...) {
+            XLOG(ERR) << "[DramSsdKVEmbeddingCache] metadata flush failed";
+            flush_succeeded.store(false);
+          }
         }
       });
     }
@@ -637,12 +750,17 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
 
     // Drain the writeback queue
     auto drain_start_us = facebook::WallClockUtil::NowInUsecFast();
-    drain_writeback_queue();
+    if (!drain_writeback_queue()) {
+      flush_succeeded.store(false);
+    }
     auto drain_us = facebook::WallClockUtil::NowInUsecFast() - drain_start_us;
     auto total_us = facebook::WallClockUtil::NowInUsecFast() - flush_start_us;
     LOG(INFO) << "[DramSsdKVEmbeddingCache] flush() done"
               << " drain_writeback_ms=" << drain_us / 1000.0
               << " total_flush_ms=" << total_us / 1000.0;
+    TORCH_CHECK(
+        flush_succeeded.load(),
+        "DramSsdKVEmbeddingCache flush failed to persist all dirty rows");
   }
 
   // --- Writeback thread management ---
@@ -660,7 +778,19 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     if (!writeback_running_.load()) {
       return;
     }
-    writeback_running_.store(false);
+    std::scoped_lock pause_lock(writeback_pause_mutex_);
+    pause_writeback_consumer();
+    {
+      auto state = writeback_state_.lock();
+      writeback_running_.store(false);
+    }
+    writeback_cv_.notify_all();
+    if (!drain_writeback_queue()) {
+      auto state = writeback_state_.lock();
+      XLOG(ERR) << "[DramSsdKVEmbeddingCache] shutdown could not persist "
+                << state->pending.size() << " queued writeback batches";
+    }
+    resume_writeback_consumer();
     if (writeback_thread_ && writeback_thread_->joinable()) {
       writeback_thread_->join();
     }
@@ -690,53 +820,167 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     // No-op; flush is explicit via flush() method
   }
 
-  /// Enqueue a batch of dirty evicted blocks for async SSD writeback.
-  /// Non-blocking: if queue is full, log a warning instead of blocking
-  /// eviction.
-  void enqueue_writeback(WriteBatchItem item) {
-    if (!writeback_queue_.write(std::move(item))) {
-      XLOG_EVERY_MS(WARNING, 60000)
-          << "[DramSsdKVEmbeddingCache] Writeback queue full, "
-          << "dropping evicted dirty blocks. Consider increasing queue size.";
+  at::Tensor build_stream_metadata(
+      const at::Tensor& indices,
+      const at::Tensor& count) {
+    auto metadata = at::zeros(
+        {indices.size(0), metaheader_dim_},
+        at::TensorOptions().dtype(
+            c10::CppTypeToScalarType<weight_type>::value));
+    auto missing_positions =
+        at::nonzero(dram_cache_->get_missing_mask(indices, count)).view(-1);
+    if (missing_positions.numel() == 0) {
+      return metadata;
     }
+    auto missing_indices = indices.index_select(0, missing_positions);
+    auto missing_count =
+        at::tensor({missing_indices.size(0)}, at::ScalarType::Long);
+    auto [eviction_metadata, metadata_found] =
+        rocksdb_backend_
+            ->get_kv_zch_eviction_metadata_and_found_mask_by_snapshot(
+                missing_indices,
+                missing_count,
+                /*snapshot_handle=*/
+                nullptr);
+    TORCH_CHECK(
+        eviction_metadata.scalar_type() == at::kLong &&
+            eviction_metadata.is_contiguous() &&
+            eviction_metadata.numel() == missing_positions.numel(),
+        "SSD eviction metadata must be a contiguous int64 tensor with one "
+        "element per missing DRAM row");
+    TORCH_CHECK(
+        metadata_found.scalar_type() == at::kBool &&
+            metadata_found.is_contiguous() &&
+            metadata_found.numel() == missing_positions.numel(),
+        "SSD metadata found mask must be a contiguous bool tensor with one "
+        "element per missing DRAM row");
+    auto* metadata_bytes =
+        reinterpret_cast<char*>(metadata.template data_ptr<weight_type>());
+    const auto* eviction_metadata_ptr =
+        eviction_metadata.template const_data_ptr<int64_t>();
+    const auto* missing_positions_ptr =
+        missing_positions.template const_data_ptr<int64_t>();
+    const auto* metadata_found_ptr =
+        metadata_found.template const_data_ptr<bool>();
+    const auto metadata_bytes_per_row = metaheader_dim_ * sizeof(weight_type);
+    for (int64_t i = 0; i < missing_positions.size(0); ++i) {
+      if (!metadata_found_ptr[i]) {
+        continue;
+      }
+      auto* row_metadata =
+          metadata_bytes + missing_positions_ptr[i] * metadata_bytes_per_row;
+      std::memcpy(
+          row_metadata + sizeof(int64_t),
+          eviction_metadata_ptr + i,
+          sizeof(int64_t));
+      kv_mem::FixedBlockPool::set_used(row_metadata, true);
+    }
+    return metadata;
+  }
+
+  void pause_writeback_consumer() {
+    auto state = writeback_state_.lock();
+    state->flush_in_progress = true;
+    writeback_cv_.notify_all();
+    writeback_cv_.wait(
+        state.as_lock(), [&state] { return !state->write_in_flight; });
+  }
+
+  void resume_writeback_consumer() {
+    {
+      auto state = writeback_state_.lock();
+      state->flush_in_progress = false;
+    }
+    writeback_cv_.notify_all();
+  }
+
+  /// Enqueue a batch of dirty evicted blocks for async SSD writeback.
+  void enqueue_writeback(WriteBatchItem item) {
+    auto state = writeback_state_.lock();
+    writeback_cv_.wait(state.as_lock(), [this, &state] {
+      return !writeback_running_.load() || state->flush_in_progress ||
+          state->pending.size() < writeback_queue_size_;
+    });
+    if (!writeback_running_.load()) {
+      writeback_failed_.store(true);
+      XLOG(ERR) << "[DramSsdKVEmbeddingCache] dropping eviction writeback "
+                   "because the consumer is stopped";
+      return;
+    }
+    state->pending.push_back(std::move(item));
+    state.unlock();
+    writeback_cv_.notify_all();
   }
 
   /// Background writeback loop: consume from queue, write to SSD in batches.
   void writeback_loop() {
-    while (writeback_running_.load()) {
+    while (true) {
       WriteBatchItem item;
-      auto deadline =
-          std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
-      if (writeback_queue_.tryReadUntil(deadline, item)) {
-        if (!item.blocks.empty()) {
-          std::vector<int64_t> keys;
-          std::vector<std::string> blocks;
-          keys.reserve(item.blocks.size());
-          blocks.reserve(item.blocks.size());
-          for (auto& [key, data] : item.blocks) {
-            keys.push_back(key);
-            blocks.push_back(std::move(data));
-          }
-          write_blocks_to_ssd(keys, blocks);
+      {
+        auto state = writeback_state_.lock();
+        writeback_cv_.wait(state.as_lock(), [this, &state] {
+          return !writeback_running_.load() ||
+              (!state->flush_in_progress && !state->pending.empty());
+        });
+        if (!writeback_running_.load()) {
+          return;
         }
+        item = std::move(state->pending.front());
+        state->pending.pop_front();
+        state->write_in_flight = true;
+      }
+      writeback_cv_.notify_all();
+      const bool success = write_blocks_to_ssd(item);
+      {
+        auto state = writeback_state_.lock();
+        state->write_in_flight = false;
+        if (!success) {
+          if (++item.retry_count <= kMaxWritebackRetries) {
+            state->pending.push_front(std::move(item));
+          } else {
+            writeback_failed_.store(true);
+            XLOG(ERR) << "[DramSsdKVEmbeddingCache] dropping an SSD writeback "
+                         "batch after "
+                      << kMaxWritebackRetries << " retries";
+          }
+        }
+      }
+      writeback_cv_.notify_all();
+      if (!success) {
+        auto state = writeback_state_.lock();
+        writeback_cv_.wait_for(
+            state.as_lock(), std::chrono::milliseconds(100), [this, &state] {
+              return !writeback_running_.load() || state->flush_in_progress;
+            });
       }
     }
   }
 
   /// Drain all remaining items in the writeback queue.
-  void drain_writeback_queue() {
-    WriteBatchItem item;
-    while (writeback_queue_.read(item)) {
-      if (!item.blocks.empty()) {
-        std::vector<int64_t> keys;
-        std::vector<std::string> blocks;
-        keys.reserve(item.blocks.size());
-        blocks.reserve(item.blocks.size());
-        for (auto& [key, data] : item.blocks) {
-          keys.push_back(key);
-          blocks.push_back(std::move(data));
+  bool drain_writeback_queue() {
+    while (true) {
+      WriteBatchItem item;
+      {
+        auto state = writeback_state_.lock();
+        if (state->pending.empty()) {
+          writeback_cv_.notify_all();
+          return true;
         }
-        write_blocks_to_ssd(keys, blocks);
+        item = std::move(state->pending.front());
+        state->pending.pop_front();
+      }
+      writeback_cv_.notify_all();
+      item.retry_count = 0;
+      while (!write_blocks_to_ssd(item)) {
+        if (++item.retry_count > kMaxWritebackRetries) {
+          {
+            auto state = writeback_state_.lock();
+            state->pending.push_front(std::move(item));
+          }
+          writeback_cv_.notify_all();
+          return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
     }
   }
@@ -744,24 +988,22 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
   /// Write serialized blocks to SSD via rocksdb_backend_->set_kv_db_async().
   /// Writes the FULL DRAM block (MetaHeader + weight + optimizer) so that
   /// checkpoint can read the complete row including eviction metadata.
-  void write_blocks_to_ssd(
-      const std::vector<int64_t>& keys,
-      const std::vector<std::string>& serialized_blocks) {
-    if (keys.empty()) {
-      return;
+  bool write_blocks_to_ssd(const WriteBatchItem& item) {
+    if (item.blocks.empty()) {
+      return true;
     }
 
     // Track SSD writes
-    ssd_num_writes_.fetch_add(keys.size(), std::memory_order_relaxed);
+    ssd_num_writes_.fetch_add(item.blocks.size(), std::memory_order_relaxed);
     XLOG_EVERY_MS(INFO, 30000)
         << "[DramSsdKVEmbeddingCache] write_blocks_to_ssd: writing "
-        << keys.size() << " blocks, total_writes="
+        << item.blocks.size() << " blocks, total_writes="
         << ssd_num_writes_.load(std::memory_order_relaxed);
 
     int64_t max_D = dram_cache_->get_max_D();
     // Total SSD row width: MetaHeader (as weight_type elements) + data
     int64_t total_width = metaheader_dim_ + max_D;
-    int64_t num_keys = static_cast<int64_t>(keys.size());
+    int64_t num_keys = static_cast<int64_t>(item.blocks.size());
 
     // Process in batches of writeback_batch_size_
     for (int64_t offset = 0; offset < num_keys;
@@ -780,11 +1022,11 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
 
       for (int64_t i = 0; i < batch_size; ++i) {
         int64_t global_idx = offset + i;
-        idx_ptr[i] = keys[global_idx];
+        idx_ptr[i] = item.blocks[global_idx].first;
 
         // Copy the full DRAM block (MetaHeader + weight + optimizer),
         // treating MetaHeader bytes as weight_type elements.
-        const auto& block_data = serialized_blocks[global_idx];
+        const auto& block_data = item.blocks[global_idx].second;
         const auto* block_start =
             reinterpret_cast<const weight_type*>(block_data.data());
         int64_t copy_len = std::min(
@@ -795,28 +1037,46 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
 
       auto count = at::tensor({batch_size}, at::ScalarType::Long);
       try {
-        rocksdb_backend_->set_kv_db_async(indices, weights, count).wait();
+        rocksdb_backend_->set_kv_db_async(indices, weights, count).get();
       } catch (const std::exception& e) {
         XLOG_EVERY_MS(WARNING, 60000)
             << "[DramSsdKVEmbeddingCache] SSD write failed: " << e.what();
+        return false;
+      } catch (...) {
+        XLOG_EVERY_MS(WARNING, 60000)
+            << "[DramSsdKVEmbeddingCache] SSD write failed";
+        return false;
       }
     }
     cached_ssd_num_keys_.store(rocksdb_backend_->get_estimated_num_keys());
+    return true;
   }
 
   struct ShardData {
-    std::vector<int64_t> keys;
-    std::vector<std::string> blocks;
+    WriteBatchItem item;
+  };
+
+  struct WritebackState {
+    std::deque<WriteBatchItem> pending;
+    bool write_in_flight{false};
+    bool flush_in_progress{false};
   };
 
   std::shared_ptr<kv_mem::DramKVEmbeddingCache<weight_type>> dram_cache_;
   std::shared_ptr<EmbeddingKVDB> rocksdb_backend_;
 
   // Writeback queue: evicted dirty blocks -> SSD
-  folly::MPMCQueue<WriteBatchItem> writeback_queue_;
+  folly::Synchronized<WritebackState, std::mutex> writeback_state_;
+  std::condition_variable writeback_cv_;
+  std::shared_mutex writeback_pause_mutex_;
   std::unique_ptr<std::thread> writeback_thread_;
   std::atomic<bool> writeback_running_{false};
+  std::atomic<bool> writeback_failed_{false};
+  std::atomic<uint64_t> exclusive_write_epoch_{0};
 
+  static constexpr int kMaxWritebackRetries = 3;
+
+  int64_t writeback_queue_size_;
   int64_t writeback_batch_size_;
 
   // MetaHeader width in weight_type elements
