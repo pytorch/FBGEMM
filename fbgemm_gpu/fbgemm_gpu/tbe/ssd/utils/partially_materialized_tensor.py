@@ -32,7 +32,12 @@ class PartiallyMaterializedTensor:
     or use `full_tensor()` to get the full tensor (this could OOM).
     """
 
-    def __init__(self, wrapped, is_virtual: bool = False) -> None:
+    def __init__(
+        self,
+        wrapped,
+        is_virtual: bool = False,
+        includes_metadata: bool = False,
+    ) -> None:
         """
         Ensure caller loads the module before creating this object.
 
@@ -48,6 +53,7 @@ class PartiallyMaterializedTensor:
         """
         self._wrapped = wrapped
         self._is_virtual = is_virtual
+        self._includes_metadata = includes_metadata
         self._requires_grad = False
 
     @property
@@ -87,7 +93,10 @@ class PartiallyMaterializedTensor:
         return self._wrapped.narrow(dim, start, length)
 
     def set_weights_and_ids(self, weights: torch.Tensor, ids: torch.Tensor) -> None:
-        self._wrapped.set_weights_and_ids(weights, ids)
+        if self._includes_metadata:
+            self._wrapped.set_prefixed_weights_and_ids(weights, ids)
+        else:
+            self._wrapped.set_weights_and_ids(weights, ids)
 
     def get_weights_by_ids(self, ids: torch.Tensor) -> torch.Tensor:
         return self._wrapped.get_weights_by_ids(ids)
@@ -95,7 +104,7 @@ class PartiallyMaterializedTensor:
     def __reduce__(self):
         return (
             PartiallyMaterializedTensor,
-            (self._wrapped,),
+            (self._wrapped, self._is_virtual, self._includes_metadata),
         )
 
     def full_tensor(self) -> torch.Tensor:
@@ -230,7 +239,9 @@ class PartiallyMaterializedTensor:
 
     def __deepcopy__(self, memo):
         # torch.classes.fbgemm.KVTensorWrapper doesn't support deepcopy
-        new_obj = PartiallyMaterializedTensor(self._wrapped)
+        new_obj = PartiallyMaterializedTensor(
+            self._wrapped, self._is_virtual, self._includes_metadata
+        )
         memo[id(self)] = new_obj
         return new_obj
 
