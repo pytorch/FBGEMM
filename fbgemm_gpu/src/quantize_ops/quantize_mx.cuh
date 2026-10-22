@@ -106,135 +106,148 @@ __global__ void quantize_float_to_mx4_kernel(
     pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const uint32_t num_warps_in_group,
     const uint32_t smem_stride) {
-  const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
-  const auto linear_tid = linear_group_id * group_size + threadIdx.x;
-  // Do NOT early-return for out-of-range threads: every thread in the block
-  // must reach the __syncthreads() barriers below, otherwise the block
-  // deadlocks on ROCm/AMD. Mask per-thread work with `active` instead.
-  const bool active = linear_tid < total_elems;
+#ifdef USE_ROCM
+  const auto num_groups = total_elems / group_size;
+  const auto num_blocks =
+      (num_groups + static_cast<uint32_t>(blockDim.y) - 1) / blockDim.y;
+  for (uint64_t virtual_block_id = blockIdx.x; virtual_block_id < num_blocks;
+       virtual_block_id += gridDim.x) {
+    const auto linear_group_id = virtual_block_id * blockDim.y + threadIdx.y;
+#else
+  const auto linear_group_id = blockIdx.x * blockDim.y + threadIdx.y;
+#endif
+    const auto linear_tid = linear_group_id * group_size + threadIdx.x;
+    // Do NOT early-return for out-of-range threads: every thread in the block
+    // must reach the __syncthreads() barriers below, otherwise the block
+    // deadlocks on ROCm/AMD. Mask per-thread work with `active` instead.
+    const bool active = linear_tid < total_elems;
 
-  // MX4 values
-  constexpr int scale_bits = 8;
-  constexpr int elem_emax = 2;
+    // MX4 values
+    constexpr int scale_bits = 8;
+    constexpr int elem_emax = 2;
 
-  const T elem = active ? input[linear_tid] : T(0);
+    const T elem = active ? input[linear_tid] : T(0);
 
-  extern __shared__ __align__(16) float smem[];
-  const uint32_t group_offset_in_block = threadIdx.y * smem_stride;
-  // set smem base address for each group
-  int* smem_base = reinterpret_cast<int*>(smem + group_offset_in_block);
+    extern __shared__ __align__(16) float smem[];
+    const uint32_t group_offset_in_block = threadIdx.y * smem_stride;
+    // set smem base address for each group
+    int* smem_base = reinterpret_cast<int*>(smem + group_offset_in_block);
 
-  // // allreduce to get the max value in each group size
-  // Inactive threads contribute the minimum biased exponent (0) so they do not
-  // perturb the max reductions below.
-  int shared_exp = active ? get_biased_exponent(elem) : 0;
+    // // allreduce to get the max value in each group size
+    // Inactive threads contribute the minimum biased exponent (0) so they do
+    // not perturb the max reductions below.
+    int shared_exp = active ? get_biased_exponent(elem) : 0;
 
-  const uint32_t half_group_size = group_size / 2;
+    const uint32_t half_group_size = group_size / 2;
 
-  // find max shared_exp for each warp
-  for (uint32_t mask = half_group_size; mask > 0; mask /= 2) {
-    int temp_shared_exp = fbgemm_gpu::shfl_xor(shared_exp, mask);
-    shared_exp = max(temp_shared_exp, shared_exp);
-  }
-
-  // find max shared_exp between warps in the group
-  if (has_multiple_warps_in_group) {
-    const uint32_t rep_tid = threadIdx.x / 32;
-    const bool is_rep_tid = (threadIdx.x % 32 == 0);
-    // put the max shared exp of each warp in shared memory
-    if (is_rep_tid) {
-      smem_base[rep_tid] = shared_exp;
-    }
-    __syncthreads();
-
-    // find max shared_exp across warps in the group
-    // let thread `i` store max shared_exp of warp `i`
-    if (threadIdx.x < num_warps_in_group) {
-      shared_exp = smem_base[threadIdx.x];
-    }
-    fbgemm_gpu::syncwarp();
-    // find max shared_exp
-    for (uint32_t s = num_warps_in_group; s > 0; s /= 2) {
-      int temp_shared_exp = fbgemm_gpu::shfl_xor(shared_exp, s);
+    // find max shared_exp for each warp
+    for (uint32_t mask = half_group_size; mask > 0; mask /= 2) {
+      int temp_shared_exp = fbgemm_gpu::shfl_xor(shared_exp, mask);
       shared_exp = max(temp_shared_exp, shared_exp);
     }
 
-    // strore shared_exp in shared_mem
-    if (threadIdx.x == 0) {
-      *smem_base = shared_exp;
+    // find max shared_exp between warps in the group
+    if (has_multiple_warps_in_group) {
+      const uint32_t rep_tid = threadIdx.x / 32;
+      const bool is_rep_tid = (threadIdx.x % 32 == 0);
+      // put the max shared exp of each warp in shared memory
+      if (is_rep_tid) {
+        smem_base[rep_tid] = shared_exp;
+      }
+      __syncthreads();
+
+      // find max shared_exp across warps in the group
+      // let thread `i` store max shared_exp of warp `i`
+      if (threadIdx.x < num_warps_in_group) {
+        shared_exp = smem_base[threadIdx.x];
+      }
+      fbgemm_gpu::syncwarp();
+      // find max shared_exp
+      for (uint32_t s = num_warps_in_group; s > 0; s /= 2) {
+        int temp_shared_exp = fbgemm_gpu::shfl_xor(shared_exp, s);
+        shared_exp = max(temp_shared_exp, shared_exp);
+      }
+
+      // strore shared_exp in shared_mem
+      if (threadIdx.x == 0) {
+        *smem_base = shared_exp;
+      }
+      __syncthreads();
+
+      // representative thread in each warp in the group reads the max
+      // shared_memory
+      if (is_rep_tid) {
+        shared_exp = *smem_base;
+      }
+      // broadcast max shared_exp to every thread
+      shared_exp =
+          fbgemm_gpu::shfl_sync(shared_exp, 0, WARP_SIZE, FULL_WARP_MASK);
+    }
+
+    // Offset shared exponent by elem_emax, preserve NaNs
+    shared_exp =
+        (shared_exp != FLOAT32_EXP_MAX) ? shared_exp - elem_emax : shared_exp;
+
+    // Clamp to scale_bits range
+    const uint8_t clamped_shared_exp = clamp_shared_exp(shared_exp, scale_bits);
+
+    // TODO: Update flush_fp32_subnorms to be template argument
+    // const bool flush_tile = (shared_exp == 0 && flush_fp32_subnorms);
+
+    // Divided by 2^shared_exp
+    // const T scaled_in = flush_tile
+    //     ? 0
+    //     : scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
+    const T scaled_in =
+        scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
+
+    // convert to FP4 -> there is 16 possible values
+    // bit pattern of the uint8 result is `0000 xxxx`
+    const uint8_t quantized_val = quantize_elemwise_mx4(scaled_in);
+
+    // Store 2 `quantized_val` in one uint8
+    // let even threads store their 4-bit quantized_val on the left (position
+    // 4-7) and odd threads store on right (position 0-3)
+    uint8_t* stored_8bit =
+        reinterpret_cast<uint8_t*>(smem_base) + (threadIdx.x / 2);
+    const auto is_even_tid = threadIdx.x % 2 == 0;
+
+    // even thread work on the left side
+    if (active && is_even_tid) {
+      // the 4 bits are on the rightmost, need to shift 4 bit
+      // this becomes `xxxx 0000`
+      *stored_8bit = (quantized_val << 4);
     }
     __syncthreads();
 
-    // representative thread in each warp in the group reads the max
-    // shared_memory
-    if (is_rep_tid) {
-      shared_exp = *smem_base;
+    // odd threads work on the right side (position 0-3)
+    if (active && !is_even_tid) {
+      // 4 bits are already on the rightmost, so just `bitwise OR` to combine
+      *stored_8bit |= quantized_val;
     }
-    // broadcast max shared_exp to every thread
-    shared_exp =
-        fbgemm_gpu::shfl_sync(shared_exp, 0, WARP_SIZE, FULL_WARP_MASK);
-  }
+    __syncthreads();
 
-  // Offset shared exponent by elem_emax, preserve NaNs
-  shared_exp =
-      (shared_exp != FLOAT32_EXP_MAX) ? shared_exp - elem_emax : shared_exp;
+    // Let each thread write 1 byte of output data
+    if (active && threadIdx.x < half_group_size) {
+      // write data output using uint8_t (1 bytes)
 
-  // Clamp to scale_bits range
-  const uint8_t clamped_shared_exp = clamp_shared_exp(shared_exp, scale_bits);
+      uint8_t* smem_ptr = reinterpret_cast<uint8_t*>(smem_base);
+      const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
+      uint8_t* output_base = &output[start_output_idx];
 
-  // TODO: Update flush_fp32_subnorms to be template argument
-  // const bool flush_tile = (shared_exp == 0 && flush_fp32_subnorms);
+      output_base[threadIdx.x] = smem_ptr[threadIdx.x];
 
-  // Divided by 2^shared_exp
-  // const T scaled_in = flush_tile
-  //     ? 0
-  //     : scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
-  const T scaled_in =
-      scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
-
-  // convert to FP4 -> there is 16 possible values
-  // bit pattern of the uint8 result is `0000 xxxx`
-  const uint8_t quantized_val = quantize_elemwise_mx4(scaled_in);
-
-  // Store 2 `quantized_val` in one uint8
-  // let even threads store their 4-bit quantized_val on the left (position 4-7)
-  // and odd threads store on right (position 0-3)
-  uint8_t* stored_8bit =
-      reinterpret_cast<uint8_t*>(smem_base) + (threadIdx.x / 2);
-  const auto is_even_tid = threadIdx.x % 2 == 0;
-
-  // even thread work on the left side
-  if (active && is_even_tid) {
-    // the 4 bits are on the rightmost, need to shift 4 bit
-    // this becomes `xxxx 0000`
-    *stored_8bit = (quantized_val << 4);
-  }
-  __syncthreads();
-
-  // odd threads work on the right side (position 0-3)
-  if (active && !is_even_tid) {
-    // 4 bits are already on the rightmost, so just `bitwise OR` to combine
-    *stored_8bit |= quantized_val;
-  }
-  __syncthreads();
-
-  // Let each thread write 1 byte of output data
-  if (active && threadIdx.x < half_group_size) {
-    // write data output using uint8_t (1 bytes)
-
-    uint8_t* smem_ptr = reinterpret_cast<uint8_t*>(smem_base);
-    const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
-    uint8_t* output_base = &output[start_output_idx];
-
-    output_base[threadIdx.x] = smem_ptr[threadIdx.x];
-
-    // write share exp
-    if (threadIdx.x == 0) {
-      // shared_exp_idx is stored after data
-      // need to offset with start_output + output data
-      output_base[half_group_size] = clamped_shared_exp;
+      // write share exp
+      if (threadIdx.x == 0) {
+        // shared_exp_idx is stored after data
+        // need to offset with start_output + output data
+        output_base[half_group_size] = clamped_shared_exp;
+      }
     }
-  }
+#ifdef USE_ROCM
+    __syncthreads();
+  } // for virtual_block_id
+#endif
 }
 
 //-----------------------------------------------------------------------
