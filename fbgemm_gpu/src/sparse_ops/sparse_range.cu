@@ -35,7 +35,18 @@ std::tuple<uint32_t, uint32_t, uint32_t> calc_offsets_range_thread_block(
     vector_size = 32;
   }
   uint32_t rows_per_block = threads_per_block / vector_size;
-  const auto num_blocks = cuda_calc_xblock_count(num_seq, rows_per_block);
+  // The last row ends at output_size, which callers often pad to a static
+  // upper bound, and the kernel fills it grid-wide. When the row count gives
+  // too few blocks for that fill, grow the grid to one full wave (no more:
+  // the fill grid-strides, and extra near-empty blocks only add overhead).
+  const auto* props = at::cuda::getCurrentDeviceProperties();
+  const auto one_wave = static_cast<uint32_t>(
+      props->multiProcessorCount *
+      (props->maxThreadsPerMultiProcessor / threads_per_block));
+  const auto num_blocks = std::max(
+      cuda_calc_xblock_count(num_seq, rows_per_block),
+      std::min(
+          cuda_calc_xblock_count(output_size, threads_per_block), one_wave));
 
   return std::make_tuple(num_blocks, rows_per_block, vector_size);
 }
@@ -49,10 +60,9 @@ __global__ __launch_bounds__(kMaxThreads) void _offsets_range_cuda_kernel(
     scalar_t* __restrict__ range_data) {
   auto start_row_idx = blockIdx.x * blockDim.y + threadIdx.y;
   const auto stride = gridDim.x * blockDim.y;
-  for (int row_idx = start_row_idx; row_idx < N; row_idx += stride) {
+  for (int row_idx = start_row_idx; row_idx < N - 1; row_idx += stride) {
     scalar_t row_start = offsets_data[row_idx];
-    scalar_t row_end =
-        (row_idx < N - 1 ? offsets_data[row_idx + 1] : range_size);
+    scalar_t row_end = offsets_data[row_idx + 1];
     if (blockDim.x == 32) {
       scalar_t i = row_start - (row_start & 31) + threadIdx.x;
       // unaligned part
@@ -67,6 +77,20 @@ __global__ __launch_bounds__(kMaxThreads) void _offsets_range_cuda_kernel(
       for (scalar_t i = row_start + threadIdx.x; i < row_end; i += blockDim.x) {
         range_data[i] = i - row_start;
       }
+    }
+  }
+
+  // The last row ends at range_size, which callers often pad to a static upper
+  // bound, making it nearly the whole output; spread it across the grid.
+  if (N > 0) {
+    const scalar_t last_start = offsets_data[N - 1];
+    const int64_t num_threads =
+        static_cast<int64_t>(gridDim.x) * blockDim.y * blockDim.x;
+    const int64_t thread_idx =
+        static_cast<int64_t>(start_row_idx) * blockDim.x + threadIdx.x;
+    for (int64_t i = last_start + thread_idx; i < range_size;
+         i += num_threads) {
+      range_data[i] = static_cast<scalar_t>(i - last_start);
     }
   }
 }

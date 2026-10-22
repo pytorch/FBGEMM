@@ -89,6 +89,33 @@ class MiscOpsTest(unittest.TestCase):
             range_ref = range_ref.to(range_gpu.dtype)
             torch.testing.assert_close(range_gpu.cpu(), range_ref, rtol=0, atol=0)
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        N=st.sampled_from([1, 128, 3072]),
+        max_length=st.sampled_from([1, 64, 1536]),
+        offsets_type=st.sampled_from([torch.int32, torch.int64]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_offsets_range_padded_range_size(
+        self,
+        N: int,
+        max_length: int,
+        offsets_type: "type[torch.int32] | type[torch.int64]",
+    ) -> None:
+        # Complete-cumsum offsets with range_size padded to N * max_length, as
+        # exported models produce: the trailing segment covers the padding.
+        lengths = torch.randint(0, max_length + 1, (N,))
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths).to(
+            offsets_type
+        )
+        range_size = N * max_length
+
+        range_cpu = torch.ops.fbgemm.offsets_range(offsets, range_size)
+        range_gpu = torch.ops.fbgemm.offsets_range(
+            offsets.to(torch.accelerator.current_accelerator()), range_size
+        )
+        torch.testing.assert_close(range_gpu.cpu(), range_cpu, rtol=0, atol=0)
+
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
