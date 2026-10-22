@@ -643,7 +643,8 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
         const auto s_{{ tensor }}_placement = is_valid? {{ tensor }}_placements[s_t_0] : 0;
         const int64_t s_{{ tensor }}_offset = is_valid? {{ tensor }}_offsets[s_t_0] : 0;
         if (static_cast<PlacementType>(s_{{ tensor }}_placement) == PlacementType::DEVICE) {
-            s_{{ tensor }} = &{{ tensor }}_dev[s_{{ tensor }}_offset];
+            s_{{ tensor }} = &{{ tensor }}_dev[0] +
+                tbe_state_table_offset(s_{{ tensor }}_offset, s_idx);
         } else {
             s_{{ tensor }} = &{{ tensor }}_uvm[s_{{ tensor }}_offset];
         }

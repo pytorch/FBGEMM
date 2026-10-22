@@ -119,7 +119,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
-        weights = &dev_weights[weights_offset];
+        weights = &dev_weights[tbe_weights_table_base(weights_offset)];
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset]" }};
     }
@@ -157,7 +157,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
             {%- endif %}
 
             auto weight_row_emb = WeightRowAccessor<emb_t, cache_t>(
-                &weights[idx_j * D_emb],
+                &weights[tbe_weights_row_rel_offset(weights_offset, idx_j, D_emb)],
                 D
             );
 
