@@ -997,7 +997,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const char* log_prefix,
       FetchFn fetchFn,
       PrepareFn prepareFn) {
-    folly::coro::co_invoke(
+    auto enrichTask = folly::coro::co_invoke(
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-capturing-lambda-coroutines)
         [this,
          hashed_ids = std::move(hashed_ids),
@@ -1050,10 +1050,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           }
           pending_laser_requests_.fetch_sub(1);
           laser_write_in_progress_.store(false);
-        })
-        // NOLINTNEXTLINE(readability-redundant-smartptr-get)
-        .scheduleOn(enrichment_executor_.get())
-        .start();
+        });
+    // NOLINTNEXTLINE(readability-redundant-smartptr-get)
+    co_withExecutor(enrichment_executor_.get(), std::move(enrichTask)).start();
   }
 
   /// Decode int64 SID from cache weights.
