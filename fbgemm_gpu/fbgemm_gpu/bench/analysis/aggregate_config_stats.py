@@ -81,10 +81,13 @@ def per_iteration_totals(
     then summed across kernels.
 
     Returns the length-``n_iter`` per-iteration total series, or ``None`` when
-    there are no dispatched kernels or any kernel's launch count is not a
-    multiple of ``n_iter`` (the caller should warn and skip the total for that
-    config). The returned series feeds ``KernelStats`` so the ``(total)`` row
-    gets a REAL mean/median/stdev/min/max instead of a placeholder.
+    there are no dispatched kernels or a kernel's launch count is not a multiple
+    of ``n_iter`` beyond a small tolerance. A small trailing partial (a capture
+    artifact covering about 2% of the iterations) is tolerated by dropping it
+    with a diagnostic; a larger non-integer mismatch returns ``None`` (the caller
+    should warn and skip the total for that config). The returned series feeds
+    ``KernelStats`` so the ``(total)`` row gets a REAL mean/median/stdev/min/max
+    instead of a placeholder.
     """
     active = {k: d for k, d in durations_by_kernel.items() if d}
     if not active:
@@ -93,10 +96,29 @@ def per_iteration_totals(
     if n_iter == 0:
         return None
     totals = [0.0] * n_iter
-    for durs in active.values():
-        if len(durs) % n_iter != 0:
+    for kernel_name, durs in active.items():
+        per_iter, remainder = divmod(len(durs), n_iter)
+        if per_iter == 0:
             return None
-        per_iter = len(durs) // n_iter
+        if remainder:
+            # Async GPU execution + the profiler window boundary can leave a
+            # small trailing partial (e.g. a split-K combine kernel captured one
+            # extra time relative to the main kernel). That is a capture artifact,
+            # not a real per-iteration structural mismatch, so tolerate a small
+            # skew by dropping the trailing partial. A large mismatch (a kernel
+            # that genuinely fires a non-integer number of times per iteration)
+            # still returns None; the caller warns and skips the total.
+            tolerance_iterations = max(1, round(0.02 * n_iter))
+            tail_iterations = (remainder + per_iter - 1) // per_iter
+            if tail_iterations > tolerance_iterations:
+                return None
+            print(
+                f"warning: dropping {remainder} trailing launch(es) for "
+                f"{kernel_name!r} ({tail_iterations} iteration(s)) from a "
+                f"{n_iter}-iteration capture",
+                file=sys.stderr,
+            )
+            durs = durs[: per_iter * n_iter]
         for i in range(n_iter):
             totals[i] += sum(durs[i * per_iter : (i + 1) * per_iter])
     return totals
