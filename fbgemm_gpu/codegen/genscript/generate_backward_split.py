@@ -42,23 +42,6 @@ except ImportError:
     from scripts_argsparse import args
 
 
-# Targeted sharding: emit warp-kernel instantiations in 3 files (one grad
-# dtype each) for the plain split/ssd x weighted/unweighted warp TUs (the
-# 10-47 min HIP compiles dominating the critical path), so no single slow TU
-# carries the full grad x emb x cache x index x dim x decay cross-product.
-# The symbol set is unchanged; only file boundaries move.
-GRAD_TYPE_SHARDS: list[tuple[str, list[str]]] = [
-    ("grad_float", ["float"]),
-    ("grad_half", ["at::Half"]),
-    ("grad_bf16", ["at::BFloat16"]),
-]
-
-# Full set, in base order. Unsharded renders pass this explicitly: the warp
-# template has no default, and an undefined grad_types renders *empty*
-# (11K-line kernel files came out as 217-line stubs before this was pinned).
-FULL_GRAD_TYPES: list[str] = ["float", "at::Half", "at::BFloat16"]
-
-
 class BackwardSplitGenerator:
     @staticmethod
     def render_backward_templates(
@@ -67,7 +50,6 @@ class BackwardSplitGenerator:
         filename_format: str,
         kwargs: dict[str, Any],
         is_gwd: bool = False,
-        shard_grad_types: bool = False,
     ) -> None:
         if not kwargs.get("has_gpu_support"):
             return
@@ -100,42 +82,17 @@ class BackwardSplitGenerator:
                 ]
             )
             desc = "_".join([f"{ 'ssd' if ssd else 'split' }", kdesc])
-            # Targeted sharding: only the plain split/ssd x weighted/unweighted
-            # warp TUs (the slow high-traffic ones). Blanket-sharding all 65
-            # warp files tripled per-TU debuginfo and tripped the repo-wide
-            # output_size gate (+2.5GB/link); nobag/vbe/gwd/dense variants stay
-            # whole until data shows they need it.
-            do_shard = (
-                shard_grad_types
-                and not nobag
-                and not vbe
-                and not is_gwd
-                and not kwargs.get("dense")
+            template.write(
+                filename_format.format(optimizer, desc),
+                weighted=weighted,
+                nobag=nobag,
+                vbe=vbe,
+                is_index_select=False,
+                kdesc=kdesc,
+                is_gwd=is_gwd,
+                ssd=ssd,
+                **kwargs,
             )
-            grad_shards = GRAD_TYPE_SHARDS if do_shard else [(None, None)]
-            for shard_tag, shard_grad_list in grad_shards:
-                if shard_tag is None:
-                    # Unsharded (base) filename: drop the grad-tag slot that
-                    # sharded formats carry (no-op for formats without one).
-                    filename = filename_format.replace("_{}.cu", ".cu").format(
-                        optimizer, desc
-                    )
-                    shard_kwargs = {"grad_types": FULL_GRAD_TYPES}
-                else:
-                    filename = filename_format.format(optimizer, desc, shard_tag)
-                    shard_kwargs = {"grad_types": shard_grad_list}
-                template.write(
-                    filename,
-                    weighted=weighted,
-                    nobag=nobag,
-                    vbe=vbe,
-                    is_index_select=False,
-                    kdesc=kdesc,
-                    is_gwd=is_gwd,
-                    ssd=ssd,
-                    **shard_kwargs,
-                    **kwargs,
-                )
 
     @staticmethod
     def generate_backward_split_gpu(**kwargs: Any) -> None:
@@ -145,26 +102,22 @@ class BackwardSplitGenerator:
 
         optimizer = kwargs.get("optimizer")
         # Generate the backward split kernels
-        for template_filepath, filename_format, shard_grad in [
+        for template_filepath, filename_format in [
             (
                 "training/backward/embedding_backward_split_template.cu",
                 "gen_embedding_backward_{}_{}_cuda.cu",
-                False,
             ),
             (
                 "training/backward/embedding_backward_split_meta_template.cpp",
                 "gen_embedding_backward_{}_{}_meta.cpp",
-                False,
             ),
             (
                 "training/backward/embedding_backward_split_kernel_cta_template.cu",
                 "gen_embedding_backward_{}_{}_kernel_cta.cu",
-                False,
             ),
             (
                 "training/backward/embedding_backward_split_kernel_warp_template.cu",
-                "gen_embedding_backward_{}_{}_kernel_warp_{}.cu",
-                True,
+                "gen_embedding_backward_{}_{}_kernel_warp.cu",
             ),
         ]:
             BackwardSplitGenerator.render_backward_templates(
@@ -173,26 +126,22 @@ class BackwardSplitGenerator:
                 optimizer,
                 filename_format,
                 kwargs,
-                shard_grad_types=shard_grad,
             )
 
         # Generate the global weight decay CUDA kernels
         if kwargs.get("has_global_weight_decay_support"):
-            for template_filepath, filename_format, shard_grad in [
+            for template_filepath, filename_format in [
                 (
                     "training/backward/embedding_backward_split_kernel_cta_template.cu",
                     "gen_embedding_backward_{}_{}_gwd_kernel_cta.cu",
-                    False,
                 ),
                 (
                     "training/backward/embedding_backward_split_kernel_warp_template.cu",
-                    "gen_embedding_backward_{}_{}_gwd_kernel_warp_{}.cu",
-                    True,
+                    "gen_embedding_backward_{}_{}_gwd_kernel_warp.cu",
                 ),
                 (
                     "training/backward/embedding_backward_split_template.cu",
                     "gen_embedding_backward_{}_{}_gwd_cuda.cu",
-                    False,
                 ),
             ]:
                 BackwardSplitGenerator.render_backward_templates(
@@ -202,7 +151,6 @@ class BackwardSplitGenerator:
                     filename_format,
                     kwargs,
                     is_gwd=True,
-                    shard_grad_types=shard_grad,
                 )
 
         for ssd in (
