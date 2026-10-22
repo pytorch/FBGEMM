@@ -34,7 +34,7 @@ class Initializer {
       row_storage_ = at::empty(
           {kRowInitBufferSize, max_D}, at::TensorOptions().dtype(at::kHalf));
     } else {
-      row_storage_ = at::empty(
+      row_storage_ = at::zeros(
           {kRowInitBufferSize, max_D}, at::TensorOptions().dtype(at::kByte));
     }
     // Sanity check
