@@ -8,6 +8,7 @@
 # pyre-strict
 
 import unittest
+from typing import Any
 from unittest.mock import MagicMock
 
 import torch
@@ -32,6 +33,9 @@ else:
 # Table height the fixtures build and the tests do their linear-index
 # arithmetic against. One name because the two have to agree.
 ROWS = 64
+
+# (indices, identities) of one stream() call.
+ShippedRows = tuple[list[int], list[list[int]] | None]
 
 # The RES HBM streaming lane reaches ``torch.ops.fbgemm.masked_index_select``,
 # which is registered in the SSD split-embeddings-cache extension
@@ -565,6 +569,8 @@ class ResEnabledTablesTest(unittest.TestCase):
             torch.tensor([t1_row], device=device, dtype=torch.int64),
             torch.tensor([0, 0, 1], device=device, dtype=torch.int64),
             None,
+            None,
+            None,
         )
         tbe._store_prefetched_tensors(
             # Empty bag for feature 0, one index for feature 1.
@@ -600,7 +606,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         empty = torch.zeros(0, device=device, dtype=torch.int64)
         # Every fixture this serves has two features, and offsets is one longer.
         offsets = torch.zeros(3, device=device, dtype=torch.int64)
-        tbe._mark_res_hbm_rows(empty, offsets, None)
+        tbe._mark_res_hbm_rows(empty, offsets, None, None, None)
         tbe._store_prefetched_tensors(
             indices=empty,
             offsets=offsets,
@@ -890,6 +896,302 @@ class ResEnabledTablesTest(unittest.TestCase):
             list(range(2 * dim, 3 * dim)),
         )
 
+    def _identity_tbe(
+        self,
+        drain_interval: int = 1,
+    ) -> SplitTableBatchedEmbeddingBagsCodegen:
+        """Cacheless: t0 DEVICE but out of the lane, t1 DEVICE and streamed."""
+        return self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.DEVICE, EmbeddingLocation.DEVICE],
+            res_enabled_tables=["t1"],
+            heights=[ROWS, ROWS],
+            res_hbm_drain_interval=drain_interval,
+        )
+
+    @staticmethod
+    def _record_ships(
+        tbe: SplitTableBatchedEmbeddingBagsCodegen,
+    ) -> tuple[list[ShippedRows], list[ShippedRows]]:
+        """(indices, identities) of every cache-lane and HBM ship, copied at
+        call time since the staging buffers are reused."""
+        cache_lane_ships: list[ShippedRows] = []
+        hbm_ships: list[ShippedRows] = []
+
+        def record_ship(*args: Any, **kwargs: Any) -> None:
+            if kwargs.get("use_hbm", False):
+                ships, indices, identities = (
+                    hbm_ships,
+                    kwargs["indices"],
+                    kwargs["identities"],
+                )
+            else:
+                # Positional (indices, weights, identities, runtime_meta, count).
+                count = int(args[4][0])
+                ships, indices = cache_lane_ships, args[0][:count]
+                identities = None if args[2] is None else args[2][:count]
+            ships.append(
+                (
+                    indices.tolist(),
+                    None if identities is None else identities.tolist(),
+                )
+            )
+
+        tbe._raw_embedding_streamer = MagicMock()
+        tbe._raw_embedding_streamer.stream.side_effect = record_ship
+        return cache_lane_ships, hbm_ships
+
+    @staticmethod
+    def _record_hbm_runtime_meta(
+        tbe: SplitTableBatchedEmbeddingBagsCodegen,
+    ) -> list[list[list[int]] | None]:
+        """runtime_meta of every HBM ship, copied at call time since the
+        staging buffer is reused."""
+        hbm_runtime_meta: list[list[list[int]] | None] = []
+
+        def record_ship(*args: Any, **kwargs: Any) -> None:
+            if kwargs.get("use_hbm", False):
+                runtime_meta = kwargs["runtime_meta"]
+                hbm_runtime_meta.append(
+                    None if runtime_meta is None else runtime_meta.tolist()
+                )
+
+        tbe._raw_embedding_streamer = MagicMock()
+        tbe._raw_embedding_streamer.stream.side_effect = record_ship
+        return hbm_runtime_meta
+
+    @staticmethod
+    def _lookup_then_drain(
+        tbe: SplitTableBatchedEmbeddingBagsCodegen,
+        lookups: list[tuple[list[list[int]], list[int] | None]],
+        runtime_meta_per_lookup: list[list[list[int]]] | None = None,
+    ) -> None:
+        """One forward (B=1) per (indices per feature, hash_zch_identities),
+        the ids passed as [N, 1] the way the RawIdTracker hands them over and
+        runtime_meta_per_lookup[i] as [N, width] if given; then three empty
+        forwards so every mark ships."""
+        device = torch.cuda.current_device()
+        num_features = len(lookups[0][0])
+        empty_lookup: tuple[list[list[int]], list[int] | None] = (
+            [[]] * num_features,
+            None,
+        )
+        runtime_meta_inputs: list[list[list[int]] | None] = [
+            *(runtime_meta_per_lookup or [None] * len(lookups)),
+            *[None] * 3,
+        ]
+        for (per_feature, hash_zch_identities), runtime_meta in zip(
+            lookups + [empty_lookup] * 3, runtime_meta_inputs
+        ):
+            offsets = [0]
+            for feature_indices in per_feature:
+                offsets.append(offsets[-1] + len(feature_indices))
+            tbe(
+                torch.tensor(
+                    [i for feature_indices in per_feature for i in feature_indices],
+                    device=device,
+                    dtype=torch.int64,
+                ),
+                torch.tensor(offsets, device=device, dtype=torch.int64),
+                hash_zch_identities=(
+                    None
+                    if hash_zch_identities is None
+                    else torch.tensor(
+                        hash_zch_identities, device=device, dtype=torch.int64
+                    ).view(-1, 1)
+                ),
+                hash_zch_runtime_meta=(
+                    None
+                    if runtime_meta is None
+                    else torch.tensor(runtime_meta, device=device, dtype=torch.int64)
+                ),
+            )
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_carries_the_lookup_identity(self) -> None:
+        # t0 row 3 (id 5) is out of the lane; t1 row 2 looked up as id 1002.
+        tbe = self._identity_tbe()
+        _, hbm_ships = self._record_ships(tbe)
+
+        self._lookup_then_drain(tbe, [([[3], [2]], [5, 1002])])
+
+        self.assertEqual(hbm_ships, [([ROWS + 2], [[1002]])])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_has_no_identities_without_them(self) -> None:
+        # No RawIdTracker: forward never gets ids, so the HBM lane ships as
+        # before and allocates nothing for them.
+        tbe = self._identity_tbe()
+        _, hbm_ships = self._record_ships(tbe)
+
+        self._lookup_then_drain(tbe, [([[3], [2]], None)])
+
+        self.assertEqual(hbm_ships, [([ROWS + 2], None)])
+        self.assertIsNone(tbe._res_hbm_row_identities)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_carries_the_latest_identity(self) -> None:
+        # t1 row 2 is looked up as 1002, then handed to 777 before its marks
+        # ship: the ship carries 777, the id its weights now belong to.
+        for name, drain_interval, reassigned_indices, num_ships in [
+            # Interval 1: the reassignment lands after the first drain was
+            # compacted but before it ships, and its own marks ship next;
+            # row 2 twice in one batch.
+            ("reassigned_before_ship", 1, [2, 2], 2),
+            # Interval 3: both lookups fall in one drain window, shipped once.
+            ("latest_in_drain_window", 3, [2], 1),
+        ]:
+            with self.subTest(name):
+                tbe = self._identity_tbe(drain_interval=drain_interval)
+                _, hbm_ships = self._record_ships(tbe)
+
+                self._lookup_then_drain(
+                    tbe,
+                    [
+                        ([[], [2]], [1002]),
+                        ([[], reassigned_indices], [777] * len(reassigned_indices)),
+                    ],
+                )
+
+                self.assertEqual(hbm_ships, [([ROWS + 2], [[777]])] * num_ships)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_identities_follow_table_offsets(self) -> None:
+        # t0 out of the lane, t1 and t2 streamed: each drained row reads the id
+        # recorded at its own linear row.
+        rows_per_table = 8
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1", "t2"],
+            [EmbeddingLocation.DEVICE] * 3,
+            res_enabled_tables=["t1", "t2"],
+            heights=[rows_per_table] * 3,
+        )
+        _, hbm_ships = self._record_ships(tbe)
+
+        self._lookup_then_drain(tbe, [([[1], [1], [7, 1]], [11, 101, 207, 201])])
+
+        self.assertEqual(
+            hbm_ships,
+            [
+                (
+                    [
+                        rows_per_table + 1,
+                        2 * rows_per_table + 1,
+                        2 * rows_per_table + 7,
+                    ],
+                    [[101], [201], [207]],
+                )
+            ],
+        )
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_identities_align_under_vbe(self) -> None:
+        # Variable batch size: t0 has 1 bag, t1 has 2. Linearization reads
+        # B_offsets, and the ids must still follow `indices` 1:1.
+        tbe = self._identity_tbe()
+        _, hbm_ships = self._record_ships(tbe)
+        device = torch.cuda.current_device()
+        for step in range(3):
+            empty_lookup = step > 0
+            tbe(
+                torch.tensor(
+                    [] if empty_lookup else [3, 2, 5],
+                    device=device,
+                    dtype=torch.int64,
+                ),
+                torch.tensor(
+                    [0, 0, 0, 0] if empty_lookup else [0, 1, 2, 3],
+                    device=device,
+                    dtype=torch.int64,
+                ),
+                batch_size_per_feature_per_rank=[[1], [2]],
+                hash_zch_identities=(
+                    None
+                    if empty_lookup
+                    else torch.tensor(
+                        [[5], [1002], [1005]], device=device, dtype=torch.int64
+                    )
+                ),
+            )
+
+        self.assertEqual(hbm_ships, [([ROWS + 2, ROWS + 5], [[1002], [1005]])])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_identities_leave_the_cache_lane_unchanged(self) -> None:
+        # t0 MANAGED_CACHING (cache lane), t1 DEVICE (HBM lane); one lookup of
+        # t0 row 3 (id 5) and t1 row 2 (id 1002).
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.MANAGED_CACHING, EmbeddingLocation.DEVICE],
+            res_enabled_tables=["t0", "t1"],
+            heights=[ROWS, ROWS],
+        )
+        cache_lane_ships, hbm_ships = self._record_ships(tbe)
+
+        self._lookup_then_drain(tbe, [([[3], [2]], [5, 1002])])
+
+        # t1's row is not a cache hit, so the cache lane masks it to -1 but
+        # still ships its id.
+        self.assertEqual(cache_lane_ships[0], ([3, -1], [[5], [1002]]))
+        self.assertEqual(hbm_ships, [([ROWS + 2], [[1002]])])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_carries_the_lookup_runtime_meta(self) -> None:
+        # t0 row 3 is out of the lane; t1 row 2 looked up with runtime_meta
+        # [10020, 10021] (width 2).
+        tbe = self._identity_tbe()
+        hbm_runtime_meta = self._record_hbm_runtime_meta(tbe)
+
+        self._lookup_then_drain(
+            tbe, [([[3], [2]], [5, 1002])], [[[50, 51], [10020, 10021]]]
+        )
+
+        self.assertEqual(hbm_runtime_meta, [[[10020, 10021]]])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_has_no_runtime_meta_without_it(self) -> None:
+        # Ids but no runtime_meta (no zch_custom_runtime_meta_dim): the HBM
+        # lane ships runtime_meta=None and allocates nothing for it.
+        tbe = self._identity_tbe()
+        hbm_runtime_meta = self._record_hbm_runtime_meta(tbe)
+
+        self._lookup_then_drain(tbe, [([[3], [2]], [5, 1002])])
+
+        self.assertEqual(hbm_runtime_meta, [None])
+        self.assertIsNone(tbe._res_hbm_row_runtime_meta)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_carries_the_latest_runtime_meta(self) -> None:
+        # t1 row 2 is looked up with runtime_meta [1], then [7] before its
+        # marks ship: the ship carries [7].
+        for name, drain_interval, reassigned_indices, num_ships in [
+            ("reassigned_before_ship", 1, [2, 2], 2),
+            ("latest_in_drain_window", 3, [2], 1),
+        ]:
+            with self.subTest(name):
+                tbe = self._identity_tbe(drain_interval=drain_interval)
+                hbm_runtime_meta = self._record_hbm_runtime_meta(tbe)
+
+                self._lookup_then_drain(
+                    tbe,
+                    [
+                        ([[], [2]], [1002]),
+                        ([[], reassigned_indices], [777] * len(reassigned_indices)),
+                    ],
+                    [[[1]], [[7]] * len(reassigned_indices)],
+                )
+
+                self.assertEqual(hbm_runtime_meta, [[[7]]] * num_ships)
+
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
     def test_drain_ships_only_rows_the_mask_allows(self) -> None:
@@ -903,6 +1205,8 @@ class ResEnabledTablesTest(unittest.TestCase):
         tbe._mark_res_hbm_rows(
             torch.tensor([5, 7, -1], device=device, dtype=torch.int64),
             torch.tensor([0, 1, 3], device=device, dtype=torch.int64),
+            None,
+            None,
             None,
         )
         tbe._store_prefetched_tensors(
@@ -945,6 +1249,8 @@ class ResEnabledTablesTest(unittest.TestCase):
                     [i % rows, i % rows, -1], device=device, dtype=torch.int64
                 ),
                 torch.tensor([0, 1, 3], device=device, dtype=torch.int64),
+                None,
+                None,
                 None,
             )
             shipped = self._idle_iteration(tbe)

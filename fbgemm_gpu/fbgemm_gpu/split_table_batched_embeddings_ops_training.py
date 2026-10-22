@@ -790,6 +790,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     _res_compacted_rows: torch.Tensor | None
     _res_hbm_indices_buf: torch.Tensor | None
     _res_hbm_weights_buf: torch.Tensor | None
+    _res_hbm_identities_buf: torch.Tensor | None
+    _res_hbm_row_identities: torch.Tensor | None
+    _res_hbm_runtime_meta_buf: torch.Tensor | None
+    _res_hbm_row_runtime_meta: torch.Tensor | None
     _vbe_max_B: int
 
     def __init__(  # noqa C901
@@ -886,6 +890,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             enable_raw_embedding_streaming
             and (res_params or RESParams()).enable_hbm_streaming
             and self._feature_is_enabled(FeatureGateName.RES_HBM_STREAMING)
+        )
+        self._res_hbm_ships_zch_identities: bool = (
+            self._res_hbm_streaming
+            and self._feature_is_enabled(FeatureGateName.RES_HBM_ZCH_IDENTITIES)
         )
         self._res_hbm_drain_interval: int = (
             res_params or RESParams()
@@ -2158,8 +2166,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self._res_hbm_indices_buf = None
         self._res_hbm_weights_buf = None
+        self._res_hbm_identities_buf = None
+        # Latest hash_zch_identities per linear row, -1 if none.
+        self._res_hbm_row_identities = None
+        self._res_hbm_runtime_meta_buf = None
+        # Latest hash_zch_runtime_meta per linear row, zeros if none.
+        self._res_hbm_row_runtime_meta = None
         # One element whatever the drain size, so it is allocated here rather
-        # than grown alongside the two above.
+        # than grown like the staging buffers above.
         self.register_buffer(
             "_res_hbm_count_buf",
             torch.ops.fbgemm.new_unified_tensor(
@@ -2224,8 +2238,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         vbe_metadata: invokers.lookup_args.VBEMetadata | None,
+        hash_zch_identities: Tensor | None,
+        hash_zch_runtime_meta: Tensor | None,
     ) -> None:
-        """Record every row this lookup touched, whatever its placement."""
+        """Record every row this lookup touched, with its hash_zch_identities
+        and hash_zch_runtime_meta if given."""
         if not self._res_hbm_streaming:
             return
         # hash_size_cumsum, not cache_hash_size_cumsum: the latter is a
@@ -2249,6 +2266,24 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # index_fill_ rather than setitem: assigning a Python scalar into a
         # CUDA tensor forces a host sync.
         self._res_rows_seen.index_fill_(0, linearize_indices, True)
+        if hash_zch_identities is None or not self._res_hbm_ships_zch_identities:
+            return
+        if self._res_hbm_row_identities is None:
+            self._res_hbm_row_identities = torch.full_like(
+                self._res_rows_seen, -1, dtype=torch.long
+            )
+        self._res_hbm_row_identities.index_copy_(
+            0, linearize_indices, hash_zch_identities.flatten().to(torch.long)
+        )
+        if hash_zch_runtime_meta is None:
+            return
+        if self._res_hbm_row_runtime_meta is None:
+            self._res_hbm_row_runtime_meta = hash_zch_runtime_meta.new_zeros(
+                (self._res_rows_seen.size(0), hash_zch_runtime_meta.size(1))
+            )
+        self._res_hbm_row_runtime_meta.index_copy_(
+            0, linearize_indices, hash_zch_runtime_meta
+        )
 
     @torch.jit.ignore
     def _get_enabled_feature_mask_and_indices(
@@ -3632,7 +3667,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
 
-        self._mark_res_hbm_rows(indices, offsets, vbe_metadata)
+        self._mark_res_hbm_rows(
+            indices, offsets, vbe_metadata, hash_zch_identities, hash_zch_runtime_meta
+        )
 
         # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
@@ -5286,6 +5323,29 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self._res_hbm_weights_buf[:num_drained_rows],
                 self.weights_dev,
             )
+            if self._res_hbm_row_identities is not None:
+                self._res_hbm_identities_buf = self._grown_res_host_buf_if_needed(
+                    self._res_hbm_identities_buf, num_drained_rows, (1,), torch.long
+                )
+                torch.index_select(
+                    self._res_hbm_row_identities,
+                    0,
+                    drained_rows,
+                    out=self._res_hbm_identities_buf[:num_drained_rows].view(-1),
+                )
+            if self._res_hbm_row_runtime_meta is not None:
+                self._res_hbm_runtime_meta_buf = self._grown_res_host_buf_if_needed(
+                    self._res_hbm_runtime_meta_buf,
+                    num_drained_rows,
+                    (self._res_hbm_row_runtime_meta.size(1),),
+                    self._res_hbm_row_runtime_meta.dtype,
+                )
+                torch.index_select(
+                    self._res_hbm_row_runtime_meta,
+                    0,
+                    drained_rows,
+                    out=self._res_hbm_runtime_meta_buf[:num_drained_rows],
+                )
 
             if self.res_params.res_use_copy_done_token:
                 self._res_hbm_copy_done_token = _next_copy_done_token(
@@ -5301,12 +5361,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self._raw_embedding_streamer.stream(
                 indices=self._res_hbm_indices_buf[:num_drained_rows],
                 weights=self._res_hbm_weights_buf[:num_drained_rows],
-                # The HBM path ships no per-row ZCH state, identity or runtime
-                # metadata. A chunk mixing rows that have one with rows that do
-                # not makes the PS discard the whole FQN, and the cache path's
-                # buffers describe other rows.
-                identities=None,
-                runtime_meta=None,
+                identities=(
+                    self._res_hbm_identities_buf[:num_drained_rows]
+                    if self._res_hbm_row_identities is not None
+                    else None
+                ),
+                runtime_meta=(
+                    self._res_hbm_runtime_meta_buf[:num_drained_rows]
+                    if self._res_hbm_row_runtime_meta is not None
+                    else None
+                ),
                 count=self._res_hbm_count_buf[:1],
                 require_tensor_copy=self._res_require_copy,
                 blocking_tensor_copy=False,
