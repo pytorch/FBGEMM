@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
-from typing import Any
+from typing import Any, cast
 
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
@@ -220,6 +220,47 @@ class PrefetchedInfo:
         # was pending. The drain assigns it after construction, so the
         # annotation is what keeps the attribute's type from narrowing to None.
         self.res_hbm_indices: torch.Tensor | None = None
+
+
+# Optimizer state buffers that `chunk_optimizer_state` also allocates in chunks
+CHUNKED_OPTIMIZER_STATE_BUFFERS: tuple[str, ...] = ("momentum1", "momentum2")
+
+
+# Kernels find a row's chunk with a magic-number division that is exact for
+# row indices below this
+MAX_CHUNKED_TABLE_ROWS: int = 2**31
+
+
+def chunk_rows(chunk_bytes: int, row_bytes: int) -> int:
+    """
+    Rows per chunk for `weights_chunk_size_bytes`: as many rows as fit.
+    """
+    return max(1, chunk_bytes // row_bytes)
+
+
+def chunk_div_magic(rows_per_chunk: int) -> tuple[int, int]:
+    """
+    Returns (magic, shift) such that (idx * magic) >> shift == idx // rows_per_chunk
+    for 0 <= idx < MAX_CHUNKED_TABLE_ROWS (round-up method, Hacker's Delight 10).
+    """
+    shift = 31 + (rows_per_chunk - 1).bit_length()
+    magic = -(-(1 << shift) // rows_per_chunk)
+    return magic, shift
+
+
+def _device_table_sizes(split: SplitState) -> list[int]:
+    """
+    Size of each DEVICE table's slice of the flat device buffer, 0 elsewhere.
+    """
+    device_tables = sorted(
+        (t for t, p in enumerate(split.placements) if p == EmbeddingLocation.DEVICE),
+        key=lambda t: split.offsets[t],
+    )
+    ends = [split.offsets[t] for t in device_tables[1:]] + [split.dev_size]
+    sizes = [0] * len(split.placements)
+    for t, end in zip(device_tables, ends):
+        sizes[t] = end - split.offsets[t]
+    return sizes
 
 
 def construct_split_state(
@@ -768,6 +809,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                of initializing on CPU. In the TorchRec stack that step is
                `EmbeddingQuantizationUtils.quantize_embedding_modules(...,
                target_device=<compute device>)`.
+
+        weights_chunk_size_bytes (int | None = None): If set, DEVICE-placed
+            embedding weights are allocated as separate chunks of at most this
+            many bytes instead of one flat `weights_dev` buffer, so they can be
+            freed and reallocated into fragmented HBM. Each table is split by
+            rows (fewer than 2^31 rows per table); use
+            `split_embedding_weights_chunked()` to access the chunks.
+            CUDA only, FP32/FP16/BF16 weights; not supported with
+            OptimType.NONE, raw embedding streaming, or `weight_init_on_cpu`.
+
+        chunk_optimizer_state (bool = False): Also allocate DEVICE-placed
+            momentum buffers in chunks of `weights_chunk_size_bytes`. Use
+            `split_optimizer_states_chunked()` / `get_optimizer_state_chunked()`
+            to access them.
     """
 
     embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]]
@@ -791,6 +846,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     _res_hbm_indices_buf: torch.Tensor | None
     _res_hbm_weights_buf: torch.Tensor | None
     _vbe_max_B: int
+    weights_chunk_size_bytes: int | None
+    weights_dev_chunks: list[list[Tensor]]
+    momentum1_dev_chunks: list[list[Tensor]]
+    momentum2_dev_chunks: list[list[Tensor]]
+    _chunk_header_pos: dict[str, list[int]]
+    _chunk_header_vals: dict[str, torch.Tensor]
+    _chunk_tables: dict[str, torch.Tensor]
 
     def __init__(  # noqa C901
         self,
@@ -855,6 +917,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         is_qr_tbe: bool = False,
         preallocated_host_buffers: dict[str, torch.Tensor] | None = None,
         weight_init_on_cpu: bool = False,
+        weights_chunk_size_bytes: int | None = None,
+        chunk_optimizer_state: bool = False,
     ) -> None:
         super().__init__()
         self.uuid = str(uuid.uuid4())
@@ -1206,6 +1270,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"instead of {self.current_device}. Move it to the compute device "
                 "before running forward."
             )
+
+        self.weights_chunk_size_bytes = weights_chunk_size_bytes
+        self._chunked_buffers: tuple[str, ...] = ("weights",) + (
+            CHUNKED_OPTIMIZER_STATE_BUFFERS if chunk_optimizer_state else ()
+        )
+        assert (
+            weights_chunk_size_bytes is not None or not chunk_optimizer_state
+        ), "chunk_optimizer_state requires weights_chunk_size_bytes"
+        self.weights_dev_chunks = []
+        self.momentum1_dev_chunks = []
+        self.momentum2_dev_chunks = []
+        self._chunk_header_pos = {}
+        self._chunk_header_vals = {}
+        self._chunk_tables = {}
+        if weights_chunk_size_bytes is not None:
+            self._validate_weights_chunking(optimizer, weight_init_on_cpu)
 
         self._apply_split(
             weight_split,
@@ -3895,7 +3975,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.table_wise_cache_miss[i] += miss_count
 
     def init_embedding_weights_uniform(self, min_val: float, max_val: float) -> None:
-        splits = self.split_embedding_weights()
+        if self.weights_chunk_size_bytes is not None:
+            splits = [w for ws in self.split_embedding_weights_chunked() for w in ws]
+        else:
+            splits = self.split_embedding_weights()
         if self.weights_precision == SparseType.INT8:
             # TODO: add in-place FloatToFused8BitRowwiseQuantized conversion
             for emb in splits:
@@ -3937,28 +4020,50 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         splits = []
         for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
-            if self.weights_precision == SparseType.INT8:
-                dim += self.int8_emb_row_dim_offset
-            # pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[An...
-            placement = self.weights_physical_placements[t]
-            # pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[An...
-            offset = self.weights_physical_offsets[t]
-            if placement == EmbeddingLocation.DEVICE.value:
-                weights = self.weights_dev
-            elif placement == EmbeddingLocation.HOST.value:
-                weights = self.weights_host
-            else:
-                weights = self.weights_uvm
-            # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is
-            #  not a function.
-            if weights.dim() == 2:
-                # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is
-                #  not a function.
-                weights = weights.flatten()
-            splits.append(
-                weights.detach()[offset : offset + rows * dim].view(rows, dim)
-            )
+            chunks = self.weights_dev_chunks[t] if self.weights_dev_chunks else []
+            if not chunks:
+                splits.append(self._split_embedding_weight(t))
+                continue
+            if len(chunks) > 1:
+                raise NotImplementedError(
+                    f"Table {t} spans {len(chunks)} chunks and has no single "
+                    "view; use split_embedding_weights_chunked()"
+                )
+            splits.append(chunks[0].detach().view(rows, dim))
         return splits
+
+    @torch.jit.ignore
+    def split_embedding_weights_chunked(self) -> list[list[Tensor]]:
+        """
+        Returns the embedding weights split by table, each as a list of row
+        chunk views in row order. Tables that are not chunked come back as a
+        single view.
+        """
+        splits = []
+        for t, (_, dim, _, _) in enumerate(self.embedding_specs):
+            chunks = self.weights_dev_chunks[t] if self.weights_dev_chunks else []
+            if not chunks:
+                splits.append([self._split_embedding_weight(t)])
+                continue
+            splits.append([c.detach().view(-1, dim) for c in chunks])
+        return splits
+
+    @torch.jit.ignore
+    def _split_embedding_weight(self, t: int) -> Tensor:
+        rows, dim, _, _ = self.embedding_specs[t]
+        if self.weights_precision == SparseType.INT8:
+            dim += self.int8_emb_row_dim_offset
+        placement = self.weights_physical_placements[t]
+        offset = self.weights_physical_offsets[t]
+        if placement == EmbeddingLocation.DEVICE.value:
+            weights = self.weights_dev
+        elif placement == EmbeddingLocation.HOST.value:
+            weights = self.weights_host
+        else:
+            weights = self.weights_uvm
+        if weights.dim() == 2:
+            weights = weights.flatten()
+        return weights.detach()[offset : offset + rows * dim].view(rows, dim)
 
     @torch.jit.ignore
     def get_optimizer_buffer(self, state: str) -> torch.Tensor:
@@ -3977,7 +4082,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Get the optimizer state dict that matches the OSS Pytorch optims
         TODO: populate the supported list of optimizers
         """
-        split_optimizer_states = self.split_optimizer_states()
+        return self._optimizer_state_dicts(self.split_optimizer_states())
+
+    @torch.jit.ignore
+    def get_optimizer_state_chunked(self) -> list[dict[str, Any]]:
+        """
+        Like get_optimizer_state(), with chunked per-table states given as a
+        list of row chunk views. States that are not chunked stay a view.
+        """
+        return cast(
+            list[dict[str, Any]],
+            self._optimizer_state_dicts(
+                cast(Any, self.split_optimizer_states_chunked())
+            ),
+        )
+
+    @torch.jit.ignore
+    def _optimizer_state_dicts(
+        self, split_optimizer_states: list[list[torch.Tensor]]
+    ) -> list[dict[str, torch.Tensor]]:
         if (
             self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             or self.optimizer == OptimType.EXACT_ADAGRAD
@@ -4078,6 +4201,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self,
     ) -> list[list[torch.Tensor]]:
         """
+        Returns a list of optimizer states (view), split by table. Raises for
+        chunked states that span more than one chunk; see
+        `split_optimizer_states_chunked()`.
+        """
+        return cast(list[list[torch.Tensor]], self._split_optimizer_states(False))
+
+    @torch.jit.ignore
+    def split_optimizer_states_chunked(
+        self,
+    ) -> list[list[torch.Tensor | list[torch.Tensor]]]:
+        """
+        Same as split_optimizer_states(), with chunked states given as a list of
+        row chunk views in row order. States that are not chunked stay a view.
+        """
+        return cast(
+            list[list[torch.Tensor | list[torch.Tensor]]],
+            self._split_optimizer_states(True),
+        )
+
+    @torch.jit.ignore
+    def _split_optimizer_states(
+        self,
+        chunked: bool,
+    ) -> list[list[Any]]:
+        """
         Returns a list of optimizer states (view), split by table
 
         Returns:
@@ -4124,9 +4272,30 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             state_offsets: Tensor,
             state_placements: Tensor,
             rowwise: bool,
-        ) -> list[torch.Tensor]:
+        ) -> list[Any]:
+            # Chunked buffers are recognized by their anchor tensor
+            chunks_by_table: list[list[Tensor]] = next(
+                (
+                    getattr(self, f"{prefix}_dev_chunks")
+                    for prefix in self._chunk_tables
+                    if getattr(self, f"{prefix}_dev") is state_dev
+                ),
+                [],
+            )
             splits = []
             for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
+                chunks = chunks_by_table[t] if chunks_by_table else []
+                if chunks:
+                    views = [
+                        c.detach().view((-1,) if rowwise else (-1, dim)) for c in chunks
+                    ]
+                    if not chunked and len(views) > 1:
+                        raise NotImplementedError(
+                            f"Table {t} optimizer state spans {len(views)} chunks; "
+                            "use split_optimizer_states_chunked()"
+                        )
+                    splits.append(views if chunked else views[0])
+                    continue
                 offset = state_offsets[t]
                 placement = state_placements[t]
                 if placement == EmbeddingLocation.DEVICE:
@@ -4136,14 +4305,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 else:
                     state = state_uvm
                 if not rowwise:
-                    splits.append(
-                        state.detach()[offset : offset + rows * dim].view(rows, dim)
-                    )
+                    view = state.detach()[offset : offset + rows * dim].view(rows, dim)
                 else:
-                    splits.append(state.detach()[offset : offset + rows].view(rows))
+                    view = state.detach()[offset : offset + rows].view(rows)
+                splits.append(view)
             return splits
 
-        states: list[list[torch.Tensor]] = []
+        states: list[list[Any]] = []
         if self.optimizer not in (OptimType.EXACT_SGD,):
             states.append(
                 get_optimizer_states(
@@ -4357,6 +4525,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         preallocated_host_buffer: torch.Tensor | None = None,
         dev_init_on_cpu: bool = False,
     ) -> None:
+        chunked = (
+            self.weights_chunk_size_bytes is not None
+            and prefix in self._chunked_buffers
+        )
+        if chunked:
+            table_sizes = _device_table_sizes(split)
+            # DEVICE tables get chunks instead of a slice of the flat buffer
+            split = split._replace(dev_size=0)
         apply_split_helper(
             self.register_buffer,
             functools.partial(setattr, self),
@@ -4376,6 +4552,170 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             preallocated_host_buffer=preallocated_host_buffer,
             dev_init_on_cpu=dev_init_on_cpu,
         )
+        if chunked:
+            # pyrefly: ignore [bad-argument-type]
+            self._apply_chunking(prefix, split, dtype, table_sizes)
+
+    @torch.jit.ignore
+    def _validate_weights_chunking(
+        self, optimizer: OptimType, weight_init_on_cpu: bool
+    ) -> None:
+        chunk_bytes = self.weights_chunk_size_bytes
+        assert (
+            chunk_bytes is not None and chunk_bytes > 0
+        ), f"weights_chunk_size_bytes must be positive, got {chunk_bytes}"
+        assert (
+            not self.use_cpu
+            and self.current_device.type == "cuda"
+            and torch.version.hip is None
+        ), "weights_chunk_size_bytes is only supported on CUDA"
+        assert self.weights_precision in (
+            SparseType.FP32,
+            SparseType.FP16,
+            SparseType.BF16,
+        ), f"weights_chunk_size_bytes does not support {self.weights_precision}"
+        assert (
+            optimizer != OptimType.NONE
+        ), "weights_chunk_size_bytes is not supported with OptimType.NONE"
+        assert (
+            not weight_init_on_cpu
+        ), "weights_chunk_size_bytes is not supported with weight_init_on_cpu"
+        assert (
+            not self.enable_raw_embedding_streaming
+        ), "weights_chunk_size_bytes is not supported with raw embedding streaming"
+
+    @torch.jit.ignore
+    def _apply_chunking(
+        self,
+        prefix: str,
+        split: SplitState,
+        dtype: torch.dtype,
+        table_sizes: list[int],
+    ) -> None:
+        """
+        Allocates each DEVICE table of buffer `prefix` as row chunks of at most
+        `weights_chunk_size_bytes`, and points `{prefix}_offsets` for those
+        tables at chunk headers that the kernels resolve rows through (see
+        `fbgemm_gpu/utils/chunked_weights.cuh`).
+        """
+        chunk_bytes = self.weights_chunk_size_bytes
+        assert chunk_bytes is not None
+
+        # Chunk offsets are relative to this 1-element anchor, which is what
+        # the kernels receive as `{prefix}_dev`
+        anchor = torch.zeros(1, device=self.current_device, dtype=dtype)
+        self.register_buffer(f"{prefix}_dev", anchor)
+        elem_size = anchor.element_size()
+
+        # Header per chunked table:
+        # [magic, shift, rows_per_chunk, row_width, num_rows, chunk_0_offset, ...]
+        chunks_by_table: list[list[Tensor]] = []
+        header_pos: list[int] = []
+        header_vals: list[int] = []
+        for t, (rows, _, _, _) in enumerate(self.embedding_specs):
+            if split.placements[t] != EmbeddingLocation.DEVICE:
+                chunks_by_table.append([])
+                header_pos.append(-1)
+                continue
+            assert (
+                rows < MAX_CHUNKED_TABLE_ROWS
+            ), f"Table {t} has {rows} rows; chunked tables support < 2^31"
+            row_width = table_sizes[t] // rows if rows > 0 else 1
+            rows_per_chunk = chunk_rows(chunk_bytes, row_width * elem_size)
+            chunks = [
+                torch.zeros(
+                    min(rows_per_chunk, rows - start) * row_width,
+                    device=self.current_device,
+                    dtype=dtype,
+                )
+                for start in range(0, rows, rows_per_chunk)
+            ]
+            chunks_by_table.append(chunks)
+            header_pos.append(len(header_vals))
+            magic, shift = chunk_div_magic(rows_per_chunk)
+            header_vals += [magic, shift, rows_per_chunk, row_width, rows]
+            header_vals += [0] * len(chunks)
+
+        setattr(self, f"{prefix}_dev_chunks", chunks_by_table)
+        self._chunk_header_pos[prefix] = header_pos
+        self._chunk_header_vals[prefix] = torch.tensor(header_vals, dtype=torch.int64)
+        table = torch.zeros(
+            max(1, len(header_vals)), device=self.current_device, dtype=torch.int64
+        )
+        self._chunk_tables[prefix] = table
+        self._refresh_chunk_table(prefix)
+        self._write_chunk_header_offsets(prefix)
+
+    @torch.jit.ignore
+    def _write_chunk_header_offsets(self, prefix: str) -> None:
+        # Negated header addresses tell the kernels a table is chunked
+        table = self._chunk_tables[prefix]
+        header_pos = self._chunk_header_pos[prefix]
+        prefix_offsets = getattr(self, f"{prefix}_offsets")
+        offsets = prefix_offsets.cpu()
+        for f, t in enumerate(self.feature_table_map):
+            if header_pos[t] >= 0:
+                offsets[f] = -(table.data_ptr() + header_pos[t] * table.element_size())
+        prefix_offsets.copy_(offsets)
+
+    @torch.jit.ignore
+    def _rebind_chunks(self) -> None:
+        """
+        Rewrites chunk headers and the offsets pointing at them, for when the
+        chunk or header tensors were replaced (device move, deepcopy, unpickle).
+        """
+        for prefix in self._chunk_tables:
+            self._refresh_chunk_table(prefix)
+            self._write_chunk_header_offsets(prefix)
+
+    def _apply(
+        self, fn: Callable[[Tensor], Tensor], recurse: bool = True
+    ) -> "SplitTableBatchedEmbeddingBagsCodegen":
+        super()._apply(fn, recurse)
+        # Chunks and headers aren't registered buffers, so move them here too
+        chunk_tables = getattr(self, "_chunk_tables", {})
+        for prefix in chunk_tables:
+            setattr(
+                self,
+                f"{prefix}_dev_chunks",
+                [
+                    [fn(chunk) for chunk in chunks]
+                    for chunks in getattr(self, f"{prefix}_dev_chunks")
+                ],
+            )
+            chunk_tables[prefix] = fn(chunk_tables[prefix])
+        if chunk_tables:
+            self._rebind_chunks()
+        return self
+
+    @torch.jit.ignore
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        super().__setstate__(state)
+        if getattr(self, "_chunk_tables", None):
+            self._rebind_chunks()
+
+    @torch.jit.ignore
+    def _refresh_chunk_tables(self) -> None:
+        """
+        Rewrites chunk offsets in place for every chunked buffer. Call after any
+        chunk is reallocated.
+        """
+        for prefix in self._chunk_tables:
+            self._refresh_chunk_table(prefix)
+
+    @torch.jit.ignore
+    def _refresh_chunk_table(self, prefix: str) -> None:
+        vals = self._chunk_header_vals[prefix].clone()
+        anchor = getattr(self, f"{prefix}_dev")
+        anchor_ptr = anchor.data_ptr()
+        elem_size = anchor.element_size()
+        header_pos = self._chunk_header_pos[prefix]
+        for t, chunks in enumerate(getattr(self, f"{prefix}_dev_chunks")):
+            for c, chunk in enumerate(chunks):
+                delta = chunk.data_ptr() - anchor_ptr
+                assert delta % elem_size == 0
+                vals[header_pos[t] + 5 + c] = delta // elem_size
+        self._chunk_tables[prefix][: vals.numel()].copy_(vals)
 
     def _apply_cache_state(
         self,
