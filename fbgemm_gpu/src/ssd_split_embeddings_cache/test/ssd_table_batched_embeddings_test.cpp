@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/tempfile.h>
+#include <folly/ScopeGuard.h>
 #include <folly/container/F14Map.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -209,7 +211,8 @@ std::unique_ptr<MockEmbeddingRocksDB> getMockEmbeddingRocksDB(
     const std::vector<int64_t>& table_sizes = {},
     bool enable_metadata_cf = false,
     int64_t metadata_dim = 0,
-    int64_t l2_cache_size_gb = 0) {
+    int64_t l2_cache_size_gb = 0,
+    int64_t row_storage_bitwidth = 32) {
   std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
   std::filesystem::path rocksdb_dir = temp_dir / dir;
   std::filesystem::create_directories(rocksdb_dir);
@@ -229,7 +232,7 @@ std::unique_ptr<MockEmbeddingRocksDB> getMockEmbeddingRocksDB(
       8, // max_write_buffer_num,
       -0.01, // uniform_init_lower,
       0.01, // uniform_init_upper,
-      32, // row_storage_bitwidth = 32,
+      row_storage_bitwidth,
       0, // cache_size = 0
       true, // use_passed_in_path
       0, // tbe_unqiue_id
@@ -674,6 +677,50 @@ TEST(SSDTableBatchedEmbeddingsTest, TestSetKvDbAsyncWithoutMetadataCf) {
   // or at least not equal to non-zero pattern; we just verify no crash and
   // metadata dim is 0 on DB side.
   EXPECT_EQ(mock_embedding_rocks->get_metadata_dim(), 0);
+}
+
+TEST(SSDTableBatchedEmbeddingsTest, TestByteMissingRowsAreZeroInitialized) {
+  auto temp_dir = c10::make_tempdir("fbgemm-ssd-byte-init-");
+  auto cleanup =
+      folly::makeGuard([&] { std::filesystem::remove_all(temp_dir.name); });
+  auto db = getMockEmbeddingRocksDB(
+      /*num_shards=*/1,
+      temp_dir.name,
+      /*enable_raw_embedding_streaming=*/false,
+      /*table_names=*/{},
+      /*table_offsets=*/{},
+      /*table_sizes=*/{},
+      /*enable_metadata_cf=*/false,
+      /*metadata_dim=*/0,
+      /*l2_cache_size_gb=*/0,
+      /*row_storage_bitwidth=*/8);
+
+  auto indices = at::tensor({11L, 22L}, at::TensorOptions().dtype(at::kLong));
+  auto count = at::tensor({2L}, at::TensorOptions().dtype(at::kLong));
+  auto out = at::full(
+      {2, EMBEDDING_DIMENSION}, 0xFF, at::TensorOptions().dtype(at::kByte));
+  db->get_kv_db_async(indices, out, count).get();
+  EXPECT_TRUE(at::equal(out, at::zeros_like(out)));
+
+  auto known_index = at::tensor({11L}, at::TensorOptions().dtype(at::kLong));
+  auto known_count = at::tensor({1L}, at::TensorOptions().dtype(at::kLong));
+  auto known_row = at::arange(1, EMBEDDING_DIMENSION + 1, at::kByte)
+                       .reshape({1, EMBEDDING_DIMENSION});
+  db->set_kv_db_async(known_index, known_row, known_count).get();
+
+  // A hit retains its payload while both previously read and fresh misses
+  // receive initialized bytes, even though the shard now contains a row.
+  auto mixed_indices =
+      at::tensor({11L, 22L, 33L}, at::TensorOptions().dtype(at::kLong));
+  auto mixed_count = at::tensor({3L}, at::TensorOptions().dtype(at::kLong));
+  auto mixed_out = at::full(
+      {3, EMBEDDING_DIMENSION}, 0xFF, at::TensorOptions().dtype(at::kByte));
+  db->get_kv_db_async(mixed_indices, mixed_out, mixed_count).get();
+  EXPECT_TRUE(at::equal(mixed_out.slice(0, 0, 1), known_row));
+  EXPECT_TRUE(
+      at::equal(
+          mixed_out.slice(0, 1),
+          at::zeros({2, EMBEDDING_DIMENSION}, at::kByte)));
 }
 
 TEST(

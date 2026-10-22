@@ -305,6 +305,333 @@ class SSDUtilsTest(unittest.TestCase):
         winning_row = collision_rows[collision_keys.index(winning_key)]
         torch.testing.assert_close(cache_weights[slot], winning_row)
 
+    @staticmethod
+    def _unique_slot_keys(cache_sets: int, num_keys: int, start: int = 0) -> list[int]:
+        used_slots: set[int] = set()
+        keys: list[int] = []
+        key = start
+        while len(keys) < num_keys:
+            slot = torch.ops.fbgemm.lxu_cache_slot(key, cache_sets)
+            if slot not in used_slots:
+                used_slots.add(slot)
+                keys.append(key)
+            key += 1
+        return keys
+
+    def _run_direct_cache_lookup(
+        self,
+        op: Callable[..., torch.Tensor],
+        indices: torch.Tensor,
+        cache_state: torch.Tensor,
+        cache_weights: torch.Tensor,
+        embedding_dim: int,
+        dtype: torch.dtype,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        action_indices = torch.full_like(indices, -7)
+        actions_count = torch.zeros(1, dtype=torch.int32, device=indices.device)
+        inserted_rows = torch.zeros(
+            (indices.numel(), embedding_dim), dtype=dtype, device=indices.device
+        )
+        row_addresses = torch.empty_like(indices)
+        op(
+            indices,
+            cache_state,
+            cache_weights,
+            action_indices,
+            actions_count,
+            inserted_rows,
+            row_addresses,
+        )
+        return action_indices, actions_count, inserted_rows, row_addresses
+
+    def test_kvzch_direct_cache_int8_roundtrip(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        embedding_dim = 128
+        cache_sets = 64
+        num_resident = 16
+        keys = self._unique_slot_keys(cache_sets, num_resident + 8)
+        resident_keys, absent_keys = keys[:num_resident], keys[num_resident:]
+        resident_slots = {
+            torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) for k in resident_keys
+        }
+        absent_keys.append(
+            next(
+                k
+                for k in range(1000, 2000)
+                if torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) in resident_slots
+            )
+        )
+        for dtype in (torch.float16, torch.bfloat16, torch.float32):
+            source = (
+                torch.randn(num_resident, embedding_dim, device=device) * 3 + 1
+            ).to(dtype)
+            source[0].fill_(2.5)
+            resident = torch.tensor(resident_keys, dtype=torch.int64, device=device)
+
+            int8_state = torch.full(
+                (cache_sets, 1), -1, dtype=torch.int64, device=device
+            )
+            int8_weights = torch.zeros(
+                (cache_sets, embedding_dim + 8), dtype=torch.uint8, device=device
+            )
+            torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
+                int8_state, int8_weights, resident, source
+            )
+            fp_state = torch.full_like(int8_state, -1)
+            fp_weights = torch.zeros(
+                (cache_sets, embedding_dim), dtype=dtype, device=device
+            )
+            torch.ops.fbgemm.kvzch_direct_cache_insert(
+                fp_state, fp_weights, resident, source
+            )
+            torch.testing.assert_close(int8_state, fp_state, rtol=0, atol=0)
+
+            src32 = source.float()
+            row_min = src32.min(dim=1).values
+            row_range = src32.max(dim=1).values - row_min
+            expected_scale = torch.where(
+                row_range == 0, torch.ones_like(row_range), row_range / 255
+            )
+            slots = [
+                torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) for k in resident_keys
+            ]
+            qparams = int8_weights[slots, embedding_dim:].clone().view(torch.float32)
+            torch.testing.assert_close(qparams[:, 0], expected_scale)
+            torch.testing.assert_close(qparams[:, 1], row_min, rtol=0, atol=0)
+
+            lookup_keys = (resident_keys + absent_keys + resident_keys[:4]) * 3
+            perm = torch.randperm(len(lookup_keys)).tolist()
+            lookup_keys = [lookup_keys[i] for i in perm]
+            indices = torch.tensor(lookup_keys, dtype=torch.int64, device=device)
+            N = indices.numel()
+            q_actions, q_count, q_inserted, q_addresses = self._run_direct_cache_lookup(
+                torch.ops.fbgemm.kvzch_direct_cache_lookup_int8,
+                indices,
+                int8_state,
+                int8_weights,
+                embedding_dim,
+                dtype,
+            )
+            f_actions, f_count, f_inserted, f_addresses = self._run_direct_cache_lookup(
+                torch.ops.fbgemm.kvzch_direct_cache_lookup,
+                indices,
+                fp_state,
+                fp_weights,
+                embedding_dim,
+                dtype,
+            )
+            count = int(q_count.item())
+            self.assertEqual(count, int(f_count.item()))
+            self.assertEqual(count, 3 * len(absent_keys))
+            torch.testing.assert_close(q_actions[:count], f_actions[:count])
+            self.assertTrue(set(q_actions[:count].tolist()) == set(absent_keys))
+
+            miss_rows = torch.randn(count, embedding_dim, device=device).to(dtype)
+            q_inserted[:count].copy_(miss_rows)
+            f_inserted[:count].copy_(miss_rows)
+            q_output = torch.empty((N, embedding_dim), dtype=dtype, device=device)
+            torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+                q_output, q_addresses, dtype
+            )
+            f_output = torch.empty_like(q_output)
+            torch.ops.fbgemm.ssd_gather_from_row_addresses(f_output, f_addresses)
+
+            is_hit = torch.tensor(
+                [k in resident_keys for k in lookup_keys], device=device
+            )
+            torch.testing.assert_close((q_addresses & 1).bool(), is_hit, rtol=0, atol=0)
+            torch.testing.assert_close(
+                q_output[~is_hit], f_output[~is_hit], rtol=0, atol=0
+            )
+            source_pos = torch.tensor(
+                [
+                    resident_keys.index(k) if k in resident_keys else 0
+                    for k in lookup_keys
+                ],
+                device=device,
+            )
+            expected = src32[source_pos]
+            tolerance = (
+                expected_scale[source_pos].unsqueeze(1) * 0.5 * (1 + 1e-4)
+                + expected.abs() * torch.finfo(dtype).eps
+                + 1e-6
+            )
+            error = (q_output.float() - expected).abs()
+            self.assertTrue(bool((error[is_hit] <= tolerance[is_hit]).all()))
+            torch.testing.assert_close(
+                q_output[lookup_keys.index(resident_keys[0])].float(),
+                src32[0],
+                rtol=0,
+                atol=0,
+            )
+
+    def test_kvzch_direct_cache_gather_int8_rejects_miss_dtype_mismatch(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        row_dtype = torch.float16
+        source = torch.tensor([[0.25, -0.5, 1.0, 3.0]], dtype=row_dtype, device=device)
+        indices = torch.tensor([3], dtype=torch.int64, device=device)
+        state = torch.full((2, 1), -1, dtype=torch.int64, device=device)
+        weights = torch.empty((2, 12), dtype=torch.uint8, device=device)
+        _, count, inserted, addresses = self._run_direct_cache_lookup(
+            torch.ops.fbgemm.kvzch_direct_cache_lookup_int8,
+            indices,
+            state,
+            weights,
+            4,
+            row_dtype,
+        )
+        self.assertEqual(count.item(), 1)
+        inserted.copy_(source)
+        wrong_output = torch.zeros((1, 4), dtype=torch.float32, device=device)
+        with self.assertRaisesRegex(RuntimeError, "output.dtype == row_dtype"):
+            torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+                wrong_output, addresses, row_dtype
+            )
+        torch.testing.assert_close(wrong_output, torch.zeros_like(wrong_output))
+        output = torch.empty_like(source)
+        torch.ops.fbgemm.kvzch_direct_cache_gather_int8(output, addresses, row_dtype)
+        torch.testing.assert_close(output, source, rtol=0, atol=0)
+
+        meta_output = torch.empty((1, 4), dtype=torch.float32, device="meta")
+        meta_addresses = torch.empty(1, dtype=torch.int64, device="meta")
+        with self.assertRaisesRegex(RuntimeError, "output.dtype == row_dtype"):
+            torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+                meta_output, meta_addresses, row_dtype
+            )
+
+    def test_kvzch_direct_cache_gather_int8_float(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        cache_sets = 4096
+        for embedding_dim in (64, 128):
+            resident_keys = self._unique_slot_keys(cache_sets, 2048)
+            absent_keys = self._unique_slot_keys(cache_sets, 512, start=10**6)
+            for dtype in (torch.float16, torch.bfloat16, torch.float32):
+                source = (
+                    torch.randn(len(resident_keys), embedding_dim, device=device) * 3
+                    + 1
+                ).to(dtype)
+                int8_state = torch.full(
+                    (cache_sets, 1), -1, dtype=torch.int64, device=device
+                )
+                int8_weights = torch.zeros(
+                    (cache_sets, embedding_dim + 8), dtype=torch.uint8, device=device
+                )
+                torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
+                    int8_state,
+                    int8_weights,
+                    torch.tensor(resident_keys, dtype=torch.int64, device=device),
+                    source,
+                )
+                pool = torch.tensor(
+                    resident_keys + absent_keys, dtype=torch.int64, device=device
+                )
+                indices = pool[
+                    torch.randint(pool.numel(), (20000,), device=device)
+                ].contiguous()
+                _, count, inserted, addresses = self._run_direct_cache_lookup(
+                    torch.ops.fbgemm.kvzch_direct_cache_lookup_int8,
+                    indices,
+                    int8_state,
+                    int8_weights,
+                    embedding_dim,
+                    dtype,
+                )
+                num_misses = int(count.item())
+                self.assertGreater(num_misses, 0)
+                inserted[:num_misses].copy_(
+                    torch.randn(num_misses, embedding_dim, device=device) * 5
+                )
+
+                staged = torch.empty(
+                    (indices.numel(), embedding_dim), dtype=dtype, device=device
+                )
+                torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+                    staged, addresses, dtype
+                )
+                expected = staged.float()
+                fused = torch.full_like(expected, float("nan"))
+                torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
+                    fused, addresses, dtype
+                )
+                # Bit-identical to the gather + `.to(float32)` sequence.
+                torch.testing.assert_close(
+                    fused.view(torch.int32),
+                    expected.view(torch.int32),
+                    rtol=0,
+                    atol=0,
+                )
+
+                # CPU reference. q * scale + bias is a single rounding (FMA) on
+                # the GPU; float64 holds the 8-bit x 24-bit product exactly.
+                is_hit = (addresses & 1).bool().cpu()
+                slots = torch.tensor(
+                    [
+                        torch.ops.fbgemm.lxu_cache_slot(k, cache_sets)
+                        for k in indices.tolist()
+                    ]
+                )
+                cache_cpu = int8_weights.cpu()
+                codes = cache_cpu[slots, :embedding_dim].double()
+                qparams = cache_cpu[slots, embedding_dim:].clone().view(torch.float32)
+                dequant = (
+                    codes * qparams[:, :1].double() + qparams[:, 1:].double()
+                ).float()
+                reference = dequant.to(dtype).float()
+                # Miss rows are read through their inserted-row address.
+                miss_rows = (addresses.cpu()[~is_hit] - inserted.data_ptr()) // (
+                    inserted.stride(0) * inserted.element_size()
+                )
+                reference[~is_hit] = inserted.cpu().float()[miss_rows]
+                torch.testing.assert_close(
+                    fused.cpu().view(torch.int32),
+                    reference.view(torch.int32),
+                    rtol=0,
+                    atol=0,
+                )
+
+        empty = torch.empty((0, 128), dtype=torch.float32, device=device)
+        torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
+            empty, torch.empty(0, dtype=torch.int64, device=device), torch.float16
+        )
+        with self.assertRaises(RuntimeError):
+            torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
+                torch.empty((1, 128), dtype=torch.float16, device=device),
+                torch.ones(1, dtype=torch.int64, device=device),
+                torch.float16,
+            )
+
+    def test_kvzch_direct_cache_insert_int8_skips(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        embedding_dim = 64
+        cache_sets = 16
+        keys = self._unique_slot_keys(cache_sets, 3)
+        cache_state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
+        cache_weights = torch.zeros(
+            (cache_sets, embedding_dim + 8), dtype=torch.uint8, device=device
+        )
+        rows = torch.randn(3, embedding_dim, device=device).half()
+        rows[1].zero_()
+        indices = torch.tensor(keys, dtype=torch.int64, device=device)
+
+        torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
+            cache_state,
+            cache_weights,
+            indices,
+            rows,
+            torch.tensor([0], dtype=torch.int32, device=device),
+        )
+        self.assertTrue(bool((cache_state == -1).all()))
+        self.assertTrue(bool((cache_weights == 0).all()))
+
+        torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
+            cache_state, cache_weights, indices, rows
+        )
+        slots = [torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) for k in keys]
+        self.assertEqual(int(cache_state[slots[0]][0].item()), keys[0])
+        self.assertEqual(int(cache_state[slots[1]][0].item()), -1)
+        self.assertTrue(bool((cache_weights[slots[1]] == 0).all()))
+        self.assertEqual(int(cache_state[slots[2]][0].item()), keys[2])
+
     def expand_tensor(
         self, tensor: torch.Tensor, size: int, max_val: int
     ) -> torch.Tensor:
@@ -551,3 +878,120 @@ class SSDUtilsTest(unittest.TestCase):
             assert torch.equal(
                 idx, comp_idx
             ), "Mismatch compact indices for index tensor # {t}"
+
+
+# pyrefly: ignore [bad-argument-type]
+@unittest.skipIf(*running_in_oss)
+# pyrefly: ignore [bad-argument-type]
+@unittest.skipIf(*gpu_unavailable)
+class DirectMappedEnrichmentCacheInt8Test(unittest.TestCase):
+    @staticmethod
+    def _cache(
+        fused_float_gather: bool,
+        output_dtype: torch.dtype,
+        int8: bool = True,
+        read_populate: bool = False,
+    ):  # noqa: ANN205
+        from fbgemm_gpu.tbe.ssd.training import _DirectMappedEnrichmentCache
+
+        device = torch.accelerator.current_accelerator(True)
+        assert device is not None
+        return _DirectMappedEnrichmentCache(
+            embedding_dim=128,
+            total_hash_size=1 << 20,
+            cache_dtype=torch.float16,
+            device=device,
+            cache_size_mb=1,
+            read_populate=read_populate,
+            read_populate_max_lookups=0,
+            int8=int8,
+            fused_float_gather=fused_float_gather,
+            output_dtype=output_dtype,
+        )
+
+    @staticmethod
+    def _backend(
+        table: torch.Tensor,
+    ) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None]:
+        def read_backend_into(
+            action_indices_cpu: torch.Tensor,
+            rows: torch.Tensor,
+            count_cpu: torch.Tensor,
+        ) -> None:
+            torch.accelerator.synchronize()
+            count = int(count_cpu[0])
+            keys = action_indices_cpu[:count].to(table.device)
+            rows[:count].copy_(table[keys])
+
+        return read_backend_into
+
+    def test_int8_lookup_matches_backend_rows(self) -> None:
+        cache = self._cache(fused_float_gather=False, output_dtype=torch.float16)
+        self.assertEqual(cache.cache_weights.dtype, torch.uint8)
+        self.assertEqual(cache.cache_weights.shape[1], 128 + 8)
+        device = torch.accelerator.current_accelerator(True)
+        table = (torch.randn(4096, 128, device=device) * 3 + 1).half()
+        resident = torch.arange(0, 4096, 2, device=device)
+        cache.populate_from_write(resident, table[resident])
+        indices = torch.randint(0, 4096, (50000,), device=device)
+        output = cache.lookup(indices, self._backend(table))
+        hits, queries = cache.last_hit_counts()
+        self.assertGreater(hits, 0)
+        self.assertLess(hits, queries)
+        self.assertEqual(output.dtype, torch.float16)
+        expected = table[indices].float()
+        row_range = expected.amax(dim=1) - expected.amin(dim=1)
+        max_err = (output.float() - expected).abs().amax(dim=1)
+        self.assertTrue(bool((max_err <= row_range / 255 * 0.5 + 1e-2).all()))
+        misses = (indices % 2) == 1
+        torch.testing.assert_close(output[misses], table[indices[misses]])
+
+    def test_fused_float_gather_is_bit_identical(self) -> None:
+        cache = self._cache(fused_float_gather=True, output_dtype=torch.float32)
+        self.assertTrue(cache._fused_float_gather)
+        device = torch.accelerator.current_accelerator(True)
+        table = (torch.randn(4096, 128, device=device) * 3 + 1).half()
+        resident = torch.arange(0, 4096, 2, device=device)
+        cache.populate_from_write(resident, table[resident])
+        indices = torch.randint(0, 4096, (50000,), device=device)
+        fused = cache.lookup(indices, self._backend(table))
+        cache._fused_float_gather = False
+        unfused = cache.lookup(indices, self._backend(table))
+        self.assertEqual(fused.dtype, torch.float32)
+        self.assertEqual(unfused.dtype, torch.float16)
+        torch.testing.assert_close(
+            fused.view(torch.int32),
+            unfused.to(torch.float32).view(torch.int32),
+            rtol=0,
+            atol=0,
+        )
+
+    def test_lookup_read_population_for_fp_and_int8(self) -> None:
+        device = torch.accelerator.current_accelerator(True)
+        table = (torch.randn(4096, 128, device=device) * 3 + 1).half()
+        for int8 in (False, True):
+            with self.subTest(int8=int8):
+                cache = self._cache(
+                    fused_float_gather=False,
+                    output_dtype=torch.float16,
+                    int8=int8,
+                    read_populate=True,
+                )
+                keys = SSDUtilsTest._unique_slot_keys(cache.cache_state.size(0), 32)
+                indices = torch.tensor(keys, dtype=torch.int64, device=device)
+                first = cache.lookup(indices, self._backend(table))
+                self.assertEqual(cache.last_hit_counts(), (0, 32))
+                torch.testing.assert_close(first, table[indices], rtol=0, atol=0)
+                second = cache.lookup(indices, self._backend(table))
+                self.assertEqual(cache.last_hit_counts(), (32, 32))
+                if int8:
+                    expected = table[indices].float()
+                    row_range = expected.amax(dim=1) - expected.amin(dim=1)
+                    error = (second.float() - expected).abs().amax(dim=1)
+                    self.assertTrue(bool((error <= row_range / 510 + 1e-2).all()))
+                else:
+                    torch.testing.assert_close(second, first, rtol=0, atol=0)
+
+    def test_fused_float_gather_requires_fp32_output(self) -> None:
+        cache = self._cache(fused_float_gather=True, output_dtype=torch.bfloat16)
+        self.assertFalse(cache._fused_float_gather)

@@ -290,13 +290,11 @@ def ssd_training(  # noqa C901
         weighted_requires_grad_tables = np.random.choice(
             T, replace=False, size=(weighted_num_requires_grad,)
         ).tolist()
-        feature_requires_grad = (
-            torch.tensor(
-                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
-            )
-            .to(get_device())
-            .int()
-        )
+        # Citrine C3: create benchmark feature flags on the target device.
+        feature_requires_grad = torch.tensor(
+            [1 if t in weighted_requires_grad_tables else 0 for t in range(T)],
+            device=get_device(),
+        ).int()
     else:
         feature_requires_grad = None
     if mixed:
@@ -390,11 +388,11 @@ def ssd_training(  # noqa C901
         use_cpu=not torch.cuda.is_available(),
     )
 
-    # Generate gradients for backward
+    # Citrine C3: generate benchmark gradients on the target device.
     if do_pooling:
-        grad_output = torch.randn(B, sum(Ds)).to(get_device())
+        grad_output = torch.randn(B, sum(Ds), device=get_device())
     else:
-        grad_output = torch.randn(B * T * L, D).to(get_device())
+        grad_output = torch.randn(B * T * L, D, device=get_device())
 
     # Compute read/write bytes
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -827,6 +825,109 @@ def masked_index_benchmark(
         f"BW: {buffer_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"Time {time_per_iter * 1.0e6:.0f} us"
     )
+
+
+@cli.command()
+@click.option("--iters", default=20)
+@click.option("--num-rows", default=8 * 1024 * 1024, help="Rows gathered per call")
+@click.option("--dim", default=128)
+@click.option("--cache-sets", default=4 * 1024 * 1024)
+@click.option("--hit-rate", default=0.9, help="Fraction of rows that hit the cache")
+def kvzch_direct_cache_gather_benchmark(
+    iters: int,
+    num_rows: int,
+    dim: int,
+    cache_sets: int,
+    hit_rate: float,
+) -> None:
+    """
+    Compares the KVZCH owner-local INT8 direct-cache read paths that produce
+    FP32 rows: `kvzch_direct_cache_gather_int8` into FP16 followed by
+    `.to(torch.float32)`, versus `kvzch_direct_cache_gather_int8_float`.
+    Miss rows are FP16 rows in host-mapped memory, as in the DRAM-backend path.
+    """
+    device = get_device()
+    row_dtype = torch.float16
+    state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
+    weights = torch.zeros((cache_sets, dim + 8), dtype=torch.uint8, device=device)
+    resident = torch.randperm(cache_sets * 4, device=device)[:cache_sets]
+    torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
+        state,
+        weights,
+        resident,
+        torch.randn(cache_sets, dim, device=device).to(row_dtype),
+    )
+    resident = state[state[:, 0] >= 0, 0]
+    is_hit = torch.rand(num_rows, device=device) < hit_rate
+    hit_keys = resident[torch.randint(resident.numel(), (num_rows,), device=device)]
+    miss_keys = torch.randint(
+        cache_sets * 4, cache_sets * 8, (num_rows,), device=device
+    )
+    indices = torch.where(is_hit, hit_keys, miss_keys)
+    action_indices = torch.empty_like(indices)
+    actions_count = torch.zeros(1, dtype=torch.int32, device=device)
+    inserted_rows = torch.ops.fbgemm.new_unified_tensor(
+        torch.zeros(1, dtype=row_dtype, device=device),
+        (num_rows, dim),
+        is_host_mapped=True,
+    )
+    row_addresses = torch.empty_like(indices)
+    torch.ops.fbgemm.kvzch_direct_cache_lookup_int8(
+        indices,
+        state,
+        weights,
+        action_indices,
+        actions_count,
+        inserted_rows,
+        row_addresses,
+    )
+    num_misses = int(actions_count.item())
+    inserted_rows[:num_misses].copy_(torch.randn(num_misses, dim, device=device))
+
+    def unfused() -> torch.Tensor:
+        staged = torch.empty((num_rows, dim), dtype=row_dtype, device=device)
+        torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+            staged, row_addresses, row_dtype
+        )
+        return staged.to(torch.float32)
+
+    def fused() -> torch.Tensor:
+        output = torch.empty((num_rows, dim), dtype=torch.float32, device=device)
+        return torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
+            output, row_addresses, row_dtype
+        )
+
+    reference = unfused()
+    if not torch.equal(fused().view(torch.int32), reference.view(torch.int32)):
+        raise AssertionError("fused gather is not bit-identical")
+    del reference
+
+    for name, fn in (("unfused", unfused), ("fused", fused)):
+        for _ in range(3):
+            fn()
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        base_bytes = torch.cuda.memory_allocated()
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        for _ in range(iters):
+            fn()
+        end.record()
+        torch.cuda.synchronize()
+        peak_gib = (torch.cuda.max_memory_allocated() - base_bytes) / 2**30
+        with profile() as prof:
+            fn()
+            torch.cuda.synchronize()
+        kernels = [
+            e for e in prof.events() if e.device_type == torch.autograd.DeviceType.CUDA
+        ]
+        logging.info(
+            f"kvzch_direct_cache_gather {name}: rows {num_rows}, dim {dim}, "
+            f"hit rate {num_rows - num_misses}/{num_rows}, "
+            f"time {start.elapsed_time(end) / iters:.3f} ms, "
+            f"kernels {len(kernels)}, transient peak {peak_gib:.2f} GiB"
+        )
 
 
 if __name__ == "__main__":

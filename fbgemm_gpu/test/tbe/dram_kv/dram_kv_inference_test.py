@@ -264,6 +264,34 @@ class DramKvInferenceTest(unittest.TestCase):
 
         self.assertEqual(str(serialized_result), str(kv_embedding_cache_2.serialize()))
 
+    def test_byte_initializer_for_empty_shard(self) -> None:
+        for num_shards in (1, 32):
+            with self.subTest(num_shards=num_shards):
+                cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
+                    num_shards, 0.0, 0.0, False
+                )
+                cache.init(
+                    [(20, 4, SparseType.INT8.as_int())],
+                    8,
+                    4,
+                    torch.tensor([0, 20], dtype=torch.int64),
+                )
+                missing_ids = torch.tensor([4, 5], dtype=torch.int64)
+                missing = cache.get_embeddings(missing_ids)
+                self.assertTrue(torch.equal(missing, torch.zeros_like(missing)))
+
+                expected = torch.arange(8, dtype=torch.uint8).reshape(1, 8)
+                cache.set_embeddings(torch.tensor([0], dtype=torch.int64), expected)
+                actual = cache.get_embeddings(
+                    torch.tensor([0, 4, 5], dtype=torch.int64)
+                )
+                self.assertTrue(torch.equal(actual[:1], expected))
+                for row in actual[1:]:
+                    self.assertTrue(
+                        torch.equal(row, expected[0])
+                        or torch.equal(row, torch.zeros_like(row))
+                    )
+
     def test_set_get_embeddings(self) -> None:
         num_shards = 32
         uniform_init_lower: float = 0.0

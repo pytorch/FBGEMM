@@ -109,7 +109,16 @@ class BackwardOptimizersTest(unittest.TestCase):
         counter_weight_decay_mode: CounterWeightDecayMode | None = None,
         counter_halflife: int = -1,
         use_api_v1: bool = False,
+        use_falr: bool = False,
+        falr_ref_gap: float = 0.0,
+        falr_floor: float = 0.1,
     ) -> None:
+        """Run one forward/backward step with `optimizer` and check weights and
+        optimizer states against a reference.
+
+        `use_falr`, `falr_ref_gap` and `falr_floor` enable and configure falr,
+        which is only valid with ROWWISE_RMSPROP_AR.
+        """
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
 
         if use_cpu and T * B * L * D > 2048:
@@ -328,7 +337,10 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
 
         extra_optimizer_config = UserEnabledConfigDefinition(
-            use_rowwise_bias_correction=use_rowwise_bias_correction
+            use_rowwise_bias_correction=use_rowwise_bias_correction,
+            use_falr=use_falr,
+            falr_ref_gap=falr_ref_gap,
+            falr_floor=falr_floor,
         )
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
             optimizer_kwargs["eps"] = eps
@@ -759,8 +771,21 @@ class BackwardOptimizersTest(unittest.TestCase):
                 )
 
         if optimizer == OptimType.ROWWISE_RMSPROP_AR:
+            # One step from fresh state: every touched row has gap 1, so
+            # row_counter seeds to 1 and the falr scale is
+            # clamp(falr_ref_gap / 1, falr_floor, 1).
+            falr_scale = max(falr_floor, min(1.0, falr_ref_gap)) if use_falr else 1.0
             for t in range(T):
-                m1, _prev_iter = split_optimizer_states[t]
+                if use_falr:
+                    m1, _prev_iter, row_counter = split_optimizer_states[t]
+                    torch.testing.assert_close(
+                        row_counter.float()
+                        .index_select(dim=0, index=xs[t].view(-1))
+                        .cpu(),
+                        torch.ones(xs[t].numel()),
+                    )
+                else:
+                    m1, _prev_iter = split_optimizer_states[t]
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 # momentum1 is a bounded EMA of mean(g^2) over the embedding
                 # dim. It starts at 0, so after one step it is
@@ -778,7 +803,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 # step uses lr / (sqrt(v) + eps) per row.
                 lambda_ = max(0.0, min(1.0, lr * ar_alpha))
                 exp_reg_correction = max(min_shrinkage, 1.0 - lambda_)
-                multiplier = (m1_ref.sqrt() + eps).reciprocal() * lr
+                multiplier = (m1_ref.sqrt() + eps).reciprocal() * lr * falr_scale
                 weights_new = split_weights[t]
                 weights_ref = (
                     exp_reg_correction * bs[t].weight.cpu()
@@ -792,11 +817,10 @@ class BackwardOptimizersTest(unittest.TestCase):
                 )
                 if get_optimizer_states is not None:
                     optimizer_states_dict = get_optimizer_states[t]
-                    assert set(optimizer_states_dict.keys()) == {
-                        "sum",
-                        "prev_iter",
-                        "iter",
-                    }
+                    expected_keys = {"sum", "prev_iter", "iter"}
+                    if use_falr:
+                        expected_keys.add("row_counter")
+                    assert set(optimizer_states_dict.keys()) == expected_keys
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_LAMB
@@ -1630,6 +1654,9 @@ class BackwardOptimizersTest(unittest.TestCase):
             ]
         ),
         use_cpu=use_cpu_strategy(),
+        use_falr=st.booleans(),
+        falr_ref_gap=st.floats(min_value=0.05, max_value=2.0),
+        falr_floor=st.floats(min_value=0.0, max_value=1.0),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -1649,10 +1676,15 @@ class BackwardOptimizersTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: PoolingMode,
         use_cpu: bool,
+        use_falr: bool,
+        falr_ref_gap: float,
+        falr_floor: float,
     ) -> None:
         # Exercises ROWWISE_RMSPROP_AR (Adaptive Regularization) across
         # variable T/D/B/E/L, mixed dims, weighted/unweighted, VBE (mixed_B,
         # GPU-only) and all pooling modes, reusing the shared reference harness.
+        # With `use_falr`, a ref_gap below 1 exercises the falr scale and one
+        # above 1 the clamp to full lr.
         self.execute_backward_optimizers_(
             T,
             D,
@@ -1666,6 +1698,9 @@ class BackwardOptimizersTest(unittest.TestCase):
             long_segments,
             pooling_mode,
             use_cpu,
+            use_falr=use_falr,
+            falr_ref_gap=falr_ref_gap,
+            falr_floor=falr_floor,
         )
 
     @given(
@@ -2014,19 +2049,40 @@ class RowwiseRMSpropARTest(unittest.TestCase):
         use_cpu: bool = True,
         ema_beta: float = 0.99,
         min_shrinkage: float = 0.0,
+        extra_optimizer_config: UserEnabledConfigDefinition | None = None,
+        optimizer: OptimType = OptimType.ROWWISE_RMSPROP_AR,
     ) -> SplitTableBatchedEmbeddingBagsCodegen:
-        """Single-table TBE with weights init to 1.0 so the decay multiplier
-        reads directly off post-step weights when paired with zero grad."""
+        """Build a single-table TBE with every weight set to 1.0.
+
+        Args:
+            E, D: Table rows and embedding dim.
+            ar_alpha, ema_beta, min_shrinkage: ROWWISE_RMSPROP_AR knobs.
+            use_cpu: CPU (HOST) or GPU. On GPU the location is DEVICE or
+                MANAGED at random, as in `execute_backward_optimizers_`.
+            extra_optimizer_config: Passed through, e.g. to enable falr.
+            optimizer: Defaults to ROWWISE_RMSPROP_AR.
+
+        Uses lr=1 and SUM pooling, so after `_touch` the weight equals the
+        decay multiplier and after `_step` it has moved by the step size.
+        """
         compute_device = ComputeDevice.CPU if use_cpu else ComputeDevice.CUDA
-        location = EmbeddingLocation.HOST if use_cpu else EmbeddingLocation.DEVICE
+        if use_cpu:
+            location = EmbeddingLocation.HOST
+        elif TEST_WITH_ROCM:
+            location = EmbeddingLocation.DEVICE
+        else:
+            location = np.random.choice(
+                [EmbeddingLocation.DEVICE, EmbeddingLocation.MANAGED]
+            )
         tbe = SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[(E, D, location, compute_device)],
-            optimizer=OptimType.ROWWISE_RMSPROP_AR,
+            optimizer=optimizer,
             learning_rate=1.0,  # non-zero so decay (= lr*ar_alpha*I) is active
             eps=1.0e-8,
             ar_alpha=ar_alpha,  # paper's adaptive coefficient (lr-scaled in kernel)
             ema_beta=ema_beta,
             min_shrinkage=min_shrinkage,
+            extra_optimizer_config=extra_optimizer_config,
             pooling_mode=PoolingMode.SUM,
             output_dtype=SparseType.FP32,
         )
@@ -2042,12 +2098,144 @@ class RowwiseRMSpropARTest(unittest.TestCase):
         tbe: SplitTableBatchedEmbeddingBagsCodegen,
         rows: list[int],
     ) -> None:
-        """Touch rows with zero grad. The kernel still updates prev_iter and
-        applies decay; mult·grad = 0 isolates the decay multiplier."""
-        indices = torch.tensor(rows, dtype=torch.long)
-        offsets = torch.tensor(list(range(len(rows) + 1)), dtype=torch.long)
+        """Run one step on `rows` with a zero gradient.
+
+        The kernel still updates `prev_iter` and applies the decay, so with
+        mult * grad = 0 each touched weight is scaled by exactly the decay
+        multiplier.
+        """
+        device = tbe.split_embedding_weights()[0].device
+        indices = torch.tensor(rows, dtype=torch.long, device=device)
+        offsets = torch.arange(len(rows) + 1, dtype=torch.long, device=device)
         out = tbe(indices, offsets)
         (out * 0).sum().backward()
+
+    def _step(
+        self, tbe: SplitTableBatchedEmbeddingBagsCodegen, rows: list[int]
+    ) -> None:
+        """Run one step on `rows` with a unit gradient.
+
+        With lr=1 and ar_alpha=0, each touched weight moves by its falr scale
+        divided by sqrt(momentum1).
+        """
+        device = tbe.split_embedding_weights()[0].device
+        indices = torch.tensor(rows, dtype=torch.long, device=device)
+        offsets = torch.arange(len(rows) + 1, dtype=torch.long, device=device)
+        tbe(indices, offsets).sum().backward()
+
+    @given(
+        log_E=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=1, max_value=32).map(lambda d: 4 * d),
+        row=st.integers(min_value=0, max_value=31),
+        gap=st.integers(min_value=1, max_value=32),
+        falr_ref_gap=st.floats(min_value=0.5, max_value=32.0),
+        falr_floor=st.floats(min_value=0.0, max_value=1.0),
+        ema_beta=st.floats(min_value=0.0, max_value=0.99),
+        rewind=st.booleans(),
+        use_cpu=use_cpu_strategy(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_falr_scales_by_access_gap(
+        self,
+        log_E: int,
+        D: int,
+        row: int,
+        gap: int,
+        falr_ref_gap: float,
+        falr_floor: float,
+        ema_beta: float,
+        rewind: bool,
+        use_cpu: bool,
+    ) -> None:
+        """A row touched again after `gap` steps updates row_counter, seeded
+        with 1 on the first touch, to ema_beta * 1 + (1 - ema_beta) * gap, and
+        steps at clamp(falr_ref_gap / row_counter, falr_floor, 1). A rewound
+        `iter` gives a negative gap, which is clamped to 1."""
+        E = 2**log_E
+        row, other = row % E, (row + 1) % E
+        tbe = self._build_tbe(
+            E=E,
+            D=D,
+            ar_alpha=0.0,
+            use_cpu=use_cpu,
+            ema_beta=ema_beta,
+            extra_optimizer_config=UserEnabledConfigDefinition(
+                use_falr=True, falr_ref_gap=falr_ref_gap, falr_floor=falr_floor
+            ),
+        )
+        self._step(tbe, rows=[row])
+        for _ in range(gap - 1):
+            self._step(tbe, rows=[other])
+        if rewind:
+            with torch.no_grad():
+                # Push prev_iter past iter, as a state transplant would.
+                tbe.split_optimizer_states()[0][1][row] = 1.0e6
+
+        before = tbe.split_embedding_weights()[0][row].clone()
+        self._step(tbe, rows=[row])
+
+        gap_seen = 1.0 if rewind else float(gap)
+        expected_row_counter = ema_beta * 1.0 + (1.0 - ema_beta) * gap_seen
+        scale = max(falr_floor, min(1.0, falr_ref_gap / expected_row_counter))
+        # After two unit-grad touches the row's momentum1 is 1 - ema_beta**2;
+        # the steps on `other` don't touch it.
+        expected_step = scale / math.sqrt(1.0 - ema_beta**2)
+        row_counter = float(tbe.split_optimizer_states()[0][2][row])
+        delta = (tbe.split_embedding_weights()[0][row] - before).abs().mean().item()
+        self.assertAlmostEqual(row_counter, expected_row_counter, delta=1e-3)
+        self.assertAlmostEqual(delta, expected_step, delta=1e-3 * expected_step)
+
+    def test_falr_rejects_invalid_config(self) -> None:
+        """Invalid falr setups fail instead of training silently: bad values or
+        a non-AR optimizer at construction, and falr on without `row_counter`
+        in the invoker."""
+        nan, inf = float("nan"), float("inf")
+        for ref_gap, floor, ema_beta in [
+            (0.0, 0.1, 0.0),
+            (-1.0, 0.1, 0.0),
+            (inf, 0.1, 0.0),
+            (nan, 0.1, 0.0),
+            (10.0, 1.5, 0.0),
+            (10.0, -0.1, 0.0),
+            (10.0, nan, 0.0),
+            (10.0, 0.1, 1.0),
+            (10.0, 0.1, 1.5),
+            (10.0, 0.1, -0.1),
+            (10.0, 0.1, nan),
+        ]:
+            with self.subTest(ref_gap=ref_gap, floor=floor, ema_beta=ema_beta):
+                with self.assertRaises(ValueError):
+                    self._build_tbe(
+                        E=4,
+                        D=4,
+                        ar_alpha=0.0,
+                        ema_beta=ema_beta,
+                        extra_optimizer_config=UserEnabledConfigDefinition(
+                            use_falr=True, falr_ref_gap=ref_gap, falr_floor=floor
+                        ),
+                    )
+
+        with self.subTest("non-AR optimizer"):
+            with self.assertRaises(ValueError):
+                self._build_tbe(
+                    E=4,
+                    D=4,
+                    ar_alpha=0.0,
+                    optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                    extra_optimizer_config=UserEnabledConfigDefinition(
+                        use_falr=True, falr_ref_gap=100.0
+                    ),
+                )
+
+        with self.subTest("falr_ref_gap > 0 without row_counter"):
+            tbe = self._build_tbe(E=4, D=4, ar_alpha=0.0, ema_beta=0.0)
+            tbe.optimizer_args = tbe.optimizer_args._replace(falr_ref_gap=10.0)
+            with self.assertRaises(AssertionError):
+                self._step(tbe, rows=[0])
 
     def test_decay_is_linear_clipped(self) -> None:
         """Verify the paper's linear-in-I dependence (not exponential)

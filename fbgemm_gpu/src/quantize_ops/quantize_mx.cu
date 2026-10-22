@@ -161,8 +161,10 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
       kernel_func,
       num_warps_in_group);
 
-  const auto gridDim_x =
-      std::max(1, div_round_up(total_num_groups, num_groups_per_block));
+  const auto gridDim_x = utils::cuda::cap_grid_dim_x(
+      std::max(1, div_round_up(total_num_groups, num_groups_per_block)),
+      mx_group_size * num_groups_per_block,
+      at::cuda::getCurrentCUDAStream());
 
   const dim3 gridDim(gridDim_x);
   const dim3 blockDim(mx_group_size, num_groups_per_block);

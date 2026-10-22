@@ -10,6 +10,8 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAEvent.h>
+#include <ATen/detail/CUDAHooksInterface.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <fbgemm_gpu/torch_ops.h>
 #include <torch/library.h>
 #include "c10/core/ScalarType.h"
@@ -282,23 +284,102 @@ std::vector<at::Tensor> fake_quantize_nvfp4_per_tensor(
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub); // scale upperbound
 
+#ifdef USE_ROCM
+#ifndef FBGEMM_GENAI_WITH_CK
+#define FBGEMM_GENAI_WITH_CK 1
+#endif
+namespace {
+std::optional<c10::Device> ck_input_device(const at::Tensor& input) {
+  return input.defined() ? std::make_optional(input.device()) : std::nullopt;
+}
+
+std::optional<c10::Device> ck_input_device(at::TensorList inputs) {
+  return inputs.empty() ? std::nullopt : ck_input_device(inputs.front());
+}
+
+template <typename T>
+std::optional<c10::Device> ck_input_device(const T&) {
+  return std::nullopt;
+}
+
+template <typename Signature, Signature Kernel>
+struct CheckedCkKernel;
+
+template <typename R, typename... Args, R (*Kernel)(Args...)>
+struct CheckedCkKernel<R (*)(Args...), Kernel> {
+  const char* name;
+
+  R operator()(Args... args) const {
+    std::optional<c10::Device> device;
+    const auto update_device = [&device](const auto& arg) {
+      const auto candidate = ck_input_device(arg);
+      if (candidate &&
+          (!device || (!device->is_cuda() && candidate->is_cuda()))) {
+        device = candidate;
+      }
+    };
+    (update_device(args), ...);
+    if constexpr (sizeof...(Args) == 0) {
+      device = c10::Device(c10::DeviceType::CUDA, c10::cuda::current_device());
+    }
+    const c10::cuda::OptionalCUDAGuard guard(
+        device && device->is_cuda() ? device : std::nullopt);
+    TORCH_CHECK(
+        !device || !device->is_cuda() ||
+            !at::detail::getCUDAHooks().isGPUArch({"gfx1250"}, device->index()),
+        "fbgemm::",
+        name,
+        " is not supported on gfx1250 (MI450/MI455): CK GEMM kernels are unavailable");
+#if FBGEMM_GENAI_WITH_CK
+    return Kernel(args...);
+#else
+    TORCH_CHECK(
+        false,
+        "fbgemm::",
+        name,
+        " requires CK kernels, which are unavailable in this build");
+#endif
+  }
+};
+} // namespace
+#define FBGEMM_CK_KERNEL(kernel)                \
+  CheckedCkKernel<decltype(&kernel), &kernel> { \
+    #kernel                                     \
+  }
+#else
+#define FBGEMM_CK_KERNEL(kernel) kernel
+#endif
+
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
-  m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
-  m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
-  m.impl("f8f8bf16_rowwise_out", f8f8bf16_rowwise_out);
-  m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched);
-  m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
-  m.impl("f8f8bf16_rowwise_grouped_cat", f8f8bf16_rowwise_grouped_cat);
-  m.impl("f8f8bf16_rowwise_grouped_stacked", f8f8bf16_rowwise_grouped_stacked);
-  m.impl("f8f8bf16_rowwise_grouped_dynamic", f8f8bf16_rowwise_grouped_dynamic);
+  m.impl("f8f8bf16_blockwise", FBGEMM_CK_KERNEL(f8f8bf16_blockwise));
+  m.impl("f8f8bf16_tensorwise", FBGEMM_CK_KERNEL(f8f8bf16_tensorwise));
+  m.impl("f8f8bf16_rowwise", FBGEMM_CK_KERNEL(f8f8bf16_rowwise));
+  m.impl("f8f8bf16_rowwise_out", FBGEMM_CK_KERNEL(f8f8bf16_rowwise_out));
+  m.impl(
+      "f8f8bf16_rowwise_batched", FBGEMM_CK_KERNEL(f8f8bf16_rowwise_batched));
+  m.impl(
+      "f8f8bf16_rowwise_grouped", FBGEMM_CK_KERNEL(f8f8bf16_rowwise_grouped));
+  m.impl(
+      "f8f8bf16_rowwise_grouped_cat",
+      FBGEMM_CK_KERNEL(f8f8bf16_rowwise_grouped_cat));
+  m.impl(
+      "f8f8bf16_rowwise_grouped_stacked",
+      FBGEMM_CK_KERNEL(f8f8bf16_rowwise_grouped_stacked));
+  m.impl(
+      "f8f8bf16_rowwise_grouped_dynamic",
+      FBGEMM_CK_KERNEL(f8f8bf16_rowwise_grouped_dynamic));
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
-  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
-  m.impl("bf16bf16bf16_grouped_cat", bf16bf16bf16_grouped_cat);
-  m.impl("bf16bf16bf16_grouped_dynamic", bf16bf16bf16_grouped_dynamic);
-  m.impl("bf16bf16bf16_grouped_stacked", bf16bf16bf16_grouped_stacked);
+  m.impl("bf16bf16bf16_grouped", FBGEMM_CK_KERNEL(bf16bf16bf16_grouped));
+  m.impl(
+      "bf16bf16bf16_grouped_cat", FBGEMM_CK_KERNEL(bf16bf16bf16_grouped_cat));
+  m.impl(
+      "bf16bf16bf16_grouped_dynamic",
+      FBGEMM_CK_KERNEL(bf16bf16bf16_grouped_dynamic));
+  m.impl(
+      "bf16bf16bf16_grouped_stacked",
+      FBGEMM_CK_KERNEL(bf16bf16bf16_grouped_stacked));
   m.impl("per_tensor_quantize_i8", per_tensor_quantize_i8);
   m.impl("per_tensor_dynamic_quantize_i8", per_tensor_dynamic_quantize_i8);
   m.impl("silu_mul_quantize_i8", silu_mul_quantize_i8);
@@ -337,13 +418,18 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 #endif
 
 #ifdef USE_ROCM
-  m.impl("flush_icache_hip", flush_icache_ck);
-  m.impl("f8f8bf16_rowwise_grouped_mm", f8f8bf16_rowwise_grouped_mm);
+  m.impl(
+      "f8f8bf16_rowwise_grouped_mm",
+      FBGEMM_CK_KERNEL(f8f8bf16_rowwise_grouped_mm));
 #endif
 #ifdef USE_ROCM
-  m.impl("f8f8f16_rowwise", f8f8f16_rowwise);
-  m.impl("f8f8bf16_rowwise_preshuffle", f8f8bf16_rowwise_preshuffle);
-  m.impl("f8f8f16_rowwise_preshuffle", f8f8bf16_rowwise_preshuffle);
+  m.impl("f8f8f16_rowwise", FBGEMM_CK_KERNEL(f8f8f16_rowwise));
+  m.impl(
+      "f8f8bf16_rowwise_preshuffle",
+      FBGEMM_CK_KERNEL(f8f8bf16_rowwise_preshuffle));
+  m.impl(
+      "f8f8f16_rowwise_preshuffle",
+      FBGEMM_CK_KERNEL(f8f8f16_rowwise_preshuffle));
 #endif
 }
 
@@ -362,7 +448,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
   m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
   m.impl("bf16bf16bf16_grouped_cat", bf16bf16bf16_grouped_cat);
-  m.impl("bf16bf16bf16_grouped_dyanmic", bf16bf16bf16_grouped_dynamic);
+  m.impl("bf16bf16bf16_grouped_dynamic", bf16bf16bf16_grouped_dynamic);
   m.impl("bf16bf16bf16_grouped_stacked", bf16bf16bf16_grouped_stacked);
 #ifndef USE_ROCM
   m.impl("f8f8bf16_groupwise", f8f8bf16_groupwise);
@@ -391,6 +477,14 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("fake_quantize_nvfp4_per_tensor", fake_quantize_nvfp4_per_tensor);
 #endif
 }
+
+#ifdef USE_ROCM
+TORCH_LIBRARY_IMPL(fbgemm, CompositeImplicitAutograd, m) {
+  m.impl("flush_icache_hip", FBGEMM_CK_KERNEL(flush_icache_ck));
+}
+#endif
+
+#undef FBGEMM_CK_KERNEL
 
 // Shape registration functions.
 at::Tensor i8i8bf16_meta(

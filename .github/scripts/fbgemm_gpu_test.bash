@@ -79,13 +79,10 @@ run_python_test () {
   echo ""
   echo ""
 
-  # NOTE: Running large test suites may result in OOM error that will cause the
-  # process to be prematurely killed.  To work around this, when we re-run test
-  # suites, we only run tests that have failed in the previous round.  This is
-  # enabled by using the pytest cache and the --lf flag.
+  # A killed pytest process may not write its failure cache.
 
   # shellcheck disable=SC2086
-  if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures none "${python_test_file}"; then
+  if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures all "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED with retries: ${python_test_file}"
     local test_time=$(($(date +%s)-start))
     echo "[TEST] Python test time with retries for ${python_test_file}: ${test_time} seconds"
