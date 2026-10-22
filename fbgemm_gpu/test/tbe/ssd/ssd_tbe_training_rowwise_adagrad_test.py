@@ -8,12 +8,15 @@
 # pyre-ignore-all-errors[3,6,56]
 
 
+import tempfile
 import unittest
+from unittest import mock
 
 import hypothesis.strategies as st
 import torch
+from fbgemm_gpu.config import FeatureGate
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.tbe.config.embedding_config import PoolingMode
+from fbgemm_gpu.tbe.config.embedding_config import BoundsCheckMode, PoolingMode
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.ssd_config import BackendType
 from hypothesis import assume, given, settings, Verbosity
@@ -30,6 +33,62 @@ from .training_common import (
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDSplitTBERowwiseAdagradTest(SSDSplitTableBatchedEmbeddingsTestCommon):
+    def test_vbe_v2_bounds_check_metadata(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        storage_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(storage_directory.cleanup)
+        with mock.patch.object(FeatureGate, "is_enabled", return_value=False):
+            emb = SSDTableBatchedEmbeddingBags(
+                embedding_specs=[(2, 8), (8, 8)],
+                feature_table_map=None,
+                cache_sets=1,
+                ssd_storage_directory=storage_directory.name,
+                ssd_rocksdb_shards=1,
+                backend_type=BackendType.DRAM,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                bounds_check_mode=BoundsCheckMode.V2_WARNING,
+            )
+        self.assertEqual(emb.bounds_check_version, 2)
+        self.assertEqual(emb.bounds_check_mode_int, BoundsCheckMode.WARNING.value)
+        indices = torch.tensor([1, 2, 7], device=device)
+        offsets = torch.tensor([0, 1, 2, 3], device=device)
+        prepared_indices, prepared_offsets, _, metadata = emb.prepare_inputs(
+            indices,
+            offsets,
+            batch_size_per_feature_per_rank=[[2], [1]],
+            vbe_output_offsets=None,
+        )
+        torch.accelerator.synchronize()
+        torch.testing.assert_close(
+            prepared_indices,
+            torch.tensor([1, 0, 7], device=device),
+        )
+        torch.testing.assert_close(prepared_offsets, offsets)
+        self.assertEqual(emb.bounds_check_warning.item(), 1)
+        torch.testing.assert_close(
+            metadata.B_offsets,
+            torch.tensor([0, 2, 3], device=device, dtype=torch.int32),
+        )
+
+        gate_storage_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(gate_storage_directory.cleanup)
+        with mock.patch.object(FeatureGate, "is_enabled", return_value=True):
+            gate_enabled_emb = SSDTableBatchedEmbeddingBags(
+                embedding_specs=[(2, 8), (8, 8)],
+                feature_table_map=None,
+                cache_sets=1,
+                ssd_storage_directory=gate_storage_directory.name,
+                ssd_rocksdb_shards=1,
+                backend_type=BackendType.DRAM,
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                bounds_check_mode=BoundsCheckMode.WARNING,
+            )
+        self.assertEqual(gate_enabled_emb.bounds_check_version, 2)
+        self.assertEqual(
+            gate_enabled_emb.bounds_check_mode_int,
+            BoundsCheckMode.WARNING.value,
+        )
+
     @given(
         **default_strategies,
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
