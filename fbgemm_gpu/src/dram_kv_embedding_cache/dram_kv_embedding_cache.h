@@ -1146,19 +1146,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       folly::F14FastMap<int64_t, int64_t> payloads;
 
       if (enrichment_type == kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
-        payloads = folly::coro::blockingWait(
+        payloads = folly::coro::blockingWait(co_withExecutor(
+            enrichment_executor_.get(),
             oneflow_enrichment::fetchFromOpenTab(
                 open_tab_reader_,
                 *enrichment_config_.value(),
-                need_fetch_unhashed)
-                .scheduleOn(enrichment_executor_.get()));
+                need_fetch_unhashed)));
       } else if (
           enrichment_type ==
           kv_mem::EnrichmentType::ONEFLOW_FEATURE_STORE_SID) {
-        payloads = folly::coro::blockingWait(
+        payloads = folly::coro::blockingWait(co_withExecutor(
+            enrichment_executor_.get(),
             feature_store_enrichment::fetchSIDFromFeatureStore(
-                *enrichment_config_.value(), need_fetch_unhashed)
-                .scheduleOn(enrichment_executor_.get()));
+                *enrichment_config_.value(), need_fetch_unhashed)));
       } else {
         XLOG(WARNING) << "[fetch_sids_sync] unsupported enrichment_type: "
                       << static_cast<int64_t>(enrichment_type);
