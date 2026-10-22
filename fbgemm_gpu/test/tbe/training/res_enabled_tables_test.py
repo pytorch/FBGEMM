@@ -570,6 +570,7 @@ class ResEnabledTablesTest(unittest.TestCase):
             torch.tensor([0, 0, 1], device=device, dtype=torch.int64),
             None,
             None,
+            None,
         )
         tbe._store_prefetched_tensors(
             # Empty bag for feature 0, one index for feature 1.
@@ -605,7 +606,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         empty = torch.zeros(0, device=device, dtype=torch.int64)
         # Every fixture this serves has two features, and offsets is one longer.
         offsets = torch.zeros(3, device=device, dtype=torch.int64)
-        tbe._mark_res_hbm_rows(empty, offsets, None, None)
+        tbe._mark_res_hbm_rows(empty, offsets, None, None, None)
         tbe._store_prefetched_tensors(
             indices=empty,
             offsets=offsets,
@@ -941,20 +942,47 @@ class ResEnabledTablesTest(unittest.TestCase):
         return cache_lane_ships, hbm_ships
 
     @staticmethod
+    def _record_hbm_runtime_meta(
+        tbe: SplitTableBatchedEmbeddingBagsCodegen,
+    ) -> list[list[list[int]] | None]:
+        """runtime_meta of every HBM ship, copied at call time since the
+        staging buffer is reused."""
+        hbm_runtime_meta: list[list[list[int]] | None] = []
+
+        def record_ship(*args: Any, **kwargs: Any) -> None:
+            if kwargs.get("use_hbm", False):
+                runtime_meta = kwargs["runtime_meta"]
+                hbm_runtime_meta.append(
+                    None if runtime_meta is None else runtime_meta.tolist()
+                )
+
+        tbe._raw_embedding_streamer = MagicMock()
+        tbe._raw_embedding_streamer.stream.side_effect = record_ship
+        return hbm_runtime_meta
+
+    @staticmethod
     def _lookup_then_drain(
         tbe: SplitTableBatchedEmbeddingBagsCodegen,
         lookups: list[tuple[list[list[int]], list[int] | None]],
+        runtime_meta_per_lookup: list[list[list[int]]] | None = None,
     ) -> None:
         """One forward (B=1) per (indices per feature, hash_zch_identities),
-        the ids passed as [N, 1] the way the RawIdTracker hands them over; then
-        three empty forwards so every mark ships."""
+        the ids passed as [N, 1] the way the RawIdTracker hands them over and
+        runtime_meta_per_lookup[i] as [N, width] if given; then three empty
+        forwards so every mark ships."""
         device = torch.cuda.current_device()
         num_features = len(lookups[0][0])
         empty_lookup: tuple[list[list[int]], list[int] | None] = (
             [[]] * num_features,
             None,
         )
-        for per_feature, hash_zch_identities in lookups + [empty_lookup] * 3:
+        runtime_meta_inputs: list[list[list[int]] | None] = [
+            *(runtime_meta_per_lookup or [None] * len(lookups)),
+            *[None] * 3,
+        ]
+        for (per_feature, hash_zch_identities), runtime_meta in zip(
+            lookups + [empty_lookup] * 3, runtime_meta_inputs
+        ):
             offsets = [0]
             for feature_indices in per_feature:
                 offsets.append(offsets[-1] + len(feature_indices))
@@ -971,6 +999,11 @@ class ResEnabledTablesTest(unittest.TestCase):
                     else torch.tensor(
                         hash_zch_identities, device=device, dtype=torch.int64
                     ).view(-1, 1)
+                ),
+                hash_zch_runtime_meta=(
+                    None
+                    if runtime_meta is None
+                    else torch.tensor(runtime_meta, device=device, dtype=torch.int64)
                 ),
             )
 
@@ -1110,6 +1143,57 @@ class ResEnabledTablesTest(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_carries_the_lookup_runtime_meta(self) -> None:
+        # t0 row 3 is out of the lane; t1 row 2 looked up with runtime_meta
+        # [10020, 10021] (width 2).
+        tbe = self._identity_tbe()
+        hbm_runtime_meta = self._record_hbm_runtime_meta(tbe)
+
+        self._lookup_then_drain(
+            tbe, [([[3], [2]], [5, 1002])], [[[50, 51], [10020, 10021]]]
+        )
+
+        self.assertEqual(hbm_runtime_meta, [[[10020, 10021]]])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_has_no_runtime_meta_without_it(self) -> None:
+        # Ids but no runtime_meta (no zch_custom_runtime_meta_dim): the HBM
+        # lane ships runtime_meta=None and allocates nothing for it.
+        tbe = self._identity_tbe()
+        hbm_runtime_meta = self._record_hbm_runtime_meta(tbe)
+
+        self._lookup_then_drain(tbe, [([[3], [2]], [5, 1002])])
+
+        self.assertEqual(hbm_runtime_meta, [None])
+        self.assertIsNone(tbe._res_hbm_row_runtime_meta)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_ship_carries_the_latest_runtime_meta(self) -> None:
+        # t1 row 2 is looked up with runtime_meta [1], then [7] before its
+        # marks ship: the ship carries [7].
+        for name, drain_interval, reassigned_indices, num_ships in [
+            ("reassigned_before_ship", 1, [2, 2], 2),
+            ("latest_in_drain_window", 3, [2], 1),
+        ]:
+            with self.subTest(name):
+                tbe = self._identity_tbe(drain_interval=drain_interval)
+                hbm_runtime_meta = self._record_hbm_runtime_meta(tbe)
+
+                self._lookup_then_drain(
+                    tbe,
+                    [
+                        ([[], [2]], [1002]),
+                        ([[], reassigned_indices], [777] * len(reassigned_indices)),
+                    ],
+                    [[[1]], [[7]] * len(reassigned_indices)],
+                )
+
+                self.assertEqual(hbm_runtime_meta, [[[7]]] * num_ships)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
     def test_drain_ships_only_rows_the_mask_allows(self) -> None:
         # The mark is over-broad on placement, allowlist and the pruning
         # sentinel; the intersect is the only thing that removes them. t0 is
@@ -1121,6 +1205,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         tbe._mark_res_hbm_rows(
             torch.tensor([5, 7, -1], device=device, dtype=torch.int64),
             torch.tensor([0, 1, 3], device=device, dtype=torch.int64),
+            None,
             None,
             None,
         )
@@ -1164,6 +1249,7 @@ class ResEnabledTablesTest(unittest.TestCase):
                     [i % rows, i % rows, -1], device=device, dtype=torch.int64
                 ),
                 torch.tensor([0, 1, 3], device=device, dtype=torch.int64),
+                None,
                 None,
                 None,
             )
