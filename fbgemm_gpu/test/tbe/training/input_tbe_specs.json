@@ -1,0 +1,57 @@
+{
+  "batch_size": 16,
+  "total_ranks": 1,
+  "common_config": {
+    "weights_precision": "fp16",
+    "output_dtype": "fp32",
+    "pooling_mode": "SUM",
+    "cache_algorithm": "LRU",
+    "stochastic_rounding": false,
+    "learning_rate": 0.05
+  },
+  "tbe_configs": [
+    {
+      "tbe_uuid": "unit-test-uniform-dim",
+      "embedding_specs": [
+        {
+          "num_embeddings": 128,
+          "embedding_dim": 32,
+          "location": "DEVICE",
+          "compute_device": "CUDA"
+        },
+        {
+          "num_embeddings": 256,
+          "embedding_dim": 32,
+          "location": "DEVICE",
+          "compute_device": "CUDA"
+        }
+      ],
+      "feature_table_map": [
+        0,
+        1
+      ]
+    },
+    {
+      "tbe_uuid": "unit-test-mixed-dim-shared-table",
+      "embedding_specs": [
+        {
+          "num_embeddings": 128,
+          "embedding_dim": 32,
+          "location": "DEVICE",
+          "compute_device": "CUDA"
+        },
+        {
+          "num_embeddings": 256,
+          "embedding_dim": 64,
+          "location": "DEVICE",
+          "compute_device": "CUDA"
+        }
+      ],
+      "feature_table_map": [
+        0,
+        1,
+        1
+      ]
+    }
+  ]
+}

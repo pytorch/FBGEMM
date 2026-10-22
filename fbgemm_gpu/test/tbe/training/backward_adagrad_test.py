@@ -887,8 +887,10 @@ class BackwardAdagradTest(unittest.TestCase):
             os.path.dirname(__file__), "input_tbe_specs.json"
         )
         config_path = os.environ.get("TBE_CONFIG_PATH", default_config_path)
-        if not config_path or not os.path.exists(config_path):
-            self.skipTest(f"Config file not found: {config_path}")
+        self.assertTrue(
+            config_path and os.path.isfile(config_path),
+            f"Config file not found: {config_path}",
+        )
 
         batch_size, _, common_config, tbe_configs = load_tbe_configs_from_file(
             config_path
@@ -899,11 +901,15 @@ class BackwardAdagradTest(unittest.TestCase):
         L = 10 if test_batch_size < batch_size else 2
         config_idx = os.environ.get("TBE_CONFIG_INDEX", None)
         max_config = os.environ.get("TBE_MAX_CONFIG", "5")
-        max_config = int(max_config) if max_config != "all" else -1
+        max_config = int(max_config) if max_config != "all" else len(tbe_configs)
         configs_to_test = (
             tbe_configs[:max_config]
             if config_idx is None
             else [tbe_configs[int(config_idx)]]
+        )
+
+        self.assertGreater(
+            len(configs_to_test), 0, "No TBE configurations selected for testing"
         )
 
         total_start_time = time.perf_counter()
@@ -945,7 +951,6 @@ class BackwardAdagradTest(unittest.TestCase):
                         f"TBE_DEBUG: PASSED for config {i} T={T} max_D={max_D} (mixed: {mixed_D}), the test took {(end_time - start_time) / 60:.2f} mins"
                     )
                 except Exception as e:
-                    # Log but don't fail - some configs may have unsupported features
                     end_time = time.perf_counter()
                     raise RuntimeError(
                         f"TEST FAILED for config {i} uuid={config.get('tbe_uuid', '')}, the test took {(end_time - start_time) / 60:.2f} mins and failed: {e}"
