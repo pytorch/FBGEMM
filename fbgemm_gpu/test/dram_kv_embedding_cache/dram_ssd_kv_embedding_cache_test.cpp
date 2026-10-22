@@ -343,6 +343,49 @@ TEST_F(DramSsdKVEmbeddingCacheTest, SetWritesToDramOnly) {
   }
 }
 
+TEST_F(DramSsdKVEmbeddingCacheTest, SetKvToStorageUpdatesDramAndSsd) {
+  createComposite();
+
+  constexpr int64_t id = 17;
+  constexpr float value = 4.0f;
+  insertViaComposite(id, 3.0f);
+
+  const int64_t row_dim = kMetaHeaderDim + EMBEDDING_DIM;
+  auto ids = at::tensor({id}, at::kLong);
+  auto rows = at::zeros({1, row_dim}, at::kFloat);
+  auto* row = rows.data_ptr<float>();
+  create_metaheader_row(row, row_dim, id);
+  std::fill(row + kMetaHeaderDim, row + row_dim, value);
+
+  composite_->set_kv_to_storage(ids, rows);
+
+  EXPECT_TRUE(
+      at::equal(getViaComposite({id}), at::full({1, EMBEDDING_DIM}, value)));
+  EXPECT_TRUE(at::equal(readSsd({id}), at::full({1, EMBEDDING_DIM}, value)));
+
+  composite_->flush();
+  EXPECT_TRUE(at::equal(readSsd({id}), at::full({1, EMBEDDING_DIM}, value)));
+}
+
+TEST_F(DramSsdKVEmbeddingCacheTest, RestoreDoesNotPopulateAbsentDramRows) {
+  createComposite();
+
+  constexpr int64_t id = 18;
+  constexpr float value = 5.0f;
+  const int64_t row_dim = kMetaHeaderDim + EMBEDDING_DIM;
+  auto ids = at::tensor({id}, at::kLong);
+  auto rows = at::zeros({1, row_dim}, at::kFloat);
+  auto* row = rows.data_ptr<float>();
+  create_metaheader_row(row, row_dim, id);
+  std::fill(row + kMetaHeaderDim, row + row_dim, value);
+
+  ASSERT_EQ(dram_cache_->get_num_rows(), 0);
+  composite_->set_kv_to_storage(ids, rows);
+
+  EXPECT_EQ(dram_cache_->get_num_rows(), 0);
+  EXPECT_TRUE(at::equal(readSsd({id}), at::full({1, EMBEDDING_DIM}, value)));
+}
+
 // Test: SSD hit backfills DRAM (subsequent DRAM read should hit)
 TEST_F(DramSsdKVEmbeddingCacheTest, SsdHitBackfillsDram) {
   createComposite();
@@ -615,6 +658,8 @@ TEST_F(DramSsdKVEmbeddingCacheTest, SetRangeToStorageWritesWholeRowToSsd) {
 
   const int64_t row_dim = kMetaHeaderDim + EMBEDDING_DIM;
   const std::vector<int64_t> ids = {7, 8};
+  insertViaComposite(ids[0], 1.0f);
+  insertViaComposite(ids[1], 2.0f);
   auto rows =
       at::zeros({static_cast<int64_t>(ids.size()), row_dim}, at::kFloat);
   auto* rp = rows.data_ptr<float>();
@@ -626,12 +671,22 @@ TEST_F(DramSsdKVEmbeddingCacheTest, SetRangeToStorageWritesWholeRowToSsd) {
     }
   }
 
-  // Keys are taken from each row's metaheader, not from start/length.
-  composite_->set_range_to_storage(
-      rows, /*start=*/0, /*length=*/static_cast<int64_t>(ids.size()));
+  for (int64_t row = 0; row < rows.size(0); ++row) {
+    auto chunk = rows.narrow(0, row, 1);
+    composite_->set_range_to_storage(chunk, /*start=*/row, /*length=*/1);
+  }
 
+  auto cached = getViaComposite(ids);
   auto ssd = readSsd(ids);
   auto* s = ssd.data_ptr<float>();
+  EXPECT_FLOAT_EQ(cached.data_ptr<float>()[0 * EMBEDDING_DIM], 70.0f);
+  EXPECT_FLOAT_EQ(cached.data_ptr<float>()[1 * EMBEDDING_DIM], 71.0f);
+  EXPECT_FLOAT_EQ(s[0 * EMBEDDING_DIM], 70.0f);
+  EXPECT_FLOAT_EQ(s[1 * EMBEDDING_DIM], 71.0f);
+
+  composite_->flush();
+  ssd = readSsd(ids);
+  s = ssd.data_ptr<float>();
   EXPECT_FLOAT_EQ(s[0 * EMBEDDING_DIM], 70.0f);
   EXPECT_FLOAT_EQ(s[1 * EMBEDDING_DIM], 71.0f);
 }

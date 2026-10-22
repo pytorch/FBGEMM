@@ -2160,7 +2160,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // TODO: assert there isn't any eviction including paused
   }
 
-  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights)
+      override {
     if (backend_return_whole_row_) {
       set_kv_with_metaheader_to_storage(weights);
     } else {
@@ -2216,6 +2217,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // eviction finishes so that we could reacha consistent state before/after
     // state_dict() calls
     // TODO: assert there isn't any eviction including paused
+  }
+
+  void update_kv_with_metaheader_if_exists(
+      const at::Tensor& ids,
+      const at::Tensor& weights_with_metaheader) {
+    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+    set_kv_db_with_metaheader_async_impl<false>(
+        ids, weights_with_metaheader, count)
+        .get();
   }
 
   void compact() override {}
@@ -3099,6 +3109,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// to be processed
   ///
   /// @return None
+  template <bool insert_missing = true>
   folly::SemiFuture<std::vector<folly::Unit>>
   set_kv_db_with_metaheader_async_impl(
       const at::Tensor& indices,
@@ -3135,16 +3146,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 weights_with_metaheader.data_ptr<weight_type>();
                             for (const auto& id_index : indexes) {
                               auto id = int64_t(indices_data_ptr[id_index]);
-                              // Defensive programming
-                              // used is false shouldn't occur under normal
-                              // circumstances
+                              auto it = wlmap->find(id);
+                              if (it == wlmap->end() && !insert_missing) {
+                                continue;
+                              }
+
                               FixedBlockPool::set_used(
                                   weights_data_ptr + id_index * stride, true);
-
-                              // use mempool
                               weight_type* block = nullptr;
-                              // First check if the key already exists
-                              auto it = wlmap->find(id);
                               bool new_block = false;
                               if (it != wlmap->end()) {
                                 block = it->second;

@@ -1530,6 +1530,12 @@ class SSDCheckpointTest(unittest.TestCase):
                     narrowed[i, : metaheader_dim // 2].view(torch.int64),
                     torch.tensor([i + row_offset], dtype=torch.int64),
                 )
+                packed_metadata = int(
+                    narrowed[i, metaheader_dim // 2 : metaheader_dim]
+                    .view(torch.int64)
+                    .item()
+                )
+                self.assertNotEqual(packed_metadata & 0xFFFFFFFF, 0)
 
                 # Check if weight matches the one passed in with weights
                 torch.testing.assert_close(
@@ -1541,6 +1547,58 @@ class SSDCheckpointTest(unittest.TestCase):
             torch.testing.assert_close(
                 narrowed[:, opt_offset : opt_offset + opt_dim],
                 torch.zeros(N, opt_dim, dtype=dtype),
+            )
+            original_narrowed = narrowed.clone()
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                narrowed, torch.arange(N, dtype=torch.int64).view(-1, 1)
+            )
+            torch.testing.assert_close(narrowed, original_narrowed)
+            restored = tensor_wrapper.narrow(0, 0, N)
+            torch.testing.assert_close(
+                restored[:, : metaheader_dim // 2],
+                original_narrowed[:, : metaheader_dim // 2],
+            )
+            torch.testing.assert_close(
+                restored[:, metaheader_dim:], original_narrowed[:, metaheader_dim:]
+            )
+            torch.testing.assert_close(
+                restored[:, metaheader_dim // 2 : metaheader_dim],
+                original_narrowed[:, metaheader_dim // 2 : metaheader_dim],
+            )
+
+            zero_metadata_rows = original_narrowed.clone()
+            zero_metadata_rows[:, metaheader_dim // 2 : metaheader_dim] = 0
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                zero_metadata_rows, torch.arange(N, dtype=torch.int64)
+            )
+            restored = tensor_wrapper.narrow(0, 0, N)
+            self.assertTrue(
+                torch.all(
+                    restored[:, metaheader_dim // 2 : metaheader_dim]
+                    .view(torch.int64)
+                    .bitwise_and(0xFFFFFFFF)
+                    != 0
+                )
+            )
+
+            range_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, original_narrowed.size(1)],
+                dtype,
+                row_offset,
+                None,
+                torch.arange(N, dtype=torch.int64),
+            )
+            range_wrapper.set_dram_db_wrapper(emb.ssd_db)
+            oversized_rows = torch.nn.functional.pad(original_narrowed, (0, 1))
+            range_wrapper.set_range(0, 0, N, oversized_rows)
+            range_restored = range_wrapper.narrow(0, 0, N)
+            torch.testing.assert_close(
+                range_restored[:, : metaheader_dim // 2],
+                original_narrowed[:, : metaheader_dim // 2],
+            )
+            torch.testing.assert_close(
+                range_restored[:, metaheader_dim:],
+                original_narrowed[:, metaheader_dim:],
             )
             row_offset += E
 
