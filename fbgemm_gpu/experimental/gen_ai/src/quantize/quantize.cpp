@@ -436,6 +436,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 // Though it should never be used, it still seems helpful to define these
 // functions for CPU to accommodate model creation.
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
+#if !defined(USE_ROCM) || FBGEMM_GENAI_WITH_CK
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
@@ -443,13 +444,16 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
   m.impl("f8f8bf16_rowwise_grouped_stacked", f8f8bf16_rowwise_grouped_stacked);
   m.impl("f8f8bf16_rowwise_grouped_dynamic", f8f8bf16_rowwise_grouped_dynamic);
+#endif
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
+#if !defined(USE_ROCM) || FBGEMM_GENAI_WITH_CK
   m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
   m.impl("bf16bf16bf16_grouped_cat", bf16bf16bf16_grouped_cat);
   m.impl("bf16bf16bf16_grouped_dynamic", bf16bf16bf16_grouped_dynamic);
   m.impl("bf16bf16bf16_grouped_stacked", bf16bf16bf16_grouped_stacked);
+#endif
 #ifndef USE_ROCM
   m.impl("f8f8bf16_groupwise", f8f8bf16_groupwise);
   m.impl("f8f8bf16_groupwise_grouped", f8f8bf16_groupwise_grouped);
