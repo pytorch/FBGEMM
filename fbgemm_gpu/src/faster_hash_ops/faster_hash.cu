@@ -215,7 +215,7 @@ __device__ __inline__ int64_t check_min(
 }
 
 template <int32_t METADATA_COUNT>
-__device__ __inline__ bool check_evict(
+__device__ __inline__ bool try_claim_evict(
     int32_t* /* metadata */,
     int64_t /* output_index */,
     int32_t /* eviction_threshold */,
@@ -225,33 +225,33 @@ __device__ __inline__ bool check_evict(
 }
 
 template <>
-__device__ __inline__ bool check_evict<1>(
+__device__ __inline__ bool try_claim_evict<1>(
     int32_t* metadata,
     int64_t output_index,
     int32_t eviction_threshold,
     int32_t metadata_val) {
-  // In rare case, one id may have already occupied the slot but its metadata
-  // has not been written yet, while the other id checking the slot's eviction
-  // status. Therefore, wait until the metadata is not -1.
-  int32_t identity_metadata = kDefaultTensor;
   int32_t spin_counter = 0;
   while (true) {
-    identity_metadata =
+    const int32_t identity_metadata =
         atomicCAS(metadata + output_index, kDefaultTensor, kDefaultTensor);
-    if (identity_metadata != kDefaultTensor) {
-      break;
+    if (identity_metadata == kDefaultTensor) {
+      if (++spin_counter > kMaxSpinCount) {
+        // Metadata write may not be visible yet due to atomic contention.
+        // Slot not considered, return false, and move to next slot
+        return false;
+      }
+      continue;
     }
-#ifdef USE_ROCM
-    if (++spin_counter > kMaxSpinCount) {
-      // Metadata write may not be visible yet due to atomic contention.
-      // Slot not considered, return false, and move to next slot
+    const bool is_more_recent = identity_metadata < metadata_val;
+    const bool threshold_met = eviction_threshold > identity_metadata;
+    if (!(threshold_met && is_more_recent)) {
       return false;
     }
-#endif
+    if (atomicCAS(metadata + output_index, identity_metadata, metadata_val) ==
+        identity_metadata) {
+      return true;
+    }
   }
-  bool is_more_recent = (identity_metadata < metadata_val);
-  bool threshold_met = (eviction_threshold > identity_metadata);
-  return threshold_met && is_more_recent;
 }
 
 template <bool READONLY, typename TIdentity>
@@ -423,7 +423,7 @@ __global__ void process_item_zch(
       }
 
       if (identity_slot == -1 &&
-          check_evict<METADATA_COUNT>(
+          try_claim_evict<METADATA_COUNT>(
               metadata, insert_idx, eviction_threshold, metadata_val)) {
         auto current_slot_value =
             CAS<TIdentity>(&identities[insert_idx][0], old_value, identity);
