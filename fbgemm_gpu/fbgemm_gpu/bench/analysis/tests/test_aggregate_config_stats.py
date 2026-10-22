@@ -36,8 +36,42 @@ class PerIterationTotalsTest(unittest.TestCase):
 
     def test_non_integer_launches_per_iter_returns_none(self) -> None:
         # n_iter = 3 (min length); b has 5 launches (not a multiple of 3).
+        # remainder 2 exceeds the small-skew tolerance (max(1, 2% of 3) = 1),
+        # so this is treated as a real structural mismatch and returns None.
         self.assertIsNone(
             per_iteration_totals({"a": [1.0, 2.0, 3.0], "b": [1.0, 2.0, 3.0, 4.0, 5.0]})
+        )
+
+    def test_small_boundary_skew_truncates_trailing_partial(self) -> None:
+        # Async GPU + profiler window boundary: the combine kernel is captured
+        # one extra time (100 vs 99). remainder 1 is within tolerance
+        # (max(1, 2% of 99) = 2), so the trailing partial is dropped and a valid
+        # 99-iteration total is produced instead of None.
+        main = [1.0] * 99
+        combine = [2.0] * 100  # one extra async-tail launch
+        totals = per_iteration_totals({"main": main, "combine": combine})
+        assert totals is not None
+        self.assertEqual(len(totals), 99)
+        self.assertTrue(all(t == 3.0 for t in totals))  # 1.0 + 2.0 per iteration
+
+    def test_boundary_skew_scales_with_launches_per_iteration(self) -> None:
+        main = [1.0] * 99
+        sort = [2.0] * 300  # 3x/iteration plus one iteration's capture tail
+        totals = per_iteration_totals({"main": main, "sort": sort})
+        assert totals is not None
+        self.assertEqual(len(totals), 99)
+        self.assertTrue(all(t == 7.0 for t in totals))
+
+    def test_high_launch_rate_rejects_too_many_tail_iterations(self) -> None:
+        main = [1.0] * 200
+        forty_nine_per_iteration_plus_five_tail_iterations = [2.0] * 9999
+        self.assertIsNone(
+            per_iteration_totals(
+                {
+                    "main": main,
+                    "high_rate": forty_nine_per_iteration_plus_five_tail_iterations,
+                }
+            )
         )
 
     def test_total_median_is_outlier_robust(self) -> None:
