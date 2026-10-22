@@ -164,7 +164,18 @@ void jagged_dense_elementwise_dense_output_kernel_(
       y_reshaped.accessor<scalar_t, 3>();
   at::TensorAccessor<scalar_t, 3> output_accessor =
       output_reshaped.accessor<scalar_t, 3>();
-  for (const auto oidx : c10::irange(outer_dense_size)) {
+  const scalar_t* x_data = x_accessor.data();
+  const auto x_stride0 = x_accessor.stride(0);
+  const auto x_stride1 = x_accessor.stride(1);
+  for (int64_t oidx = 0; oidx < outer_dense_size; ++oidx) {
+    const auto output_outer = output_accessor[oidx];
+    const auto y_outer = y_accessor[oidx];
+    scalar_t* const out_data = output_outer.data();
+    const scalar_t* const y_data = y_outer.data();
+    const auto out_stride0 = output_outer.stride(0);
+    const auto out_stride1 = output_outer.stride(1);
+    const auto y_stride0 = y_outer.stride(0);
+    const auto y_stride1 = y_outer.stride(1);
     for (int joidx = 0; joidx < jagged_folded_size / jagged_innermost_size;
          ++joidx) {
       int offset_base = oidx;
@@ -184,13 +195,15 @@ void jagged_dense_elementwise_dense_output_kernel_(
              ++jiidx) {
           int jidx = joidx * jagged_innermost_size + jiidx;
           if (NO_INNER_DENSE) {
-            output_accessor[oidx][jidx][0] =
-                f(x_accessor[begin + jiidx][0], y_accessor[oidx][jidx][0]);
+            out_data[jidx * out_stride0] = f(
+                x_data[(begin + jiidx) * x_stride0], y_data[jidx * y_stride0]);
           } else {
-            for (const auto iidx : c10::irange(inner_dense_size)) {
-              output_accessor[oidx][jidx][iidx] =
-                  f(x_accessor[begin + jiidx][iidx],
-                    y_accessor[oidx][jidx][iidx]);
+            scalar_t* const out_row = out_data + jidx * out_stride0;
+            const scalar_t* const x_row = x_data + (begin + jiidx) * x_stride0;
+            const scalar_t* const y_row = y_data + jidx * y_stride0;
+            for (int64_t iidx = 0; iidx < inner_dense_size; ++iidx) {
+              out_row[iidx * out_stride1] =
+                  f(x_row[iidx * x_stride1], y_row[iidx * y_stride1]);
             }
           }
         }
@@ -198,12 +211,14 @@ void jagged_dense_elementwise_dense_output_kernel_(
       for (; jiidx < jagged_innermost_size; ++jiidx) {
         int jidx = joidx * jagged_innermost_size + jiidx;
         if (NO_INNER_DENSE) {
-          output_accessor[oidx][jidx][0] =
-              f(padding_value, y_accessor[oidx][jidx][0]);
+          out_data[jidx * out_stride0] =
+              f(padding_value, y_data[jidx * y_stride0]);
         } else {
-          for (const auto iidx : c10::irange(inner_dense_size)) {
-            output_accessor[oidx][jidx][iidx] =
-                f(padding_value, y_accessor[oidx][jidx][iidx]);
+          scalar_t* const out_row = out_data + jidx * out_stride0;
+          const scalar_t* const y_row = y_data + jidx * y_stride0;
+          for (int64_t iidx = 0; iidx < inner_dense_size; ++iidx) {
+            out_row[iidx * out_stride1] =
+                f(padding_value, y_row[iidx * y_stride1]);
           }
         }
       }
