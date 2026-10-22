@@ -36,6 +36,11 @@
 #endif
 
 #include "fbgemm_gpu/quantize/utils.h"
+#ifdef FBGEMM_FBCODE
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
+#else
+#include "fbgemm_gpu/utils/hip_utilities.cuh"
+#endif
 
 namespace fbgemm_gpu {
 namespace {
@@ -62,7 +67,6 @@ using DsDataType = ck::Tuple<D0DataType, D1DataType>;
 using EDataType = ck::bhalf_t;
 constexpr int kGroupSetupThreads = 256;
 constexpr int kZeroingThreads = 256;
-constexpr uint32_t kMaxZeroingBlocks = 65535;
 
 template <auto Kernel>
 void check_single_cta_group_count(
@@ -107,14 +111,6 @@ uint64_t check_product(
       expression,
       " overflows uint64_t");
   return lhs * rhs;
-}
-
-uint32_t zeroing_block_count(uint64_t num_chunks) {
-  const auto blocks = num_chunks == 0
-      ? uint64_t{1}
-      : (num_chunks - 1) / kZeroingThreads + 1;
-  return static_cast<uint32_t>(
-      std::min<uint64_t>(blocks, kMaxZeroingBlocks));
 }
 
 TuningCache& getTuningCache() {
@@ -485,7 +481,8 @@ void set_dynamic_kernel_args(
     std::optional<at::Tensor> M_sizes,
     bool zeroing_output_tensor) {
   // Get current cuda stream.
-  auto stream = at::cuda::getCurrentHIPStream().stream();
+  const auto current_stream = at::cuda::getCurrentHIPStream();
+  const auto stream = current_stream.stream();
   const int64_t group_count = WQ.size(0);
   TORCH_CHECK(group_count > 0, "Grouped GEMM requires at least one group.");
   // Check provided tensors are valid.
@@ -570,7 +567,8 @@ void set_dynamic_kernel_args(
         group_count,
         stream);
 
-    const auto zeroing_blocks = zeroing_block_count(zero_chunks);
+    const auto zeroing_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+        zero_chunks, kZeroingThreads, current_stream);
     if (zero_chunks <= std::numeric_limits<uint32_t>::max()) {
       zero_padded_output_kernel<uint32_t><<<
           zeroing_blocks,
