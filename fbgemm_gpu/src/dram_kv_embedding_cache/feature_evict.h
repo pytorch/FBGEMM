@@ -61,6 +61,7 @@ inline std::string to_string(EvictTriggerMode mode) {
     case EvictTriggerMode::FREE_MEM:
       return "FREE_MEM";
   }
+  return "UNKNOWN";
 }
 
 enum class EvictTriggerStrategy {
@@ -87,6 +88,7 @@ inline std::string to_string(EvictTriggerStrategy strategy) {
     case EvictTriggerStrategy::BY_FEATURE_SCORE:
       return "BY_FEATURE_SCORE";
   }
+  return "UNKNOWN";
 }
 
 // for UT different corner cases
@@ -105,6 +107,7 @@ inline std::string to_string(TestMode mode) {
     case TestMode::PAUSE_ON_LAST_ITERATION:
       return "PAUSE_ON_LAST_ITERATION";
   }
+  return "UNKNOWN";
 }
 
 struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
