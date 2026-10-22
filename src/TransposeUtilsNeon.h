@@ -629,6 +629,17 @@ static inline void transpose_kernel_2x2_neon(
       : "memory", "cc", "v0", "v1", "v2");
 }
 
+static inline uint16x4_t load_u16x2_neon(const uint16_t* src) {
+  uint16x4_t result = vdup_n_u16(0);
+  result = vld1_lane_u16(src, result, 0);
+  return vld1_lane_u16(src + 1, result, 1);
+}
+
+static inline void store_u16x2_neon(uint16_t* dst, uint16x4_t value) {
+  vst1_lane_u16(dst, value, 0);
+  vst1_lane_u16(dst + 1, value, 1);
+}
+
 static inline void transpose_kernel_8x8_neon(
     const uint16_t* src,
     int64_t ld_src,
@@ -671,6 +682,102 @@ static inline void transpose_kernel_8x8_neon(
   vst1q_u16(dst + 7 * ld_dst, vreinterpretq_u16_u64(vzip2q_u64(b03, b13)));
 }
 
+static inline void transpose_kernel_8x4_neon(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst) {
+  const uint16x4_t zero = vdup_n_u16(0);
+  const uint16x8_t r0 = vcombine_u16(vld1_u16(src), zero);
+  const uint16x8_t r1 = vcombine_u16(vld1_u16(src + ld_src), zero);
+  const uint16x8_t r2 = vcombine_u16(vld1_u16(src + 2 * ld_src), zero);
+  const uint16x8_t r3 = vcombine_u16(vld1_u16(src + 3 * ld_src), zero);
+  const uint16x8_t r4 = vcombine_u16(vld1_u16(src + 4 * ld_src), zero);
+  const uint16x8_t r5 = vcombine_u16(vld1_u16(src + 5 * ld_src), zero);
+  const uint16x8_t r6 = vcombine_u16(vld1_u16(src + 6 * ld_src), zero);
+  const uint16x8_t r7 = vcombine_u16(vld1_u16(src + 7 * ld_src), zero);
+
+  const uint32x4_t a0 = vreinterpretq_u32_u16(vzip1q_u16(r0, r1));
+  const uint32x4_t a1 = vreinterpretq_u32_u16(vzip1q_u16(r2, r3));
+  const uint32x4_t a2 = vreinterpretq_u32_u16(vzip1q_u16(r4, r5));
+  const uint32x4_t a3 = vreinterpretq_u32_u16(vzip1q_u16(r6, r7));
+
+  const uint64x2_t b0 = vreinterpretq_u64_u32(vzip1q_u32(a0, a1));
+  const uint64x2_t b1 = vreinterpretq_u64_u32(vzip2q_u32(a0, a1));
+  const uint64x2_t b2 = vreinterpretq_u64_u32(vzip1q_u32(a2, a3));
+  const uint64x2_t b3 = vreinterpretq_u64_u32(vzip2q_u32(a2, a3));
+
+  vst1q_u16(dst, vreinterpretq_u16_u64(vzip1q_u64(b0, b2)));
+  vst1q_u16(dst + ld_dst, vreinterpretq_u16_u64(vzip2q_u64(b0, b2)));
+  vst1q_u16(dst + 2 * ld_dst, vreinterpretq_u16_u64(vzip1q_u64(b1, b3)));
+  vst1q_u16(
+      dst + 3 * ld_dst, vreinterpretq_u16_u64(vzip2q_u64(b1, b3)));
+}
+
+static inline void transpose_kernel_8x2_neon(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst) {
+  const uint16x4_t zero = vdup_n_u16(0);
+  const uint16x8_t r0 = vcombine_u16(load_u16x2_neon(src), zero);
+  const uint16x8_t r1 =
+      vcombine_u16(load_u16x2_neon(src + ld_src), zero);
+  const uint16x8_t r2 =
+      vcombine_u16(load_u16x2_neon(src + 2 * ld_src), zero);
+  const uint16x8_t r3 =
+      vcombine_u16(load_u16x2_neon(src + 3 * ld_src), zero);
+  const uint16x8_t r4 =
+      vcombine_u16(load_u16x2_neon(src + 4 * ld_src), zero);
+  const uint16x8_t r5 =
+      vcombine_u16(load_u16x2_neon(src + 5 * ld_src), zero);
+  const uint16x8_t r6 =
+      vcombine_u16(load_u16x2_neon(src + 6 * ld_src), zero);
+  const uint16x8_t r7 =
+      vcombine_u16(load_u16x2_neon(src + 7 * ld_src), zero);
+
+  const uint32x4_t a0 = vreinterpretq_u32_u16(vzip1q_u16(r0, r1));
+  const uint32x4_t a1 = vreinterpretq_u32_u16(vzip1q_u16(r2, r3));
+  const uint32x4_t a2 = vreinterpretq_u32_u16(vzip1q_u16(r4, r5));
+  const uint32x4_t a3 = vreinterpretq_u32_u16(vzip1q_u16(r6, r7));
+
+  const uint64x2_t b0 = vreinterpretq_u64_u32(vzip1q_u32(a0, a1));
+  const uint64x2_t b1 = vreinterpretq_u64_u32(vzip1q_u32(a2, a3));
+
+  vst1q_u16(dst, vreinterpretq_u16_u64(vzip1q_u64(b0, b1)));
+  vst1q_u16(dst + ld_dst, vreinterpretq_u16_u64(vzip2q_u64(b0, b1)));
+}
+
+static inline void transpose_kernel_4x8_neon(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst) {
+  const uint16x8_t r0 = vld1q_u16(src);
+  const uint16x8_t r1 = vld1q_u16(src + ld_src);
+  const uint16x8_t r2 = vld1q_u16(src + 2 * ld_src);
+  const uint16x8_t r3 = vld1q_u16(src + 3 * ld_src);
+
+  const uint32x4_t a0l = vreinterpretq_u32_u16(vzip1q_u16(r0, r1));
+  const uint32x4_t a0h = vreinterpretq_u32_u16(vzip2q_u16(r0, r1));
+  const uint32x4_t a1l = vreinterpretq_u32_u16(vzip1q_u16(r2, r3));
+  const uint32x4_t a1h = vreinterpretq_u32_u16(vzip2q_u16(r2, r3));
+
+  const uint16x8_t b0 = vreinterpretq_u16_u32(vzip1q_u32(a0l, a1l));
+  const uint16x8_t b1 = vreinterpretq_u16_u32(vzip2q_u32(a0l, a1l));
+  const uint16x8_t b2 = vreinterpretq_u16_u32(vzip1q_u32(a0h, a1h));
+  const uint16x8_t b3 = vreinterpretq_u16_u32(vzip2q_u32(a0h, a1h));
+
+  vst1_u16(dst, vget_low_u16(b0));
+  vst1_u16(dst + ld_dst, vget_high_u16(b0));
+  vst1_u16(dst + 2 * ld_dst, vget_low_u16(b1));
+  vst1_u16(dst + 3 * ld_dst, vget_high_u16(b1));
+  vst1_u16(dst + 4 * ld_dst, vget_low_u16(b2));
+  vst1_u16(dst + 5 * ld_dst, vget_high_u16(b2));
+  vst1_u16(dst + 6 * ld_dst, vget_low_u16(b3));
+  vst1_u16(dst + 7 * ld_dst, vget_high_u16(b3));
+}
+
 static inline void transpose_kernel_4x4_neon(
     const uint16_t* src,
     int64_t ld_src,
@@ -688,6 +795,75 @@ static inline void transpose_kernel_4x4_neon(
   vst1_u16(dst + ld_dst, vreinterpret_u16_u32(vzip2_u32(a0, a2)));
   vst1_u16(dst + 2 * ld_dst, vreinterpret_u16_u32(vzip1_u32(a1, a3)));
   vst1_u16(dst + 3 * ld_dst, vreinterpret_u16_u32(vzip2_u32(a1, a3)));
+}
+
+static inline void transpose_kernel_4x2_neon(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst) {
+  const uint16x4_t r0 = load_u16x2_neon(src);
+  const uint16x4_t r1 = load_u16x2_neon(src + ld_src);
+  const uint16x4_t r2 = load_u16x2_neon(src + 2 * ld_src);
+  const uint16x4_t r3 = load_u16x2_neon(src + 3 * ld_src);
+  const uint32x2_t a0 = vreinterpret_u32_u16(vzip1_u16(r0, r1));
+  const uint32x2_t a1 = vreinterpret_u32_u16(vzip1_u16(r2, r3));
+  vst1_u16(dst, vreinterpret_u16_u32(vzip1_u32(a0, a1)));
+  vst1_u16(dst + ld_dst, vreinterpret_u16_u32(vzip2_u32(a0, a1)));
+}
+
+static inline void transpose_kernel_2x8_neon(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst) {
+  const uint16x8_t r0 = vld1q_u16(src);
+  const uint16x8_t r1 = vld1q_u16(src + ld_src);
+  const uint16x8_t a0 = vzip1q_u16(r0, r1);
+  const uint16x8_t a1 = vzip2q_u16(r0, r1);
+
+  store_u16x2_neon(dst, vget_low_u16(a0));
+  store_u16x2_neon(
+      dst + ld_dst, vext_u16(vget_low_u16(a0), vget_low_u16(a0), 2));
+  store_u16x2_neon(dst + 2 * ld_dst, vget_high_u16(a0));
+  store_u16x2_neon(
+      dst + 3 * ld_dst,
+      vext_u16(vget_high_u16(a0), vget_high_u16(a0), 2));
+  store_u16x2_neon(dst + 4 * ld_dst, vget_low_u16(a1));
+  store_u16x2_neon(
+      dst + 5 * ld_dst, vext_u16(vget_low_u16(a1), vget_low_u16(a1), 2));
+  store_u16x2_neon(dst + 6 * ld_dst, vget_high_u16(a1));
+  store_u16x2_neon(
+      dst + 7 * ld_dst,
+      vext_u16(vget_high_u16(a1), vget_high_u16(a1), 2));
+}
+
+static inline void transpose_kernel_2x4_neon(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst) {
+  const uint16x4_t r0 = vld1_u16(src);
+  const uint16x4_t r1 = vld1_u16(src + ld_src);
+  const uint16x4_t a0 = vzip1_u16(r0, r1);
+  const uint16x4_t a1 = vzip2_u16(r0, r1);
+
+  store_u16x2_neon(dst, a0);
+  store_u16x2_neon(dst + ld_dst, vext_u16(a0, a0, 2));
+  store_u16x2_neon(dst + 2 * ld_dst, a1);
+  store_u16x2_neon(dst + 3 * ld_dst, vext_u16(a1, a1, 2));
+}
+
+static inline void transpose_kernel_2x2_neon(
+    const uint16_t* src,
+    int64_t ld_src,
+    uint16_t* dst,
+    int64_t ld_dst) {
+  const uint16x4_t r0 = load_u16x2_neon(src);
+  const uint16x4_t r1 = load_u16x2_neon(src + ld_src);
+  const uint16x4_t a0 = vzip1_u16(r0, r1);
+  store_u16x2_neon(dst, a0);
+  store_u16x2_neon(dst + ld_dst, vext_u16(a0, a0, 2));
 }
 
 } // namespace internal
