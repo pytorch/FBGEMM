@@ -771,10 +771,8 @@ class BackwardOptimizersTest(unittest.TestCase):
                 )
 
         if optimizer == OptimType.ROWWISE_RMSPROP_AR:
-            # One step from fresh state: every touched row has gap 1, so
-            # row_counter seeds to 1 and the falr scale is
-            # clamp(falr_ref_gap / 1, falr_floor, 1).
-            falr_scale = max(falr_floor, min(1.0, falr_ref_gap)) if use_falr else 1.0
+            # A first touch has no measured gap, so falr remains unseeded and
+            # does not scale the gradient step.
             for t in range(T):
                 if use_falr:
                     m1, _prev_iter, row_counter = split_optimizer_states[t]
@@ -782,7 +780,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                         row_counter.float()
                         .index_select(dim=0, index=xs[t].view(-1))
                         .cpu(),
-                        torch.ones(xs[t].numel()),
+                        torch.zeros(xs[t].numel()),
                     )
                 else:
                     m1, _prev_iter = split_optimizer_states[t]
@@ -803,7 +801,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 # step uses lr / (sqrt(v) + eps) per row.
                 lambda_ = max(0.0, min(1.0, lr * ar_alpha))
                 exp_reg_correction = max(min_shrinkage, 1.0 - lambda_)
-                multiplier = (m1_ref.sqrt() + eps).reciprocal() * lr * falr_scale
+                multiplier = (m1_ref.sqrt() + eps).reciprocal() * lr
                 weights_new = split_weights[t]
                 weights_ref = (
                     exp_reg_correction * bs[t].weight.cpu()
@@ -2127,7 +2125,8 @@ class RowwiseRMSpropARTest(unittest.TestCase):
         log_E=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=1, max_value=32).map(lambda d: 4 * d),
         row=st.integers(min_value=0, max_value=31),
-        gap=st.integers(min_value=1, max_value=32),
+        gap1=st.integers(min_value=1, max_value=32),
+        gap2=st.integers(min_value=1, max_value=32),
         falr_ref_gap=st.floats(min_value=0.5, max_value=32.0),
         falr_floor=st.floats(min_value=0.0, max_value=1.0),
         ema_beta=st.floats(min_value=0.0, max_value=0.99),
@@ -2144,17 +2143,15 @@ class RowwiseRMSpropARTest(unittest.TestCase):
         log_E: int,
         D: int,
         row: int,
-        gap: int,
+        gap1: int,
+        gap2: int,
         falr_ref_gap: float,
         falr_floor: float,
         ema_beta: float,
         rewind: bool,
         use_cpu: bool,
     ) -> None:
-        """A row touched again after `gap` steps updates row_counter, seeded
-        with 1 on the first touch, to ema_beta * 1 + (1 - ema_beta) * gap, and
-        steps at clamp(falr_ref_gap / row_counter, falr_floor, 1). A rewound
-        `iter` gives a negative gap, which is clamped to 1."""
+        """FALR seeds from the first measured gap, then updates its gap EMA."""
         E = 2**log_E
         row, other = row % E, (row + 1) % E
         tbe = self._build_tbe(
@@ -2168,7 +2165,10 @@ class RowwiseRMSpropARTest(unittest.TestCase):
             ),
         )
         self._step(tbe, rows=[row])
-        for _ in range(gap - 1):
+        for _ in range(gap1 - 1):
+            self._step(tbe, rows=[other])
+        self._step(tbe, rows=[row])
+        for _ in range(gap2 - 1):
             self._step(tbe, rows=[other])
         if rewind:
             with torch.no_grad():
@@ -2178,12 +2178,12 @@ class RowwiseRMSpropARTest(unittest.TestCase):
         before = tbe.split_embedding_weights()[0][row].clone()
         self._step(tbe, rows=[row])
 
-        gap_seen = 1.0 if rewind else float(gap)
-        expected_row_counter = ema_beta * 1.0 + (1.0 - ema_beta) * gap_seen
+        gap2_seen = 1.0 if rewind else float(gap2)
+        expected_row_counter = ema_beta * gap1 + (1.0 - ema_beta) * gap2_seen
         scale = max(falr_floor, min(1.0, falr_ref_gap / expected_row_counter))
-        # After two unit-grad touches the row's momentum1 is 1 - ema_beta**2;
+        # After three unit-grad touches the row's momentum1 is 1 - ema_beta**3;
         # the steps on `other` don't touch it.
-        expected_step = scale / math.sqrt(1.0 - ema_beta**2)
+        expected_step = scale / math.sqrt(1.0 - ema_beta**3)
         row_counter = float(tbe.split_optimizer_states()[0][2][row])
         delta = (tbe.split_embedding_weights()[0][row] - before).abs().mean().item()
         self.assertAlmostEqual(row_counter, expected_row_counter, delta=1e-3)
