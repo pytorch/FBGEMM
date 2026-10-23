@@ -286,3 +286,8 @@ def read_bool(section, field, default):
 
 def get_fbgemm_codegen_inference_mode():
     return read_bool("fbcode", "fbgemm_codegen_inference_mode", False)
+
+def get_fbgemm_fp16_software_prefetch_flags():
+    if read_bool("fbcode", "fbgemm_fp16_software_prefetch", False):
+        return ["-DFBGEMM_ENABLE_FP16_SOFTWARE_PREFETCH"]
+    return []
