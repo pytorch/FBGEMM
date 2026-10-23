@@ -41,7 +41,7 @@ from fbgemm_gpu.tbe.utils import (
     quantize_embs,
     round_up,
 )
-from hypothesis import assume, given, settings, Verbosity
+from hypothesis import assume, example, given, settings, Verbosity
 
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 from .common import get_nbit_weights_ty, NBitFowardTestCommon
@@ -219,11 +219,16 @@ class NBitFowardTest(NBitFowardTestCommon):
         D_alignment = max(weights_ty.align_size() for t in range(T))
         D_alignment = max(D_alignment, output_dtype.align_size())
         D = round_up(D, D_alignment)
-        # BF16 output only works for CUDA device sm80+ (e.g., A100)
+        # ROCm kernels support BF16 output; CUDA kernels require sm80+.
         assume(
-            torch.cuda.is_available()
-            and torch.cuda.get_device_capability() >= (8, 0)
-            or not output_dtype == SparseType.BF16
+            output_dtype != SparseType.BF16
+            or (
+                torch.cuda.is_available()
+                and (
+                    torch.version.hip is not None
+                    or torch.cuda.get_device_capability() >= (8, 0)
+                )
+            )
         )
         Ds = [
             round_up(
@@ -390,6 +395,26 @@ class NBitFowardTest(NBitFowardTestCommon):
             )
 
     @unittest.skipIf(*gpu_unavailable)
+    @example(
+        T=2,
+        D=32,
+        B=4,
+        log_E=3,
+        L=3,
+        weights_ty=SparseType.FP32,
+        output_dtype=SparseType.BF16,
+        weighted=False,
+    )
+    @example(
+        T=2,
+        D=32,
+        B=4,
+        log_E=3,
+        L=3,
+        weights_ty=SparseType.FP32,
+        output_dtype=SparseType.BF16,
+        weighted=True,
+    )
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -929,6 +954,15 @@ class NBitFowardTest(NBitFowardTestCommon):
         self.assertTrue(torch.isfinite(output.float()).all().item())
 
     @unittest.skipIf(*gpu_unavailable)
+    @example(
+        T=2,
+        D=32,
+        B=4,
+        log_E=3,
+        L=3,
+        weights_ty=SparseType.INT8,
+        output_dtype=SparseType.BF16,
+    )
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
