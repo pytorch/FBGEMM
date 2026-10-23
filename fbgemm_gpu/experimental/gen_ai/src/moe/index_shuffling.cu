@@ -442,24 +442,32 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   const int num_selected_tokens =
       token_count_cumsum_end - token_count_cumsum_start;
 
-  for (int global_token_offset = bidx * params.num_tokens_per_cta;
-       global_token_offset < (bidx + 1) * params.num_tokens_per_cta;
+  CUDA_KERNEL_ASSERT(
+      num_valid_tokens >= 0 && "num_valid_tokens must be nonnegative");
+  CUDA_KERNEL_ASSERT(
+      params.num_tokens_per_cta > 0 && "num_tokens_per_cta must be positive");
+  const int64_t block_index = bidx;
+  const int64_t tokens_per_cta = params.num_tokens_per_cta;
+  for (int64_t global_token_offset = block_index * tokens_per_cta;
+       global_token_offset < (block_index + 1) * tokens_per_cta;
        global_token_offset += kNumThreads) {
-    int token_index = global_token_offset + tidx;
+    const int64_t token_index =
+        global_token_offset + static_cast<int64_t>(tidx);
     if (token_index < num_valid_tokens) {
+      const auto token_index_i32 = static_cast<int32_t>(token_index);
 #pragma unroll
       for (const auto j : c10::irange(TopK)) {
         int expert_index =
-            params.buffered_expert_indices[token_index * TopK + j];
+            params.buffered_expert_indices[token_index_i32 * TopK + j];
         if (expert_index >= expert_index_start &&
             expert_index < expert_index_end) {
           int new_token_index_in_expert =
-              params.buffered_token_indices[token_index * TopK + j];
+              params.buffered_token_indices[token_index_i32 * TopK + j];
           int new_token_index = get_token_count_cumsum(expert_index) -
               token_count_cumsum_start + new_token_index_in_expert;
           params.shuffled_expert_indices[new_token_index] =
               expert_index - expert_index_start;
-          params.shuffled_token_indices[new_token_index] = token_index;
+          params.shuffled_token_indices[new_token_index] = token_index_i32;
         }
       }
     }
