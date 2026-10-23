@@ -1283,7 +1283,13 @@ class OptimizerArgs:
                 )
                 for s in frontend_split_arg_spec
             ],
-            split_function_arg_names_autograd=[s.name for s in frontend_split_arg_spec],
+            split_function_arg_names_autograd=[
+                s.name
+                for s in frontend_split_arg_spec
+                if s.ty
+                not in (ArgType.INT, ArgType.SYM_INT, ArgType.FLOAT, ArgType.BOOL)
+                or s.name in (split_function_schemas_v1 or "").replace(",", " ").split()
+            ],
             split_saved_tensors_optional=split_saved_tensors_optional,
             split_function_args_v1=split_function_args_v1,
             split_function_schemas_v1=split_function_schemas_v1,
