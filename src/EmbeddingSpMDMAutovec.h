@@ -23,8 +23,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
+EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>
     GenerateEmbeddingSpMDMWithStrides_autovec(
         int64_t block_size,
         bool has_weight,
@@ -38,11 +37,11 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
         bool no_bag);
 
 template <typename IndexType, typename OffsetType, typename OutType>
-typename EmbeddingSpMDMKernelSignature<
+EmbeddingSpMDMKernelSignature<
     uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int input_bit_rate,
     int64_t block_size,
@@ -58,11 +57,11 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int output_bit_rate);
 
 template <typename IndexType, typename OffsetType, typename OutType>
-typename EmbeddingSpMDMKernelSignature<
+EmbeddingSpMDMKernelSignature<
     uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 GenerateEmbeddingSpMDMFP8WithStrides_autovec(
     int64_t block_size,
     bool normalize_by_lengths,

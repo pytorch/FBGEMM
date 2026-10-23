@@ -1001,8 +1001,7 @@ template <
     typename offsetType,
     typename outType,
     bool THREAD_LOCAL>
-typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
-    Type
+EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>
     GenerateEmbeddingSpMDMWithStrides(
         const int64_t block_size,
         bool has_weight [[maybe_unused]],
@@ -1328,8 +1327,7 @@ template <
     typename offsetType,
     typename outType,
     bool THREAD_LOCAL>
-typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
-    Type
+EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>
     GenerateEmbeddingSpMDM(
         const int64_t block_size,
         bool has_weight,
@@ -1338,11 +1336,11 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool is_weight_positional,
         bool use_offsets) {
   auto generate_kernel = [&]<typename ActualInType, typename ActualOutType>() ->
-      typename EmbeddingSpMDMKernelSignature<
+      EmbeddingSpMDMKernelSignature<
           inType,
           indxType,
           offsetType,
-          outType>::Type {
+          outType> {
         auto kernel = GenerateEmbeddingSpMDMWithStrides<
             ActualInType,
             indxType,
@@ -1384,8 +1382,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
 }
 
 template <typename indxType, typename offsetType, typename outType>
-typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
-    Type
+EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>
     detail::GenerateEmbeddingSpMDMFP8WithStridesBytes(
         const int64_t block_size,
         bool normalize_by_lengths,
@@ -1609,11 +1606,11 @@ GenerateEmbeddingSpMDMRowWiseSparse(
 
 #define INSTANTIATE_SPMDM_BASE(                               \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature< \
+  template FBGEMM_API EmbeddingSpMDMKernelSignature< \
       IN_TYPE,                                                \
       INDEX_TYPE,                                             \
       OFFSET_TYPE,                                            \
-      OUT_TYPE>::Type                                         \
+      OUT_TYPE>                                         \
   GenerateEmbeddingSpMDMWithStrides<                          \
       IN_TYPE,                                                \
       INDEX_TYPE,                                             \
@@ -1632,11 +1629,11 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       bool no_bag);
 
 #define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<        \
+  template FBGEMM_API EmbeddingSpMDMKernelSignature<        \
       uint8_t,                                                       \
       INDEX_TYPE,                                                    \
       OFFSET_TYPE,                                                   \
-      OUT_TYPE>::Type                                                \
+      OUT_TYPE>                                                \
   detail::GenerateEmbeddingSpMDMFP8WithStridesBytes<                 \
       INDEX_TYPE,                                                    \
       OFFSET_TYPE,                                                   \
@@ -1652,11 +1649,11 @@ GenerateEmbeddingSpMDMRowWiseSparse(
 
 #define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature< \
+  template FBGEMM_API EmbeddingSpMDMKernelSignature< \
       IN_TYPE,                                                \
       INDEX_TYPE,                                             \
       OFFSET_TYPE,                                            \
-      OUT_TYPE>::Type                                         \
+      OUT_TYPE>                                         \
   GenerateEmbeddingSpMDM<                                     \
       IN_TYPE,                                                \
       INDEX_TYPE,                                             \

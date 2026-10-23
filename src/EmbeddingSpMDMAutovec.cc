@@ -1436,8 +1436,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
+EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>
     make_spmdm_generic(
         int64_t block_size,
         bool has_weight,
@@ -1511,8 +1510,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
+EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>
     make_spmdm_fixed_block_size(int64_t output_stride) {
   // Pinned by every FBGEMM_MORE_SPECIALIZATION variant.
   constexpr bool kNormalizeByLengths = false;
@@ -1584,8 +1582,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
+EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>
     try_spmdm_fixed_block_size(
         int64_t block_size,
         int64_t input_stride,
@@ -1611,11 +1608,11 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
        576,
        768,
        1024}};
-  using KernelType = typename EmbeddingSpMDMKernelSignature<
+  using KernelType = EmbeddingSpMDMKernelSignature<
       InType,
       IndexType,
       OffsetType,
-      OutType>::Type;
+      OutType>;
   KernelType kernel = nullptr;
   [&]<std::size_t... Is>(std::index_sequence<Is...>) {
     (
@@ -1646,8 +1643,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
+EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>
     GenerateEmbeddingSpMDMWithStrides_autovec(
         int64_t block_size,
         bool has_weight,
@@ -1674,11 +1670,11 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
   // fold over the candidate block sizes.
   if (!normalize_by_lengths && !is_weight_positional && use_offsets &&
       !no_bag) {
-    typename EmbeddingSpMDMKernelSignature<
+    EmbeddingSpMDMKernelSignature<
         InType,
         IndexType,
         OffsetType,
-        OutType>::Type kernel = nullptr;
+        OutType> kernel = nullptr;
     if (has_weight && !scale_bias_last) {
       kernel = try_spmdm_fixed_block_size<
           true,
@@ -1763,11 +1759,11 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<
+EmbeddingSpMDMKernelSignature<
     uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 make_nbit_generic(
     int64_t block_size,
     bool has_weight,
@@ -1822,11 +1818,11 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<
+EmbeddingSpMDMKernelSignature<
     uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 make_nbit_fixed_block_size(int64_t output_stride) {
   // Pinned by every FBGEMM_MORE_SPECIALIZATION variant.
   constexpr bool kNormalizeByLengths = false;
@@ -1878,11 +1874,11 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<
+EmbeddingSpMDMKernelSignature<
     uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 try_nbit_fixed_block_size(
     int64_t block_size,
     int64_t input_stride,
@@ -1890,11 +1886,11 @@ try_nbit_fixed_block_size(
     int output_bit_rate) {
   static constexpr std::array<int64_t, 14> kBlockSizes{
       {32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024}};
-  using KernelType = typename EmbeddingSpMDMKernelSignature<
+  using KernelType = EmbeddingSpMDMKernelSignature<
       uint8_t,
       IndexType,
       OffsetType,
-      OutType>::Type;
+      OutType>;
   KernelType kernel = nullptr;
   if (output_bit_rate != 8 * static_cast<int>(sizeof(OutType))) {
     return kernel;
@@ -1923,11 +1919,11 @@ try_nbit_fixed_block_size(
 } // namespace
 
 template <typename IndexType, typename OffsetType, typename OutType>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+FBGEMM_API EmbeddingSpMDMKernelSignature<
     uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int input_bit_rate,
     int64_t block_size,
@@ -1962,11 +1958,11 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
   // scale_bias_last) on top of the block size.
   if (input_bit_rate == 4 && !normalize_by_lengths && !is_weight_positional &&
       use_offsets && !no_bag) {
-    typename EmbeddingSpMDMKernelSignature<
+    EmbeddingSpMDMKernelSignature<
         uint8_t,
         IndexType,
         OffsetType,
-        OutType>::Type kernel = nullptr;
+        OutType> kernel = nullptr;
     if (has_weight && !scale_bias_last) {
       kernel = try_nbit_fixed_block_size<
           4,
@@ -2055,11 +2051,11 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
 }
 
 template <typename IndexType, typename OffsetType, typename OutType>
-typename EmbeddingSpMDMKernelSignature<
+EmbeddingSpMDMKernelSignature<
     uint8_t,
     IndexType,
     OffsetType,
-    OutType>::Type
+    OutType>
 GenerateEmbeddingSpMDMFP8WithStrides_autovec(
     int64_t block_size,
     bool normalize_by_lengths,
@@ -2149,11 +2145,11 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
 }
 
 #define INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template typename EmbeddingSpMDMKernelSignature<                             \
+  template EmbeddingSpMDMKernelSignature<                             \
       uint8_t,                                                                 \
       INDEX_TYPE,                                                              \
       OFFSET_TYPE,                                                             \
-      OUT_TYPE>::Type FBGEMM_API                                               \
+      OUT_TYPE> FBGEMM_API                                               \
   GenerateEmbeddingSpMDMNBitWithStrides_autovec<                               \
       INDEX_TYPE,                                                              \
       OFFSET_TYPE,                                                             \
@@ -2172,11 +2168,11 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
       int output_bit_rate);
 
 #define INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template typename EmbeddingSpMDMKernelSignature<               \
+  template EmbeddingSpMDMKernelSignature<               \
       uint8_t,                                                   \
       INDEX_TYPE,                                                \
       OFFSET_TYPE,                                               \
-      OUT_TYPE>::Type                                            \
+      OUT_TYPE>                                            \
   GenerateEmbeddingSpMDMFP8WithStrides_autovec<                  \
       INDEX_TYPE,                                                \
       OFFSET_TYPE,                                               \
@@ -2228,11 +2224,11 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
       bool use_offsets);
 
 #define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template typename EmbeddingSpMDMKernelSignature<                         \
+  template EmbeddingSpMDMKernelSignature<                         \
       IN_TYPE,                                                             \
       INDEX_TYPE,                                                          \
       OFFSET_TYPE,                                                         \
-      OUT_TYPE>::Type                                                      \
+      OUT_TYPE>                                                      \
   GenerateEmbeddingSpMDMWithStrides_autovec<                               \
       IN_TYPE,                                                             \
       INDEX_TYPE,                                                          \
