@@ -411,7 +411,6 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             lxu_cache_state_cpu = emb.lxu_cache_state.cpu()
 
             NOT_FOUND = np.iinfo(np.int32).max
-            ASSOC = 32
 
             for loc, linear_idx in zip(
                 lxu_cache_locations.cpu().numpy().tolist(),
@@ -468,7 +467,6 @@ class SSDInferenceCacheLockingTest(unittest.TestCase):
         E = int(1e4)
         D = 128
         cache_sets = 64
-        ASSOC = 32  # hardcoded in FBGEMM
 
         emb = SSDIntNBitTableBatchedEmbeddingBags(
             embedding_specs=[("", E, D, SparseType.FP32)],
