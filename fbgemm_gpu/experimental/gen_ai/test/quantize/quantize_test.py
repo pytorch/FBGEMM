@@ -36,6 +36,7 @@ if torch.cuda.is_available():
         from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import _to_blocked
 
 from hypothesis import given, settings, strategies as st
+from torch._subclasses.fake_tensor import FakeTensorMode
 
 # Marlin is currently only supported internally at Meta.
 try:
@@ -402,8 +403,13 @@ class FP8Tests(unittest.TestCase):
             ("f8f8bf16_tensorwise", (cpu_q, cpu_q, 1.0)),
             ("f8f8bf16_rowwise", (cpu_q, cpu_q, cpu_scale, cpu_scale)),
         ):
-            with self.subTest(cpu_model_creation=name):
-                output = getattr(torch.ops.fbgemm, name)(*args)
+            # Model creation uses fake tensors, independently of compiled CK support.
+            with self.subTest(cpu_model_creation=name), FakeTensorMode() as mode:
+                fake_args = tuple(
+                    mode.from_tensor(arg) if isinstance(arg, torch.Tensor) else arg
+                    for arg in args
+                )
+                output = getattr(torch.ops.fbgemm, name)(*fake_args)
                 self.assertEqual(output.device.type, "cpu")
                 self.assertEqual(output.shape, (128, 128))
                 self.assertEqual(output.dtype, torch.bfloat16)
@@ -3019,10 +3025,10 @@ class FP8Tests(unittest.TestCase):
         )
         # These ops are only supported on hip for now.
         if torch.version.hip:
-            legacy_XQ = X.to(torch.float8_e4m3fnuz)
-            legacy_WQ = W.to(torch.float8_e4m3fnuz)
+            native_XQ = X.to(fp8_e4m3)
+            native_WQ = W.to(fp8_e4m3)
             torch.compile(torch.ops.fbgemm.f8f8f16_rowwise)(
-                legacy_XQ, legacy_WQ, row_scale, col_scale
+                native_XQ, native_WQ, row_scale, col_scale
             )
 
         # These ops are only supported on cuda for now.
