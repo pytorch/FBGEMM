@@ -807,6 +807,11 @@ class PT2ArgsSet:
                 name = s.name
                 split_unpacked_arg_names.append(name)
                 if s.is_optional:
+                    # An omitted optional state gets a float placeholder in the
+                    # PT2 autograd, which only matches TENSOR's acc_type accessor.
+                    assert (
+                        s.ty == ArgType.TENSOR
+                    ), f"optional optimizer arg {name} must be ArgType.TENSOR, got {s.ty}"
                     split_saved_tensorlist_optional.append(name)
                     split_args_dict["optim_tensor"].append(s.name)
                     has_optim_tensor = True
