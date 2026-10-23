@@ -13,6 +13,7 @@
 #include <torch/script.h>
 #include <algorithm>
 #include <ostream>
+#include <utility>
 #ifdef FBCODE_CAFFE2
 #include <folly/container/Enumerate.h>
 #include <folly/container/F14Map.h>
@@ -389,11 +390,12 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     auto values =
         at::empty({N, 2}, at::TensorOptions(at::kCPU).dtype(at::kInt));
     auto values_acc = values.accessor<int32_t, 2>();
-    for (auto t = 0; t < maps_.size(); ++t) {
+    for (const auto t : c10::irange(maps_.size())) {
       const auto& map = maps_[t];
       const auto table_start = table_offsets_acc[t];
       TORCH_CHECK(
-          map.size() == (table_offsets_acc[t + 1] - table_offsets_acc[t]));
+          std::cmp_equal(
+              map.size(), table_offsets_acc[t + 1] - table_offsets_acc[t]));
       int index = 0;
       for (const auto& [key, value] : map) {
         values_acc[table_start + index][0] = key;
@@ -441,7 +443,7 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     TORCH_CHECK(T > 0);
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
-    TORCH_CHECK(maps_.size() == T);
+    TORCH_CHECK(std::cmp_equal(maps_.size(), T));
 
     auto dense_indices = empty_like(indices);
 

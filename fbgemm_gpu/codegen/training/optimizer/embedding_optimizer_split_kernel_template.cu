@@ -7,6 +7,9 @@
  */
 
 // clang-format off
+#include <limits>
+#include <utility>
+
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 
 // The generated header uses unqualified fbgemm_gpu symbols.
@@ -73,14 +76,15 @@ void split_{{ optimizer }}_update_kernel(
 #endif
 
     Vec4TAcc<cache_t> grad_sum[kMaxVecsPerThread];
-    const auto D = max_D;
-
+    static_assert(std::in_range<int64_t>(kMaxVecsPerThread));
+    const int64_t D = max_D;
     // Load grad_dev_weights into grad_sum
 #pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+    for (int64_t i = 0;
+        i < static_cast<int64_t>(kMaxVecsPerThread) &&
+        (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
-        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+        const auto d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
         grad_sum[i].load(&grad_dev_weights[run_id * D + d]);
     }
 
