@@ -24,6 +24,7 @@
 #include <mutex>
 
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/utils/chunked_weights.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/find_qparams.cuh"

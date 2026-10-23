@@ -115,7 +115,8 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     }
     const auto weights_placement = static_cast<PlacementType>(weights_placements[t]);
     if (weights_placement == PlacementType::DEVICE) {
-        weights = &dev_weights[weights_offset + idx * D_emb];
+        weights = &dev_weights[tbe_weights_table_base(weights_offset)] +
+            tbe_weights_row_rel_offset(weights_offset, idx, D_emb);
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset + idx * D_emb]" }};
     }
@@ -135,7 +136,8 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t]);
     const int64_t {{ tensor }}_offset = {{ tensor }}_offsets[t];
     if ({{ tensor }}_placement == PlacementType::DEVICE) {
-        {{ tensor }} = &{{ tensor }}_dev[{{ tensor }}_offset];
+        {{ tensor }} = &{{ tensor }}_dev[0] +
+            tbe_state_table_offset({{ tensor }}_offset, idx);
     } else {
         {{ tensor }} = &{{ tensor }}_uvm[{{ tensor }}_offset];
     }
@@ -276,7 +278,8 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
         D_emb += kINT8QparamsBytes;
     }
     if (static_cast<PlacementType>(weights_placement) == PlacementType::DEVICE) {
-        weights = &dev_weights[weights_offset + idx * D_emb];
+        weights = &dev_weights[tbe_weights_table_base(weights_offset)] +
+            tbe_weights_row_rel_offset(weights_offset, idx, D_emb);
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset + idx * D_emb]" }};
     }
@@ -294,7 +297,8 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {%- for tensor in args.split_tensors %}
     {{ args.split_tensor_types[tensor] }}* __restrict__ {{ tensor }};
     if (static_cast<PlacementType>({{ tensor }}_placement) == PlacementType::DEVICE) {
-        {{ tensor }} = &{{ tensor }}_dev[{{ tensor }}_offset];
+        {{ tensor }} = &{{ tensor }}_dev[0] +
+            tbe_state_table_offset({{ tensor }}_offset, idx);
     } else {
         {{ tensor }} = &{{ tensor }}_uvm[{{ tensor }}_offset];
     }

@@ -290,7 +290,7 @@ using namespace fbgemm_gpu;
         // Cooperatively load the indices
         const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
         // If idx is loaded
-        [[maybe_unused]] const auto offset_idx = idx * D_emb;
+        [[maybe_unused]] const auto offset_idx = tbe_weights_row_rel_offset(weights_offset, idx, D_emb);
         {%- endif %}
 
         {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
@@ -716,7 +716,7 @@ constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
-        weights = &dev_weights[weights_offset];
+        weights = &dev_weights[tbe_weights_table_base(weights_offset)];
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset]" }};
     }
