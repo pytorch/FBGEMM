@@ -39,7 +39,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import given, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -2049,6 +2049,7 @@ class RowwiseRMSpropARTest(unittest.TestCase):
         min_shrinkage: float = 0.0,
         extra_optimizer_config: UserEnabledConfigDefinition | None = None,
         optimizer: OptimType = OptimType.ROWWISE_RMSPROP_AR,
+        weights_precision: SparseType = SparseType.FP32,
     ) -> SplitTableBatchedEmbeddingBagsCodegen:
         """Build a single-table TBE with every weight set to 1.0.
 
@@ -2059,6 +2060,7 @@ class RowwiseRMSpropARTest(unittest.TestCase):
                 MANAGED at random, as in `execute_backward_optimizers_`.
             extra_optimizer_config: Passed through, e.g. to enable falr.
             optimizer: Defaults to ROWWISE_RMSPROP_AR.
+            weights_precision: Defaults to FP32.
 
         Uses lr=1 and SUM pooling, so after `_touch` the weight equals the
         decay multiplier and after `_step` it has moved by the step size.
@@ -2081,6 +2083,7 @@ class RowwiseRMSpropARTest(unittest.TestCase):
             ema_beta=ema_beta,
             min_shrinkage=min_shrinkage,
             extra_optimizer_config=extra_optimizer_config,
+            weights_precision=weights_precision,
             pooling_mode=PoolingMode.SUM,
             output_dtype=SparseType.FP32,
         )
@@ -2188,6 +2191,35 @@ class RowwiseRMSpropARTest(unittest.TestCase):
         delta = (tbe.split_embedding_weights()[0][row] - before).abs().mean().item()
         self.assertAlmostEqual(row_counter, expected_row_counter, delta=1e-3)
         self.assertAlmostEqual(delta, expected_step, delta=1e-3 * expected_step)
+
+    @given(
+        optimizer=st.sampled_from([OptimType.ROWWISE_RMSPROP_AR, OptimType.ADAM]),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        use_cpu=use_cpu_strategy(),
+    )
+    @settings(
+        verbosity=VERBOSITY, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None
+    )
+    def test_optional_row_counter_omitted_with_low_precision_weights(
+        self, optimizer: OptimType, weights_precision: SparseType, use_cpu: bool
+    ) -> None:
+        """With the optional `row_counter` omitted (falr off for AR, no bias
+        correction for Adam), the backward must not fail its dtype check when
+        the weights are not FP32."""
+        assume(not (use_cpu and optimizer == OptimType.ADAM))  # no CPU Adam
+        tbe = self._build_tbe(
+            E=16,
+            D=8,
+            ar_alpha=1e-3,
+            use_cpu=use_cpu,
+            optimizer=optimizer,
+            weights_precision=weights_precision,
+        )
+        self._step(tbe, rows=[0, 1, 2])
+
+        weights = tbe.split_embedding_weights()[0].float()
+        self.assertTrue(torch.isfinite(weights).all())
+        self.assertFalse(torch.equal(weights[:3], torch.ones_like(weights[:3])))
 
     def test_falr_rejects_invalid_config(self) -> None:
         """Invalid falr setups fail instead of training silently: bad values or
