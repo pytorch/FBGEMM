@@ -1203,9 +1203,23 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_int8_float_kernel(
   }
 }
 
+// The gather kernels grid-stride over rows, so any grid size gives the same
+// output. A cap below the SM count keeps whole SMs free for kernels that cannot
+// share an SM with a gather CTA, such as NCCL collectives on another stream.
+uint32_t cap_gather_grid(const uint32_t grid_size, const int64_t max_ctas) {
+  TORCH_CHECK_GE(max_ctas, 0);
+  if (max_ctas == 0) {
+    return grid_size;
+  }
+  return static_cast<uint32_t>(std::min<int64_t>(grid_size, max_ctas));
+}
+
 } // namespace
 
-Tensor ssd_gather_from_row_addresses_cuda(Tensor output, Tensor row_addresses) {
+Tensor ssd_gather_from_row_addresses_cuda(
+    Tensor output,
+    Tensor row_addresses,
+    const int64_t max_ctas) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(output, row_addresses);
   TENSOR_CONTIGUOUS(output);
   TENSOR_CONTIGUOUS(row_addresses);
@@ -1224,10 +1238,12 @@ Tensor ssd_gather_from_row_addresses_cuda(Tensor output, Tensor row_addresses) {
   const auto D = output.size(1);
   const int32_t threads_per_row = std::min<int32_t>(D / 4, kMaxThreads);
   const dim3 threads(threads_per_row, kMaxThreads / threads_per_row);
-  const auto grid_size = utils::cuda::cap_grid_dim_x(
-      div_round_up(row_addresses.numel(), threads.y),
-      kMaxThreads,
-      at::cuda::getCurrentCUDAStream());
+  const auto grid_size = cap_gather_grid(
+      utils::cuda::cap_grid_dim_x(
+          div_round_up(row_addresses.numel(), threads.y),
+          kMaxThreads,
+          at::cuda::getCurrentCUDAStream()),
+      max_ctas);
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "ssd_gather_from_row_addresses", [&] {
@@ -1519,7 +1535,8 @@ Tensor kvzch_direct_cache_insert_int8_cuda(
 Tensor kvzch_direct_cache_gather_int8_cuda(
     Tensor output,
     Tensor row_addresses,
-    at::ScalarType row_dtype) {
+    at::ScalarType row_dtype,
+    const int64_t max_ctas) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(output, row_addresses);
   TENSOR_CONTIGUOUS(output);
   TENSOR_CONTIGUOUS(row_addresses);
@@ -1542,10 +1559,12 @@ Tensor kvzch_direct_cache_gather_int8_cuda(
   const auto D = output.size(1);
   const int32_t threads_per_row = std::min<int32_t>(D / 4, kMaxThreads);
   const dim3 threads(threads_per_row, kMaxThreads / threads_per_row);
-  const auto grid_size = utils::cuda::cap_grid_dim_x(
-      div_round_up(row_addresses.numel(), threads.y),
-      kMaxThreads,
-      at::cuda::getCurrentCUDAStream());
+  const auto grid_size = cap_gather_grid(
+      utils::cuda::cap_grid_dim_x(
+          div_round_up(row_addresses.numel(), threads.y),
+          kMaxThreads,
+          at::cuda::getCurrentCUDAStream()),
+      max_ctas);
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "kvzch_direct_cache_gather_int8", [&] {
@@ -1564,7 +1583,8 @@ Tensor kvzch_direct_cache_gather_int8_cuda(
 Tensor kvzch_direct_cache_gather_int8_float_cuda(
     Tensor output,
     Tensor row_addresses,
-    at::ScalarType row_dtype) {
+    at::ScalarType row_dtype,
+    const int64_t max_ctas) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(output, row_addresses);
   TENSOR_CONTIGUOUS(output);
   TENSOR_CONTIGUOUS(row_addresses);
@@ -1584,10 +1604,12 @@ Tensor kvzch_direct_cache_gather_int8_float_cuda(
   const auto D = output.size(1);
   const int32_t threads_per_row = std::min<int32_t>(D / 4, kMaxThreads);
   const dim3 threads(threads_per_row, kMaxThreads / threads_per_row);
-  const auto grid_size = utils::cuda::cap_grid_dim_x(
-      div_round_up(row_addresses.numel(), threads.y),
-      kMaxThreads,
-      at::cuda::getCurrentCUDAStream());
+  const auto grid_size = cap_gather_grid(
+      utils::cuda::cap_grid_dim_x(
+          div_round_up(row_addresses.numel(), threads.y),
+          kMaxThreads,
+          at::cuda::getCurrentCUDAStream()),
+      max_ctas);
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       row_dtype, "kvzch_direct_cache_gather_int8_float", [&] {

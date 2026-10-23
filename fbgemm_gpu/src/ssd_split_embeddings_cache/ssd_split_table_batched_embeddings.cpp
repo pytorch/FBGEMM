@@ -37,7 +37,10 @@ ssd_cache_populate_actions_cuda(
     const bool lock_cache_line,
     const std::optional<Tensor>& lxu_cache_locking_counter);
 
-Tensor ssd_gather_from_row_addresses_cuda(Tensor output, Tensor row_addresses);
+Tensor ssd_gather_from_row_addresses_cuda(
+    Tensor output,
+    Tensor row_addresses,
+    const int64_t max_ctas);
 
 Tensor kvzch_direct_cache_lookup_cuda(
     Tensor indices,
@@ -74,12 +77,14 @@ Tensor kvzch_direct_cache_insert_int8_cuda(
 Tensor kvzch_direct_cache_gather_int8_cuda(
     Tensor output,
     Tensor row_addresses,
-    at::ScalarType row_dtype);
+    at::ScalarType row_dtype,
+    const int64_t max_ctas);
 
 Tensor kvzch_direct_cache_gather_int8_float_cuda(
     Tensor output,
     Tensor row_addresses,
-    at::ScalarType row_dtype);
+    at::ScalarType row_dtype,
+    const int64_t max_ctas);
 
 /// @ingroup embedding-ssd
 ///
@@ -1658,7 +1663,8 @@ Tensor masked_index_select_meta(
 
 Tensor ssd_gather_from_row_addresses_meta(
     Tensor output,
-    Tensor /*row_addresses*/) {
+    Tensor /*row_addresses*/,
+    const int64_t /*max_ctas*/) {
   return output;
 }
 
@@ -1685,7 +1691,8 @@ Tensor kvzch_direct_cache_insert_meta(
 Tensor kvzch_direct_cache_gather_int8_meta(
     Tensor output,
     Tensor /*row_addresses*/,
-    at::ScalarType row_dtype) {
+    at::ScalarType row_dtype,
+    const int64_t /*max_ctas*/) {
   TORCH_CHECK(
       output.scalar_type() == row_dtype,
       "kvzch_direct_cache_gather_int8 requires output.dtype == row_dtype; "
@@ -1696,7 +1703,8 @@ Tensor kvzch_direct_cache_gather_int8_meta(
 Tensor kvzch_direct_cache_gather_int8_float_meta(
     Tensor output,
     Tensor /*row_addresses*/,
-    at::ScalarType /*row_dtype*/) {
+    at::ScalarType /*row_dtype*/,
+    const int64_t /*max_ctas*/) {
   return output;
 }
 
@@ -1704,7 +1712,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "ssd_gather_from_row_addresses("
       "    Tensor(a!) output, "
-      "    Tensor row_addresses"
+      "    Tensor row_addresses, "
+      "    int max_ctas=0"
       ") -> Tensor(a!)");
   DISPATCH_TO_CUDA(
       "ssd_gather_from_row_addresses", ssd_gather_from_row_addresses_cuda);
@@ -1762,7 +1771,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "kvzch_direct_cache_gather_int8("
       "    Tensor(a!) output, "
       "    Tensor row_addresses, "
-      "    ScalarType row_dtype"
+      "    ScalarType row_dtype, "
+      "    int max_ctas=0"
       ") -> Tensor(a!)");
   DISPATCH_TO_CUDA(
       "kvzch_direct_cache_gather_int8", kvzch_direct_cache_gather_int8_cuda);
@@ -1772,7 +1782,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "kvzch_direct_cache_gather_int8_float("
       "    Tensor(a!) output, "
       "    Tensor row_addresses, "
-      "    ScalarType row_dtype"
+      "    ScalarType row_dtype, "
+      "    int max_ctas=0"
       ") -> Tensor(a!)");
   DISPATCH_TO_CUDA(
       "kvzch_direct_cache_gather_int8_float",
