@@ -15,6 +15,8 @@
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h" // @manual
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
+#include <utility>
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -211,15 +213,15 @@ generate_vbe_metadata(
   const dim3 grid_size(grid_dim_x, num_ranks, T);
   const auto& [max_grid_x, max_grid_y, max_grid_z] = get_max_grid_size();
   TORCH_CHECK(
-      grid_size.x > 0 && grid_size.x <= max_grid_x,
+      grid_size.x > 0 && std::cmp_less_equal(grid_size.x, max_grid_x),
       "generate_vbe_metadata: Invalid grid_size.x ",
       grid_size.x);
   TORCH_CHECK(
-      grid_size.y > 0 && grid_size.y <= max_grid_y,
+      grid_size.y > 0 && std::cmp_less_equal(grid_size.y, max_grid_y),
       "generate_vbe_metadata: Invalid grid_size.y ",
       grid_size.y);
   TORCH_CHECK(
-      grid_size.z > 0 && grid_size.z <= max_grid_z,
+      grid_size.z > 0 && std::cmp_less_equal(grid_size.z, max_grid_z),
       "generate_vbe_metadata: Invalid grid_size.z ",
       grid_size.z);
 

@@ -243,7 +243,7 @@ __inline__ __device__ float blockReduceMax(float val) {
   __syncthreads();
   // read by first warp
   if (wid == 0) {
-    int numWarps = (blockDim.x + 31) >> 5;
+    const auto numWarps = (blockDim.x + 31) >> 5;
     val = (lane < numWarps) ? shared[lane] : -1e20f;
     val = warpReduceMax(val);
   }

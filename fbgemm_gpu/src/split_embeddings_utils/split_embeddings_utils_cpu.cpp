@@ -45,8 +45,9 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> get_info_B_num_bits_from_T(
   const int32_t info_T_num_bits = get_num_bits(T);
   const int32_t info_B_num_bits = DEFAULT_INFO_NUM_BITS - info_T_num_bits;
   const uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
+  const auto unsigned_B = static_cast<uint32_t>(B);
   TORCH_CHECK(
-      B <= info_B_mask,
+      unsigned_B <= info_B_mask,
       "Not enough infos bits to accommodate T and B. T = ",
       T,
       " takes ",
@@ -64,12 +65,16 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> get_info_B_num_bits_from_T(
 DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
     int32_t B,
     int32_t T) {
+  TORCH_CHECK(B > 0, "B must be positive. Got B = ", B);
+  TORCH_CHECK(T > 0, "T must be positive. Got T = ", T);
+  const auto unsigned_B = static_cast<uint32_t>(B);
+  const auto unsigned_T = static_cast<uint32_t>(T);
   int32_t info_B_num_bits = DEFAULT_INFO_B_NUM_BITS;
   uint32_t info_B_mask = DEFAULT_INFO_B_MASK;
   uint32_t max_T = MAX_T;
   uint32_t max_B = MAX_B;
-  bool invalid_T = T > max_T;
-  bool invalid_B = B > max_B;
+  bool invalid_T = unsigned_T > max_T;
+  bool invalid_B = unsigned_B > max_B;
 
   TORCH_CHECK(
       !(invalid_T && invalid_B),
@@ -82,8 +87,8 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
       info_B_num_bits--;
       max_T = ((max_T + 1) << 1) - 1;
       max_B = ((max_B + 1) >> 1) - 1;
-      invalid_T = T > max_T;
-      invalid_B = B > max_B;
+      invalid_T = unsigned_T > max_T;
+      invalid_B = unsigned_B > max_B;
     }
   } else if (invalid_B) {
     // Increase info_B_num_bits
@@ -91,8 +96,8 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
       info_B_num_bits++;
       max_T = ((max_T + 1) >> 1) - 1;
       max_B = ((max_B + 1) << 1) - 1;
-      invalid_T = T > max_T;
-      invalid_B = B > max_B;
+      invalid_T = unsigned_T > max_T;
+      invalid_B = unsigned_B > max_B;
     }
   }
 
