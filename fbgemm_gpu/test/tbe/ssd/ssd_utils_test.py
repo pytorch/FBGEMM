@@ -10,6 +10,7 @@
 import random
 import unittest
 from collections.abc import Callable
+from unittest import mock
 
 import fbgemm_gpu.tbe.ssd  # noqa F401
 import hypothesis.strategies as st
@@ -600,6 +601,90 @@ class SSDUtilsTest(unittest.TestCase):
                 torch.float16,
             )
 
+    def test_direct_cache_gathers_with_max_ctas(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        embedding_dim = 128
+        cache_sets = 4096
+        dtype = torch.float16
+        resident_keys = self._unique_slot_keys(cache_sets, 2048)
+        absent_keys = self._unique_slot_keys(cache_sets, 512, start=10**6)
+        int8_state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
+        int8_weights = torch.zeros(
+            (cache_sets, embedding_dim + 8), dtype=torch.uint8, device=device
+        )
+        torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
+            int8_state,
+            int8_weights,
+            torch.tensor(resident_keys, dtype=torch.int64, device=device),
+            (torch.randn(len(resident_keys), embedding_dim, device=device) * 3).to(
+                dtype
+            ),
+        )
+        pool = torch.tensor(
+            resident_keys + absent_keys, dtype=torch.int64, device=device
+        )
+        indices = pool[
+            torch.randint(pool.numel(), (20000,), device=device)
+        ].contiguous()
+        _, count, inserted, int8_addresses = self._run_direct_cache_lookup(
+            torch.ops.fbgemm.kvzch_direct_cache_lookup_int8,
+            indices,
+            int8_state,
+            int8_weights,
+            embedding_dim,
+            dtype,
+        )
+        num_misses = int(count.item())
+        self.assertGreater(num_misses, 0)
+        self.assertLess(num_misses, indices.numel())
+        inserted[:num_misses].copy_(
+            torch.randn(num_misses, embedding_dim, device=device) * 5
+        )
+        rows = (torch.randn(1000, embedding_dim, device=device) * 3).to(dtype)
+        row_ids = torch.randint(rows.size(0), (indices.numel(),), device=device)
+        row_addresses = rows.data_ptr() + row_ids * rows.stride(0) * rows.element_size()
+
+        # 20000 rows of 128 values launch 625 CTAs uncapped.
+        gathers = (
+            (torch.ops.fbgemm.ssd_gather_from_row_addresses, (row_addresses,), dtype),
+            (
+                torch.ops.fbgemm.kvzch_direct_cache_gather_int8,
+                (int8_addresses, dtype),
+                dtype,
+            ),
+            (
+                torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float,
+                (int8_addresses, dtype),
+                torch.float32,
+            ),
+        )
+        for op, args, output_dtype in gathers:
+            int_view = torch.int16 if output_dtype.itemsize == 2 else torch.int32
+            uncapped = torch.full(
+                (indices.numel(), embedding_dim),
+                float("nan"),
+                dtype=output_dtype,
+                device=device,
+            )
+            op(uncapped, *args)
+            self.assertFalse(bool(uncapped.isnan().any()))
+            for max_ctas in (1, 7, 1 << 40):
+                with self.subTest(op=str(op), dtype=output_dtype, max_ctas=max_ctas):
+                    capped = torch.full_like(uncapped, float("nan"))
+                    op(capped, *args, max_ctas)
+                    torch.testing.assert_close(
+                        capped.view(int_view), uncapped.view(int_view), rtol=0, atol=0
+                    )
+        with self.assertRaises(RuntimeError):
+            torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+                torch.empty(
+                    (indices.numel(), embedding_dim), dtype=dtype, device=device
+                ),
+                int8_addresses,
+                dtype,
+                -1,
+            )
+
     def test_kvzch_direct_cache_insert_int8_skips(self) -> None:
         device = torch.accelerator.current_accelerator()
         embedding_dim = 64
@@ -891,6 +976,7 @@ class DirectMappedEnrichmentCacheInt8Test(unittest.TestCase):
         output_dtype: torch.dtype,
         int8: bool = True,
         read_populate: bool = False,
+        gather_reserved_sms: int = 0,
     ):  # noqa: ANN205
         from fbgemm_gpu.tbe.ssd.training import _DirectMappedEnrichmentCache
 
@@ -907,6 +993,7 @@ class DirectMappedEnrichmentCacheInt8Test(unittest.TestCase):
             int8=int8,
             fused_float_gather=fused_float_gather,
             output_dtype=output_dtype,
+            gather_reserved_sms=gather_reserved_sms,
         )
 
     @staticmethod
@@ -995,3 +1082,57 @@ class DirectMappedEnrichmentCacheInt8Test(unittest.TestCase):
     def test_fused_float_gather_requires_fp32_output(self) -> None:
         cache = self._cache(fused_float_gather=True, output_dtype=torch.bfloat16)
         self.assertFalse(cache._fused_float_gather)
+
+    def test_capped_gather_matches_uncapped(self) -> None:
+        device = torch.accelerator.current_accelerator(True)
+        assert device is not None
+        sm_count = torch.cuda.get_device_properties(device).multi_processor_count
+        table = (torch.randn(4096, 128, device=device) * 3 + 1).half()
+        resident = torch.arange(0, 4096, 2, device=device)
+        indices = torch.randint(0, 4096, (50000,), device=device)
+        # FP16 rows, INT8 rows gathered to FP16, and INT8 rows fused to FP32.
+        for int8, fused, output_dtype in (
+            (False, False, torch.float16),
+            (True, False, torch.float16),
+            (True, True, torch.float32),
+        ):
+            with self.subTest(int8=int8, output_dtype=output_dtype):
+                cache = self._cache(
+                    fused_float_gather=fused,
+                    output_dtype=output_dtype,
+                    int8=int8,
+                    gather_reserved_sms=sm_count - 3,
+                )
+                self.assertEqual(cache._gather_max_ctas, 3)
+                cache.populate_from_write(resident, table[resident])
+                capped = cache.lookup(indices, self._backend(table))
+                hits, queries = cache.last_hit_counts()
+                self.assertGreater(hits, 0)
+                self.assertLess(hits, queries)
+                cache._gather_max_ctas = 0
+                uncapped = cache.lookup(indices, self._backend(table))
+                int_view = torch.int32 if output_dtype == torch.float32 else torch.int16
+                torch.testing.assert_close(
+                    capped.view(int_view),
+                    uncapped.view(int_view),
+                    rtol=0,
+                    atol=0,
+                )
+
+    def test_gather_reserved_sms_cap_the_grid_below_the_sm_count(self) -> None:
+        from fbgemm_gpu.tbe.ssd.training import _owner_cache_gather_max_ctas
+
+        device = torch.accelerator.current_accelerator(True)
+        assert device is not None
+        self.assertEqual(_owner_cache_gather_max_ctas(0, device), 0)
+        with self.assertRaises(ValueError):
+            _owner_cache_gather_max_ctas(-1, device)
+        with mock.patch.object(
+            torch.cuda,
+            "get_device_properties",
+            return_value=mock.Mock(multi_processor_count=152),
+        ):
+            self.assertEqual(_owner_cache_gather_max_ctas(32, device), 120)
+            self.assertEqual(_owner_cache_gather_max_ctas(151, device), 1)
+            with self.assertRaises(ValueError):
+                _owner_cache_gather_max_ctas(152, device)
