@@ -30,7 +30,7 @@ static inline void transpose_kernel_mx1(
 }
 
 template <typename T>
-static void transpose_neon_impl(
+void transpose_neon(
     int64_t M,
     int64_t N,
     const T* src,
@@ -114,27 +114,21 @@ static void transpose_neon_impl(
   }
 }
 
-template <>
-void transpose_neon(
+template void transpose_neon<float>(
     int64_t M,
     int64_t N,
     const float* src,
     int64_t ld_src,
     float* dst,
-    int64_t ld_dst) {
-  transpose_neon_impl(M, N, src, ld_src, dst, ld_dst);
-}
+    int64_t ld_dst);
 
-template <>
-void transpose_neon(
+template void transpose_neon<uint16_t>(
     int64_t M,
     int64_t N,
     const uint16_t* src,
     int64_t ld_src,
     uint16_t* dst,
-    int64_t ld_dst) {
-  transpose_neon_impl(M, N, src, ld_src, dst, ld_dst);
-}
+    int64_t ld_dst);
 
 } // namespace fbgemm::internal
 
