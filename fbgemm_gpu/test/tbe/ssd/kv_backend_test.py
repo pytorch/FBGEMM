@@ -1530,6 +1530,12 @@ class SSDCheckpointTest(unittest.TestCase):
                     narrowed[i, : metaheader_dim // 2].view(torch.int64),
                     torch.tensor([i + row_offset], dtype=torch.int64),
                 )
+                packed_metadata = int(
+                    narrowed[i, metaheader_dim // 2 : metaheader_dim]
+                    .view(torch.int64)
+                    .item()
+                )
+                self.assertNotEqual(packed_metadata & 0xFFFFFFFF, 0)
 
                 # Check if weight matches the one passed in with weights
                 torch.testing.assert_close(
@@ -1542,6 +1548,124 @@ class SSDCheckpointTest(unittest.TestCase):
                 narrowed[:, opt_offset : opt_offset + opt_dim],
                 torch.zeros(N, opt_dim, dtype=dtype),
             )
+            original_narrowed = narrowed.clone()
+            checkpoint_ids = (
+                original_narrowed[:, : metaheader_dim // 2]
+                .contiguous()
+                .view(torch.int64)
+                .reshape(-1)
+            )
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                narrowed, checkpoint_ids.view(-1, 1)
+            )
+            torch.testing.assert_close(narrowed, original_narrowed, equal_nan=True)
+            restored = tensor_wrapper.narrow(0, 0, N)
+            torch.testing.assert_close(
+                restored[:, : metaheader_dim // 2],
+                original_narrowed[:, : metaheader_dim // 2],
+            )
+            torch.testing.assert_close(
+                restored[:, metaheader_dim:], original_narrowed[:, metaheader_dim:]
+            )
+            torch.testing.assert_close(
+                restored[:, metaheader_dim // 2 : metaheader_dim],
+                original_narrowed[:, metaheader_dim // 2 : metaheader_dim],
+            )
+
+            zero_timestamp_rows = original_narrowed.clone()
+            zero_timestamp_metadata = zero_timestamp_rows[
+                :, metaheader_dim // 2 : metaheader_dim
+            ].view(torch.int64)
+            checkpoint_count = 7
+            zero_timestamp_metadata.fill_(-(1 << 63) | (checkpoint_count << 32))
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                zero_timestamp_rows, checkpoint_ids
+            )
+            restored = tensor_wrapper.narrow(0, 0, N)
+            restored_metadata = restored[:, metaheader_dim // 2 : metaheader_dim].view(
+                torch.int64
+            )
+            self.assertTrue(torch.all(restored_metadata.bitwise_and(0xFFFFFFFF) != 0))
+            torch.testing.assert_close(
+                restored_metadata.bitwise_right_shift(32).bitwise_and(0x7FFFFFFF),
+                torch.full_like(restored_metadata, checkpoint_count),
+            )
+
+            zero_payload_row = original_narrowed[:1].clone()
+            zero_payload_row[:, metaheader_dim:] = 0
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                zero_payload_row, checkpoint_ids[:1]
+            )
+            zero_payload_restored = tensor_wrapper.narrow(0, 0, 1)
+            torch.testing.assert_close(
+                zero_payload_restored[:, metaheader_dim:],
+                torch.zeros_like(zero_payload_restored[:, metaheader_dim:]),
+            )
+
+            missing_row = torch.zeros_like(original_narrowed[:1])
+            missing_row[:, : metaheader_dim // 2] = torch.tensor(
+                [N + row_offset], dtype=torch.int64
+            ).view(dtype)
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "set_weights_and_ids: all 1 checkpoint rows were filtered as missing",
+            ):
+                tensor_wrapper.set_prefixed_weights_and_ids(
+                    missing_row, torch.tensor([N + row_offset], dtype=torch.int64)
+                )
+
+            range_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, original_narrowed.size(1)],
+                dtype,
+                row_offset,
+                None,
+                torch.cat([checkpoint_ids - row_offset, torch.tensor([N])]),
+                only_load_weight=True,
+            )
+            range_wrapper.set_dram_db_wrapper(emb.ssd_db)
+            rows_with_missing = torch.cat([original_narrowed, missing_row])
+            oversized_rows = torch.nn.functional.pad(rows_with_missing, (0, 1))
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "each checkpoint row must contain the 8-byte ID header",
+            ):
+                range_wrapper.set_range(0, 0, N, original_narrowed[:, :1].contiguous())
+
+            out_of_range_rows = original_narrowed.clone()
+            out_of_range_rows[0, : metaheader_dim // 2] = torch.tensor(
+                [row_offset + N], dtype=torch.int64
+            ).view(dtype)
+            with self.assertRaisesRegex(
+                RuntimeError, "checkpoint IDs must fall within the requested range"
+            ):
+                range_wrapper.set_range(0, 0, N, out_of_range_rows)
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "set_range: all 1 checkpoint rows were filtered as missing",
+            ):
+                range_wrapper.set_range(0, N, 1, missing_row)
+
+            range_wrapper.set_range(0, 0, N + 1, oversized_rows)
+            range_restored = range_wrapper.narrow(0, 0, N + 1)
+            torch.testing.assert_close(
+                range_restored[:N, : metaheader_dim // 2]
+                .contiguous()
+                .view(torch.int64),
+                (checkpoint_ids - row_offset).view(-1, 1),
+            )
+            torch.testing.assert_close(
+                range_restored[:N, metaheader_dim:],
+                original_narrowed[:, metaheader_dim:],
+            )
+            torch.testing.assert_close(
+                range_restored[N:, metaheader_dim // 2 : metaheader_dim].view(
+                    torch.int64
+                ),
+                torch.zeros(1, 1, dtype=torch.int64),
+            )
+
             row_offset += E
 
     @given(
