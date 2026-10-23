@@ -80,6 +80,17 @@ def quantize_fp8_per_row(
     stochastic_rounding: bool = False,
 ) -> list[torch.Tensor]:
     # The eager rowwise operator copies CPU-input results back to CPU.
+    torch._check(
+        output_dtype is None
+        or output_dtype
+        in (
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fnuz,
+            torch.float8_e5m2,
+            torch.float8_e5m2fnuz,
+        ),
+        lambda: "output must be e4m3 or e5m2 (output_dtype)",
+    )
     quantized = _quantized_meta(input, output_dtype, allow_e5m2=True)
     if stochastic_rounding:
         torch._check(
