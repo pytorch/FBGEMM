@@ -141,6 +141,21 @@ class SwitchStats:
 _INT8_ROWWISE_QPARAMS_BYTES = 8
 
 
+def _owner_cache_gather_max_ctas(reserved_sms: int, device: torch.device) -> int:
+    """The owner-cache gather grid cap that leaves ``reserved_sms`` SMs free."""
+    if reserved_sms < 0:
+        raise ValueError("owner_cache_gather_reserved_sms must be nonnegative")
+    if reserved_sms == 0:
+        return 0
+    sm_count = torch.cuda.get_device_properties(device).multi_processor_count
+    if reserved_sms >= sm_count:
+        raise ValueError(
+            f"owner_cache_gather_reserved_sms reserves {reserved_sms} of the "
+            f"device's {sm_count} SMs; the gather needs at least one"
+        )
+    return sm_count - reserved_sms
+
+
 class _DirectMappedEnrichmentCache(nn.Module):
     """Owner-local HBM cache used by the direct enrichment read path.
 
@@ -161,6 +176,7 @@ class _DirectMappedEnrichmentCache(nn.Module):
         int8: bool = False,
         fused_float_gather: bool = False,
         output_dtype: torch.dtype | None = None,
+        gather_reserved_sms: int = 0,
     ) -> None:
         super().__init__()
         if int8 and embedding_dim % 4 != 0:
@@ -171,6 +187,9 @@ class _DirectMappedEnrichmentCache(nn.Module):
         self._int8 = int8
         self._fused_float_gather: bool = (
             int8 and fused_float_gather and output_dtype == torch.float32
+        )
+        self._gather_max_ctas: int = _owner_cache_gather_max_ctas(
+            gather_reserved_sms, device
         )
         self._embedding_dim = embedding_dim
         self._storage_dtype = cache_dtype
@@ -221,13 +240,14 @@ class _DirectMappedEnrichmentCache(nn.Module):
         logging.info(
             "Direct enrichment owner cache has %d rows (%.2f GiB); "
             "read_populate=%s; read_populate_max_lookups=%d; storage=%s; "
-            "fused_float_gather=%s",
+            "fused_float_gather=%s; gather_max_ctas=%d",
             cache_sets,
             cache_sets * (row_bytes + tag_bytes) / (1024**3),
             read_populate,
             read_populate_max_lookups,
             "int8_rowwise" if int8 else str(cache_dtype),
             self._fused_float_gather,
+            self._gather_max_ctas,
         )
 
     def _grow_workspaces(self, required_capacity: int) -> None:
@@ -338,14 +358,16 @@ class _DirectMappedEnrichmentCache(nn.Module):
         )
         if self._fused_float_gather:
             torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
-                output, row_addresses, self._storage_dtype
+                output, row_addresses, self._storage_dtype, self._gather_max_ctas
             )
         elif self._int8:
             torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
-                output, row_addresses, self._storage_dtype
+                output, row_addresses, self._storage_dtype, self._gather_max_ctas
             )
         else:
-            torch.ops.fbgemm.ssd_gather_from_row_addresses(output, row_addresses)
+            torch.ops.fbgemm.ssd_gather_from_row_addresses(
+                output, row_addresses, self._gather_max_ctas
+            )
         # Gather before inserting: a miss can evict a slot that another index
         # in this batch still reads through a hit address.
         if self._read_populate:
@@ -720,6 +742,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._owner_cache_read_populate_max_lookups: int = 0
         self._owner_cache_int8: bool = False
         self._owner_cache_int8_fused_float: bool = False
+        self._owner_cache_gather_reserved_sms: int = 0
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -780,6 +803,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._owner_cache_int8 = enrichment_policy.owner_cache_int8
                 self._owner_cache_int8_fused_float = (
                     enrichment_policy.owner_cache_int8_fused_float
+                )
+                self._owner_cache_gather_reserved_sms = (
+                    enrichment_policy.owner_cache_gather_reserved_sms
                 )
             if self.load_ckpt_without_opt:
                 if (
@@ -1638,6 +1664,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 int8=self._owner_cache_int8,
                 fused_float_gather=self._owner_cache_int8_fused_float,
                 output_dtype=self._direct_enrichment_output_dtype,
+                gather_reserved_sms=self._owner_cache_gather_reserved_sms,
             )
 
         if self.prefetch_pipeline:
@@ -4793,6 +4820,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 PartiallyMaterializedTensor(
                     tensor_wrapper,
                     True if self.kv_zch_params else False,
+                    self.backend_return_whole_row,
                 )
             )
         logging.info(

@@ -252,28 +252,20 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
       mx_group_size,
       " but is found to be ",
       total_elems);
-  const uint32_t total_num_groups = total_quant_elems / mx_group_size;
+  const uint32_t total_num_groups =
+      div_round_up(total_quant_elems, mx_group_size);
 
   // Use SparseType enum to get output dtype
 
   auto output = at::empty(total_elems, input.options().dtype(out_dtype));
   const int num_groups_per_block = MAX_THREADS / mx_group_size;
-  const auto gridDim_x =
-      std::max(1, div_round_up(total_num_groups, num_groups_per_block));
+  const auto gridDim_x = utils::cuda::cap_grid_dim_x(
+      div_round_up(total_num_groups, num_groups_per_block),
+      mx_group_size * num_groups_per_block,
+      at::cuda::getCurrentCUDAStream());
 
   const dim3 gridDim(gridDim_x);
   const dim3 blockDim(mx_group_size, num_groups_per_block);
-
-  int max_grid_size = 0;
-  C10_CUDA_CHECK(cudaDeviceGetAttribute(
-      &max_grid_size, cudaDevAttrMaxGridDimX, input.get_device()));
-
-  TORCH_CHECK(
-      gridDim_x > 0 && gridDim_x <= max_grid_size,
-      "gridDim_x is of bound with value ",
-      gridDim_x,
-      ". MaxGridDimX is ",
-      max_grid_size);
 
   // Call CUDA kernel
   if (out_dtype == at::ScalarType::Half) {

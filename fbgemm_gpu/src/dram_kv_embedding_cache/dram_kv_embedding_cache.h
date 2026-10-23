@@ -997,7 +997,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const char* log_prefix,
       FetchFn fetchFn,
       PrepareFn prepareFn) {
-    folly::coro::co_invoke(
+    auto enrichTask = folly::coro::co_invoke(
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-capturing-lambda-coroutines)
         [this,
          hashed_ids = std::move(hashed_ids),
@@ -1050,10 +1050,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           }
           pending_laser_requests_.fetch_sub(1);
           laser_write_in_progress_.store(false);
-        })
-        // NOLINTNEXTLINE(readability-redundant-smartptr-get)
-        .scheduleOn(enrichment_executor_.get())
-        .start();
+        });
+    // NOLINTNEXTLINE(readability-redundant-smartptr-get)
+    co_withExecutor(enrichment_executor_.get(), std::move(enrichTask)).start();
   }
 
   /// Decode int64 SID from cache weights.
@@ -1147,19 +1146,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       folly::F14FastMap<int64_t, int64_t> payloads;
 
       if (enrichment_type == kv_mem::EnrichmentType::ONEFLOW_OPENTAB_SID) {
-        payloads = folly::coro::blockingWait(
+        payloads = folly::coro::blockingWait(co_withExecutor(
+            enrichment_executor_.get(),
             oneflow_enrichment::fetchFromOpenTab(
                 open_tab_reader_,
                 *enrichment_config_.value(),
-                need_fetch_unhashed)
-                .scheduleOn(enrichment_executor_.get()));
+                need_fetch_unhashed)));
       } else if (
           enrichment_type ==
           kv_mem::EnrichmentType::ONEFLOW_FEATURE_STORE_SID) {
-        payloads = folly::coro::blockingWait(
+        payloads = folly::coro::blockingWait(co_withExecutor(
+            enrichment_executor_.get(),
             feature_store_enrichment::fetchSIDFromFeatureStore(
-                *enrichment_config_.value(), need_fetch_unhashed)
-                .scheduleOn(enrichment_executor_.get()));
+                *enrichment_config_.value(), need_fetch_unhashed)));
       } else {
         XLOG(WARNING) << "[fetch_sids_sync] unsupported enrichment_type: "
                       << static_cast<int64_t>(enrichment_type);
@@ -2160,7 +2159,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // TODO: assert there isn't any eviction including paused
   }
 
-  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights)
+      override {
     if (backend_return_whole_row_) {
       set_kv_with_metaheader_to_storage(weights);
     } else {

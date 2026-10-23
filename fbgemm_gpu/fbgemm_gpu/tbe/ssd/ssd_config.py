@@ -279,6 +279,9 @@ class EnrichmentPolicy(NamedTuple):
     # With owner_cache_int8 and an FP32 output_dtype, dequantize straight into
     # FP32 in one kernel instead of gathering weights_precision rows and casting.
     owner_cache_int8_fused_float: bool = False
+    # Whole SMs the owner-cache gather leaves free for concurrent kernels such as
+    # NCCL collectives: its grid is capped at (SM count - this) CTAs. 0 = uncapped.
+    owner_cache_gather_reserved_sms: int = 0
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -315,6 +318,12 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             not self.owner_cache_int8_fused_float or self.owner_cache_int8
         ), "owner_cache_int8_fused_float requires owner_cache_int8"
+        assert (
+            self.owner_cache_gather_reserved_sms >= 0
+        ), "owner_cache_gather_reserved_sms must be nonnegative"
+        assert (
+            self.owner_cache_gather_reserved_sms == 0 or self.owner_cache_size_mb > 0
+        ), "owner_cache_gather_reserved_sms requires owner_cache_size_mb"
 
 
 class KVZCHParams(NamedTuple):

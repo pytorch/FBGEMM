@@ -935,6 +935,81 @@ class ForwardTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
     @unittest.skipIf(*gpu_unavailable)
+    def test_forward_gpu_nfp8_managed_cache_hits_and_misses(self) -> None:
+        E, D = 256, 32
+        device = torch.cuda.current_device()
+        fp8_dtype = nfp8_dtype(device)
+        source_weights = torch.arange(E * D, dtype=torch.float32).reshape(E, D) / 1024
+        stored_weights = source_weights.to(fp8_dtype)
+        reference_weights = stored_weights.float().to(device)
+
+        for cache_algorithm in (CacheAlgorithm.LRU, CacheAlgorithm.LFU):
+            for cache_precision in (SparseType.FP16, SparseType.FP32):
+                with self.subTest(
+                    cache_algorithm=cache_algorithm,
+                    cache_precision=cache_precision,
+                ):
+                    cc = SplitTableBatchedEmbeddingBagsCodegen(
+                        [(E, D, EmbeddingLocation.MANAGED_CACHING, ComputeDevice.CUDA)],
+                        weights_precision=SparseType.NFP8,
+                        optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                        cache_algorithm=cache_algorithm,
+                        cache_precision=cache_precision,
+                        cache_sets=1,
+                        pooling_mode=PoolingMode.SUM,
+                        output_dtype=SparseType.FP32,
+                        device=device,
+                    )
+                    self.assertEqual(
+                        cc.embedding_specs[0][2], EmbeddingLocation.MANAGED_CACHING
+                    )
+                    self.assertEqual(cc.weights_dev.numel(), 0)
+                    self.assertGreater(cc.weights_uvm.numel(), 0)
+                    self.assertGreater(cc.lxu_cache_weights.numel(), 0)
+                    self.assertEqual(cc.lxu_cache_state.size(0), 1)
+                    self.assertIs(cc.split_embedding_weights()[0].dtype, fp8_dtype)
+                    cc.split_embedding_weights()[0].data.copy_(stored_weights)
+
+                    # One cache set cannot hold twice its associativity.
+                    # This batch must exercise both cached and uncached FP8 rows.
+                    indices = torch.arange(
+                        2 * cc.cache_assoc, device=device, dtype=torch.int64
+                    )
+                    offsets = torch.arange(
+                        0, indices.numel() + 1, 2, device=device, dtype=torch.int64
+                    )
+                    cc.prefetch(indices, offsets)
+                    locations = cc.lxu_cache_locations_list[-1].clone()
+                    hits = locations != -1
+                    self.assertTrue(hits.any().item())
+                    self.assertTrue((~hits).any().item())
+                    output = cc(indices, offsets)
+                    expected = torch.nn.functional.embedding_bag(
+                        indices, reference_weights, offsets[:-1], mode="sum"
+                    )
+                    torch.testing.assert_close(
+                        output, expected, atol=1.0e-2, rtol=1.0e-2
+                    )
+
+                    # Reusing only cached rows verifies the complete-hit path.
+                    hit_indices = indices[hits]
+                    hit_offsets = torch.arange(
+                        0, hit_indices.numel() + 1, 2, device=device, dtype=torch.int64
+                    )
+                    cc.prefetch(hit_indices, hit_offsets)
+                    self.assertTrue(
+                        (cc.lxu_cache_locations_list[-1] != -1).all().item()
+                    )
+                    hit_output = cc(hit_indices, hit_offsets)
+                    hit_expected = torch.nn.functional.embedding_bag(
+                        hit_indices, reference_weights, hit_offsets[:-1], mode="sum"
+                    )
+                    torch.testing.assert_close(
+                        hit_output, hit_expected, atol=1.0e-2, rtol=1.0e-2
+                    )
+
+    @optests.dontGenerateOpCheckTests("FP8 compute requires custom op support.")
+    @unittest.skipIf(*gpu_unavailable)
     def test_forward_gpu_no_cache_fp8(
         self,
         use_experimental_tbe: bool = False,  # TODO This does not yet work when True.
