@@ -7,6 +7,7 @@
  */
 
 #include "indices_estimator.h"
+#include <c10/util/irange.h>
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -152,9 +153,9 @@ ZipfParameters IndicesEstimator::zipfParams(
     double freqTerm = 0.0;
     long logTableIdx = lrint((zipfStart + q) * kLevels_ - 1);
 
-    for (int64_t k = zipfStart; k < freqs_.size();
-         ++k, logTableIdx += kLevels_) {
+    for (const auto k : c10::irange(zipfStart, freqs_.size())) {
       freqTerm -= freqs_[k] * logTable_[logTableIdx];
+      logTableIdx += kLevels_;
     }
 
     for (double s = kMinS_; s < kMaxS_; s += kSStep_) {

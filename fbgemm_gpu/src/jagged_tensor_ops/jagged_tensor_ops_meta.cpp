@@ -57,7 +57,8 @@ Tensor jagged_to_padded_dense_backward_meta(
     at::SymInt total_L) {
   const auto& grad_padded_values = grad_output;
 
-  const bool D_folded = grad_padded_values.dim() == offsets.size() + 1;
+  const bool D_folded =
+      std::cmp_equal(grad_padded_values.dim(), offsets.size() + 1);
   const auto& grad_padded_values_view =
       D_folded ? grad_padded_values.unsqueeze(-1) : grad_padded_values;
   at::SymInt D = grad_padded_values_view.sym_size(-1);
