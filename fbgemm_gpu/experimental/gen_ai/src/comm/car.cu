@@ -28,6 +28,7 @@
 #endif
 #include <cub/cub.cuh>
 
+#include <c10/util/irange.h>
 #include <torch/torch.h>
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
@@ -147,7 +148,7 @@ __launch_bounds__(512)
   // The source pointers. Distributed round-robin for the different warps.
   const at::BFloat16* src_d[kWorldSize];
 #pragma unroll kWorldSize
-  for (int ii = 0; ii < kWorldSize; ++ii) {
+  for (const auto ii : c10::irange(kWorldSize)) {
     int src_rank = (rank + ii) % kWorldSize;
     src_d[ii] = inputs[src_rank];
   }
@@ -160,7 +161,7 @@ __launch_bounds__(512)
     // values.
     bf16x8 vals[kWorldSize];
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       *reinterpret_cast<uint4*>(&vals[(ii + kWorldSize - rank) % kWorldSize]) =
           reinterpret_cast<const uint4*>(&src_d[ii][i])[0];
     }
@@ -175,7 +176,7 @@ __launch_bounds__(512)
     }
 
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       sums = add_bf16x8(sums, vals[ii]);
     }
 
@@ -263,7 +264,7 @@ __launch_bounds__(512)
   // The source pointers. Distributed round-robin for the different warps.
   const at::BFloat16* src_d[kWorldSize];
 #pragma unroll kWorldSize
-  for (int ii = 0; ii < kWorldSize; ++ii) {
+  for (const auto ii : c10::irange(kWorldSize)) {
     int src_rank = (rank + ii) % kWorldSize;
     src_d[ii] = inputs[src_rank];
   }
@@ -288,7 +289,7 @@ __launch_bounds__(512)
         reinterpret_cast<const uint4*>(&src_d[rank][i])[0];
 
 #pragma unroll kWorldSize - 1
-    for (int ii = 0; ii < kWorldSize - 1; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize - 1)) {
       // Kick-off read data from next rank
       *reinterpret_cast<uint4*>(&vals[(ii + 1) & 1]) =
           reinterpret_cast<const uint4*>(
@@ -497,7 +498,7 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
   at::BFloat16* src_d[kWorldSize];
 
 #pragma unroll kWorldSize
-  for (int ii = 0; ii < kWorldSize; ++ii) {
+  for (const auto ii : c10::irange(kWorldSize)) {
     int d_rank = (rank + ii) % kWorldSize;
     src_d[ii] = inputs[d_rank];
   }
@@ -512,7 +513,7 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
       idx = i / N_last_dim * last_dim + i % N_last_dim;
     }
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       *reinterpret_cast<uint4*>(
           &vals[(ii + kWorldSize - rank) & (kWorldSize - 1)]) =
           reinterpret_cast<const uint4*>(&src_d[ii][idx + N_start])[0];
@@ -522,7 +523,7 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
     *reinterpret_cast<uint4*>(&sums) = uint4{0};
 
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       sums = add_bf16x8(sums, vals[ii]);
     }
 
@@ -589,7 +590,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   at::BFloat16* src_d[kWorldSize];
 
 #pragma unroll kWorldSize
-  for (int ii = 0; ii < kWorldSize; ++ii) {
+  for (const auto ii : c10::irange(kWorldSize)) {
     int d_rank = (rank + ii) % kWorldSize;
     src_d[ii] = inputs[d_rank];
   }
@@ -600,7 +601,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
        i += gridDim.x * blockDim.x * 8) {
     bf16x8 vals[kWorldSize];
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       *reinterpret_cast<uint4*>(&vals[(ii + kWorldSize - rank) % kWorldSize]) =
           reinterpret_cast<const uint4*>(&src_d[ii][i + N_start])[0];
     }
@@ -615,7 +616,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
     }
 
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       sums = add_bf16x8(sums, vals[ii]);
     }
 
@@ -647,14 +648,14 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
        i += gridDim.x * blockDim.x * 8) {
     uint4 temp[kWorldSize];
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
       int i_r = N_start + i + (d_rank - rank) * N_per_rank;
       temp[ii] = reinterpret_cast<const uint4*>(&src_d[ii][i_r])[0];
     }
 
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
       int i_r = N_start + i + (d_rank - rank) * N_per_rank;
       *reinterpret_cast<uint4*>(&output[i_r]) = temp[ii];
@@ -703,7 +704,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
   at::BFloat16* src_d[kWorldSize];
 
 #pragma unroll kWorldSize
-  for (int ii = 0; ii < kWorldSize; ++ii) {
+  for (const auto ii : c10::irange(kWorldSize)) {
     int d_rank = (rank + ii) % kWorldSize;
     src_d[ii] = inputs[d_rank];
   }
@@ -727,7 +728,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
     *reinterpret_cast<uint4*>(&vals[0]) =
         reinterpret_cast<const uint4*>(&src_d[rank][i + N_start])[0];
 #pragma unroll kWorldSize - 1
-    for (int ii = 0; ii < kWorldSize - 1; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize - 1)) {
       // Kick-off read data from next rank
       *reinterpret_cast<uint4*>(&vals[(ii + 1) & 1]) =
           reinterpret_cast<const uint4*>(
@@ -766,14 +767,14 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
        i += gridDim.x * blockDim.x * 8) {
     uint4 temp[kWorldSize];
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
       int i_r = N_start + i + (d_rank - rank) * N_per_rank;
       temp[ii] = reinterpret_cast<const uint4*>(&src_d[ii][i_r])[0];
     }
 
 #pragma unroll kWorldSize
-    for (int ii = 0; ii < kWorldSize; ++ii) {
+    for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
       int i_r = N_start + i + (d_rank - rank) * N_per_rank;
       *reinterpret_cast<uint4*>(&output[i_r]) = temp[ii];

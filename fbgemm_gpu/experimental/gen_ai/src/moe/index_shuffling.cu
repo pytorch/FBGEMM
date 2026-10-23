@@ -16,6 +16,7 @@
 #else
 #include <cuda_bf16.h>
 #endif
+#include <c10/util/irange.h>
 #include <torch/torch.h>
 
 #define DISPATCH_CASE_FLOATING_TYPES(...)              \
@@ -236,7 +237,7 @@ __device__ __forceinline__ void merge_topk(
   }
 
   // Write the merged result back to the left-hand side positions
-  for (int i = 0; i < K; i++) {
+  for (const auto i : c10::irange(K)) {
     routing_scores[lhs_smem_index + i] = merged_scores[i];
     expert_indices[lhs_smem_index + i] = merged_indices[i];
   }
@@ -297,7 +298,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       const int token_index = token_index_offset + i / NumExperts;
       const int expert_index = i % NumExperts;
 #pragma unroll
-      for (int j = 0; j < TopK; j++) {
+      for (const auto j : c10::irange(TopK)) {
         smem.routing_scores[i * TopK + j] = (token_index < num_valid_tokens)
             ? params.routing_scores
                   [token_index * stride_t + expert_index * stride_e]
@@ -385,7 +386,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       int token_index = token_index_offset + i;
       if (token_index < num_valid_tokens) {
 #pragma unroll
-        for (int j = 0; j < TopK; j++) {
+        for (const auto j : c10::irange(TopK)) {
           auto expert_index =
               smem.expert_indices[local_token_index * NumExperts * TopK + j];
           params.buffered_expert_indices[token_index * TopK + j] = expert_index;
@@ -424,7 +425,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   if (tidx == 0) {
     // TODO(shikaili): parallel.
 #pragma unroll
-    for (int i = 1; i < NumExperts; ++i) {
+    for (const auto i : c10::irange(1, NumExperts)) {
       smem.token_count_cumsums[i] += smem.token_count_cumsums[i - 1];
     }
   }
@@ -447,7 +448,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
     int token_index = global_token_offset + tidx;
     if (token_index < num_valid_tokens) {
 #pragma unroll
-      for (int j = 0; j < TopK; j++) {
+      for (const auto j : c10::irange(TopK)) {
         int expert_index =
             params.buffered_expert_indices[token_index * TopK + j];
         if (expert_index >= expert_index_start &&

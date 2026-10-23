@@ -30,6 +30,7 @@
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec_quant.cuh"
 
+#include <c10/util/irange.h>
 #include <torch/torch.h>
 
 template <typename func_t>
@@ -638,7 +639,7 @@ quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm = false) {
     auto group_idx = threadIdx.x * 4 / group_size;
     int4_qparam_offset = 4 * KVQuantNumGroups;
     unsigned masks[KVQuantNumGroups];
-    for (int i = 0; i < KVQuantNumGroups; ++i) {
+    for (const auto i : c10::irange(KVQuantNumGroups)) {
       masks[i] = ballot_sync(group_idx == i, 0xFFFFFFFF);
     }
     warp_min = -warpReduceMax(-thread_min, masks[group_idx]);
