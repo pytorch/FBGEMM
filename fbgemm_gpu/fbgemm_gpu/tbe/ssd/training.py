@@ -4820,7 +4820,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 PartiallyMaterializedTensor(
                     tensor_wrapper,
                     True if self.kv_zch_params else False,
-                    self.backend_return_whole_row,
                 )
             )
         logging.info(
