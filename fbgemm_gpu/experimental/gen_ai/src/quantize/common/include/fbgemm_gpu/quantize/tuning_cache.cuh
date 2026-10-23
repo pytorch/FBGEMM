@@ -18,6 +18,7 @@
 #include <ATen/cuda/CUDAGraph.h>
 #include <cuda_runtime.h>
 
+#include <c10/util/irange.h>
 #include <ostream>
 
 /**
@@ -226,7 +227,7 @@ class TuningCache final {
         // Since CUDA graph is preferred for offline benchmark this should be
         // fine.
         graph.capture_begin({0, 0}, cudaStreamCaptureModeRelaxed);
-        for (int i = 0; i < num_iters; ++i) {
+        for ([[maybe_unused]] const auto _ : c10::irange(num_iters)) {
           kernel(std::forward<Args>(args)...);
         }
         graph.capture_end();
@@ -243,7 +244,7 @@ class TuningCache final {
     } else {
       // Time execution of kernels
       start_.record();
-      for (int i = 0; i < num_iters; ++i) {
+      for ([[maybe_unused]] const auto _ : c10::irange(num_iters)) {
         kernel(std::forward<Args>(args)...);
       }
       stop_.record();

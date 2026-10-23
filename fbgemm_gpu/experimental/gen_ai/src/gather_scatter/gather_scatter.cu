@@ -11,6 +11,7 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 
+#include <c10/util/irange.h>
 #include "cute/algorithm/functional.hpp"
 #include "cute/algorithm/gemm.hpp"
 #include "cute/atom/copy_atom.hpp"
@@ -101,7 +102,7 @@ __global__ static void gather_or_scatter_along_first_dim_kernel(
         std::min(kBlkNOrM, indexing_dim - n_or_m_offset) * kNumKTiles;
     const int kNumIterations = kNumNOrMKTiles + kPipeMax - 1;
 
-    for (int iteration = 0; iteration < kNumIterations; ++iteration) {
+    for (const auto iteration : c10::irange(kNumIterations)) {
       // Load.
       if (iteration < kNumNOrMKTiles) {
         int load_pipe = iteration % kPipeMax;
