@@ -218,9 +218,11 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
-        weights = &dev_weights[weights_offset];
+        weights = &dev_weights[tbe_weights_table_base(weights_offset)];
         {%- if not ssd %}
-        weights_numel = dev_weights.size(0) - weights_offset;
+        weights_numel = weights_offset >= 0
+            ? dev_weights.size(0) - weights_offset
+            : tbe_chunked_table_numel(weights_offset);
         {%- endif %}
     } else {
         weights = &uvm_weights[weights_offset];
@@ -265,8 +267,9 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 
         for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
             auto l = l_start + threadIdx.x;
+            const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
             const auto offset_idx = l < L
-                ? (static_cast<overflow_safe_int_t>(indices[indices_start + l]) * D_emb)
+                ? tbe_weights_row_rel_offset(weights_offset, idx, D_emb)
                 : 0;
             {%- if not dense %}
             const auto {{ locs_or_addrs_idx }} =
@@ -276,10 +279,10 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 
             {%- if not ssd %}
             FBGEMM_KERNEL_ERROR_CHECK(
-                1, offset_idx >= 0 && offset_idx < weights_numel, offset_idx
+                1, idx * D_emb >= 0 && idx * D_emb < weights_numel, idx * D_emb
             )
             FBGEMM_KERNEL_ERROR_CHECK(
-                2, offset_idx + D_emb <= weights_numel, offset_idx
+                2, idx * D_emb + D_emb <= weights_numel, idx * D_emb
             )
             {%- endif %}
             int32_t j = 0;

@@ -325,6 +325,12 @@ def _benchmark_cpu_fwd_bwd(
     default=False,
     help="Enable torch.use_deterministic_algorithms(True) during benchmarking",
 )
+@click.option(
+    "--weights-chunk-size-mb",
+    type=float,
+    default=None,
+    help="Allocate DEVICE weights in chunks of at most this many MB. Default is a flat buffer.",
+)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -362,6 +368,7 @@ def device(  # noqa C901
     offsets_file: str | None,
     compare: bool,
     deterministic: bool,
+    weights_chunk_size_mb: float | None,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
     num_requests = iters if num_requests == -1 else num_requests
@@ -471,6 +478,11 @@ def device(  # noqa C901
             cache_precision=cache_precision,
             cache_algorithm=CacheAlgorithm.LRU,
             cache_load_factor=cache_load_factor,
+            weights_chunk_size_bytes=(
+                int(weights_chunk_size_mb * 2**20)
+                if weights_chunk_size_mb is not None
+                else None
+            ),
             **common_split_args,
         )
     emb = emb.to(get_device())

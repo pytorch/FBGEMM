@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/chunked_weights.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -146,11 +147,6 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
   const auto momentum1_placement =
       static_cast<PlacementType>(momentum1_placements[logical_id]);
   int64_t momentum1_offset = momentum1_offsets[logical_id];
-  if (momentum1_placement == PlacementType::DEVICE) {
-    momentum1 = &momentum1_dev[momentum1_offset];
-  } else {
-    momentum1 = &momentum1_uvm[momentum1_offset];
-  }
 
   emb_t* __restrict__ weights{nullptr};
   cache_t* __restrict__ cache_weights{nullptr};
@@ -166,7 +162,8 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
     int64_t pruned_index = pruned_indices_table[idx];
 
     if (weights_placement == PlacementType::DEVICE) {
-      weights = &dev_weights[weights_offset + pruned_index * D_emb];
+      weights = &dev_weights[tbe_weights_table_base(weights_offset)] +
+          tbe_weights_row_rel_offset(weights_offset, pruned_index, D_emb);
     } else {
       weights = &uvm_weights[weights_offset + pruned_index * D_emb];
     }
@@ -184,6 +181,10 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
     // reset momentum1
     const int32_t d = (i % chunk4s_per_row) * 4;
     if (d == 0) {
+      momentum1 = momentum1_placement == PlacementType::DEVICE
+          ? &momentum1_dev[0] +
+              tbe_state_table_offset(momentum1_offset, pruned_index)
+          : &momentum1_uvm[momentum1_offset];
       momentum1[pruned_index] = 0;
     }
 
