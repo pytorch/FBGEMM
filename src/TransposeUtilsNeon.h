@@ -630,14 +630,14 @@ static inline void transpose_kernel_2x2_neon(
 }
 
 static inline uint16x4_t load_u16x2_neon(const uint16_t* src) {
-  uint16x4_t result = vdup_n_u16(0);
-  result = vld1_lane_u16(src, result, 0);
-  return vld1_lane_u16(src + 1, result, 1);
+  uint32_t v;
+  __builtin_memcpy(&v, src, sizeof(v));
+  return vreinterpret_u16_u32(vdup_n_u32(v));
 }
 
 static inline void store_u16x2_neon(uint16_t* dst, uint16x4_t value) {
-  vst1_lane_u16(dst, value, 0);
-  vst1_lane_u16(dst + 1, value, 1);
+  const uint32_t v = vget_lane_u32(vreinterpret_u32_u16(value), 0);
+  __builtin_memcpy(dst, &v, sizeof(v));
 }
 
 static inline void transpose_kernel_8x8_neon(
