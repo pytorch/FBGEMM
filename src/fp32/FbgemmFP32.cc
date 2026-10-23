@@ -154,8 +154,8 @@ FBGEMM_API void ref_kernel<float>(
     int simd_len) {
   int kernel_ncol_blocks = 2;
   int block_col_size = simd_len * kernel_ncol_blocks;
-  for (int jb = 0; jb < gp->b_block_cols; ++jb) {
-    for (int k = 0; k < gp->k; ++k) {
+  for (uint64_t jb = 0; jb < gp->b_block_cols; ++jb) {
+    for (uint64_t k = 0; k < gp->k; ++k) {
       for (int i = 0; i < kernel_nrows; ++i) {
         float a = gp->A[i + k * kernel_nrows];
         for (int j = 0; j < block_col_size; ++j) {

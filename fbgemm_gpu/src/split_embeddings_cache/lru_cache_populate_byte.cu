@@ -13,6 +13,8 @@ using namespace fbgemm_gpu;
 
 namespace {
 
+constexpr int64_t kUint4Bytes = sizeof(uint4);
+
 template <typename index_t>
 __global__
 __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel(
@@ -168,7 +170,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     const int64_t row_alignment) {
   const int32_t C = lxu_cache_state.size(0);
   int64_t n_conflict_misses = 0;
-  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (int64_t n = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
     const bool segment_start =
@@ -228,7 +231,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
           &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0]);
       auto cache_row = reinterpret_cast<uint4*>(
           &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0]);
-      for (auto d = threadIdx.x; d * sizeof(uint4) < D_insert_bytes;
+      for (int64_t d = threadIdx.x; d * kUint4Bytes < D_insert_bytes;
            d += blockDim.x) {
         cache_row[d] = row[d];
       }
@@ -342,7 +345,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
     auto row = reinterpret_cast<const uint4*>(
         &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0]);
     auto cache_row = reinterpret_cast<uint4*>(&lxu_cache_weights[cache_set][0]);
-    for (auto d = threadIdx.x; d * sizeof(uint4) < D_insert_bytes;
+    for (int64_t d = threadIdx.x; d * kUint4Bytes < D_insert_bytes;
          d += blockDim.x) {
       cache_row[d] = row[d];
     }

@@ -73,7 +73,8 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
           weight_row.store_qparams(qparams);
         }
       }
-      for (auto d = threadIdx.x * 4; d < D_current; d += blockDim.x * 4) {
+      for (int64_t d = static_cast<int64_t>(threadIdx.x) * 4; d < D_current;
+           d += blockDim.x * 4) {
         weight_row.evict_cache(d, qparams);
       }
     }
@@ -198,7 +199,8 @@ __launch_bounds__(kMaxThreads) void lxu_cache_locking_counter_decrement_kernel(
         lxu_cache_locking_counter,
     pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count) {
   const int32_t C = lxu_cache_locking_counter.size(0);
-  for (auto i = blockIdx.x * blockDim.y + threadIdx.y; i < C;
+  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       i < C;
        i += gridDim.x * blockDim.y) {
     const auto j = threadIdx.x;
     if (count[i][j] > 0) {
@@ -273,20 +275,24 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
         uvm_cache_stats,
     const int32_t* N_unique) {
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t N =
+  const int64_t N =
       N_unique == nullptr ? linear_cache_indices.size(0) : *N_unique;
   // On ROCm the launch caps the grid to stay within the HIP 2^32
   // threads-per-launch limit, so we grid-stride to cover the full workload.
   // On CUDA the grid is not capped and the loop body runs once per warp.
-  const auto n_stride = gridDim.x * blockDim.y * blockDim.x;
+  const int64_t block_width = blockDim.x;
+  const int64_t n_stride =
+      static_cast<int64_t>(gridDim.x) * blockDim.y * block_width;
 #ifdef USE_ROCM
-  for (auto n0 =
-           blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
+  for (int64_t n0 =
+           static_cast<int64_t>(blockIdx.x) * blockDim.y * block_width +
+           static_cast<int64_t>(threadIdx.y) * block_width;
        n0 < N;
        n0 += n_stride) {
 #else
-  const auto n0 =
-      blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
+  const int64_t n0 =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y * block_width +
+      static_cast<int64_t>(threadIdx.y) * block_width;
   if (n0 >= N) {
     return;
   }
@@ -296,7 +302,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
     int32_t n_indices = 0;
     int32_t n_hits = 0;
     const auto slot = threadIdx.x;
-    for (int i = 0; i < blockDim.x; ++i) {
+    for (int64_t i = 0; i < block_width; ++i) {
       const auto n = n0 + i;
       if (n >= N) {
         continue;

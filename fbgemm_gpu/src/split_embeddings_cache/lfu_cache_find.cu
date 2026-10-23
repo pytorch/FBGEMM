@@ -40,7 +40,8 @@ __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
         lfu_state) {
   const int32_t C = lxu_cache_state.size(0);
 
-  for (uint32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (int64_t n = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       n < *N_unique;
        n += gridDim.x * blockDim.y) {
     const int64_t idx = unique_indices[n];
     if (idx == max_indices) {

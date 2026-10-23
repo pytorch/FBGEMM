@@ -24,6 +24,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 constexpr int32_t kCacheLocationMissing = -1;
+constexpr int64_t kUint4Bytes = sizeof(uint4);
 
 template <typename index_t>
 inline __device__ void embedding_inplace_update_kernel_impl(
@@ -83,7 +84,7 @@ inline __device__ void embedding_inplace_update_kernel_impl(
       reinterpret_cast<const uint4*>(&update_weights[update_weight_offset]);
   // Do wider loads/stores so that each 16 Byte segment in the row can be
   // updated in a single memory transaction
-  for (auto d = threadIdx.x; d * sizeof(uint4) < D_bytes; d += blockDim.x) {
+  for (int64_t d = threadIdx.x; d * kUint4Bytes < D_bytes; d += blockDim.x) {
     vec_weight_row[d] = update_weight_row[d];
   }
 
@@ -94,7 +95,7 @@ inline __device__ void embedding_inplace_update_kernel_impl(
     auto vec_cache_row = reinterpret_cast<uint4*>(
         &lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
 
-    for (auto d = threadIdx.x; d * sizeof(uint4) < D_bytes; d += blockDim.x) {
+    for (int64_t d = threadIdx.x; d * kUint4Bytes < D_bytes; d += blockDim.x) {
       vec_cache_row[d] = update_weight_row[d];
     }
   }
