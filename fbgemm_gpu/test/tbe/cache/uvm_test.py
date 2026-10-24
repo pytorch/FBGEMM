@@ -14,16 +14,16 @@ import unittest
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
-from hypothesis import given, settings, Verbosity
+from hypothesis import example, given, settings, Verbosity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, skipIfRocm
+    from test_utils import gpu_available, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
 
 if gpu_available:
     # pyre-ignore[16, 21]
@@ -35,6 +35,19 @@ if gpu_available:
 
 
 MAX_EXAMPLES = 40
+MAX_UVM_ELEMENTS = 262144  # At most 1 MiB for the float tensors below.
+
+
+@st.composite
+def bounded_uvm_sizes(draw: st.DrawFn) -> list[int]:
+    rank = draw(st.integers(min_value=1, max_value=4))
+    remaining_elements = MAX_UVM_ELEMENTS
+    sizes = []
+    for _ in range(rank):
+        size = draw(st.integers(min_value=1, max_value=min(1024, remaining_elements)))
+        sizes.append(size)
+        remaining_elements //= size
+    return sizes
 
 
 class UvmTest(unittest.TestCase):
@@ -71,14 +84,8 @@ class UvmTest(unittest.TestCase):
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
 
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm(
-        "Too slow on the MI350 runner, where managed memory allocation and "
-        "free are substantially slower than on gfx942"
-    )
     @given(
-        sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
-        ),
+        sizes=bounded_uvm_sizes(),
         uvm_op=st.sampled_from(
             [
                 torch.ops.fbgemm.new_unified_tensor,
@@ -108,9 +115,7 @@ class UvmTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=3
-        ),
+        sizes=bounded_uvm_sizes(),
         uvm_op=st.sampled_from(
             [
                 torch.ops.fbgemm.new_unified_tensor,
@@ -141,9 +146,7 @@ class UvmTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
-        ),
+        sizes=bounded_uvm_sizes(),
         uvm_op=st.sampled_from(
             [
                 torch.ops.fbgemm.new_unified_tensor,
@@ -152,6 +155,9 @@ class UvmTest(unittest.TestCase):
             ]
         ),
     )
+    @example(sizes=[7, 11, 13, 17], uvm_op=torch.ops.fbgemm.new_unified_tensor)
+    @example(sizes=[7, 11, 13, 17], uvm_op=torch.ops.fbgemm.new_managed_tensor)
+    @example(sizes=[7, 11, 13, 17], uvm_op=torch.ops.fbgemm.new_vanilla_managed_tensor)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
     def test_uvm_slice(self, sizes: list[int], uvm_op) -> None:
@@ -181,9 +187,7 @@ class UvmTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
-        ),
+        sizes=bounded_uvm_sizes(),
         uvm_op=st.sampled_from(
             [
                 torch.ops.fbgemm.new_unified_tensor,
@@ -220,9 +224,9 @@ class UvmTest(unittest.TestCase):
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_new_managed_tensor_meta(self, sizes: list[int]) -> None:
-        cpu_tensor = torch.empty(sizes).to("meta")
-        cpu_tensor_meta = torch.ops.fbgemm.new_managed_tensor(cpu_tensor, sizes)
-        assert cpu_tensor.shape == cpu_tensor_meta.shape
+        meta_tensor = torch.empty(sizes, device="meta")
+        managed_tensor_meta = torch.ops.fbgemm.new_managed_tensor(meta_tensor, sizes)
+        assert meta_tensor.shape == managed_tensor_meta.shape
 
 
 if __name__ == "__main__":
