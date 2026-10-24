@@ -75,7 +75,8 @@ def nfp8_supported_on_current_device() -> bool:
         return True
     arch = torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName
     return any(
-        supported_arch in arch for supported_arch in ("gfx90a", "gfx94", "gfx950")
+        supported_arch in arch
+        for supported_arch in ("gfx90a", "gfx94", "gfx950", "gfx1250")
     )
 
 
