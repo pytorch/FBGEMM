@@ -419,9 +419,14 @@ cpp_library(
 
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
-install(
-  FILES ${FBGEMM_PUBLIC_HEADERS}
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fbgemm")
+foreach(header IN LISTS FBGEMM_PUBLIC_HEADERS)
+  # Preserve internal subdirectories used by installed public headers.
+  file(RELATIVE_PATH header_relative "${PROJECT_SOURCE_DIR}/include"
+    "${PROJECT_SOURCE_DIR}/${header}")
+  get_filename_component(header_directory "${header_relative}" DIRECTORY)
+  install(FILES "${header}"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${header_directory}")
+endforeach()
 
 install(
   EXPORT fbgemmLibraryConfig
