@@ -114,6 +114,13 @@ std::string readFile(const std::string& path) {
   return buf.str();
 }
 
+void makeMapPrivate(const std::string& path) {
+  // The perf-map writer refuses group- or world-writable files. std::ofstream
+  // honors the process umask, which can otherwise turn its default 0666 mode
+  // into 0664 on CI and make these pre-existing-map scenarios invalid.
+  ASSERT_EQ(chmod(path.c_str(), S_IRUSR | S_IWUSR), 0);
+}
+
 // Runs `body` in a forked child and returns the child's pid once it has
 // exited. Each scenario needs its own process: the descriptor is opened once
 // per pid, so a single process can only exercise the open path once.
@@ -148,6 +155,7 @@ TEST(JitPerfMapTest, StaleMapFromRecycledPidIsDiscarded) {
       std::ofstream out(path);
       out << "deadbeef 10 stale::kernel_from_previous_process\n";
     }
+    makeMapPrivate(path);
     // Backdate it an hour so it clearly predates this process.
     struct timeval times[2];
     gettimeofday(&times[0], nullptr);
@@ -183,6 +191,7 @@ TEST(JitPerfMapTest, StaleMapTruncationDoesNotDropConcurrentRecords) {
       std::ofstream out(path);
       out << "deadbeef 10 stale::kernel_from_previous_process\n";
     }
+    makeMapPrivate(path);
     struct timeval times[2];
     gettimeofday(&times[0], nullptr);
     times[0].tv_sec -= 3600;
@@ -237,6 +246,7 @@ TEST(JitPerfMapTest, ContentFromThisProcessIsPreserved) {
     std::ofstream out(path);
     out << "cafe1000 20 other_jit::kernel\n";
     out.close();
+    makeMapPrivate(path);
 
     registerJitCodeForProfiling(kAddr, kSize, kSymbol);
   });
