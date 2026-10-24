@@ -535,19 +535,18 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
 
 #define LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITH_WEIGHT( \
     bucketize_pos, return_bucket_mapping)                                        \
-  AT_DISPATCH_INDEX_TYPES(                                                       \
+  dispatch_index_types(                                                          \
       offsets_contig.scalar_type(),                                              \
       "_block_bucketize_sequence_sparse_features_cuda_kernel2_1",                \
-      [&] {                                                                      \
-        using offset_t = index_t;                                                \
-        AT_DISPATCH_INDEX_TYPES(                                                 \
+      [&]<typename offset_t>() {                                                 \
+        dispatch_index_types(                                                    \
             indices_contig.scalar_type(),                                        \
             "_block_bucketize_sequence_sparse_features_cuda_kernel2_2",          \
-            [&] {                                                                \
-              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(                                  \
+            [&]<typename index_t>() {                                            \
+              dispatch_float_and_double(                                         \
                   weights_value.scalar_type(),                                   \
                   "_block_bucketize_sequence_sparse_features_cuda_kernel2_3",    \
-                  [&] {                                                          \
+                  [&]<typename scalar_t>() {                                     \
                     FBGEMM_LAUNCH_KERNEL(                                        \
                         (_block_bucketize_sequence_sparse_features_cuda_kernel2< \
                             true,                                                \
@@ -602,15 +601,14 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
 
 #define LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITHOUT_WEIGHT( \
     bucketize_pos, return_bucket_mapping)                                           \
-  AT_DISPATCH_INDEX_TYPES(                                                          \
+  dispatch_index_types(                                                             \
       offsets_contig.scalar_type(),                                                 \
       "_block_bucketize_sequence_sparse_features_cuda_kernel2_1",                   \
-      [&] {                                                                         \
-        using offset_t = index_t;                                                   \
-        AT_DISPATCH_INDEX_TYPES(                                                    \
+      [&]<typename offset_t>() {                                                    \
+        dispatch_index_types(                                                       \
             indices_contig.scalar_type(),                                           \
             "_block_bucketize_sequence_sparse_features_cuda_kernel_2",              \
-            [&] {                                                                   \
+            [&]<typename index_t>() {                                               \
               FBGEMM_LAUNCH_KERNEL(                                                 \
                   (_block_bucketize_sequence_sparse_features_cuda_kernel2<          \
                       false,                                                        \
@@ -662,19 +660,18 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
 
 #define LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT( \
     bucketize_pos, return_new_pos)                                               \
-  AT_DISPATCH_INDEX_TYPES(                                                       \
+  dispatch_index_types(                                                          \
       offsets_contig.scalar_type(),                                              \
       "_block_bucketize_pooled_sparse_features_cuda_kernel2_1",                  \
-      [&] {                                                                      \
-        using offset_t = index_t;                                                \
-        AT_DISPATCH_INDEX_TYPES(                                                 \
+      [&]<typename offset_t>() {                                                 \
+        dispatch_index_types(                                                    \
             indices_contig.scalar_type(),                                        \
             "_block_bucketize_pooled_sparse_features_cuda_kernel2_2",            \
-            [&] {                                                                \
-              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(                                  \
+            [&]<typename index_t>() {                                            \
+              dispatch_float_and_double(                                         \
                   weights_value.scalar_type(),                                   \
                   "_block_bucketize_pooled_sparse_features_cuda_kernel2_3",      \
-                  [&] {                                                          \
+                  [&]<typename scalar_t>() {                                     \
                     const auto block_bucketize_kernel =                          \
                         _block_bucketize_pooled_sparse_features_cuda_kernel2<    \
                             true,                                                \
@@ -732,15 +729,14 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
 
 #define LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT( \
     bucketize_pos, return_new_pos)                                                  \
-  AT_DISPATCH_INDEX_TYPES(                                                          \
+  dispatch_index_types(                                                             \
       offsets_contig.scalar_type(),                                                 \
       "_block_bucketize_pooled_sparse_features_cuda_kernel2_1",                     \
-      [&] {                                                                         \
-        using offset_t = index_t;                                                   \
-        AT_DISPATCH_INDEX_TYPES(                                                    \
+      [&]<typename offset_t>() {                                                    \
+        dispatch_index_types(                                                       \
             indices_contig.scalar_type(),                                           \
             "_block_bucketize_pooled_sparse_features_cuda_kernel2_2",               \
-            [&] {                                                                   \
+            [&]<typename index_t>() {                                               \
               const auto block_bucketize_kernel =                                   \
                   _block_bucketize_pooled_sparse_features_cuda_kernel2<             \
                       false,                                                        \
@@ -944,15 +940,14 @@ _block_bucketize_sparse_features_cuda(
           at::cuda::getCurrentCUDAStream()));
   const auto smem_adjust_threshold =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
-  AT_DISPATCH_INDEX_TYPES(
+  dispatch_index_types(
       offsets_contig.scalar_type(),
       "_block_bucketize_sparse_features_cuda_kernel1",
-      [&] {
-        using offset_t = index_t;
-        AT_DISPATCH_INDEX_TYPES(
+      [&]<typename offset_t>() {
+        dispatch_index_types(
             indices_contig.scalar_type(),
             "_block_bucketize_sparse_features_cuda_kernel2",
-            [&] {
+            [&]<typename index_t>() {
               FBGEMM_LAUNCH_KERNEL(
                   (_block_bucketize_sparse_features_cuda_kernel1<
                       offset_t,
@@ -1197,15 +1192,14 @@ DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
 
   auto stream = at::cuda::getCurrentCUDAStream();
 
-  AT_DISPATCH_INDEX_TYPES(
+  dispatch_index_types(
       lengths_contig->scalar_type(),
       "_populate_bucketized_permute_cuda_kernel1",
-      [&] {
-        using offset_t = index_t;
-        AT_DISPATCH_INDEX_TYPES(
+      [&]<typename offset_t>() {
+        dispatch_index_types(
             bucket_mapping_contig->scalar_type(),
             "_populate_bucketized_permute_cuda_kernel2",
-            [&] {
+            [&]<typename index_t>() {
               // Use warp-parallel kernel when my_size is small enough
               // Each warp handles one sequence with ballot+popc for ordering
               // This preserves order and parallelizes the inner loop

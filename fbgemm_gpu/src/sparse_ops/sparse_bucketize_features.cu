@@ -7,6 +7,9 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
+
+#include <limits>
 
 using Tensor = at::Tensor;
 
@@ -157,8 +160,11 @@ bucketize_sparse_features_cuda(
   CUDA_DEVICE_GUARD(lengths);
 
   // allocate tensors and buffers
-  const int lengths_size = lengths.numel();
-  const int new_lengths_size = lengths_size * my_size;
+  TORCH_CHECK(
+      lengths.numel() <= std::numeric_limits<int>::max(),
+      "lengths.numel() exceeds the supported range");
+  const auto lengths_size = static_cast<int>(lengths.numel());
+  const auto new_lengths_size = lengths_size * my_size;
   auto offsets = at::empty({lengths_size}, lengths.options());
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size}, lengths.options());
@@ -171,8 +177,8 @@ bucketize_sparse_features_cuda(
   // Count Non-zeros
   offsets_contig = fbgemm_gpu::asynchronous_inclusive_cumsum_gpu(lengths);
   int threads_per_block = 256;
-  const auto num_blocks =
-      cuda_calc_xblock_count(lengths_size, threads_per_block);
+  const auto num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+      lengths_size, threads_per_block, at::cuda::getCurrentCUDAStream());
 
   AT_DISPATCH_INDEX_TYPES(
       indices_contig.scalar_type(),
