@@ -252,6 +252,9 @@ void DramKVEmbeddingInferenceWrapper::set_kv_backend(
         storage_max_row_bytes_);
   }
   kv_backend_ = std::move(kv_backend);
+  if (kv_backend_ != nullptr) {
+    kv_backend_->set_disable_random_init(disable_random_init_);
+  }
   const auto* dram_backend =
       dynamic_cast<kv_mem::DramKVInferenceEmbedding<uint8_t>*>(
           kv_backend_.get());
@@ -385,6 +388,9 @@ void DramKVEmbeddingInferenceWrapper::deserialize(
   // the two entries above; leave the constructor default in place for those.
   if (states.size() >= 3 && states[2].numel() >= 1) {
     disable_random_init_ = states[2].const_data_ptr<int64_t>()[0] != 0;
+  }
+  if (kv_backend_ != nullptr) {
+    kv_backend_->set_disable_random_init(disable_random_init_);
   }
   LOG(INFO) << "DramKVEmbeddingInferenceWrapper deserialized " << states.size()
             << " entries, final disable_random_init = " << disable_random_init_
