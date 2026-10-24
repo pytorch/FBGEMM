@@ -430,11 +430,14 @@ permute_1D_sparse_data_cuda(
   // See: https://github.com/ROCm/hip/issues/2253
   const auto blocks_1 = utils::cuda::cap_grid_dim_x_from_workload(
       permuted_lengths_size, threads_1, at::cuda::getCurrentCUDAStream());
-  AT_DISPATCH_INDEX_TYPES(
-      permute.scalar_type(), "permute_1D_lengths_permute_type", [&] {
-        using permute_t = index_t;
-        AT_DISPATCH_INDEX_TYPES(
-            lengths.scalar_type(), "permute_1D_lengths_kernel", [&] {
+  dispatch_index_types(
+      permute.scalar_type(),
+      "permute_1D_lengths_permute_type",
+      [&]<typename permute_t>() {
+        dispatch_index_types(
+            lengths.scalar_type(),
+            "permute_1D_lengths_kernel",
+            [&]<typename index_t>() {
               FBGEMM_LAUNCH_KERNEL(
                   (permute_1D_lengths_kernel<index_t, permute_t>),
                   blocks_1,
@@ -519,15 +522,18 @@ permute_1D_sparse_data_cuda(
         static_cast<int64_t>(kFlatThreads) * kFlatElemsPerThread;
     const int32_t num_blocks = static_cast<int32_t>(
         (permuted_indices_size + elems_per_block - 1) / elems_per_block);
-    AT_DISPATCH_INDEX_TYPES(
-        output_offsets.scalar_type(), "permute_1D_block_first_row", [&] {
-          using offsets_t = index_t;
-          AT_DISPATCH_INDEX_TYPES(
-              permute.scalar_type(), "permute_1D_flat_permute_type", [&] {
-                using permute_t = index_t;
-                FBGEMM_DISPATCH_ALL_TYPES(
-                    indices.scalar_type(), "permute_1D_data_kernel_flat", [&] {
-                      using indices_t = scalar_t;
+    dispatch_index_types(
+        output_offsets.scalar_type(),
+        "permute_1D_block_first_row",
+        [&]<typename offsets_t>() {
+          dispatch_index_types(
+              permute.scalar_type(),
+              "permute_1D_flat_permute_type",
+              [&]<typename permute_t>() {
+                dispatch_all_types(
+                    indices.scalar_type(),
+                    "permute_1D_data_kernel_flat",
+                    [&]<typename indices_t>() {
                       FBGEMM_LAUNCH_KERNEL(
                           (permute_1D_data_kernel_flat<
                               kFlatElemsPerThread,
@@ -553,15 +559,18 @@ permute_1D_sparse_data_cuda(
     return {permuted_lengths, permuted_indices, permuted_weights};
   }
 
-  AT_DISPATCH_INDEX_TYPES(
-      permute.scalar_type(), "permute_1D_data_permute_type", [&] {
-        using permute_t = index_t;
-        AT_DISPATCH_INDEX_TYPES(
-            input_offsets.scalar_type(), "permute_1D_data_kernel_vec_1", [&] {
-              using offsets_t = index_t;
-              FBGEMM_DISPATCH_ALL_TYPES(
-                  indices.scalar_type(), "permute_1D_data_kernel_vec_2", [&] {
-                    using indices_t = scalar_t;
+  dispatch_index_types(
+      permute.scalar_type(),
+      "permute_1D_data_permute_type",
+      [&]<typename permute_t>() {
+        dispatch_index_types(
+            input_offsets.scalar_type(),
+            "permute_1D_data_kernel_vec_1",
+            [&]<typename offsets_t>() {
+              dispatch_all_types(
+                  indices.scalar_type(),
+                  "permute_1D_data_kernel_vec_2",
+                  [&]<typename indices_t>() {
                     if (weights.has_value()) {
                       const Tensor weights_value = weights.value();
                       const auto weights_value_contig =
@@ -583,11 +592,10 @@ permute_1D_sparse_data_cuda(
                         permuted_weights = at::empty(
                             permuted_indices_size, weights_value.options());
                       }
-                      FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
+                      dispatch_all_types_and_double(
                           weights_value.scalar_type(),
                           "permute_1D_data_kernel_vec_3",
-                          [&] {
-                            using weights_t = scalar_t;
+                          [&]<typename weights_t>() {
                             FBGEMM_LAUNCH_KERNEL(
                                 (permute_1D_data_kernel_vec<
                                     true,

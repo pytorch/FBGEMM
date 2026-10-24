@@ -159,6 +159,18 @@ class MiscOpsTest(unittest.TestCase):
             if bucketize_pos:
                 torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_bucketize_sparse_features_rejects_lengths_size_overflow(self) -> None:
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        int_max = torch.iinfo(torch.int32).max
+        lengths = torch.empty(1, dtype=torch.int32, device=device).as_strided(
+            (int_max + 1,), (0,)
+        )
+        indices = torch.empty(0, dtype=torch.int32, device=device)
+
+        with self.assertRaisesRegex(RuntimeError, "lengths.numel"):
+            torch.ops.fbgemm.bucketize_sparse_features(lengths, indices, False, 1, None)
+
     def test_segment_sum_csr(self) -> None:
         segment_sum_cpu = torch.ops.fbgemm.segment_sum_csr(
             2,
