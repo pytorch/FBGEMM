@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include <c10/core/ScalarType.h>
 #include <c10/util/Exception.h>
 // This is NECESSARY for the PT2_COMPLIANT_TAG macro to work.
@@ -199,6 +201,85 @@ decltype(auto) dispatch_index_types(
           name,
           " not implemented for index_t '",
           toString(index_type),
+          "'");
+  }
+}
+
+template <typename F>
+decltype(auto)
+dispatch_all_types(const at::ScalarType type, const char* const name, F&& f) {
+  switch (type) {
+    case at::ScalarType::Float:
+      return f.template operator()<float>();
+    case at::ScalarType::Half:
+      return f.template operator()<at::Half>();
+    case at::ScalarType::BFloat16:
+      return f.template operator()<at::BFloat16>();
+    case at::ScalarType::Int:
+      return f.template operator()<int32_t>();
+    case at::ScalarType::Long:
+      return f.template operator()<int64_t>();
+    default:
+      TORCH_CHECK(
+          false,
+          name,
+          " not implemented for scalar type '",
+          toString(type),
+          "'");
+  }
+}
+
+template <typename F>
+decltype(auto) dispatch_all_types_and_double(
+    const at::ScalarType type,
+    const char* const name,
+    F&& f) {
+  if (type == at::ScalarType::Double) {
+    return f.template operator()<double>();
+  }
+  return dispatch_all_types(type, name, std::forward<F>(f));
+}
+
+template <typename F>
+decltype(auto) dispatch_floating_types_and_double(
+    const at::ScalarType type,
+    const char* const name,
+    F&& f) {
+  switch (type) {
+    case at::ScalarType::Float:
+      return f.template operator()<float>();
+    case at::ScalarType::Half:
+      return f.template operator()<at::Half>();
+    case at::ScalarType::BFloat16:
+      return f.template operator()<at::BFloat16>();
+    case at::ScalarType::Double:
+      return f.template operator()<double>();
+    default:
+      TORCH_CHECK(
+          false,
+          name,
+          " not implemented for floating scalar type '",
+          toString(type),
+          "'");
+  }
+}
+
+template <typename F>
+decltype(auto) dispatch_float_and_double(
+    const at::ScalarType type,
+    const char* const name,
+    F&& f) {
+  switch (type) {
+    case at::ScalarType::Float:
+      return f.template operator()<float>();
+    case at::ScalarType::Double:
+      return f.template operator()<double>();
+    default:
+      TORCH_CHECK(
+          false,
+          name,
+          " not implemented for float or double scalar type '",
+          toString(type),
           "'");
   }
 }

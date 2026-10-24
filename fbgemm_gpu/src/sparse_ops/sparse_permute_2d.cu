@@ -596,12 +596,14 @@ permute_2D_sparse_preallocated_out_cuda(
         static_cast<int64_t>(kFlatThreads) * kFlatElemsPerThread;
     const int32_t num_blocks = static_cast<int32_t>(
         (permuted_indices_size + elems_per_block - 1) / elems_per_block);
-    AT_DISPATCH_INDEX_TYPES(
-        output_offsets.scalar_type(), "permute_2D_block_first_row", [&] {
-          using offsets_t = index_t;
-          AT_DISPATCH_INDEX_TYPES(
-              indices.scalar_type(), "permute_2D_data_kernel_flat", [&] {
-                using indices_t = index_t;
+    dispatch_index_types(
+        output_offsets.scalar_type(),
+        "permute_2D_block_first_row",
+        [&]<typename offsets_t>() {
+          dispatch_index_types(
+              indices.scalar_type(),
+              "permute_2D_data_kernel_flat",
+              [&]<typename indices_t>() {
                 FBGEMM_LAUNCH_KERNEL(
                     (permute_2D_data_kernel_flat<
                         kFlatElemsPerThread,
@@ -626,12 +628,14 @@ permute_2D_sparse_preallocated_out_cuda(
     return {permuted_lengths, permuted_indices, permuted_weights};
   }
 
-  AT_DISPATCH_INDEX_TYPES(
-      input_offsets.scalar_type(), "permute_2D_data_kernel_1", [&] {
-        using offsets_t = index_t;
-        FBGEMM_DISPATCH_ALL_TYPES(
-            indices.scalar_type(), "permute_2D_data_kernel_2", [&] {
-              using indices_t = scalar_t;
+  dispatch_index_types(
+      input_offsets.scalar_type(),
+      "permute_2D_data_kernel_1",
+      [&]<typename offsets_t>() {
+        dispatch_all_types(
+            indices.scalar_type(),
+            "permute_2D_data_kernel_2",
+            [&]<typename indices_t>() {
               if (weights.has_value()) {
                 const Tensor weights_value = weights.value();
                 const auto weights_value_contig = weights_value.contiguous();
@@ -656,11 +660,10 @@ permute_2D_sparse_preallocated_out_cuda(
                       : at::empty(
                             permuted_indices_size, weights_value.options());
                 }
-                FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
+                dispatch_all_types_and_double(
                     weights_value.scalar_type(),
                     "permute_2D_data_kernel_3",
-                    [&] {
-                      using weights_t = scalar_t;
+                    [&]<typename weights_t>() {
                       if (weights_columns == 1) {
                         FBGEMM_LAUNCH_KERNEL(
                             (permute_2D_data_kernel_vec<

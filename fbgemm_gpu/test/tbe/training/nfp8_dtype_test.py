@@ -49,6 +49,7 @@ class NFP8DtypeTest(unittest.TestCase):
                 ("gfx90a:sramecc+", torch.float8_e4m3fnuz),
                 ("gfx942:sramecc+", torch.float8_e4m3fnuz),
                 ("gfx950:sramecc+", torch.float8_e4m3fn),
+                ("gfx1250:sramecc+", torch.float8_e4m3fn),
             )
         ):
             target_device = _rocm_device(device_index)

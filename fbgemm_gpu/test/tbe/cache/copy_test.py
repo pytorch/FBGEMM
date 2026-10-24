@@ -13,7 +13,7 @@ import unittest
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
-from hypothesis import given, settings, Verbosity
+from hypothesis import example, given, settings, Verbosity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -28,6 +28,19 @@ if gpu_available:
     import fbgemm_gpu.tbe.cache.uvm  # noqa: F401
 
 MAX_EXAMPLES = 40
+MAX_UVM_ELEMENTS = 262144  # At most 1 MiB for the float tensors below.
+
+
+@st.composite
+def bounded_uvm_sizes(draw: st.DrawFn) -> list[int]:
+    rank = draw(st.integers(min_value=1, max_value=4))
+    remaining_elements = MAX_UVM_ELEMENTS
+    sizes = []
+    for _ in range(rank):
+        size = draw(st.integers(min_value=1, max_value=min(1024, remaining_elements)))
+        sizes.append(size)
+        remaining_elements //= size
+    return sizes
 
 
 class CopyTest(unittest.TestCase):
@@ -72,9 +85,7 @@ class CopyTest(unittest.TestCase):
         "Skip unless two CUDA devices are detected",
     )
     @given(
-        sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
-        ),
+        sizes=bounded_uvm_sizes(),
         uvm_op=st.sampled_from(
             [
                 torch.ops.fbgemm.new_unified_tensor,
@@ -83,6 +94,9 @@ class CopyTest(unittest.TestCase):
             ]
         ),
     )
+    @example(sizes=[7, 11, 13, 17], uvm_op=torch.ops.fbgemm.new_unified_tensor)
+    @example(sizes=[7, 11, 13, 17], uvm_op=torch.ops.fbgemm.new_managed_tensor)
+    @example(sizes=[7, 11, 13, 17], uvm_op=torch.ops.fbgemm.new_vanilla_managed_tensor)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     # pyre-fixme[2]: Parameter must be annotated.
     def test_uvm_to_device(self, sizes: list[int], uvm_op) -> None:
@@ -100,11 +114,7 @@ class CopyTest(unittest.TestCase):
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
         # Reference uvm tensor from second cuda device
-        try:
-            device_prototype = torch.empty(0, device="cuda:1")
-        except RuntimeError:
-            # Skip the tests if there is no "cuda:1" device
-            return
+        device_prototype = torch.empty(0, device="cuda:1")
 
         second_t = torch.ops.fbgemm.uvm_to_device(uvm_t, device_prototype)
 

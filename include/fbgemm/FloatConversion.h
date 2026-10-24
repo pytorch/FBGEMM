@@ -29,7 +29,8 @@
 // instructions for scalar fp16<->fp32 conversion.
 // - GCC/Clang: __F16C__ is defined by -mf16c or -march=haswell+
 // - MSVC: never defines __F16C__, but /arch:AVX2 implies F16C hardware
-#if defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__))
+#if !defined(__CUDACC__) && \
+    (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
 #define HAS_F16C
 #include <immintrin.h>
 #endif
@@ -367,6 +368,18 @@ constexpr T from_float(float src) {
       detail::IEEE754Single,
       detail::FloatFormat<uint8_t, T::exponent_bits, true, T::exponent_bias>,
       detail::RoundingMode::ToNearestTiesToEven>(bits)};
+}
+
+// Keep output conversion independent of hardware-specific half instructions.
+template <typename T>
+T convert_from_float_ref(float src) {
+  if constexpr (std::is_same_v<T, bfloat16>) {
+    return cpu_float2bfloat16(src);
+  } else if constexpr (std::is_same_v<T, float16>) {
+    return cpu_float2half_rn(src);
+  } else {
+    return static_cast<T>(src);
+  }
 }
 
 } // namespace fbgemm

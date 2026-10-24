@@ -613,10 +613,10 @@ enum SSDTensor {
 {%- macro unpack_tensorlist_optional(name, arg_index) %}
   at::Tensor {{ name }}_host, {{ name }}_dev, {{ name }}_uvm, {{ name }}_placements, {{ name }}_offsets;
   if (optim_tensor.size() >= {{ arg_index * 5 + 5 }}) {
-  {{ get_optional_optim_tensor(name, "host", arg_index * 5, "options") }}
-  {{ get_optional_optim_tensor(name, "dev", arg_index * 5 + 1, "options") }}
+  {{ get_optional_optim_tensor(name, "host", arg_index * 5, "options.dtype(at::kFloat)") }}
+  {{ get_optional_optim_tensor(name, "dev", arg_index * 5 + 1, "options.dtype(at::kFloat)") }}
   // optional optimizer states will be on HOST/DEVICE and not UVM.
-  {{ get_optional_optim_tensor(name, "uvm", arg_index * 5 + 2, "options") }}
+  {{ get_optional_optim_tensor(name, "uvm", arg_index * 5 + 2, "options.dtype(at::kFloat)") }}
   {{ get_optional_optim_tensor(name, "placements", arg_index * 5 + 3, "weights_placements.options()") }}
   {{ get_optional_optim_tensor(name, "offsets", arg_index * 5 + 4, "weights_offsets.options()") }}
   } else {
@@ -630,10 +630,10 @@ enum SSDTensor {
       {{ arg_index * 5 + 5 }},
       "). Falling back to empty tensors for backward compatibility; update the frontend "
       "package to clear this warning.");
-  {{ set_dummy_tensor(name, "host", "options") }}
-  {{ set_dummy_tensor(name, "dev", "options") }}
+  {{ set_dummy_tensor(name, "host", "options.dtype(at::kFloat)") }}
+  {{ set_dummy_tensor(name, "dev", "options.dtype(at::kFloat)") }}
   // optional optimizer states will be on HOST/DEVICE and not UVM.
-  {{ set_dummy_tensor(name, "uvm", "options") }}
+  {{ set_dummy_tensor(name, "uvm", "options.dtype(at::kFloat)") }}
   {{ set_dummy_tensor(name, "placements", "weights_placements.options()") }}
   {{ set_dummy_tensor(name, "offsets", "weights_offsets.options()") }}
   }

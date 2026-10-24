@@ -317,122 +317,11 @@ namespace ssd {
 inline void replace_weights_id(
     at::Tensor& weights,
     const at::Tensor& linearized_ids) {
-  TORCH_CHECK(weights.device().is_cpu(), "weights must be a CPU tensor");
-  TORCH_CHECK(
-      linearized_ids.device().is_cpu(), "linearized_ids must be a CPU tensor");
-  TORCH_CHECK(
-      linearized_ids.scalar_type() == at::kLong,
-      "linearized_ids must have dtype int64");
-  TORCH_CHECK(weights.dim() == 2, "weights must be a 2D tensor");
-  TORCH_CHECK(
-      linearized_ids.dim() == 1 ||
-          (linearized_ids.dim() == 2 && linearized_ids.size(1) == 1),
-      "linearized_ids must have shape [N] or [N, 1]");
-  TORCH_CHECK(
-      weights.size(0) == linearized_ids.numel(),
-      "weights and linearized_ids must have the same number of rows");
-  TORCH_CHECK(
-      weights.size(1) * weights.element_size() >= sizeof(int64_t),
-      "each weights row must have at least 8 bytes for the ID header");
-  TORCH_CHECK(
-      sizeof(int64_t) % weights.element_size() == 0,
-      "weights element size must divide the 8-byte ID header");
-
+  // Calculate how many bytes we need to copy
   auto weights_dtype_id_2d =
-      linearized_ids.reshape({-1, 1}).view(weights.dtype().toScalarType());
+      linearized_ids.view({-1, 1}).view(weights.dtype().toScalarType());
   auto weights_first_cols = weights.slice(1, 0, weights_dtype_id_2d.size(1));
   weights_first_cols.copy_(weights_dtype_id_2d);
-}
-
-inline void initialize_weights_metadata(at::Tensor& weights) {
-  TORCH_CHECK(weights.is_contiguous(), "weights must be contiguous");
-  auto* base = static_cast<char*>(weights.data_ptr());
-  const auto row_stride = weights.stride(0) * weights.element_size();
-  for (int64_t row = 0; row < weights.size(0); ++row) {
-    auto* row_data = base + row * row_stride;
-    FixedBlockPool::set_count(row_data, 0);
-    FixedBlockPool::update_timestamp(row_data);
-    FixedBlockPool::set_used(row_data, true);
-  }
-}
-
-inline at::Tensor rows_present_in_checkpoint(
-    const at::Tensor& weights,
-    const int64_t metadata_width) {
-  const int64_t id_width = sizeof(int64_t) / weights.element_size();
-  TORCH_CHECK(
-      weights.size(1) >= metadata_width && metadata_width >= id_width,
-      "checkpoint row must contain the complete metadata header");
-  TORCH_CHECK(weights.is_contiguous(), "checkpoint rows must be contiguous");
-  auto present = at::empty(
-      {weights.size(0)}, at::TensorOptions().dtype(at::ScalarType::Bool));
-  const auto* base = static_cast<const char*>(weights.const_data_ptr());
-  const auto row_stride = weights.stride(0) * weights.element_size();
-  auto* present_data = present.mutable_data_ptr<bool>();
-  for (int64_t row = 0; row < weights.size(0); ++row) {
-    present_data[row] = FixedBlockPool::get_used(base + row * row_stride);
-  }
-  return at::nonzero(present).reshape({-1});
-}
-
-inline at::Tensor ids_in_checkpoint(const at::Tensor& weights) {
-  TORCH_CHECK(weights.is_contiguous(), "checkpoint rows must be contiguous");
-  TORCH_CHECK(
-      weights.size(1) * weights.element_size() >= sizeof(int64_t),
-      "each checkpoint row must contain the 8-byte ID header");
-  TORCH_CHECK(
-      sizeof(int64_t) % weights.element_size() == 0,
-      "checkpoint element size must divide the 8-byte ID header");
-  auto ids = at::empty(
-      {weights.size(0)}, at::TensorOptions().dtype(at::ScalarType::Long));
-  const auto* base = static_cast<const char*>(weights.const_data_ptr());
-  const auto row_stride = weights.stride(0) * weights.element_size();
-  auto* ids_data = ids.mutable_data_ptr<int64_t>();
-  for (int64_t row = 0; row < weights.size(0); ++row) {
-    ids_data[row] = FixedBlockPool::get_key(base + row * row_stride);
-  }
-  return ids;
-}
-
-inline at::Tensor prepare_whole_row_weights(
-    const at::Tensor& weights,
-    const at::Tensor& linearized_ids,
-    const int64_t metadata_width,
-    const int64_t max_D,
-    const bool weights_include_metadata) {
-  const int64_t whole_row_width = metadata_width + max_D;
-  TORCH_CHECK(
-      !weights_include_metadata || weights.size(1) >= metadata_width,
-      "metadata-prefixed rows must contain the complete metadata header");
-  TORCH_CHECK(
-      weights.size(1) <= (weights_include_metadata ? whole_row_width : max_D),
-      "checkpoint row width ",
-      weights.size(1),
-      " must be at most the maximum payload width ",
-      max_D,
-      " or equal the whole-row width ",
-      whole_row_width);
-  auto whole_rows = weights_include_metadata
-      ? torch::constant_pad_nd(
-            weights, {0, whole_row_width - weights.size(1), 0, 0}, 0)
-      : torch::constant_pad_nd(
-            weights, {metadata_width, max_D - weights.size(1), 0, 0}, 0);
-  TORCH_CHECK(whole_rows.is_contiguous(), "whole rows must be contiguous");
-  if (!weights_include_metadata) {
-    initialize_weights_metadata(whole_rows);
-  } else {
-    auto* base = static_cast<char*>(whole_rows.data_ptr());
-    const auto row_stride = whole_rows.stride(0) * whole_rows.element_size();
-    for (int64_t row = 0; row < whole_rows.size(0); ++row) {
-      auto* row_data = base + row * row_stride;
-      if (FixedBlockPool::get_timestamp(row_data) == 0) {
-        FixedBlockPool::update_timestamp(row_data);
-      }
-      FixedBlockPool::set_used(row_data, true);
-    }
-  }
-  replace_weights_id(whole_rows, linearized_ids);
-  return whole_rows;
 }
 
 SnapshotHandle::SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
@@ -754,14 +643,6 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
           width_offset_,
           shape_[1]);
       CHECK(t.is_contiguous());
-      if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
-        replace_weights_id(
-            t,
-            at::arange(
-                start + row_offset_,
-                start + row_offset_ + length,
-                at::TensorOptions().dtype(at::kLong)));
-      }
       return t;
     } else {
       at::Tensor sliced_ids =
@@ -769,7 +650,9 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
       auto weights = get_weights_by_ids(sliced_ids);
 
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
-        replace_weights_id(weights, sliced_ids.to(at::kLong));
+        // backend returns whole row, so we need to replace the first 8 bytes
+        // with the sliced_ids
+        replace_weights_id(weights, sliced_ids);
       }
       return weights;
     }
@@ -809,51 +692,15 @@ void KVTensorWrapper::set_range(
   }
 
   if (db_->get_backend_return_whole_row()) {
-    const int64_t whole_row_width =
-        db_->get_metaheader_width_in_front() + db_->get_max_D();
-    auto rows_to_restore = weights;
-    if (only_load_weight_ && weights.size(1) > whole_row_width) {
-      // Whole-row checkpoints store the metadata header before the payload, so
-      // trimming trailing columns preserves both the embedded ID and metadata.
-      rows_to_restore = weights.narrow(1, 0, whole_row_width).contiguous();
-    }
+    // backend returns whole row, so we need to replace the first 8 bytes with
+    // the sliced_ids
     TORCH_CHECK(
-        rows_to_restore.size(1) <= whole_row_width,
-        "checkpoint row width exceeds whole-row KV storage width");
-    auto linearized_ids = ids_in_checkpoint(rows_to_restore);
-    const auto present_rows = rows_present_in_checkpoint(
-        rows_to_restore, db_->get_metaheader_width_in_front());
-    rows_to_restore = rows_to_restore.index_select(0, present_rows);
-    linearized_ids = linearized_ids.index_select(0, present_rows);
-    TORCH_CHECK(
-        linearized_ids.numel() > 0,
-        "set_range: all ",
-        length,
-        " checkpoint rows were filtered as missing (used bit not set)");
-    const int64_t range_start = start + row_offset_;
-    const int64_t range_end = range_start + length;
-    const int64_t minimum_id = linearized_ids.min().item<int64_t>();
-    const int64_t maximum_id = linearized_ids.max().item<int64_t>();
-    TORCH_CHECK(
-        minimum_id >= range_start && maximum_id < range_end,
-        "checkpoint IDs must fall within the requested range [",
-        range_start,
-        ", ",
-        range_end,
-        "), but found IDs spanning [",
-        minimum_id,
-        ", ",
-        maximum_id,
-        "]");
-    auto whole_rows = prepare_whole_row_weights(
-        rows_to_restore,
-        linearized_ids,
-        db_->get_metaheader_width_in_front(),
-        db_->get_max_D(),
-        true);
-    db_->set_range_to_storage(
-        whole_rows, start + row_offset_, linearized_ids.numel());
-    return;
+        sorted_indices_.has_value(),
+        "sorted_indices_ must be valid to set range when backend returns whole row");
+    at::Tensor sliced_ids =
+        sorted_indices_.value().slice(0, start, start + length);
+    auto linearized_ids = sliced_ids + row_offset_;
+    replace_weights_id(weights, linearized_ids);
   }
 
   int pad_right =
@@ -877,19 +724,6 @@ void KVTensorWrapper::set_range(
 void KVTensorWrapper::set_weights_and_ids(
     const at::Tensor& weights,
     const at::Tensor& ids) {
-  set_weights_and_ids_impl(weights, ids, false);
-}
-
-void KVTensorWrapper::set_prefixed_weights_and_ids(
-    const at::Tensor& weights,
-    const at::Tensor& ids) {
-  set_weights_and_ids_impl(weights, ids, true);
-}
-
-void KVTensorWrapper::set_weights_and_ids_impl(
-    const at::Tensor& weights,
-    const at::Tensor& ids,
-    const bool weights_include_metadata) {
   if (read_only_) {
     XLOG(INFO)
         << "KVTensorWrapper is read only, set_weights_and_ids() is no-op";
@@ -900,40 +734,7 @@ void KVTensorWrapper::set_weights_and_ids_impl(
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
-  auto linearized_ids = ids.reshape({-1});
-  if (!weights_include_metadata) {
-    linearized_ids = linearized_ids + row_offset_;
-  }
-
-  if (db_->get_backend_return_whole_row()) {
-    linearized_ids = linearized_ids.to(at::kLong);
-    const int64_t metadata_width = db_->get_metaheader_width_in_front();
-    auto rows_to_restore = weights;
-    if (weights_include_metadata) {
-      const auto present_rows =
-          rows_present_in_checkpoint(weights, metadata_width);
-      rows_to_restore = weights.index_select(0, present_rows);
-      linearized_ids = linearized_ids.index_select(0, present_rows);
-      TORCH_CHECK(
-          linearized_ids.numel() > 0,
-          "set_weights_and_ids: all ",
-          weights.size(0),
-          " checkpoint rows were filtered as missing (used bit not set)");
-    }
-    auto weights_with_metaheader = prepare_whole_row_weights(
-        rows_to_restore,
-        linearized_ids,
-        metadata_width,
-        db_->get_max_D(),
-        weights_include_metadata);
-    db_->set_kv_to_storage(linearized_ids, weights_with_metaheader);
-    return;
-  }
-
-  TORCH_CHECK(
-      !weights_include_metadata,
-      "metadata-prefixed weights require a whole-row backend");
-
+  auto linearized_ids = ids + row_offset_;
   int pad_right =
       db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
@@ -1820,9 +1621,6 @@ static auto kv_tensor_wrapper =
         .def("logss", &KVTensorWrapper::logss)
         .def("set_range", &KVTensorWrapper::set_range)
         .def("set_weights_and_ids", &KVTensorWrapper::set_weights_and_ids)
-        .def(
-            "set_prefixed_weights_and_ids",
-            &KVTensorWrapper::set_prefixed_weights_and_ids)
         .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property("device_str", &KVTensorWrapper::device_str)

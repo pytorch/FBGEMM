@@ -423,15 +423,4 @@ float convert_to_float_ref(T src) {
   }
 }
 
-template <typename T>
-T convert_from_float_ref(float src) {
-  if constexpr (std::is_same_v<T, bfloat16>) {
-    return cpu_float2bfloat16(src);
-  } else if constexpr (std::is_same_v<T, float16>) {
-    return cpu_float2half_rn(src);
-  } else {
-    return static_cast<T>(src);
-  }
-}
-
 } // namespace fbgemm

@@ -237,6 +237,137 @@ TEST(EmbeddingSpMDMTest, TypedOutputsForFP8Input) {
   verifyTypedFP8Outputs<hfp8<4, 8>>();
 }
 
+TEST(EmbeddingSpMDMTest, TypedFP8CoreMatchesReference) {
+  auto verify = []<FbgemmFP8Type InType,
+                   typename Index,
+                   typename Offset,
+                   typename Out>() {
+    for (int64_t block_size : {0, 7, 513}) {
+      const int64_t input_stride = block_size + 3;
+      const int64_t output_stride = block_size + 2;
+      vector<InType> input(5 * input_stride);
+      for (size_t i = 0; i < input.size(); ++i) {
+        FloatToFloat8_ref(
+            (static_cast<int>(i % 17) - 8) * 0.125f,
+            &input[i].val,
+            InType::exponent_bits,
+            InType::exponent_bias);
+      }
+      const vector<Index> indices{0, 4, 2, 1, 3};
+      const vector<Offset> offsets{0, 2, 2, 5};
+      const vector<Offset> lengths{2, 0, 3};
+      const vector<float> weights{0.5f, -1.f, 2.f, 0.25f, -0.5f};
+      for (bool weighted : {false, true}) {
+        for (bool positional : {false, true}) {
+          for (bool normalize : {false, true}) {
+            for (bool use_offsets : {false, true}) {
+              SCOPED_TRACE(
+                  testing::Message()
+                  << "block=" << block_size << " weighted=" << weighted
+                  << " positional=" << positional << " normalize=" << normalize
+                  << " offsets=" << use_offsets);
+              const auto* layout =
+                  use_offsets ? offsets.data() : lengths.data();
+              const auto* w = weighted ? weights.data() : nullptr;
+              auto kernel = GenerateEmbeddingSpMDMFP8WithStrides<
+                  InType,
+                  Index,
+                  Offset,
+                  Out>(
+                  block_size,
+                  normalize,
+                  positional,
+                  use_offsets,
+                  output_stride,
+                  input_stride);
+              static_assert(!std::is_invocable_r_v<
+                            bool,
+                            decltype(kernel),
+                            int64_t,
+                            int64_t,
+                            int64_t,
+                            const uint8_t*,
+                            const Index*,
+                            const Offset*,
+                            const float*,
+                            Out*>);
+              const Out sentinel = convert_from_float_ref<Out>(-42.f);
+              vector<Out> expected(3 * output_stride, sentinel);
+              vector<Out> actual(3 * output_stride, sentinel);
+              ASSERT_TRUE((EmbeddingSpMDMFP8_ref<Index, Offset, Out>(
+                  block_size,
+                  3,
+                  indices.size(),
+                  5,
+                  reinterpret_cast<const uint8_t*>(input.data()),
+                  indices.data(),
+                  layout,
+                  w,
+                  normalize,
+                  expected.data(),
+                  positional,
+                  use_offsets,
+                  output_stride,
+                  input_stride,
+                  InType::exponent_bits,
+                  InType::exponent_bias)));
+              ASSERT_TRUE(kernel(
+                  3,
+                  indices.size(),
+                  5,
+                  input.data(),
+                  indices.data(),
+                  layout,
+                  w,
+                  actual.data()));
+              EXPECT_EQ(actual, expected);
+              EXPECT_TRUE(kernel(
+                  0,
+                  0,
+                  5,
+                  input.data(),
+                  indices.data(),
+                  layout,
+                  w,
+                  actual.data()));
+              EXPECT_FALSE(kernel(
+                  3,
+                  indices.size() - 1,
+                  5,
+                  input.data(),
+                  indices.data(),
+                  layout,
+                  w,
+                  actual.data()));
+              EXPECT_FALSE(kernel(
+                  3,
+                  indices.size(),
+                  -1,
+                  input.data(),
+                  indices.data(),
+                  layout,
+                  w,
+                  actual.data()));
+            }
+          }
+        }
+      }
+    }
+  };
+  auto formats = [&]<FbgemmFP8Type InType>() {
+    verify.template operator()<InType, int32_t, int64_t, float>();
+    verify.template operator()<InType, int32_t, int64_t, float16>();
+    verify.template operator()<InType, int32_t, int64_t, bfloat16>();
+    verify.template operator()<InType, int64_t, int32_t, float>();
+    verify.template operator()<InType, int64_t, int32_t, float16>();
+    verify.template operator()<InType, int64_t, int32_t, bfloat16>();
+  };
+  formats.template operator()<hfp8_e4m3>();
+  formats.template operator()<hfp8<5, 7>>();
+  formats.template operator()<hfp8_e5m2>();
+  formats.template operator()<hfp8<4, 8>>();
+}
+
 static vector<int> prefetch_distances = {0, 16, 1000000};
 
 INSTANTIATE_TEST_SUITE_P(

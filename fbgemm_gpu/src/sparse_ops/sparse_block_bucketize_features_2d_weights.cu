@@ -447,20 +447,18 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
 
 #define LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_2D_WEIGHTS_CUDA_KERNEL_WITH_WEIGHT( \
     bucketize_pos, return_bucket_mapping)                                                   \
-  AT_DISPATCH_INDEX_TYPES(                                                                  \
+  dispatch_index_types(                                                                     \
       offsets_contig.scalar_type(),                                                         \
       "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_1",                \
-      [&] {                                                                                 \
-        using offset_t = index_t;                                                           \
-        AT_DISPATCH_INDEX_TYPES(                                                            \
+      [&]<typename offset_t>() {                                                            \
+        dispatch_index_types(                                                               \
             indices_contig.scalar_type(),                                                   \
             "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_2",          \
-            [&] {                                                                           \
-              FBGEMM_DISPATCH_FLOATING_TYPES_AND(                                           \
-                  at::ScalarType::Double,                                                   \
+            [&]<typename index_t>() {                                                       \
+              dispatch_floating_types_and_double(                                           \
                   weights_value.scalar_type(),                                              \
                   "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_3",    \
-                  [&] {                                                                     \
+                  [&]<typename scalar_t>() {                                                \
                     _block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2<      \
                         true,                                                               \
                         bucketize_pos,                                                      \
@@ -518,20 +516,18 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
 
 #define LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_2D_WEIGHTS_CUDA_KERNEL_2_WITH_WEIGHT( \
     bucketize_pos, return_new_pos)                                                          \
-  AT_DISPATCH_INDEX_TYPES(                                                                  \
+  dispatch_index_types(                                                                     \
       offsets_contig.scalar_type(),                                                         \
       "_block_bucketize_pooled_sparse_features_2d_weights_cuda_kernel2_1",                  \
-      [&] {                                                                                 \
-        using offset_t = index_t;                                                           \
-        AT_DISPATCH_INDEX_TYPES(                                                            \
+      [&]<typename offset_t>() {                                                            \
+        dispatch_index_types(                                                               \
             indices_contig.scalar_type(),                                                   \
             "_block_bucketize_pooled_sparse_features_2d_weights_cuda_kernel2_2",            \
-            [&] {                                                                           \
-              FBGEMM_DISPATCH_FLOATING_TYPES_AND(                                           \
-                  at::ScalarType::Double,                                                   \
+            [&]<typename index_t>() {                                                       \
+              dispatch_floating_types_and_double(                                           \
                   weights_value.scalar_type(),                                              \
                   "_block_bucketize_pooled_sparse_features_2d_weights_cuda_kernel2_3",      \
-                  [&] {                                                                     \
+                  [&]<typename scalar_t>() {                                                \
                     const auto block_bucketize_kernel =                                     \
                         _block_bucketize_pooled_sparse_features_2d_weights_cuda_kernel2<    \
                             true,                                                           \
@@ -718,15 +714,14 @@ _block_bucketize_sparse_features_2d_weights_cuda(
           utils::cuda::BlockCapPolicy::OverflowOnly));
   const auto smem_adjust_threshold =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
-  AT_DISPATCH_INDEX_TYPES(
+  dispatch_index_types(
       offsets_contig.scalar_type(),
       "_block_bucketize_sparse_features_cuda_kernel1",
-      [&] {
-        using offset_t = index_t;
-        AT_DISPATCH_INDEX_TYPES(
+      [&]<typename offset_t>() {
+        dispatch_index_types(
             indices_contig.scalar_type(),
             "_block_bucketize_sparse_features_cuda_kernel2",
-            [&] {
+            [&]<typename index_t>() {
               _block_bucketize_sparse_features_cuda_kernel1<<<
                   grid_dims,
                   block_dims,
