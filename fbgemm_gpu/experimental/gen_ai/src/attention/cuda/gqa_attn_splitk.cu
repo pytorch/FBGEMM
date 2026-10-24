@@ -10,6 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#include <c10/util/irange.h>
 #include <limits>
 
 /// @defgroup experimental-gen-ai-attention
@@ -274,12 +275,12 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
             const auto* cache_k_ = reinterpret_cast<const kv_load_t*>(
                 cache_K_base + k_offset_bytes);
 #pragma unroll K_UNROLLS
-            for (int k_unroll = 0; k_unroll < K_UNROLLS; k_unroll++) {
+            for (const auto k_unroll : c10::irange(K_UNROLLS)) {
               auto* k_vals_ = k_vals + k_unroll * KV_LD_NUM_ELS;
               const auto* k_ =
                   cache_k_ + ((k_unroll * F_K) / KV_NUM_ELS_PER_LD);
 #pragma unroll KV_LD_NUM_ELS
-              for (auto k_i = 0; k_i < KV_LD_NUM_ELS; k_i++) {
+              for (const auto k_i : c10::irange(KV_LD_NUM_ELS)) {
                 k_vals_[k_i] = k_[k_i];
               }
             }
@@ -297,14 +298,14 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
           // Dequantize 16 elements to 16 BF16s and store results in shared
           // memory
 #pragma unroll KV_NUM_VECS
-          for (int vec = 0; vec < KV_NUM_VECS; ++vec) {
+          for (const auto vec : c10::irange(KV_NUM_VECS)) {
             auto* smem_s = reinterpret_cast<__nv_bfloat162*>(
                 smem_staging_ + vec * KV_NUM_ELS_PER_DEQ);
             if (!USE_FP8) {
               const auto k_deq =
                   dequantize_permuted_int4(k_vals_[vec], k_scales);
 #pragma unroll
-              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+              for (const auto i : c10::irange(KV_NUM_ELS_PER_DEQ / 2)) {
                 smem_s[i] = k_deq.vals[i];
               }
             }
@@ -312,7 +313,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
             else {
               const auto k_deq = dequantize_packed_fp8(k_vals_[vec], k_scales);
 #pragma unroll
-              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+              for (const auto i : c10::irange(KV_NUM_ELS_PER_DEQ / 2)) {
                 smem_s[i] = k_deq.vals[i];
               }
             }
@@ -421,7 +422,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   // At this point, every thread has their local max_qk's
   // Compute max_qk within a warp
 #pragma unroll HEADS_PER_THREAD_QK
-  for (auto h_i = 0; h_i < HEADS_PER_THREAD_QK; h_i++) {
+  for (const auto h_i : c10::irange(HEADS_PER_THREAD_QK)) {
     for (auto offset = 4; offset < kThreadsPerWarp; offset <<= 1) {
       max_qk[h_i] =
           max(max_qk[h_i],
@@ -524,7 +525,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
       const auto* v_ = cache_V_base + t * D_H_bytes;
       v_scales = reinterpret_cast<const __half2*>(v_)[group_id];
 #pragma unroll KV_LD_NUM_ELS
-      for (int vec = 0; vec < KV_LD_NUM_ELS; vec++) {
+      for (const auto vec : c10::irange(KV_LD_NUM_ELS)) {
         int d = d_start + vec * KV_NUM_ELS_PER_LD + t_chunk_id * F_K;
         int t_offset_bytes = PARAM_BYTES + d / KV_DTYPE_ELEMS_PER_BYTE;
         v_vals[vec] = *reinterpret_cast<const kv_load_t*>(&v_[t_offset_bytes]);
@@ -547,7 +548,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   __syncthreads();
 
   // All threads work on the same head in every iteration
-  for (int t_i = 0; t_i < t_rounds; t_i++) {
+  for (const auto t_i : c10::irange(t_rounds)) {
     const int t_start = t_i * t_stride + global_tid * 2;
     const int global_t_start = t_per_block_start + t_start;
     auto* smem_fp32_ = smem + t_start;
@@ -557,7 +558,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
          h_i++) {
       // Read FP32
 #pragma unroll
-      for (int h_j = 0; h_j < CONV_UNROLLS; h_j++) {
+      for (const auto h_j : c10::irange(CONV_UNROLLS)) {
         const int h = h_i * CONV_UNROLLS + h_j;
         const int smem_idx = h * ldc;
 
@@ -572,7 +573,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 
       // Convert and write BF16
 #pragma unroll
-      for (int h_j = 0; h_j < CONV_UNROLLS; h_j++) {
+      for (const auto h_j : c10::irange(CONV_UNROLLS)) {
         // It is safe to use nv_bfloat162 because smem was float
         if (global_t_start < t_per_block_end) {
           const int h = h_i * CONV_UNROLLS + h_j;
@@ -636,7 +637,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
       const auto t_start_ = t_start + (threadIdx.x % 4) * 2;
       const auto t_scope = min(t_start + F_K, t_per_block_end);
 
-      for (auto vec = 0; vec < NUM_COL_VECS; vec++) {
+      for (const auto vec : c10::irange(NUM_COL_VECS)) {
         float2 p;
         const int t = t_start_ + 8 * vec;
         if (head < h_total_per_block && t < t_scope) {
@@ -680,7 +681,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
               (warp_idx * F_K + t - t_start) * SMEM_V_STRIDE;
           auto* smem_staging_ = smem_staging + smem_offset;
 #pragma unroll KV_NUM_VECS
-          for (int vec = 0; vec < KV_NUM_VECS; ++vec) {
+          for (const auto vec : c10::irange(KV_NUM_VECS)) {
             const int smem_d = vec + t_chunk_id * KV_NUM_VECS;
             // Dequantize KV_NUM_ELS_PER_LD INT4s to BF16s and store the results
             // in shared memory
@@ -690,7 +691,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
             if (!USE_FP8) {
               const auto v_deq = dequantize_permuted_int4(v_vals_, v_scales);
 #pragma unroll
-              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+              for (const auto i : c10::irange(KV_NUM_ELS_PER_DEQ / 2)) {
                 smem_s[i] = v_deq.vals[i];
               }
             }
@@ -698,7 +699,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
             else {
               const auto v_deq = dequantize_packed_fp8(v_vals_, v_scales);
 #pragma unroll
-              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+              for (const auto i : c10::irange(KV_NUM_ELS_PER_DEQ / 2)) {
                 smem_s[i] = v_deq.vals[i];
               }
             }
@@ -711,12 +712,12 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
                 (warp_idx * F_K + t - t_start) * SMEM_V_STRIDE;
             auto* smem_staging_ = smem_staging + smem_offset;
 #pragma unroll KV_NUM_VECS
-            for (int vec = 0; vec < KV_NUM_VECS; ++vec) {
+            for (const auto vec : c10::irange(KV_NUM_VECS)) {
               const int smem_d = vec + t_chunk_id * KV_NUM_VECS;
               auto* smem_s = reinterpret_cast<uint32_t*>(
                   smem_staging_ + smem_d * KV_NUM_ELS_PER_DEQ);
 #pragma unroll
-              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+              for (const auto i : c10::irange(KV_NUM_ELS_PER_DEQ / 2)) {
                 smem_s[i] = 0;
               }
             }
@@ -737,7 +738,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
           const auto group_id = d_start_next / GROUP_SIZE;
           v_scales = reinterpret_cast<const __half2*>(v_)[group_id];
 #pragma unroll KV_LD_NUM_ELS
-          for (int vec = 0; vec < KV_LD_NUM_ELS; vec++) {
+          for (const auto vec : c10::irange(KV_LD_NUM_ELS)) {
             const int d =
                 d_start_next + vec * KV_NUM_ELS_PER_LD + t_chunk_id * F_K;
             const int t_offset_bytes =
@@ -797,7 +798,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
       wmma::store_matrix_sync(
           smem_out + F_M * d_start, c_frag, F_N, wmma::mem_row_major);
 
-      for (int h = 0; h < h_total_per_block; ++h) {
+      for (const auto h : c10::irange(h_total_per_block)) {
         // [B, H, num_split_ks, 1, D_H]
         auto* o_ = &out_splitK[b][s_block][h_per_block_start + h][d_start];
         for (auto d = threadIdx.x; d < F_N; d += kThreadsPerWarp) {
@@ -848,7 +849,7 @@ __global__ void gqa_attn_splitk_reduce_wmma_kernel(
   const int32_t t_per_block = t_total / num_split_ks;
   const int32_t num_split_ks_max = div_round_up(t_max, t_per_block);
 
-  for (int k = 1; k < num_split_ks_max; ++k) {
+  for (const auto k : c10::irange(1, num_split_ks_max)) {
     float m_k = metadata[b][0][k][h];
     float l_k = metadata[b][1][k][h];
     float acc_k = out_splitK[b][k][h][d];
@@ -927,7 +928,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
        tt < t_per_block_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
@@ -935,7 +936,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
           *(reinterpret_cast<const uint2*>(k_) + threadIdx.x);
     }
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       float qk_acc = 0;
       // int32_t t = tt + ttt;
       qk_acc += bfx4_dot(q_thread, k_loads[ttt]);
@@ -953,7 +954,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
   for (auto tt = t_per_block_unroll + warp_idx; tt < t_per_block_end;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
@@ -961,7 +962,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
           *(reinterpret_cast<const uint2*>(k_) + threadIdx.x);
     }
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
       int32_t t = tt + ttt;
       qk_acc += bfx4_dot(q_thread, k_loads[ttt]);
@@ -1041,7 +1042,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
        tt < t_per_block_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
@@ -1052,7 +1053,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
           *(reinterpret_cast<const uint*>(&k_[qparam_offset]));
     }
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       float qk_acc = 0;
       // int32_t t = tt + ttt;
       qk_acc += bfx4_dot(
@@ -1071,7 +1072,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
   for (auto tt = t_per_block_unroll + warp_idx; tt < t_per_block_end;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H_bytes; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
@@ -1082,7 +1083,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
           *(reinterpret_cast<const uint*>(&k_[qparam_offset]));
     }
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
       int32_t t = tt + ttt;
       qk_acc += bfx4_dot(
@@ -1225,7 +1226,7 @@ __global__ void gqa_attn_splitk_v_kernel(
        tt < t_per_block_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
@@ -1235,7 +1236,7 @@ __global__ void gqa_attn_splitk_v_kernel(
     }
 
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       o_acc = bfx4_scale_acc(o_acc, k_loads[ttt], ps[ttt]);
     }
   }
@@ -1244,7 +1245,7 @@ __global__ void gqa_attn_splitk_v_kernel(
   for (auto tt = t_per_block_unroll + warp_idx; tt < t_per_block_end;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
@@ -1254,7 +1255,7 @@ __global__ void gqa_attn_splitk_v_kernel(
     }
 
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       o_acc = bfx4_scale_acc(o_acc, k_loads[ttt], ps[ttt]);
     }
   }
@@ -1267,7 +1268,7 @@ __global__ void gqa_attn_splitk_v_kernel(
   // note: seemed marginally faster than smem reduction in benchmarks.
   if (warp_idx == 0) {
     fx4 r;
-    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+    for (const auto w : c10::irange(kWarpsPerBlock)) {
       auto partial_r = *(
           reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
       r = fx4_acc(r, partial_r);
@@ -1339,7 +1340,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
        tt < t_per_block_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H_bytes; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
@@ -1352,7 +1353,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
     }
 
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       o_acc = bfx4_scale_acc(
           o_acc, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt]), ps[ttt]);
     }
@@ -1362,7 +1363,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
   for (auto tt = t_per_block_unroll + warp_idx; tt < t_per_block_end;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H_bytes; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
@@ -1375,7 +1376,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
     }
 
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       o_acc = bfx4_scale_acc(
           o_acc, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt]), ps[ttt]);
     }
@@ -1389,7 +1390,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
   // note: seemed marginally faster than smem reduction in benchmarks.
   if (warp_idx == 0) {
     fx4 r;
-    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+    for (const auto w : c10::irange(kWarpsPerBlock)) {
       auto partial_r = *(
           reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
       r = fx4_acc(r, partial_r);
@@ -1857,7 +1858,7 @@ __global__ void mqa_attn_kernel(
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
@@ -1866,7 +1867,7 @@ __global__ void mqa_attn_kernel(
     }
 
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       float qk_acc = 0;
       int32_t t = tt + ttt;
       qk_acc += bfx4_dot(q_thread, k_loads[ttt]) * qk_scale;
@@ -1885,7 +1886,7 @@ __global__ void mqa_attn_kernel(
   for (auto tt = max_t_unroll + warp_idx; tt < max_t;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
@@ -1893,7 +1894,7 @@ __global__ void mqa_attn_kernel(
           *(reinterpret_cast<const uint2*>(k_) + threadIdx.x);
     }
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
       int32_t t = tt + ttt;
       qk_acc += bfx4_dot(q_thread, k_loads[ttt]) * qk_scale;
@@ -1957,7 +1958,7 @@ __global__ void mqa_attn_kernel(
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
@@ -1967,7 +1968,7 @@ __global__ void mqa_attn_kernel(
     }
 
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       o_acc = bfx4_scale_acc(o_acc, k_loads[ttt], ps[ttt]);
     }
   }
@@ -1975,7 +1976,7 @@ __global__ void mqa_attn_kernel(
   for (auto tt = max_t_unroll + warp_idx; tt < max_t;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
@@ -1985,7 +1986,7 @@ __global__ void mqa_attn_kernel(
     }
 
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       o_acc = bfx4_scale_acc(o_acc, k_loads[ttt], ps[ttt]);
     }
   }
@@ -1999,7 +2000,7 @@ __global__ void mqa_attn_kernel(
   // sum up partial D rows from other warps
   if (warp_idx == 0) {
     fx4 r;
-    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+    for (const auto w : c10::irange(kWarpsPerBlock)) {
       auto partial_r = *(
           reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
       r = fx4_acc(r, partial_r);
@@ -2068,7 +2069,7 @@ __global__ void mqa_attn_fp8_kernel(
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       CUDA_KERNEL_ASSERT(
@@ -2085,7 +2086,7 @@ __global__ void mqa_attn_fp8_kernel(
     }
 
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       float qk_acc = 0;
       qk_acc +=
@@ -2107,7 +2108,7 @@ __global__ void mqa_attn_fp8_kernel(
   for (auto tt = max_t_unroll + warp_idx; tt < max_t;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
@@ -2118,7 +2119,7 @@ __global__ void mqa_attn_fp8_kernel(
           *(reinterpret_cast<uint*>(&k_[qparam_idx]));
     }
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
       int32_t t = tt + ttt;
       qk_acc +=
@@ -2184,7 +2185,7 @@ __global__ void mqa_attn_fp8_kernel(
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
@@ -2197,7 +2198,7 @@ __global__ void mqa_attn_fp8_kernel(
     }
 
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       o_acc = bfx4_scale_acc(
           o_acc, dequantize_packed_fp8(k_loads[ttt], k_scales[ttt]), ps[ttt]);
     }
@@ -2206,7 +2207,7 @@ __global__ void mqa_attn_fp8_kernel(
   for (auto tt = max_t_unroll + warp_idx; tt < max_t;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
@@ -2219,7 +2220,7 @@ __global__ void mqa_attn_fp8_kernel(
     }
 
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       o_acc = bfx4_scale_acc(
           o_acc, dequantize_packed_fp8(k_loads[ttt], k_scales[ttt]), ps[ttt]);
     }
@@ -2234,7 +2235,7 @@ __global__ void mqa_attn_fp8_kernel(
   // sum up partial D rows from other warps
   if (warp_idx == 0) {
     fx4 r;
-    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+    for (const auto w : c10::irange(kWarpsPerBlock)) {
       auto partial_r = *(
           reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
       r = fx4_acc(r, partial_r);
@@ -2308,7 +2309,7 @@ __global__ void mqa_attn_int4_kernel(
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
@@ -2321,7 +2322,7 @@ __global__ void mqa_attn_int4_kernel(
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       float qk_acc =
           bfx4_dot(
@@ -2370,7 +2371,7 @@ __global__ void mqa_attn_int4_kernel(
   for (auto tt = max_t_unroll + warp_idx; tt < max_t;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
@@ -2381,7 +2382,7 @@ __global__ void mqa_attn_int4_kernel(
           *(reinterpret_cast<uint*>(&k_[qparam_idx]));
     }
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
       int32_t t = tt + ttt;
       qk_acc +=
@@ -2448,7 +2449,7 @@ __global__ void mqa_attn_int4_kernel(
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
@@ -2462,7 +2463,7 @@ __global__ void mqa_attn_int4_kernel(
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
 #pragma unroll kTimeUnroll
-    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll)) {
       o_acc = bfx4_scale_acc(
           o_acc, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt]), ps[ttt]);
     }
@@ -2485,7 +2486,7 @@ __global__ void mqa_attn_int4_kernel(
   for (auto tt = max_t_unroll + warp_idx; tt < max_t;
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       int32_t t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
@@ -2498,7 +2499,7 @@ __global__ void mqa_attn_int4_kernel(
     }
 
 #pragma unroll kTimeUnroll1
-    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+    for (const auto ttt : c10::irange(kTimeUnroll1)) {
       o_acc = bfx4_scale_acc(
           o_acc, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt]), ps[ttt]);
     }
@@ -2513,7 +2514,7 @@ __global__ void mqa_attn_int4_kernel(
   // sum up partial D rows from other warps
   if (warp_idx == 0) {
     fx4 r;
-    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+    for (const auto w : c10::irange(kWarpsPerBlock)) {
       auto partial_r = *(
           reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
       r = fx4_acc(r, partial_r);
