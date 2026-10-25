@@ -1334,8 +1334,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         # gate is false), so this test exercises the slow path. After
         # D106106843 lands, the same divisibility-aligned cases additionally
         # hit the fast path on ROCm — without changing the assertions.
-        if weights_ty == SparseType.INT2 and output_dtype == SparseType.FP32:
-            self.skipTest("INT2 weight + FP32 output combination is not supported")
+        assume(weights_ty != SparseType.INT2 or output_dtype != SparseType.FP32)
 
         self.execute_nbit_forward_(
             T=1,
@@ -1380,18 +1379,10 @@ class NBitFowardTest(NBitFowardTestCommon):
     ) -> None:
         # NOTE: The combination of INT2 and FP32 as weight and output types, respectively, is
         # currently not supported.
-        if nbit_weights_ty == SparseType.INT2 and output_dtype == SparseType.FP32:
-            self.skipTest(
-                "The combination of INT2 and FP32 as weight and output types, respectively, is not supported"
-            )
+        assume(nbit_weights_ty != SparseType.INT2 or output_dtype != SparseType.FP32)
 
         # NOTE: Hash-based index remapping in general is an experimental feature
-        if indices_dtype != torch.int32 and not use_array_for_index_remapping:
-            self.skipTest(
-                "Hash-based index_remapping is an experimental feature and is "
-                "currently not supported for indices.dtype == torch.int64 and "
-                "indices.device != cpu"
-            )
+        assume(indices_dtype == torch.int32 or use_array_for_index_remapping)
 
         use_cpu = False
         T = random.randint(1, 50)
