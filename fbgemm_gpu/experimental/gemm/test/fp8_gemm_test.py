@@ -21,6 +21,9 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     prune_configs_h100_static,
     USED_MATMUL_NON_PERSISTENT_CONFIGS,
 )
+from fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model import (
+    estimate_matmul_time,
+)
 from torch._dynamo.source import LocalSource
 from torch._dynamo.testing import CompileCounterWithBackend
 from torch._subclasses.fake_tensor import FakeTensorMode
@@ -42,9 +45,6 @@ if torch.cuda.is_available():
         quantize_fp8_row,
         quantize_fp8_row_meta,
         scale_fp8_row,
-    )
-    from fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model import (
-        estimate_matmul_time,
     )
 
 
@@ -1308,7 +1308,6 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertEqual(kept, configs)
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class TestPerfModelFp8(unittest.TestCase):
     """estimate_matmul_time must accept torch fp8 dtypes.
 
@@ -1318,10 +1317,35 @@ class TestPerfModelFp8(unittest.TestCase):
     """
 
     def test_fp8_dtypes_accepted(self) -> None:
-        device = torch.accelerator.current_accelerator()
-        for dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-            a = torch.empty(64, 256, dtype=dtype, device=device)
-            b = torch.empty(256, 256, dtype=dtype, device=device)
-            c = torch.empty(64, 256, dtype=torch.bfloat16, device=device)
-            est = estimate_matmul_time(4, 4, a, b, c, 64, 256, 256, 64, 128, 32, 1)
-            self.assertTrue(est > 0)
+        with (
+            mock.patch("triton.runtime.driver") as driver,
+            mock.patch(
+                "fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model.driver",
+                driver,
+            ),
+            mock.patch(
+                "fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model.get_clock_rate_in_khz",
+                return_value=1_410_000,
+            ),
+            mock.patch("torch.cuda.current_device", return_value=0),
+            mock.patch("torch.cuda.get_device_capability", return_value=(8, 0)),
+        ):
+            driver.active.utils.get_device_properties.return_value = {
+                "multiprocessor_count": 108,
+                "mem_clock_rate": 1_215_000,
+                "mem_bus_width": 5120,
+            }
+            for dtype in (
+                torch.float8_e4m3fn,
+                torch.float8_e5m2,
+                torch.float8_e4m3fnuz,
+                torch.float8_e5m2fnuz,
+            ):
+                with self.subTest(dtype=dtype, device="cpu"):
+                    a = torch.empty(64, 256, dtype=dtype, device="cpu")
+                    b = torch.empty(256, 256, dtype=dtype, device="cpu")
+                    c = torch.empty(64, 256, dtype=torch.bfloat16, device="cpu")
+                    est = estimate_matmul_time(
+                        4, 4, a, b, c, 64, 256, 256, 64, 128, 32, 1
+                    )
+                    self.assertTrue(est > 0)
