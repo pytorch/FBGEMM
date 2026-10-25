@@ -247,3 +247,11 @@ class TestGroupedGEMM(unittest.TestCase):
         torch.testing.assert_close(
             result, expected_result, atol=1e-5, rtol=1.6e-2, msg=msg
         )
+
+    def test_grouped_gemm_bf16_ws_request(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        a = torch.randn(128, 256, dtype=torch.bfloat16, device=device)
+        b = torch.randn(256, 256, dtype=torch.bfloat16, device=device)
+        sizes = torch.tensor([128], dtype=torch.int32, device=device)
+        result = grouped_gemm(a, b, sizes, _use_warp_specialization=True)
+        torch.testing.assert_close(result, a @ b.T, atol=1e-5, rtol=1.6e-2)
