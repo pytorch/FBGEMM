@@ -10,7 +10,7 @@
 import unittest
 
 import torch
-from hypothesis import given, settings, strategies as st, Verbosity
+from hypothesis import example, given, settings, strategies as st, Verbosity
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
@@ -151,6 +151,12 @@ class TestGroupedGEMM(unittest.TestCase):
                 msg=msg,
             )
 
+    @example(
+        G=1, M=2048, N=256, K=256, warp_specialization=False, fuse_scatter_add=True
+    )
+    @example(
+        G=4, M=2048, N=256, K=256, warp_specialization=False, fuse_scatter_add=True
+    )
     @given(
         G=st.sampled_from([1, 4, 16, 128]),
         M=st.sampled_from([0, 128, 2048, 16384]),
@@ -231,7 +237,17 @@ class TestGroupedGEMM(unittest.TestCase):
                 a[m_start:m_end, :] @ b[g * N : (g + 1) * N, :].T
             )
 
+        def msg(s: str) -> str:
+            return f"{G=}, {M=}, {N=}, {K=}, {warp_specialization=}, {fuse_scatter_add=}, {s}"
+
         if fuse_scatter_add:
+            unfused_result = grouped_gemm(
+                a, b, m_sizes, _use_warp_specialization=warp_specialization
+            )
+            torch.testing.assert_close(
+                unfused_result, expected_result, atol=1e-5, rtol=1.6e-2, msg=msg
+            )
+            expected_result = unfused_result
             assert scatter_add_target_clone is not None
             assert scatter_add_indices is not None
             scatter_add_target_clone.scatter_add_(
@@ -240,9 +256,6 @@ class TestGroupedGEMM(unittest.TestCase):
                 expected_result,
             )
             expected_result = scatter_add_target_clone
-
-        def msg(s: str) -> str:
-            return f"{G=}, {M=}, {N=}, {K=}, {warp_specialization=}, {fuse_scatter_add=}, {s}"
 
         torch.testing.assert_close(
             result, expected_result, atol=1e-5, rtol=1.6e-2, msg=msg
