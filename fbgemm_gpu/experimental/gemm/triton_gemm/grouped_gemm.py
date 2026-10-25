@@ -51,7 +51,12 @@ def _check_ws_support():
         return False
     if not utils.HAS_TMA_DESC:
         return False
-    return True
+    # Some Triton builds retain deprecated parameters but ignore their values.
+    config = triton.Config({}, num_consumer_groups=1, num_buffers_warp_spec=1)
+    return (
+        getattr(config, "num_consumer_groups", 0) == 1
+        and getattr(config, "num_buffers_warp_spec", 0) == 1
+    )
 
 
 def _set_ws_support():
