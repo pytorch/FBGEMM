@@ -13,6 +13,7 @@
 #include <math.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
+#include <type_traits>
 
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
@@ -43,7 +44,14 @@ __inline__ __device__ void trapz_kernel(
   for (auto i = threadIdx.x + 1; i < num_entries_per_block; i += blockDim.x) {
     sum += 0.5 * (x[i] - x[i - 1]) * (y[i] + y[i - 1]);
   }
-  sum = warpReduceAllSum(sum);
+  if constexpr (std::is_same_v<scalar_t, double>) {
+#pragma unroll
+    for (int mask = kWarpSize / 2; mask > 0; mask >>= 1) {
+      sum += shfl_xor(sum, mask);
+    }
+  } else {
+    sum = warpReduceAllSum(sum);
+  }
   // Only first lane threads accumulate results
   // Expect output to be initialize with zero (we initialize output outside of
   // trapz_kernel to avoid calling another __syncthreads() here)
@@ -300,18 +308,19 @@ at::Tensor batch_auc(
       num_blocks);
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "auc_wrapper_1", [&] {
-    FBGEMM_DISPATCH_ALL_TYPES(labels.scalar_type(), "auc_wrapper_2", [&] {
-      using label_t = scalar_t;
-      FBGEMM_DISPATCH_FLOAT_AND_HALF(
-          weights.scalar_type(), "auc_wrapper_3", [&] {
-            using acc_t = at::acc_type<scalar_t, true>;
-            if (padded_section_size == 1) {
-              LAUNCH_AUC_KERNEL(1)
-            } else {
-              LAUNCH_AUC_KERNEL(2)
-            }
-          });
-    });
+    FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
+        labels.scalar_type(), "auc_wrapper_2", [&] {
+          using label_t = scalar_t;
+          FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(
+              weights.scalar_type(), "auc_wrapper_3", [&] {
+                using acc_t = at::acc_type<scalar_t, true>;
+                if (padded_section_size == 1) {
+                  LAUNCH_AUC_KERNEL(1)
+                } else {
+                  LAUNCH_AUC_KERNEL(2)
+                }
+              });
+        });
   });
 
 #undef LAUNCH_AUC_KERNEL
