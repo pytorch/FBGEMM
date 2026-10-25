@@ -7,7 +7,6 @@
  */
 
 #include <ATen/core/op_registration/op_registration.h>
-#include <c10/core/ScalarTypeToTypeMeta.h>
 #include <torch/library.h>
 
 #include "./kv_tensor_wrapper.h"
@@ -65,7 +64,6 @@ at::Tensor KVTensorWrapper::narrow(
     int64_t start [[maybe_unused]],
     int64_t length [[maybe_unused]]) {
   FBEXCEPTION("Not implemented");
-  return {};
 }
 
 void KVTensorWrapper::set_range(
@@ -79,46 +77,35 @@ void KVTensorWrapper::set_range(
 
 c10::IntArrayRef KVTensorWrapper::sizes() {
   FBEXCEPTION("Not implemented");
-  return shape_;
 }
 
 c10::IntArrayRef KVTensorWrapper::strides() {
   FBEXCEPTION("Not implemented");
-  return shape_; // make linter happy.
 }
 
 c10::ScalarType KVTensorWrapper::dtype() {
   FBEXCEPTION("Not implemented");
-  return options_.dtype().toScalarType();
 }
 
 std::string_view KVTensorWrapper::dtype_str() {
   FBEXCEPTION("Not implemented");
-  return scalarTypeToTypeMeta(dtype()).name();
 }
 
 c10::Device KVTensorWrapper::device() {
   FBEXCEPTION("Not implemented");
-  return options_.device();
 }
 
 std::string KVTensorWrapper::device_str() {
   FBEXCEPTION("Not implemented");
-  return device().str();
 }
 
 std::string KVTensorWrapper::layout_str() {
   FBEXCEPTION("Not implemented");
-  std::ostringstream oss;
-  oss << options_.layout();
-  return oss.str();
 }
 
 std::vector<std::string> KVTensorWrapper::get_kvtensor_serializable_metadata()
     const {
   FBEXCEPTION("Not implemented");
-  return {};
-  return std::vector<std::string>{};
 }
 
 void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {

@@ -364,19 +364,17 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
 // dummy cpu code for gpu fp8_rowwise conversions
 /// @ingroup quantize-data-cpu
 ///
-Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool /*forward*/) {
+Tensor float_to_FP8rowwise_cpu(const Tensor& /*input*/, bool /*forward*/) {
   TORCH_CHECK(false, "fp8 is not supported by CPU");
-  return input;
 }
 
 /// @ingroup quantize-data-cpu
 ///
 Tensor FP8rowwise_to_float_cpu(
-    const Tensor& input,
+    const Tensor& /*input*/,
     bool /*forward*/,
     const int64_t /*output_dtype*/) {
   TORCH_CHECK(false, "fp8 is not supported by CPU");
-  return input;
 }
 
 /// @ingroup quantize-data-cpu
@@ -408,15 +406,12 @@ Tensor fusednbitrowwise_sbfront_to_float_cpu(
     case SparseType::FP32:
       return _fusednbitrowwise_sbfront_to_float_or_half_cpu<float>(
           input, bit_rate);
-      break;
     case SparseType::FP16:
       return _fusednbitrowwise_sbfront_to_float_or_half_cpu<at::Half>(
           input, bit_rate);
-      break;
     case SparseType::BF16:
       return _fusednbitrowwise_sbfront_to_float_or_half_cpu<at::BFloat16>(
           input, bit_rate);
-      break;
     default:
       TORCH_CHECK(false);
   }
