@@ -1914,8 +1914,11 @@ def prune_configs_block(configs, named_args, **kwargs):
     ],  # TODO caller side bin keys so similar shapes can use same triton.autotune.
     prune_configs_by={
         "early_config_prune": prune_configs_block,
-        "perf_model": estimate_matmul_time,
-        "top_k": 10,
+        **(
+            {"perf_model": estimate_matmul_time, "top_k": 10}
+            if not torch.version.hip
+            else {}
+        ),
     },
 )
 @triton.heuristics(
@@ -2110,8 +2113,11 @@ def _kernel_matmul_fp8_block_fastacc(
     ],  # TODO caller side bin keys so similar shapes can use same triton.autotune.
     prune_configs_by={
         "early_config_prune": early_config_prune,
-        "perf_model": estimate_matmul_time,
-        "top_k": 10,
+        **(
+            {"perf_model": estimate_matmul_time, "top_k": 10}
+            if not torch.version.hip
+            else {}
+        ),
     },
 )
 @triton.heuristics(
