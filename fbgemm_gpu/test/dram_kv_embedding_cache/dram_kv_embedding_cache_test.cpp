@@ -14,10 +14,13 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <future>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -366,6 +369,21 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
     cache.set_kv_with_metaheader_to_storage(weights);
   }
 
+  // Same restore path, with a non-zero row carrying a saved `timestamp`.
+  void restoreRowWithTimestamp(
+      DramKVEmbeddingCache<float>& cache,
+      int64_t id,
+      uint32_t timestamp) {
+    const auto metaheader_dim =
+        static_cast<int64_t>(FixedBlockPool::get_metaheader_dim<float>());
+    auto row = at::ones(
+        {1, metaheader_dim + EMBEDDING_DIM},
+        at::TensorOptions().dtype(at::kFloat));
+    FixedBlockPool::set_key(row[0].data_ptr(), id);
+    FixedBlockPool::set_timestamp(row[0].data_ptr(), timestamp);
+    cache.set_kv_with_metaheader_to_storage(row);
+  }
+
   // inference_set_kv_db_async requires feature_evict_ to be a
   // TimeThresholdBasedEvict (CHECK in the method), so build the cache with a
   // BY_TIMESTAMP_THRESHOLD feature-evict config (MANUAL trigger needs no extra
@@ -488,8 +506,11 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
 
   // pause/resume are no-ops unless is_training, and a MANUAL trigger lets the
   // test decide when a round starts. A triggered round starts paused.
-  std::shared_ptr<DramKVEmbeddingCache<float>>
-  makeTrainingCacheWithManualEvict() {
+  std::shared_ptr<DramKVEmbeddingCache<float>> makeTrainingCacheWithManualEvict(
+      bool backend_return_whole_row = false,
+      std::optional<c10::intrusive_ptr<EnrichmentConfig>> enrichment_config =
+          std::nullopt,
+      bool is_training = true) {
     auto feature_evict_config = c10::make_intrusive<FeatureEvictConfig>(
         /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MANUAL),
         /*trigger_strategy=*/
@@ -514,12 +535,136 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
         NUM_SHARDS,
         /*num_threads=*/4,
         /*row_storage_bitwidth=*/32,
-        /*backend_return_whole_row=*/false,
+        backend_return_whole_row,
         /*enable_async_update=*/false,
         /*table_dims=*/std::nullopt,
         hash_size_cumsum,
-        /*is_training=*/true,
-        /*disable_random_init=*/true);
+        is_training,
+        /*disable_random_init=*/true,
+        /*enable_raw_embedding_streaming=*/false,
+        /*res_store_shards=*/0,
+        /*res_server_port=*/0,
+        /*table_names=*/std::vector<std::string>{},
+        /*table_offsets=*/std::vector<int64_t>{},
+        /*table_sizes=*/std::vector<int64_t>{},
+        std::move(enrichment_config));
+  }
+
+  // The in-memory test backend serves a deterministic non-zero row for any id,
+  // so enrichment queries need no external service.
+  static c10::intrusive_ptr<EnrichmentConfig> makeTestEnrichmentConfig() {
+    return c10::make_intrusive<EnrichmentConfig>(
+        static_cast<int64_t>(EnrichmentType::IN_MEMORY_TEST_ONLY),
+        /*provider_name=*/"",
+        /*client_id=*/"",
+        /*enrichment_dim=*/EMBEDDING_DIM,
+        static_cast<int64_t>(EnrichmentResponseFormat::THRIFT_FLOAT));
+  }
+
+  // Thin wrapper over the enrichment query, with the hashed id doubling as the
+  // unhashed one.
+  void set_embedding_cache_enrich_query_id_async(
+      DramKVEmbeddingCache<float>& cache,
+      const std::vector<int64_t>& ids) {
+    auto indices = at::tensor(ids, at::kLong);
+    cache.set_embedding_cache_enrich_query_id_async(
+        indices,
+        indices.clone(),
+        at::tensor({static_cast<int64_t>(ids.size())}, at::kLong));
+  }
+
+  // Copies the row's timestamp while holding the shard read lock, so the value
+  // never races a write made under the write lock. nullopt if `id` is absent.
+  std::optional<uint32_t> readTimestamp(
+      DramKVEmbeddingCache<float>& cache,
+      int64_t id) {
+    auto& kv_store = cache.get_kv_store();
+    for (int shard = 0; shard < cache.get_num_shards(); ++shard) {
+      auto rlmap = kv_store.by(shard).rlock();
+      auto it = rlmap->find(id);
+      if (it != rlmap->end()) {
+        return FixedBlockPool::get_timestamp(it->second);
+      }
+    }
+    return std::nullopt;
+  }
+
+  bool hasRow(DramKVEmbeddingCache<float>& cache, int64_t id) {
+    return readTimestamp(cache, id).has_value();
+  }
+
+  uint32_t getTimestamp(DramKVEmbeddingCache<float>& cache, int64_t id) {
+    const auto timestamp = readTimestamp(cache, id);
+    EXPECT_TRUE(timestamp.has_value()) << "key " << id << " not found";
+    return timestamp.value_or(0);
+  }
+
+  void setTimestamp(
+      DramKVEmbeddingCache<float>& cache,
+      int64_t id,
+      uint32_t timestamp) {
+    auto& kv_store = cache.get_kv_store();
+    for (int shard = 0; shard < cache.get_num_shards(); ++shard) {
+      auto wlmap = kv_store.by(shard).wlock();
+      auto it = wlmap->find(id);
+      if (it != wlmap->end()) {
+        FixedBlockPool::set_timestamp(it->second, timestamp);
+        return;
+      }
+    }
+    ADD_FAILURE() << "key " << id << " not found";
+  }
+
+  // Waits until the row's timestamp, read under the shard lock, reaches
+  // `at_least`: the refresh this asserts on has then landed.
+  bool waitForTimestampAtLeast(
+      DramKVEmbeddingCache<float>& cache,
+      int64_t id,
+      uint32_t at_least,
+      std::chrono::milliseconds timeout) {
+    cache.resume_ongoing_eviction();
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (readTimestamp(cache, id).value_or(0) < at_least) {
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return false;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return true;
+  }
+
+  // Completion signal for the two negative tests (refresh switch off, and a
+  // non-training cache) whose earlier query hits only existing rows. Such an
+  // all-hit query fetches nothing and clears laser_write_in_progress_ at the
+  // end of its chain, and the probe row is written by a later admitted query,
+  // so the probe row appearing happens-after that query finished; a dropped
+  // query schedules nothing in these two modes. This is not a general drain
+  // signal: a query that fetches can clear the flag before its asynchronous
+  // write lands.
+  bool waitForEnrichedRow(
+      DramKVEmbeddingCache<float>& cache,
+      int64_t missing_id,
+      std::chrono::milliseconds timeout) {
+    // A training-mode set_kv_db_async pauses enrichment writes until the step
+    // finishes; release them as the end of a training step would.
+    cache.resume_ongoing_eviction();
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!hasRow(cache, missing_id)) {
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return false;
+      }
+      set_embedding_cache_enrich_query_id_async(cache, {missing_id});
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return true;
+  }
+
+  // Runs one triggered eviction round to completion.
+  void runEvictionRound(DramKVEmbeddingCache<float>& cache) {
+    cache.trigger_feature_evict();
+    cache.resume_ongoing_eviction(/*force_resume=*/true);
+    EXPECT_TRUE(waitForEvictionIdle(cache, std::chrono::seconds(10)));
+    cache.wait_until_eviction_done();
   }
 
   // Thin wrapper over EmbeddingKVDB::get, the host callback behind get_cuda.
@@ -752,6 +897,327 @@ TEST_F(DramKVEmbeddingCacheTest, EmptyGetResumesTriggeredEvictionWhenEnabled) {
 
   EXPECT_TRUE(waitForEvictionIdle(*cache, std::chrono::seconds(10)));
   cache->wait_until_eviction_done();
+}
+
+// Two hours old: past the 60-minute TTL of makeTrainingCacheWithManualEvict.
+constexpr uint32_t kStaleAgeSeconds = 2 * 3600;
+constexpr int64_t kProbeId = 999;
+
+// Test: with the opt-in, an enrichment query that hits an existing row moves
+// its timestamp to now.
+TEST_F(DramKVEmbeddingCacheTest, EnrichQueryHitRefreshesTimestampWhenEnabled) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT", "1", /*overwrite=*/1);
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false, makeTestEnrichmentConfig());
+  constexpr int64_t hot_id = 11;
+  set_kv_db_async(*cache, hot_id);
+  const uint32_t before_query = FixedBlockPool::current_timestamp();
+  setTimestamp(*cache, hot_id, before_query - kStaleAgeSeconds);
+
+  set_embedding_cache_enrich_query_id_async(*cache, {hot_id});
+
+  EXPECT_TRUE(waitForTimestampAtLeast(
+      *cache, hot_id, before_query, std::chrono::seconds(10)));
+}
+
+TEST_F(DramKVEmbeddingCacheTest, DestructionWaitsForPendingTimestampRefresh) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT", "1", /*overwrite=*/1);
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false, makeTestEnrichmentConfig());
+  constexpr int64_t id = 11;
+  set_kv_db_async(*cache, id);
+  cache->resume_ongoing_eviction();
+  auto indices = at::tensor({id}, at::kLong);
+  auto count = at::tensor({1}, at::kLong);
+
+  auto& kv_store = cache->get_kv_store();
+  int shard_id = -1;
+  for (int shard = 0; shard < cache->get_num_shards(); ++shard) {
+    auto rlmap = kv_store.by(shard).rlock();
+    if (rlmap->contains(id)) {
+      shard_id = shard;
+      break;
+    }
+  }
+  ASSERT_GE(shard_id, 0);
+
+  std::promise<void> destroy_started;
+  auto started = destroy_started.get_future();
+  std::future<void> destroyed;
+  {
+    // The refresh cannot finish its write-locked pass until this read lock is
+    // released. Destroying the cache must wait for that pass and its cleanup.
+    auto rlmap = kv_store.by(shard_id).rlock();
+    cache->refresh_hit_timestamps_async(indices, count);
+    destroyed = std::async(std::launch::async, [&cache, &destroy_started] {
+      destroy_started.set_value();
+      cache.reset();
+    });
+    EXPECT_EQ(
+        started.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_EQ(
+        destroyed.wait_for(std::chrono::milliseconds(100)),
+        std::future_status::timeout);
+  }
+  EXPECT_EQ(
+      destroyed.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  destroyed.get();
+}
+
+TEST_F(DramKVEmbeddingCacheTest, TimestampRefreshRecoversAfterAsyncFailure) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT", "1", /*overwrite=*/1);
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false, makeTestEnrichmentConfig());
+  constexpr int64_t id = 11;
+  set_kv_db_async(*cache, id);
+  const auto before_refresh = FixedBlockPool::current_timestamp();
+  setTimestamp(*cache, id, before_refresh - kStaleAgeSeconds);
+  cache->resume_ongoing_eviction();
+  auto indices = at::tensor({id}, at::kLong);
+  auto count = at::tensor({1}, at::kLong);
+
+  // An undefined count tensor throws inside the asynchronous shard-input pass.
+  cache->refresh_hit_timestamps_async(indices, at::Tensor{});
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (readTimestamp(*cache, id).value_or(0) < before_refresh &&
+         std::chrono::steady_clock::now() < deadline) {
+    cache->refresh_hit_timestamps_async(indices, count);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_GE(getTimestamp(*cache, id), before_refresh);
+}
+
+// Test: without the opt-in, an enrichment query leaves a hit row's timestamp
+// as it was.
+TEST_F(DramKVEmbeddingCacheTest, EnrichQueryHitKeepsTimestampByDefault) {
+  folly::test::EnvVarSaver env_saver;
+  unsetenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT");
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false, makeTestEnrichmentConfig());
+  constexpr int64_t hot_id = 11;
+  set_kv_db_async(*cache, hot_id);
+  const uint32_t stale = FixedBlockPool::current_timestamp() - kStaleAgeSeconds;
+  setTimestamp(*cache, hot_id, stale);
+
+  set_embedding_cache_enrich_query_id_async(*cache, {hot_id});
+  ASSERT_TRUE(waitForEnrichedRow(*cache, kProbeId, std::chrono::seconds(10)));
+
+  EXPECT_EQ(getTimestamp(*cache, hot_id), stale);
+}
+
+// Test: TTL eviction keeps a row the enrichment query keeps hitting and evicts
+// an equally old row nobody queried.
+TEST_F(DramKVEmbeddingCacheTest, TtlEvictionKeepsRowsHitByEnrichQuery) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT", "1", /*overwrite=*/1);
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false, makeTestEnrichmentConfig());
+  constexpr int64_t hot_id = 21;
+  constexpr int64_t cold_id = 22;
+  set_kv_db_async(*cache, std::vector<int64_t>{hot_id, cold_id});
+  const uint32_t stale = FixedBlockPool::current_timestamp() - kStaleAgeSeconds;
+  setTimestamp(*cache, hot_id, stale);
+  setTimestamp(*cache, cold_id, stale);
+
+  const uint32_t before_query = FixedBlockPool::current_timestamp();
+  set_embedding_cache_enrich_query_id_async(*cache, {hot_id});
+  ASSERT_TRUE(waitForTimestampAtLeast(
+      *cache, hot_id, before_query, std::chrono::seconds(10)));
+  runEvictionRound(*cache);
+
+  EXPECT_TRUE(hasRow(*cache, hot_id));
+  EXPECT_FALSE(hasRow(*cache, cold_id));
+}
+
+// Test: with the opt-in, a restored row is stamped with the restore time
+// instead of the timestamp saved in the checkpoint.
+TEST_F(DramKVEmbeddingCacheTest, RestoreRestampsTimestampWhenEnabled) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_RESTAMP_ON_RESTORE", "1", /*overwrite=*/1);
+  auto cache =
+      makeTrainingCacheWithManualEvict(/*backend_return_whole_row=*/true);
+  constexpr int64_t id = 31;
+  const uint32_t before_restore = FixedBlockPool::current_timestamp();
+
+  restoreRowWithTimestamp(*cache, id, before_restore - kStaleAgeSeconds);
+
+  EXPECT_GE(getTimestamp(*cache, id), before_restore);
+}
+
+// Test: without the opt-in, a restored row keeps the checkpointed timestamp.
+TEST_F(DramKVEmbeddingCacheTest, RestoreKeepsCheckpointTimestampByDefault) {
+  folly::test::EnvVarSaver env_saver;
+  unsetenv("KVZCH_RESTAMP_ON_RESTORE");
+  auto cache =
+      makeTrainingCacheWithManualEvict(/*backend_return_whole_row=*/true);
+  constexpr int64_t id = 31;
+  const uint32_t stale = FixedBlockPool::current_timestamp() - kStaleAgeSeconds;
+
+  restoreRowWithTimestamp(*cache, id, stale);
+
+  EXPECT_EQ(getTimestamp(*cache, id), stale);
+}
+
+// Test: the write-locked refresh re-finds every row: a row evicted after the
+// caller's lookup is skipped, and a row stamped in the future is pulled back to
+// now.
+TEST_F(DramKVEmbeddingCacheTest, WlockRefreshSkipsEvictedAndClampsFutureRows) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT", "1", /*overwrite=*/1);
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false, makeTestEnrichmentConfig());
+  constexpr int64_t hot_id = 41;
+  constexpr int64_t evicted_id = 42;
+  constexpr int64_t future_id = 43;
+  set_kv_db_async(*cache, std::vector<int64_t>{hot_id, evicted_id, future_id});
+  const uint32_t now = FixedBlockPool::current_timestamp();
+  setTimestamp(*cache, hot_id, now - 10);
+  setTimestamp(*cache, evicted_id, now - kStaleAgeSeconds);
+  setTimestamp(*cache, future_id, now - 10);
+  runEvictionRound(*cache);
+  ASSERT_FALSE(hasRow(*cache, evicted_id));
+  // Set after eviction: a timestamp ahead of the evictor's clock underflows
+  // its unsigned age check and would be evicted.
+  setTimestamp(*cache, future_id, now + 3600);
+
+  const std::vector<int64_t> ids{hot_id, evicted_id, future_id};
+  for (int shard = 0; shard < cache->get_num_shards(); ++shard) {
+    cache->refresh_hit_timestamps_under_wlock(shard, ids);
+  }
+  const uint32_t after_refresh = FixedBlockPool::current_timestamp();
+
+  EXPECT_GE(getTimestamp(*cache, hot_id), now);
+  EXPECT_FALSE(hasRow(*cache, evicted_id));
+  EXPECT_GE(getTimestamp(*cache, future_id), now);
+  EXPECT_LE(getTimestamp(*cache, future_id), after_refresh);
+}
+
+// Test: enrichment-query refreshes racing metadata reads, training reads and
+// eviction rounds (of other rows) never move a row's timestamp backwards.
+TEST_F(
+    DramKVEmbeddingCacheTest,
+    ConcurrentRefreshReadsAndEvictionKeepTimestampsMonotonic) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT", "1", /*overwrite=*/1);
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false, makeTestEnrichmentConfig());
+  std::vector<int64_t> hot_ids;
+  std::vector<int64_t> cold_ids;
+  for (int64_t id = 100; id < 164; ++id) {
+    (id % 2 == 0 ? hot_ids : cold_ids).push_back(id);
+  }
+  set_kv_db_async(*cache, hot_ids);
+  set_kv_db_async(*cache, cold_ids);
+  const uint32_t start = FixedBlockPool::current_timestamp();
+  // Hot rows start inside the TTL so eviction never removes them; only the
+  // stale cold rows are evicted while the hot rows are refreshed and read.
+  for (const auto id : hot_ids) {
+    setTimestamp(*cache, id, start - 10);
+  }
+  for (const auto id : cold_ids) {
+    setTimestamp(*cache, id, start - kStaleAgeSeconds);
+  }
+  cache->resume_ongoing_eviction();
+
+  std::atomic<bool> stop{false};
+  std::atomic<int64_t> regressions{0};
+  std::thread refresher([&] {
+    while (!stop.load()) {
+      set_embedding_cache_enrich_query_id_async(*cache, hot_ids);
+      cache->resume_ongoing_eviction();
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  });
+  std::thread metadata_reader([&] {
+    const auto indices = at::tensor(hot_ids, at::kLong);
+    const auto count =
+        at::tensor({static_cast<int64_t>(hot_ids.size())}, at::kLong);
+    std::vector<uint32_t> last(hot_ids.size(), 0);
+    const auto stride =
+        static_cast<int64_t>(FixedBlockPool::get_metaheader_dim<float>());
+    while (!stop.load()) {
+      const auto metadata = cache->get_kv_metadata_rows(indices, count);
+      for (size_t i = 0; i < hot_ids.size(); ++i) {
+        MetaHeader header{};
+        std::memcpy(
+            &header,
+            metadata.data_ptr<float>() + i * stride,
+            sizeof(MetaHeader));
+        if (header.key != hot_ids[i]) {
+          continue;
+        }
+        if (header.timestamp < last[i]) {
+          regressions++;
+        }
+        last[i] = header.timestamp;
+      }
+    }
+  });
+  std::thread training_reader([&] {
+    while (!stop.load()) {
+      get(*cache, hot_ids);
+    }
+  });
+  std::thread evictor([&] {
+    while (!stop.load()) {
+      cache->trigger_feature_evict();
+      cache->resume_ongoing_eviction(/*force_resume=*/true);
+      waitForEvictionIdle(*cache, std::chrono::seconds(5));
+    }
+  });
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+  stop.store(true);
+  refresher.join();
+  metadata_reader.join();
+  training_reader.join();
+  evictor.join();
+  cache->wait_until_eviction_done();
+
+  EXPECT_EQ(regressions.load(), 0);
+  int64_t refreshed = 0;
+  for (const auto id : hot_ids) {
+    if (readTimestamp(*cache, id).value_or(0) >= start) {
+      refreshed++;
+    }
+  }
+  EXPECT_GT(refreshed, 0);
+  int64_t evicted = 0;
+  for (const auto id : cold_ids) {
+    evicted += hasRow(*cache, id) ? 0 : 1;
+  }
+  EXPECT_GT(evicted, 0);
+}
+
+// Test: a directly constructed is_training=false cache neither refreshes nor
+// restamps. The production wrapper always passes true, even when reused by a
+// publish/eval job, so this test does not establish production job isolation.
+TEST_F(DramKVEmbeddingCacheTest, NonTrainingCacheKeepsTimestamps) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT", "1", /*overwrite=*/1);
+  setenv("KVZCH_RESTAMP_ON_RESTORE", "1", /*overwrite=*/1);
+  auto cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/false,
+      makeTestEnrichmentConfig(),
+      /*is_training=*/false);
+  constexpr int64_t hot_id = 51;
+  set_kv_db_async(*cache, hot_id);
+  const uint32_t stale = FixedBlockPool::current_timestamp() - kStaleAgeSeconds;
+  setTimestamp(*cache, hot_id, stale);
+  set_embedding_cache_enrich_query_id_async(*cache, {hot_id});
+  ASSERT_TRUE(waitForEnrichedRow(*cache, kProbeId, std::chrono::seconds(10)));
+  EXPECT_EQ(getTimestamp(*cache, hot_id), stale);
+
+  auto restore_cache = makeTrainingCacheWithManualEvict(
+      /*backend_return_whole_row=*/true,
+      /*enrichment_config=*/std::nullopt,
+      /*is_training=*/false);
+  constexpr int64_t restored_id = 52;
+  restoreRowWithTimestamp(*restore_cache, restored_id, stale);
+  EXPECT_EQ(getTimestamp(*restore_cache, restored_id), stale);
 }
 
 TEST_F(DramKVEmbeddingCacheTest, PipelinedReadMatchesLegacy) {
