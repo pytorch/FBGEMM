@@ -932,6 +932,25 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((256, 256, 64), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 192), (256, 256, 128), True)
 
+    def test_matmul_fp8_row_tma_aligned(self) -> None:
+        from fbgemm_gpu.experimental.gemm.triton_gemm.utils import TmaAutoTuneHelper
+
+        device = torch.accelerator.current_accelerator()
+        a = torch.randn(128, 64, dtype=torch.bfloat16, device=device)
+        b = torch.randn(128, 64, dtype=torch.bfloat16, device=device)
+        a_fp8, a_scale = quantize_fp8_row(a)
+        b_fp8, b_scale = quantize_fp8_row(b)
+        expected = (
+            a_fp8.float() @ b_fp8.float().T * a_scale[:, None] * b_scale[None, :]
+        ).to(torch.bfloat16)
+        with mock.patch(
+            "fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm.TmaAutoTuneHelper",
+            wraps=TmaAutoTuneHelper,
+        ) as descriptor_factory:
+            result = matmul_fp8_row(a_fp8, b_fp8, a_scale, b_scale, tma_persistent=True)
+        self.assertEqual(descriptor_factory.called, torch.version.hip is None)
+        torch.testing.assert_close(result, expected, atol=2e-2, rtol=1.6e-2)
+
 
 class TestPruneConfigsNonPersistent(unittest.TestCase):
     def test_pruning_preserves_symbolic_dimensions(self) -> None:
