@@ -71,6 +71,7 @@
 /// @defgroup FP8/INT8 quantized FC Operators
 ///
 
+#include <c10/util/irange.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <math.h>
@@ -2243,7 +2244,7 @@ cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
 
 // Local maximum value.
 #pragma unroll
-  for (int i = 1; i < CVT_FP4_ELTS_PER_THREAD / 2; i++) {
+  for (const auto i : c10::irange(1, CVT_FP4_ELTS_PER_THREAD / 2)) {
     localMax = __hmax2(localMax, __habs2(vec.elts[i]));
   }
 
@@ -2290,7 +2291,7 @@ cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
   float2 fp2Vals[CVT_FP4_ELTS_PER_THREAD / 2];
 
 #pragma unroll
-  for (int i = 0; i < CVT_FP4_ELTS_PER_THREAD / 2; i++) {
+  for (const auto i : c10::irange(CVT_FP4_ELTS_PER_THREAD / 2)) {
     if constexpr (std::is_same_v<Type, half>) {
       fp2Vals[i] = __half22float2(vec.elts[i]);
     } else {
@@ -2564,7 +2565,7 @@ compute_max(const float x, const int block_size, const float clamp = FLT_MAX) {
 __device__ __host__ __inline__ float
 round_to_even(float x, const float* values, const float* bounds, int n) {
   // Within current bounds.
-  for (int i = 0; i < n - 1; i++) {
+  for (const auto i : c10::irange(n - 1)) {
     // If less than tie, round down
     if (x < bounds[i]) {
       return values[i];
