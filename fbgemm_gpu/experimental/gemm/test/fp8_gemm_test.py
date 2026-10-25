@@ -31,6 +31,7 @@ if torch.cuda.is_available():
         dequantize_fp8_block,
         dequantize_fp8_packed_row,
         dequantize_fp8_row,
+        get_fp8_constants,
         matmul_fp8_block,
         matmul_fp8_row,
         quantize_fp8_block,
@@ -240,6 +241,40 @@ class TestFp8Matmul(unittest.TestCase):
             transpose_inputs=True,
             use_jagged=True,
         )
+
+    def test_fp8_packed_scale_bytes_and_row_tails(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        fp8_dtype, _, max_fp8, _ = get_fp8_constants()
+        scales = torch.tensor([0.25, 0.5, 1.0], device=device)
+        expected_scale_bytes = scales.view(torch.uint8).reshape(3, 4)
+        for k in (1, 3, 5):
+            with self.subTest(k=k):
+                values = (
+                    torch.ones(1, device=device)
+                    if k == 1
+                    else torch.linspace(-1.0, 1.0, k, device=device)
+                )
+                a = (scales[:, None] * max_fp8 * values).to(torch.bfloat16)
+                packed = quantize_fp8_packed_row_raw(a)
+                self.assertEqual(packed.shape, (3, k + 4))
+                self.assertEqual(packed.device, a.device)
+                self.assertEqual(packed.dtype, fp8_dtype)
+                torch.testing.assert_close(
+                    packed[:, -4:].view(torch.uint8),
+                    expected_scale_bytes,
+                    atol=0,
+                    rtol=0,
+                )
+                expected_fp8 = (a.float() / scales[:, None]).to(fp8_dtype)
+                torch.testing.assert_close(
+                    packed[:, :k].view(torch.uint8),
+                    expected_fp8.view(torch.uint8),
+                    atol=0,
+                    rtol=0,
+                )
+                torch.testing.assert_close(
+                    dequantize_fp8_packed_row(packed), a, atol=0, rtol=0
+                )
 
     def test_quantize_fp8_packed_row(self) -> None:
         def _test_quantize_fp8_packed_row(

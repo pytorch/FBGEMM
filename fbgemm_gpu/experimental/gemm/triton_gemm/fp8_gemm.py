@@ -2904,30 +2904,11 @@ def _kernel_quantize_fp8_packed_row(
     # Scale and quantize.
     a_scale = MAX_FP8 / cur_max
 
-    (fp8_0, fp8_1, fp8_2, fp8_3) = tl.inline_asm_elementwise(
-        asm="""
-        {
-            // $4 is the input register
-            .reg .b32 input;
-            mov.b32 input, $4;
-            mov.b32 $0, $4;
-            shr.b32 $1, $4, 8;
-            shr.b32 $2, $4, 16;
-            shr.b32 $3, $4, 24;
-        }
-            """,
-        constraints=("=r,=r,=r,=r," "r"),
-        # Let's pass in 1 uint32 value per iteration, containing 8 packed int4 values
-        args=[1.0 / a_scale],
-        dtype=(
-            tl.uint8,
-            tl.uint8,
-            tl.uint8,
-            tl.uint8,
-        ),
-        is_pure=True,
-        pack=1,
-    )
+    scale_bits = (1.0 / a_scale).to(tl.float32).to(tl.uint32, bitcast=True)
+    fp8_0 = scale_bits.to(tl.uint8)
+    fp8_1 = (scale_bits >> 8).to(tl.uint8)
+    fp8_2 = (scale_bits >> 16).to(tl.uint8)
+    fp8_3 = (scale_bits >> 24).to(tl.uint8)
 
     # There are some compiler issues with FP8 pointers
     packed_scale_ptr = packed_scale.to(tl.pointer_type(tl.uint8))
@@ -4412,7 +4393,7 @@ def _kernel_dequantize_fp8_packed_row(
         pid = pid.to(tl.int64)
     offs_m = pid * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_k = tl.arange(0, BLOCK_K)
-    scales = tl.load(x_scale_ptr + offs_m)
+    scales = tl.load(x_scale_ptr + offs_m, mask=offs_m < M, other=0.0)
 
     for _k in tl.range(0, tl.cdiv(K, BLOCK_K), num_stages=NUM_STAGES):
         mask = (offs_m[:, None] < M) & (offs_k[None, :] < K)
