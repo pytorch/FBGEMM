@@ -1474,6 +1474,18 @@ def matmul_fp8_row(
         prep_matmul(a, b, dot_out_dtype)
     )
 
+    # Tensor maps require 16-byte row strides, including the BF16 output.
+    # The descriptor helper assumes contiguous row-major inputs.
+    if (
+        not a.is_contiguous()
+        or not b.is_contiguous()
+        or (K * a.element_size()) % 16 != 0
+        or (K * b.element_size()) % 16 != 0
+        or (N * c.element_size()) % 16 != 0
+    ):
+        tma_persistent = False
+        use_warp_specialization = False
+
     # Skip scaling (a_scale is None) can only be applied in certain cases.
     assert a_scale is not None or _is_eligible_for_skip_scaling(
         is_rowwise=True,
