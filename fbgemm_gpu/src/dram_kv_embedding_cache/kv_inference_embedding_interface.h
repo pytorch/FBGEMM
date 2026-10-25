@@ -50,6 +50,13 @@ class KVInferenceEmbeddingInterface {
       int64_t row_storage_bitwidth,
       bool disable_random_init) = 0;
 
+  /// Set whether a lookup miss returns an all-zero row. Called when the
+  /// backend is installed into a wrapper; backends that take this at
+  /// construction time keep the default no-op.
+  ///
+  /// @param disable_random_init whether to disable random initialization
+  virtual void set_disable_random_init(bool /* disable_random_init */) {}
+
   /// Set embeddings in the KV store (sync version)
   ///
   /// @param indices The 1D embedding index tensor
