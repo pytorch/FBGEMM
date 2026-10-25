@@ -33,10 +33,6 @@ except Exception:
 
 
 class MetricOpsTest(unittest.TestCase):
-    @unittest.skipIf(
-        True,
-        "Test is sometimes failed due to issues with Flaky. Skipping until the issues are resolved. ",
-    )
     # pyre-ignore [56]
     @given(
         n_tasks=st.integers(1, 5),
@@ -166,6 +162,37 @@ class MetricOpsTest(unittest.TestCase):
             ref_aucs.append(num / den if den > 0 else 0.0)
         ref = torch.tensor(ref_aucs, dtype=torch.float32)
         torch.testing.assert_close(result.cpu().view(-1), ref, rtol=1e-4, atol=1e-4)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_batch_auc_float64_multi_block(self) -> None:
+        num_entries = 513
+        entries = torch.arange(num_entries, dtype=torch.float64)
+        predictions_cpu = torch.stack([entries, entries.flip(0)])
+        labels_cpu = torch.stack([entries.remainder(2), (entries + 1).remainder(2)])
+        weights_cpu = torch.stack(
+            [0.5 + entries.remainder(5) / 10, 2.0 + entries.remainder(7) / 20]
+        )
+        expected = []
+        for predictions, labels, weights in zip(
+            predictions_cpu, labels_cpu, weights_cpu
+        ):
+            positive = labels == 1
+            negative = labels == 0
+            pair_weights = weights[positive, None] * weights[None, negative]
+            wins = predictions[positive, None] > predictions[None, negative]
+            expected.append((pair_weights * wins).sum() / pair_weights.sum())
+
+        device = torch.accelerator.current_accelerator()
+        result = fbgemm_gpu.metrics.auc(
+            2,
+            predictions_cpu.to(device),
+            labels_cpu.to(device),
+            weights_cpu.to(device),
+        )
+        self.assertEqual(result.dtype, torch.float64)
+        torch.testing.assert_close(
+            result.cpu(), torch.stack(expected), rtol=1e-12, atol=1e-12
+        )
 
 
 if __name__ == "__main__":
