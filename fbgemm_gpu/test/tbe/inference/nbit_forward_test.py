@@ -17,7 +17,7 @@ from typing import Any
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
@@ -44,7 +44,12 @@ from fbgemm_gpu.tbe.utils import (
 from hypothesis import assume, example, given, settings, Verbosity
 
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
-from .common import get_nbit_weights_ty, NBitFowardTestCommon
+from .common import (
+    FP8_EXPONENT_BIAS,
+    FP8_EXPONENT_BITS,
+    get_nbit_weights_ty,
+    NBitFowardTestCommon,
+)
 
 if open_source:
     # pyre-ignore[21]
@@ -1946,6 +1951,312 @@ class NBitFowardTest(NBitFowardTestCommon):
             dequant_cc_output.cpu(),
             dequant_output_from_quant_cc.cpu(),
             equal_nan=False,
+        )
+
+
+# The gfx942 long-L no-bag specialization takes only this configuration:
+# unweighted, device-only INT4 tables with D == 64 and row_alignment == 16, FP16
+# output, at most LONG_L_MAX_BAGS bags, and on average at least
+# LONG_L_MIN_ROWS_PER_BAG indices per bag. Indices may be int32 or int64, since
+# the op narrows no-bag indices to int32. The host dispatch is the frontend
+# check: any other configuration runs the generic kernels, so none is rejected.
+LONG_L_MAX_BAGS = 4096
+LONG_L_MIN_ROWS_PER_BAG = 8
+
+
+@st.composite
+def long_l_tables_and_bags(draw: st.DrawFn) -> tuple[int, int]:
+    T = draw(st.integers(min_value=1, max_value=6))
+    B = draw(st.integers(min_value=1, max_value=LONG_L_MAX_BAGS // T))
+    return T, B
+
+
+class NBitLongLNobagTest(unittest.TestCase):
+    # Runs on every GPU: gfx942 dispatches the supported configuration to the
+    # long-L D64 specialization, and every other GPU must produce the same
+    # result through the generic kernels.
+    def _check_long_l_nobag(
+        self,
+        weights_tys: list[SparseType],
+        E: int,
+        B: int,
+        mean_L: int,
+        empty_bag_prob: float,
+        pruned_prob: float,
+        num_trailing: int,
+        seed: int,
+        D: int = 64,
+        output_dtype: SparseType = SparseType.FP16,
+        indices_dtype: torch.dtype = torch.int32,
+        location: EmbeddingLocation = EmbeddingLocation.DEVICE,
+        row_alignment: int = 16,
+    ) -> None:
+        """Compare a no-bag forward with directly gathered dequantized rows.
+
+        Bag lengths are ragged and sum to exactly ``T * B * mean_L``, so
+        ``mean_L`` alone decides the long-L threshold. A nonzero
+        ``empty_bag_prob`` also empties the bags on both sides of every table
+        boundary, ``pruned_prob`` replaces indices with -1 (pruned rows, which
+        read as zeros), and ``num_trailing`` indices follow the final offset,
+        which ``WARNING_ALLOW_TRAILING_INDICES`` permits and which belong to no
+        bag.
+        """
+        device = torch.cuda.current_device()
+        generator = torch.Generator().manual_seed(seed)
+        T = len(weights_tys)
+        num_bags = T * B
+        fp8_config = (
+            FP8QuantizationConfig(FP8_EXPONENT_BITS, FP8_EXPONENT_BIAS)
+            if SparseType.FP8 in weights_tys
+            else None
+        )
+
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[("", E, D, ty, location) for ty in weights_tys],
+            pooling_mode=PoolingMode.NONE,
+            output_dtype=output_dtype,
+            bounds_check_mode=BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
+            device=device,
+            indices_dtype=indices_dtype,
+            row_alignment=row_alignment,
+            fp8_exponent_bits=FP8_EXPONENT_BITS if fp8_config is not None else None,
+            fp8_exponent_bias=FP8_EXPONENT_BIAS if fp8_config is not None else None,
+        )
+        op.fill_random_weights()
+
+        # Random bytes can decode to NaN scales; quantize finite rows instead.
+        tables = []
+        for t, ty in enumerate(weights_tys):
+            table = torch.rand(E, D, generator=generator) * 2 - 1
+            quant_weights, quant_scale_shift = quantize_embs(table, ty, fp8_config)
+            # Decodes integer types into `table`; float types are encoded from
+            # it instead, so `table` holds the reference rows either way.
+            fake_quantize_embs(
+                quant_weights,
+                quant_scale_shift,
+                table,
+                ty,
+                use_cpu=True,
+                fp8_config=fp8_config,
+            )
+            weights, scale_shift = op.split_embedding_weights()[t]
+            weights.copy_(quant_weights)
+            if quant_scale_shift is not None:
+                self.assertIsNotNone(scale_shift)
+                scale_shift.copy_(quant_scale_shift)
+            tables.append(table)
+
+        empty = torch.rand(num_bags, generator=generator) < empty_bag_prob
+        if empty_bag_prob > 0:
+            table_starts = torch.arange(B, num_bags, B)
+            empty[table_starts - 1] = True
+            empty[table_starts] = True
+        if bool(empty.all()):
+            empty[0] = False
+        non_empty = (~empty).nonzero().flatten()
+        total_L = num_bags * mean_L
+        cuts = torch.randint(
+            0, total_L + 1, (non_empty.numel() - 1,), generator=generator
+        ).sort()[0]
+        lengths = torch.zeros(num_bags, dtype=torch.int64)
+        lengths[non_empty] = torch.cat(
+            [torch.tensor([0]), cuts, torch.tensor([total_L])]
+        ).diff()
+        offsets = torch.cat([torch.tensor([0]), lengths.cumsum(0)])
+
+        indices = torch.randint(0, E, (total_L + num_trailing,), generator=generator)
+        indices[torch.rand(indices.numel(), generator=generator) < pruned_prob] = -1
+
+        bagged_indices = indices[:total_L].to(device)
+        table_of_row = (torch.arange(num_bags) // B).repeat_interleave(lengths)
+        expected = torch.stack(tables).to(device)[
+            table_of_row.to(device), bagged_indices.clamp(min=0)
+        ]
+        expected[bagged_indices == -1] = 0
+
+        # Reading past the last table is otherwise silent, so the per-table
+        # tensors are backed by storage whose next entry is an INT4 table at a
+        # far out-of-range offset: a kernel that reads it faults the GPU.
+        int4_ty = torch.tensor(
+            [SparseType.INT4.as_int()], dtype=torch.uint8, device=device
+        )
+        out_of_range_offset = torch.tensor([1 << 44], dtype=torch.int64, device=device)
+        op.weights_tys = torch.cat([op.weights_tys, int4_ty])[:T]
+        op.weights_offsets = torch.cat([op.weights_offsets, out_of_range_offset])[:T]
+
+        output = op(
+            indices=indices.to(device=device, dtype=indices_dtype),
+            offsets=offsets.to(device=device, dtype=indices_dtype),
+        )
+
+        self.assertEqual(output.shape, (total_L + num_trailing, D))
+        # Rows of trailing indices belong to no bag and are left unspecified.
+        torch.testing.assert_close(
+            output[:total_L].float(), expected, atol=1.0e-2, rtol=1.0e-2
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        tables_and_bags=long_l_tables_and_bags(),
+        E=st.integers(min_value=1, max_value=2000),
+        mean_L=st.sampled_from([LONG_L_MIN_ROWS_PER_BAG, 64, 512]),
+        empty_bag_prob=st.sampled_from([0.0, 0.25]),
+        pruned_prob=st.sampled_from([0.0, 0.1]),
+        num_trailing=st.sampled_from([0, 1, 37]),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
+        seed=st.integers(min_value=0, max_value=2**31 - 1),
+    )
+    @example(
+        tables_and_bags=(1, 1),
+        E=1000,
+        mean_L=512,
+        empty_bag_prob=0.0,
+        pruned_prob=0.0,
+        num_trailing=1,
+        indices_dtype=torch.int32,
+        seed=0,
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_int4_d64_long_l_gfx942(
+        self,
+        tables_and_bags: tuple[int, int],
+        E: int,
+        mean_L: int,
+        empty_bag_prob: float,
+        pruned_prob: float,
+        num_trailing: int,
+        indices_dtype: torch.dtype,
+        seed: int,
+    ) -> None:
+        """Every case satisfies the specialization's guard.
+
+        The weight type, D, placement, row alignment and output dtype are
+        fixed because the specialization supports only those values; the
+        number of tables, rows and bags, the ragged lengths, empty bags, pruned
+        and trailing indices, and the index dtype are drawn.
+        """
+        T, B = tables_and_bags
+        self._check_long_l_nobag(
+            [SparseType.INT4] * T,
+            E,
+            B,
+            mean_L,
+            empty_bag_prob,
+            pruned_prob,
+            num_trailing,
+            seed,
+            indices_dtype=indices_dtype,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=6),
+        E=st.integers(min_value=1, max_value=2000),
+        B=st.integers(min_value=1, max_value=48),
+        empty_bag_prob=st.sampled_from([0.0, 0.25]),
+        pruned_prob=st.sampled_from([0.0, 0.1]),
+        seed=st.integers(min_value=0, max_value=2**31 - 1),
+    )
+    @settings(
+        verbosity=VERBOSITY, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None
+    )
+    def test_int4_d64_long_l_gfx942_dispatch_boundaries(
+        self,
+        T: int,
+        E: int,
+        B: int,
+        empty_bag_prob: float,
+        pruned_prob: float,
+        seed: int,
+    ) -> None:
+        """Moving any one guard condition just outside falls back correctly.
+
+        There are no trailing indices here, since they count toward the
+        average bag length the dispatch sees and would blur the ``mean_L``
+        boundary.
+        """
+        just_outside: dict[str, dict[str, Any]] = {
+            "weights_ty": {"weights_tys": [SparseType.INT8] * T},
+            "D": {"D": 128},
+            "location": {"location": EmbeddingLocation.MANAGED},
+            "row_alignment": {"row_alignment": 32},
+            "output_dtype": {"output_dtype": SparseType.FP32},
+            "num_bags": {"B": LONG_L_MAX_BAGS // T + 1},
+            "mean_L": {"mean_L": LONG_L_MIN_ROWS_PER_BAG - 1},
+        }
+        for outside, override in just_outside.items():
+            config: dict[str, Any] = {
+                "weights_tys": [SparseType.INT4] * T,
+                "B": B,
+                "mean_L": LONG_L_MIN_ROWS_PER_BAG,
+                **override,
+            }
+            with self.subTest(outside=outside):
+                self._check_long_l_nobag(
+                    E=E,
+                    empty_bag_prob=empty_bag_prob,
+                    pruned_prob=pruned_prob,
+                    num_trailing=0,
+                    seed=seed,
+                    **config,
+                )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        weights_tys=st.lists(
+            st.sampled_from(
+                [
+                    SparseType.INT4,
+                    SparseType.INT2,
+                    SparseType.INT8,
+                    SparseType.FP8,
+                    SparseType.FP16,
+                    SparseType.FP32,
+                ]
+            ),
+            min_size=2,
+            max_size=6,
+        ).filter(
+            lambda tys: SparseType.INT4 in tys
+            and any(ty != SparseType.INT4 for ty in tys)
+        ),
+        E=st.integers(min_value=1, max_value=2000),
+        B=st.integers(min_value=1, max_value=LONG_L_MAX_BAGS // 6),
+        mean_L=st.sampled_from([LONG_L_MIN_ROWS_PER_BAG, 64, 512]),
+        empty_bag_prob=st.sampled_from([0.0, 0.25]),
+        pruned_prob=st.sampled_from([0.0, 0.1]),
+        num_trailing=st.sampled_from([0, 1, 37]),
+        seed=st.integers(min_value=0, max_value=2**31 - 1),
+    )
+    @settings(
+        verbosity=VERBOSITY, max_examples=MAX_EXAMPLES_LONG_RUNNING, deadline=None
+    )
+    def test_int4_d64_long_l_gfx942_mixed_types(
+        self,
+        weights_tys: list[SparseType],
+        E: int,
+        B: int,
+        mean_L: int,
+        empty_bag_prob: float,
+        pruned_prob: float,
+        num_trailing: int,
+        seed: int,
+    ) -> None:
+        """INT4 tables mixed with any other weight type keep every row correct.
+
+        Apart from the weight types, every case satisfies the specialization's
+        guard, so on gfx942 the INT4 rows take the long-L path, which skips the
+        rows of other tables, while those tables run their own kernels.
+        """
+        self._check_long_l_nobag(
+            weights_tys,
+            E,
+            B,
+            mean_L,
+            empty_bag_prob,
+            pruned_prob,
+            num_trailing,
+            seed,
         )
 
 
