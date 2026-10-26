@@ -625,6 +625,12 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
                     exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
                 }
             }
+            // Per-row LR warmup (learning_rate_mode=3). Keep it after the AdagradW
+            // branch above, which overwrites adjusted_multiplier. row_counter counts
+            // row updates only for counter_halflife < 0, which the frontend requires.
+            if (learning_rate_mode == 3 && warmup_steps > 0) {
+                adjusted_multiplier *= warmup_start_value + (1.0 - warmup_start_value) * min(1.0, row_counter[idx] / warmup_steps);
+            }
         } else if (regularization_mode == 4) { // cow-clip (regularization_mode=4)
             if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
                 exp_reg_correction = 1.0 -  weight_decay * learning_rate;
@@ -719,6 +725,12 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
                     exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
                 }
             }
+            // Per-row LR warmup (learning_rate_mode=3). Keep it after the AdagradW
+            // branch above, which overwrites adjusted_multiplier. row_counter counts
+            // row updates only for counter_halflife < 0, which the frontend requires.
+            if (learning_rate_mode == 3 && warmup_steps > 0) {
+                adjusted_multiplier *= warmup_start_value + (1.0 - warmup_start_value) * fmin(1.0, row_counter[idx] / warmup_steps);
+            }
         } else if (regularization_mode == 4) { // cow-clip (regularization_mode=4)
             if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
                 exp_reg_correction = 1.0 -  weight_decay * learning_rate;
@@ -765,6 +777,8 @@ def rowwise_adagrad_with_counter() -> dict[str, Any]:
                 OptimItem(ArgType.INT, "regularization_mode", 0),
                 OptimItem(ArgType.FLOAT, "weight_norm_coefficient", 0.0),
                 OptimItem(ArgType.FLOAT, "lower_bound", 0.0),
+                OptimItem(ArgType.INT, "warmup_steps", 0),
+                OptimItem(ArgType.FLOAT, "warmup_start_value", 0.0),
             ],
             {
                 "v1": "Tensor momentum1, Tensor prev_iter, Tensor row_counter, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int iter = 0, int counter_halflife = -1, int adjustment_iter = -1, float adjustment_ub = 1.0, int learning_rate_mode = -1, int weight_decay_mode = 1, int grad_sum_decay = -1, float max_counter = 0, float tail_id_threshold = 0.0, int is_tail_id_thresh_ratio = 0, int regularization_mode = 0, float weight_norm_coefficient = 0.0, float lower_bound = 0.0"
