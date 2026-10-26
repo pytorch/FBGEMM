@@ -31,7 +31,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 from fbgemm_gpu.tbe.config import PoolingMode
 from torch import nn, Tensor  # usort:skip
 
-from .common import ASSOC
+from .common import ASSOC, get_cache_assoc
 from .inference import SSDIntNBitTableBatchedEmbeddingBags
 
 
@@ -104,10 +104,12 @@ class TurboSSDInferenceModule(nn.Module):
         if not (0.0 < cache_hit_rate <= 1.0):
             raise ValueError(f"cache_hit_rate must be in (0, 1], got {cache_hit_rate}")
 
+        cache_assoc = get_cache_assoc(torch.cuda.current_device())
         cache_sets = cls._compute_cache_sets(
             specs,
             hbm_budget_gb,
             cache_hit_rate,
+            cache_assoc=cache_assoc,
         )
 
         tbe = SSDIntNBitTableBatchedEmbeddingBags(
@@ -117,6 +119,7 @@ class TurboSSDInferenceModule(nn.Module):
             ssd_storage_directory=ssd_directory,
             ssd_shards=ssd_shards,
             cache_sets=cache_sets,
+            cache_assoc=cache_assoc,
             ssd_write_buffer_size=ssd_write_buffer_size,
             ssd_max_write_buffer_num=ssd_max_write_buffer_num,
             ssd_rate_limit_mbps=ssd_rate_limit_mbps,
@@ -126,7 +129,7 @@ class TurboSSDInferenceModule(nn.Module):
         module = cls(tbe)
 
         total_rows = sum(r for _, r, _, _ in specs)
-        cache_capacity = cache_sets * ASSOC
+        cache_capacity = cache_sets * tbe.cache_assoc
         logging.info(
             f"TurboSSD inference module: {len(specs)} tables, "
             f"{total_rows:,} total rows, "
@@ -141,6 +144,7 @@ class TurboSSDInferenceModule(nn.Module):
         specs: list[tuple[str, int, int, SparseType]],
         hbm_budget_gb: float,
         cache_hit_rate: float,
+        cache_assoc: int = ASSOC,
     ) -> int:
         """
         Compute the number of cache sets for the target hit rate.
@@ -154,14 +158,16 @@ class TurboSSDInferenceModule(nn.Module):
 
         total_rows = sum(rows for _, rows, _, _ in specs)
         target_cached_rows = int(total_rows * cache_hit_rate)
-        cache_sets_from_hit_rate = max((target_cached_rows + ASSOC - 1) // ASSOC, 1)
+        cache_sets_from_hit_rate = max(
+            (target_cached_rows + cache_assoc - 1) // cache_assoc, 1
+        )
 
         if hbm_budget_gb > 0:
             max_d_cache = max(
                 rounded_row_size_in_bytes(dim, ty, 16) for _, _, dim, ty in specs
             )
             budget_bytes = int(hbm_budget_gb * 1024 * 1024 * 1024)
-            cache_sets_from_budget = budget_bytes // (ASSOC * max_d_cache)
+            cache_sets_from_budget = budget_bytes // (cache_assoc * max_d_cache)
             cache_sets = min(cache_sets_from_hit_rate, max(cache_sets_from_budget, 1))
         else:
             cache_sets = cache_sets_from_hit_rate
@@ -172,6 +178,7 @@ class TurboSSDInferenceModule(nn.Module):
     def estimate_hbm_gb(
         specs: list[tuple[str, int, int, SparseType]],
         cache_hit_rate: float = 0.90,
+        cache_assoc: int = ASSOC,
     ) -> float:
         """
         Estimate HBM usage in GB for the given specs and target hit rate.
@@ -181,12 +188,12 @@ class TurboSSDInferenceModule(nn.Module):
         """
         total_rows = sum(rows for _, rows, _, _ in specs)
         target_rows = int(total_rows * cache_hit_rate)
-        cache_sets = max((target_rows + ASSOC - 1) // ASSOC, 1)
+        cache_sets = max((target_rows + cache_assoc - 1) // cache_assoc, 1)
 
         max_d_cache = max(
             rounded_row_size_in_bytes(dim, ty, 16) for _, _, dim, ty in specs
         )
-        cache_bytes = cache_sets * ASSOC * max_d_cache
+        cache_bytes = cache_sets * cache_assoc * max_d_cache
         return cache_bytes / (1024 * 1024 * 1024)
 
     def forward(
