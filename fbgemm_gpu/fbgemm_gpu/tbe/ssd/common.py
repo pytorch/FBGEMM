@@ -20,11 +20,13 @@ try:
 except Exception:
     pass
 
-# Match cache associativity to hardware warp/wavefront width:
-# NVIDIA warp = 32 lanes, AMD wavefront = 64 lanes.
-# C++ kernels use kWarpSize for cache set indexing, so Python-side
-# tensor shapes must agree.
+# Legacy default for offline capacity estimates. Live SSD caches query the
+# device warp size so wave32 and wave64 ROCm devices use matching layouts.
 ASSOC: int = 32 if torch.version.hip is None else 64
+
+
+def get_cache_assoc(device: torch.device | int) -> int:
+    return torch.cuda.get_device_properties(device).warp_size
 
 
 def pad4(value: int) -> int:

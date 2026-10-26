@@ -63,7 +63,7 @@ from dataclasses import dataclass
 from torch.autograd.profiler import record_function
 
 from ..cache import get_unique_indices_v2
-from .common import ASSOC, pad4, tensor_pad4
+from .common import get_cache_assoc, pad4, tensor_pad4
 from .utils.partially_materialized_tensor import PartiallyMaterializedTensor
 
 
@@ -865,6 +865,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             cache_sets = 1
         # pyre-fixme[8]: Attribute has type `device`; used as `int`.
         self.current_device: torch.device = torch.cuda.current_device()
+        self.cache_assoc: int = get_cache_assoc(self.current_device)
 
         self.enable_raw_embedding_streaming = enable_raw_embedding_streaming
         self._enable_ssd_raw_embedding_streaming: bool = (
@@ -975,7 +976,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert (
             element_size == 4 or element_size == 2
         ), f"Invalid element size {element_size}"
-        cache_size = cache_sets * ASSOC * element_size * self.cache_row_dim
+        cache_size = cache_sets * self.cache_assoc * element_size * self.cache_row_dim
         logging.info(
             f"Using cache for SSD with admission algorithm "
             f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_rocksdb_shards} shards, "
@@ -993,13 +994,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ).fill_(-1),
         )
         self.register_buffer(
             "lru_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ),
         )
 
@@ -1023,7 +1030,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "lxu_cache_locking_counter",
                 torch.zeros(
                     cache_sets,
-                    ASSOC,
+                    self.cache_assoc,
                     device=self.current_device,
                     dtype=torch.int32,
                 ),
@@ -1051,7 +1058,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         device=self.current_device,
                         dtype=cache_dtype,
                     ),
-                    [cache_sets * ASSOC, self.cache_row_dim],
+                    [cache_sets * self.cache_assoc, self.cache_row_dim],
                     is_host_mapped=self.uvm_host_mapped,
                 ),
             )
@@ -1059,7 +1066,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.register_buffer(
                 "lxu_cache_weights",
                 torch.zeros(
-                    cache_sets * ASSOC,
+                    cache_sets * self.cache_assoc,
                     self.cache_row_dim,
                     device=self.current_device,
                     dtype=cache_dtype,
