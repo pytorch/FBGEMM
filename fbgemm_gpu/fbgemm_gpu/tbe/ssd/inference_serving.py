@@ -31,7 +31,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 from fbgemm_gpu.tbe.config import PoolingMode
 from torch import nn, Tensor  # usort:skip
 
-from .common import ASSOC, get_cache_assoc
+from .common import ASSOC, get_cache_assoc, normalize_device
 from .inference import SSDIntNBitTableBatchedEmbeddingBags
 
 
@@ -76,6 +76,7 @@ class TurboSSDInferenceModule(nn.Module):
         ssd_max_write_buffer_num: int = 16,
         ssd_rate_limit_mbps: int = 0,
         enable_cache_locking: bool = False,
+        device: torch.device | int | None = None,
     ) -> "TurboSSDInferenceModule":
         """
         Create a TurboSSD inference module from embedding specifications.
@@ -95,6 +96,7 @@ class TurboSSDInferenceModule(nn.Module):
             ssd_rate_limit_mbps: RocksDB rate limit in MB/s (0 = unlimited).
             enable_cache_locking: Enable cache line locking for concurrent
                 prefetch/forward safety.
+            device: Target GPU device; defaults to the current device.
 
         Returns:
             A configured TurboSSDInferenceModule ready for serving.
@@ -104,7 +106,8 @@ class TurboSSDInferenceModule(nn.Module):
         if not (0.0 < cache_hit_rate <= 1.0):
             raise ValueError(f"cache_hit_rate must be in (0, 1], got {cache_hit_rate}")
 
-        cache_assoc = get_cache_assoc(torch.cuda.current_device())
+        selected_device = normalize_device(device)
+        cache_assoc = get_cache_assoc(selected_device)
         cache_sets = cls._compute_cache_sets(
             specs,
             hbm_budget_gb,
@@ -124,7 +127,8 @@ class TurboSSDInferenceModule(nn.Module):
             ssd_max_write_buffer_num=ssd_max_write_buffer_num,
             ssd_rate_limit_mbps=ssd_rate_limit_mbps,
             enable_cache_locking=enable_cache_locking,
-        ).cuda()
+            device=selected_device,
+        )
 
         module = cls(tbe)
 

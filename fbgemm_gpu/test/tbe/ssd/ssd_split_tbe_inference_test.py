@@ -11,6 +11,7 @@ import os
 import random
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import hypothesis.strategies as st
@@ -26,6 +27,8 @@ from fbgemm_gpu.tbe.config.embedding_config import (
     PoolingMode,
 )
 from fbgemm_gpu.tbe.ssd import SSDIntNBitTableBatchedEmbeddingBags
+from fbgemm_gpu.tbe.ssd.common import normalize_device
+from fbgemm_gpu.tbe.ssd.inference_serving import TurboSSDInferenceModule
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     fake_quantize_embs,
@@ -38,6 +41,41 @@ from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
 
 MAX_EXAMPLES = 40
+
+
+class SSDDeviceSelectionTest(unittest.TestCase):
+    def test_rejects_non_gpu_devices(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a GPU device"):
+            normalize_device(torch.device("cpu"))
+        with self.assertRaisesRegex(ValueError, "requires a GPU device"):
+            normalize_device(torch.device("meta"))
+
+    def test_factory_uses_explicit_device(self) -> None:
+        device = torch.device("cuda:1")
+        tbe = torch.nn.Module()
+        tbe.cache_assoc = 64
+        with patch.object(
+            torch.cuda,
+            "get_device_properties",
+            return_value=SimpleNamespace(warp_size=64),
+        ) as properties, patch.object(
+            torch.cuda, "current_device"
+        ) as current_device, patch(
+            "fbgemm_gpu.tbe.ssd.inference_serving.SSDIntNBitTableBatchedEmbeddingBags",
+            autospec=True,
+        ) as constructor:
+            constructor.return_value = tbe
+            module = TurboSSDInferenceModule.from_embedding_specs(
+                [("table", 65, 128, SparseType.INT8)],
+                cache_hit_rate=1,
+                device=device,
+            )
+
+            self.assertIs(module.tbe, tbe)
+            self.assertEqual(constructor.call_args.kwargs["cache_sets"], 2)
+            self.assertEqual(constructor.call_args.kwargs["device"], device)
+            properties.assert_called_once_with(device)
+            current_device.assert_not_called()
 
 
 @unittest.skipIf(*running_in_oss)
@@ -157,8 +195,19 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             for (E, D) in zip(Es, Ds)
         ]
         torch.manual_seed(42)
-        xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
-        xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
+        xs = [
+            torch.randint(
+                low=0,
+                high=e,
+                size=(B, L),
+                device=torch.accelerator.current_accelerator(),
+            )
+            for e in Es
+        ]
+        xws = [
+            torch.randn(size=(B, L), device=torch.accelerator.current_accelerator())
+            for _ in range(T)
+        ]
 
         for t in range(T):
             weights, scale_shift = emb.split_embedding_weights()[t]
@@ -365,9 +414,20 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.cuda.synchronize()
 
         for i in range(10):
-            xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
+            xs = [
+                torch.randint(
+                    low=0,
+                    high=e,
+                    size=(B, L),
+                    device=torch.accelerator.current_accelerator(),
+                )
+                for e in Es
+            ]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-            xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
+            xws = [
+                torch.randn(size=(B, L), device=torch.accelerator.current_accelerator())
+                for _ in range(T)
+            ]
             xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
             indices, offsets = get_table_batched_offsets_from_dense(x)
@@ -569,7 +629,15 @@ class SSDInferenceCacheLockingTest(unittest.TestCase):
 
         # Run prefetch + forward cycles
         for _ in range(10):
-            xs = [torch.randint(low=0, high=E, size=(B, L)).cuda() for _ in range(T)]
+            xs = [
+                torch.randint(
+                    low=0,
+                    high=E,
+                    size=(B, L),
+                    device=torch.accelerator.current_accelerator(),
+                )
+                for _ in range(T)
+            ]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
             indices, offsets = get_table_batched_offsets_from_dense(x)
             indices, offsets = indices.cuda(), offsets.cuda()
@@ -632,7 +700,15 @@ class SSDInferenceCacheLockingTest(unittest.TestCase):
 
         # Run prefetch + forward cycles — should work without locking
         for _ in range(5):
-            xs = [torch.randint(low=0, high=E, size=(B, L)).cuda() for _ in range(T)]
+            xs = [
+                torch.randint(
+                    low=0,
+                    high=E,
+                    size=(B, L),
+                    device=torch.accelerator.current_accelerator(),
+                )
+                for _ in range(T)
+            ]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
             indices, offsets = get_table_batched_offsets_from_dense(x)
             indices, offsets = indices.cuda(), offsets.cuda()
@@ -739,7 +815,9 @@ class SSDInferenceStreamingTest(unittest.TestCase):
         self._init_table(emb, E, D_bytes)
 
         # Prefetch to populate cache.
-        xs = torch.randint(low=0, high=E, size=(B, L)).cuda()
+        xs = torch.randint(
+            low=0, high=E, size=(B, L), device=torch.accelerator.current_accelerator()
+        )
         x = xs.view(1, B, L)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()
@@ -938,7 +1016,9 @@ class SSDInferenceStreamingTest(unittest.TestCase):
         self._init_table(emb, E, D_bytes)
 
         # Prefetch to populate cache.
-        xs = torch.randint(low=0, high=E, size=(B, L)).cuda()
+        xs = torch.randint(
+            low=0, high=E, size=(B, L), device=torch.accelerator.current_accelerator()
+        )
         x = xs.view(1, B, L)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()
@@ -1081,7 +1161,9 @@ class SSDInferenceStreamingTest(unittest.TestCase):
 
         # Update some rows in the reference, then streaming_update TBE.
         update_indices = torch.tensor([0, 1, 2, 3, 4], dtype=torch.int64)
-        new_ref_weights = torch.randn(5, D).cuda()
+        new_ref_weights = torch.randn(
+            5, D, device=torch.accelerator.current_accelerator()
+        )
         ref.weight.data[update_indices] = new_ref_weights
 
         # Re-quantize updated rows.
@@ -1099,7 +1181,11 @@ class SSDInferenceStreamingTest(unittest.TestCase):
         emb.streaming_update(update_indices, updated_copy[update_indices])
 
         # Now query indices that include updated rows.
-        xs = torch.tensor([[0, 1, 2, 3, 4]], dtype=torch.long).cuda()  # [1, B=1, L=5]
+        xs = torch.tensor(
+            [[0, 1, 2, 3, 4]],
+            dtype=torch.long,
+            device=torch.accelerator.current_accelerator(),
+        )  # [1, B=1, L=5]
         x = xs.view(1, 1, 5)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()
@@ -1172,7 +1258,9 @@ class SSDInferenceStreamingTest(unittest.TestCase):
         initial_weights = self._init_table(emb, E, D_bytes)
 
         # Prefetch to populate cache.
-        xs = torch.randint(low=0, high=E, size=(B, L)).cuda()
+        xs = torch.randint(
+            low=0, high=E, size=(B, L), device=torch.accelerator.current_accelerator()
+        )
         x = xs.view(1, B, L)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()
@@ -1280,7 +1368,7 @@ class SSDInferenceStreamingTest(unittest.TestCase):
             emb.streaming_update(idx, copy_bytes2[start:end])
 
         # Forward and verify against new reference.
-        xs = torch.randint(0, E, (B, L)).cuda()
+        xs = torch.randint(0, E, (B, L), device=torch.accelerator.current_accelerator())
         x = xs.view(1, B, L)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()
@@ -1430,7 +1518,7 @@ class TurboSSDInferenceModuleTest(unittest.TestCase):
         torch.cuda.synchronize()
 
         B, L = 4, 3
-        xs = torch.randint(0, E, (B, L)).cuda()
+        xs = torch.randint(0, E, (B, L), device=torch.accelerator.current_accelerator())
         x = xs.view(1, B, L)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()
@@ -1591,7 +1679,7 @@ class TurboSSDInferenceModuleTest(unittest.TestCase):
             )
 
         # Phase 2: Forward with initial data.
-        xs = torch.randint(0, E, (B, L)).cuda()
+        xs = torch.randint(0, E, (B, L), device=torch.accelerator.current_accelerator())
         x = xs.view(1, B, L)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()
@@ -1606,7 +1694,9 @@ class TurboSSDInferenceModuleTest(unittest.TestCase):
 
         # Phase 3: Delta update (simulate 45-min publish cycle).
         delta_indices = torch.tensor([0, 1, 2], dtype=torch.int64)
-        ref.weight.data[delta_indices] = torch.randn(3, D).cuda()
+        ref.weight.data[delta_indices] = torch.randn(
+            3, D, device=torch.accelerator.current_accelerator()
+        )
 
         weights_after, ss_after = module.tbe.split_embedding_weights()[0]
         fake_quantize_embs(
@@ -1621,7 +1711,11 @@ class TurboSSDInferenceModuleTest(unittest.TestCase):
         module.streaming_update(delta_indices, delta_copy[delta_indices])
 
         # Phase 4: Forward reflects delta update.
-        xs2 = torch.tensor([[0, 1, 2, 3, 4]], dtype=torch.long).cuda()
+        xs2 = torch.tensor(
+            [[0, 1, 2, 3, 4]],
+            dtype=torch.long,
+            device=torch.accelerator.current_accelerator(),
+        )
         x2 = xs2.view(1, 1, 5)
         indices2, offsets2 = get_table_batched_offsets_from_dense(x2)
         indices2, offsets2 = indices2.cuda(), offsets2.cuda()
@@ -1932,7 +2026,7 @@ class SSDInferenceAMDSupportTest(unittest.TestCase):
         torch.cuda.synchronize()
 
         # Forward
-        xs = torch.randint(0, E, (B, L)).cuda()
+        xs = torch.randint(0, E, (B, L), device=torch.accelerator.current_accelerator())
         x = xs.view(1, B, L)
         indices, offsets = get_table_batched_offsets_from_dense(x)
         indices, offsets = indices.cuda(), offsets.cuda()

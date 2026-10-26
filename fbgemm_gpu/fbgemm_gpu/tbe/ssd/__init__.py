@@ -26,7 +26,7 @@ from .ssd_config import (  # noqa: F401
 # Eager (not a lazy `__getattr__`) so the symbols resolve under torch.package.
 try:
     # pyre-ignore[21]: `.common` is only present in the heavy target.
-    from .common import ASSOC  # noqa: F401
+    from .common import ASSOC, get_cache_assoc  # noqa: F401
 except ModuleNotFoundError as e:
     if e.name != "fbgemm_gpu.tbe.ssd.common":
         raise
