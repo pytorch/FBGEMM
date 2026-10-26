@@ -498,6 +498,11 @@ def check_all_same_device(*tensors: Tensor | None) -> None:
         torch._check(tensor.device == first_tensor.device)
 
 
+def initialize_nan_shared_mem_meta(device_index: int) -> None:
+    # Shared-memory poisoning has no effect on symbolic tensor metadata.
+    return None
+
+
 def pruned_array_lookup_meta(
     indices: Tensor,
     offsets: Tensor,
@@ -1572,6 +1577,11 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::expand_into_jagged_permute", expand_into_jagged_permute_meta
         )
+        if hasattr(torch.ops.fbgemm, "initialize_nan_shared_mem"):
+            impl_abstract(
+                "fbgemm::initialize_nan_shared_mem",
+                initialize_nan_shared_mem_meta,
+            )
         impl_abstract("fbgemm::pruned_array_lookup", pruned_array_lookup_meta)
         impl_abstract(
             "fbgemm::int_nbit_split_embedding_codegen_lookup_function",
