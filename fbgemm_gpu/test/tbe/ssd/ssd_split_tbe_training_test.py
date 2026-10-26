@@ -244,6 +244,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             share_table=share_table,
             prefetch_pipeline=prefetch_pipeline,
             enable_raw_embedding_streaming=enable_raw_embedding_streaming,
+            l2_cache_size=1,
         )
 
         optimizer_states_ref = [

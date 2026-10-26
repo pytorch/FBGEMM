@@ -11,6 +11,7 @@
 #include <caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h>
 #include <common/base/Proc.h>
 #include <common/stats/Stats.h>
+#include <folly/ScopeGuard.h>
 #include <folly/SocketAddress.h>
 #include <folly/container/small_vector.h>
 #include <folly/coro/BlockingWait.h>
@@ -200,6 +201,22 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         std::string_view(parallel_shard_input) == "1";
     if (parallel_shard_input_) {
       LOG(INFO) << "KVZCH parallel DRAM input sharding enabled";
+    }
+    // Enrichment-cache rows are inserted once and then only overwritten by the
+    // enrichment write, which leaves the timestamp alone, so TTL eviction ages
+    // rows from insertion rather than last use. These opt-ins keep the
+    // timestamp tracking enrichment-query hits and checkpoint load, not all
+    // DRAM/HBM accesses. is_training_ describes the C++ cache instance; the
+    // production wrapper always passes true, including when reused for
+    // publish/eval. Keep these env flags off in jobs that must preserve saved
+    // timestamps. The DRAM_SSD cache's restore path is not covered.
+    refresh_timestamp_on_enrich_hit_ =
+        is_env_flag_set("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT");
+    restamp_on_restore_ = is_env_flag_set("KVZCH_RESTAMP_ON_RESTORE");
+    if (refresh_timestamp_on_enrich_hit_ || restamp_on_restore_) {
+      LOG(INFO) << "KVZCH timestamp refresh on enrich hit: "
+                << refresh_timestamp_on_enrich_hit_
+                << ", restamp on restore: " << restamp_on_restore_;
     }
     executor_thread_count_ = get_executor_thread_count(num_threads);
     // Parallel sharding synchronously joins chunk work submitted to executor_.
@@ -1199,6 +1216,111 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return {vids_tensor, sids_tensor};
   }
 
+  bool should_refresh_timestamp_on_enrich_hit() const {
+    return refresh_timestamp_on_enrich_hit_ && is_training_ &&
+        is_eviction_enabled();
+  }
+
+  /// Sets the timestamps of `ids` that are still present and non-zero to now.
+  /// Every training timestamp write happens under the shard write lock, so
+  /// readers holding the read lock never see a concurrent write. Rows are
+  /// re-found under the lock, so one evicted since the caller's lookup is
+  /// skipped. `now` is read after taking the lock, so no earlier write carries
+  /// a later timestamp. A row stamped ahead of `now` (clock stepped back, or a
+  /// skewed checkpoint restored without restamping) is pulled back to `now`:
+  /// the evictor's unsigned age check would otherwise evict it at once.
+  /// Yields exactly like the enrichment write: the lock is held across rows and
+  /// released only when a training lookup or write raises the interrupt flag,
+  /// which is checked after every row.
+  void refresh_hit_timestamps_under_wlock(
+      int shard_id,
+      const std::vector<int64_t>& ids) {
+    if (ids.empty()) {
+      return;
+    }
+    int64_t refreshed = 0;
+    int64_t interrupts = 0;
+    int64_t wlock_us = 0;
+    size_t cursor = 0;
+    while (cursor < ids.size()) {
+      wait_until_laser_write_resume();
+      const auto lock_start = facebook::WallClockUtil::NowInUsecFast();
+      {
+        auto wlmap = kv_store_.by(shard_id).wlock();
+        const auto now = FixedBlockPool::current_timestamp();
+        while (cursor < ids.size()) {
+          const auto it = wlmap->find(ids[cursor++]);
+          if (it != wlmap->end() &&
+              !FixedBlockPool::is_weights_all_zero(it->second, block_size_)) {
+            FixedBlockPool::set_timestamp(it->second, now);
+            refreshed++;
+          }
+          if (is_laser_write_interrupted() && cursor < ids.size()) {
+            interrupts++;
+            break;
+          }
+        }
+      }
+      wlock_us += facebook::WallClockUtil::NowInUsecFast() - lock_start;
+    }
+    timestamp_refresh_ids_ += refreshed;
+    timestamp_refresh_wlock_us_ += wlock_us;
+    timestamp_refresh_interrupts_ += interrupts;
+    XLOG_EVERY_MS(INFO, 60000)
+        << "[EmbeddingCacheEnrich] timestamp refresh shard " << shard_id
+        << ": ids=" << ids.size() << ", refreshed=" << refreshed
+        << ", wlock_us=" << wlock_us << ", interrupts=" << interrupts
+        << "; totals refreshed=" << timestamp_refresh_ids_.load()
+        << ", wlock_us=" << timestamp_refresh_wlock_us_.load()
+        << ", interrupts=" << timestamp_refresh_interrupts_.load();
+  }
+
+  /// Refresh-only pass for a query dropped while an enrichment write is in
+  /// flight: queues no fetch, only marks the non-zero rows it hits as used.
+  void refresh_hit_timestamps_async(
+      at::Tensor hashed_indices,
+      at::Tensor count) {
+    if (!should_refresh_timestamp_on_enrich_hit()) {
+      return;
+    }
+    bool expected = false;
+    if (!timestamp_refresh_in_progress_.compare_exchange_strong(
+            expected, true)) {
+      return;
+    }
+    auto reset_flag_on_error = folly::makeGuard(
+        [this] { timestamp_refresh_in_progress_.store(false); });
+    folly::via(
+        folly::getKeepAliveToken(*enrichment_executor_),
+        [this,
+         hashed_indices = std::move(hashed_indices),
+         count = std::move(count)]() {
+          for (const auto& [shard_id, indexes] :
+               shard_input(hashed_indices, count)) {
+            std::vector<int64_t> ids;
+            ids.reserve(indexes.size());
+            FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                hashed_indices.scalar_type(),
+                "dram_refresh_enrich_hit_timestamps",
+                [&] {
+                  using index_t = scalar_t;
+                  const auto* data = hashed_indices.const_data_ptr<index_t>();
+                  for (const auto id_index : indexes) {
+                    ids.push_back(int64_t(data[id_index]));
+                  }
+                });
+            refresh_hit_timestamps_under_wlock(shard_id, ids);
+          }
+        })
+        .thenError([](const folly::exception_wrapper& ew) {
+          XLOG_EVERY_MS(ERR, 60000)
+              << "[EmbeddingCacheEnrich] refresh-only timestamp pass failed: "
+              << ew.what();
+        })
+        .ensure([this] { timestamp_refresh_in_progress_.store(false); });
+    reset_flag_on_error.dismiss();
+  }
+
   void set_embedding_cache_enrich_query_id_async(
       at::Tensor hashed_indices,
       at::Tensor unhashed_indices,
@@ -1214,6 +1336,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     if (!laser_write_in_progress_.compare_exchange_strong(expected, true)) {
       XLOG_EVERY_MS(INFO, 60000)
           << "[EmbeddingCacheEnrich] skipping - laser write already in progress";
+      // A dropped query still saw these ids in use, so keep their rows alive.
+      refresh_hit_timestamps_async(std::move(hashed_indices), std::move(count));
       return;
     }
     // Now laser_write_in_progress_ = true, other requests will be dropped
@@ -1269,6 +1393,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 unhashed_indices.data_ptr<index_t>();
                             int64_t in_cache_zero_count = 0;
                             int64_t not_in_cache_count = 0;
+                            const bool refresh_hits =
+                                should_refresh_timestamp_on_enrich_hit();
+                            std::vector<int64_t> hit_ids;
+                            if (refresh_hits) {
+                              hit_ids.reserve(indexes.size());
+                            }
                             {
                               auto rlmap = kv_store_.by(shard_id).rlock();
 
@@ -1290,6 +1420,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                         unhashed_id);
                                     zero_id_count++;
                                     in_cache_zero_count++;
+                                  } else if (refresh_hits) {
+                                    hit_ids.push_back(hashed_id);
                                   }
                                 } else {
                                   // Id not in kv_store (was filled from
@@ -1302,6 +1434,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 }
                               }
                             }
+                            refresh_hit_timestamps_under_wlock(
+                                shard_id, hit_ids);
                             if (shard_id == 0) {
                               XLOG_EVERY_MS(INFO, 60000)
                                   << "[EmbeddingCacheEnrich] shard_0: "
@@ -2449,6 +2583,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return executor_threads;
   }
 
+  static bool is_env_flag_set(const char* name) {
+    const char* const value = std::getenv(name);
+    return value != nullptr && std::string_view(value) == "1";
+  }
+
   static int get_requested_lookup_prefetch_distance() {
     constexpr int kMaxLookupPrefetchDistance = 64;
     const char* const value =
@@ -3109,76 +3248,87 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     for (const auto& [shard_id, indexes] : shardid_to_indexes) {
       auto f =
           folly::via(executor_.get())
-              .thenValue(
-                  [this, shard_id, indexes, &indices, &weights_with_metaheader](
-                      folly::Unit) {
-                    FBGEMM_DISPATCH_INTEGRAL_TYPES(
-                        indices.scalar_type(),
-                        "dram_kv_set_with_metaheader",
-                        [this,
-                         shard_id,
-                         indexes,
-                         &indices,
-                         &weights_with_metaheader] {
-                          using index_t = scalar_t;
-                          CHECK(indices.is_contiguous());
-                          CHECK(weights_with_metaheader.is_contiguous());
-                          CHECK_EQ(
-                              indices.size(0), weights_with_metaheader.size(0));
-                          {
-                            auto wlmap = kv_store_.by(shard_id).wlock();
-                            auto* pool = kv_store_.pool_by(shard_id);
-                            int64_t stride = weights_with_metaheader.size(1);
-                            auto indices_data_ptr = indices.data_ptr<index_t>();
-                            auto weights_data_ptr =
-                                weights_with_metaheader.data_ptr<weight_type>();
-                            for (const auto& id_index : indexes) {
-                              auto id = int64_t(indices_data_ptr[id_index]);
-                              // Defensive programming
-                              // used is false shouldn't occur under normal
-                              // circumstances
-                              FixedBlockPool::set_used(
-                                  weights_data_ptr + id_index * stride, true);
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          &indices,
+                          &weights_with_metaheader](folly::Unit) {
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(),
+                    "dram_kv_set_with_metaheader",
+                    [this,
+                     shard_id,
+                     indexes,
+                     &indices,
+                     &weights_with_metaheader] {
+                      using index_t = scalar_t;
+                      CHECK(indices.is_contiguous());
+                      CHECK(weights_with_metaheader.is_contiguous());
+                      CHECK_EQ(
+                          indices.size(0), weights_with_metaheader.size(0));
+                      {
+                        auto wlmap = kv_store_.by(shard_id).wlock();
+                        auto* pool = kv_store_.pool_by(shard_id);
+                        int64_t stride = weights_with_metaheader.size(1);
+                        auto indices_data_ptr = indices.data_ptr<index_t>();
+                        auto weights_data_ptr =
+                            weights_with_metaheader.data_ptr<weight_type>();
+                        const bool restamp =
+                            restamp_on_restore_ && is_training_;
+                        const uint32_t restore_ts =
+                            restamp ? FixedBlockPool::current_timestamp() : 0;
+                        for (const auto& id_index : indexes) {
+                          auto id = int64_t(indices_data_ptr[id_index]);
+                          // Defensive programming
+                          // used is false shouldn't occur under normal
+                          // circumstances
+                          FixedBlockPool::set_used(
+                              weights_data_ptr + id_index * stride, true);
 
-                              // use mempool
-                              weight_type* block = nullptr;
-                              // First check if the key already exists
-                              auto it = wlmap->find(id);
-                              bool new_block = false;
-                              if (it != wlmap->end()) {
-                                block = it->second;
-                              } else {
-                                // Key doesn't exist, allocate new block and
-                                // insert.
-                                block =
-                                    pool->template allocate_t<weight_type>();
-                                wlmap->insert({id, block});
-                                new_block = true;
-                              }
-                              std::copy(
-                                  weights_data_ptr + id_index * stride,
-                                  weights_data_ptr + (id_index + 1) * stride,
-                                  block);
-                              if (enable_ssd_backend_) {
-                                pool->set_dirty(block, true);
-                              }
+                          // use mempool
+                          weight_type* block = nullptr;
+                          // First check if the key already exists
+                          auto it = wlmap->find(id);
+                          bool new_block = false;
+                          if (it != wlmap->end()) {
+                            block = it->second;
+                          } else {
+                            // Key doesn't exist, allocate new block and
+                            // insert.
+                            block = pool->template allocate_t<weight_type>();
+                            wlmap->insert({id, block});
+                            new_block = true;
+                          }
+                          std::copy(
+                              weights_data_ptr + id_index * stride,
+                              weights_data_ptr + (id_index + 1) * stride,
+                              block);
+                          // The saved timestamp predates the outage, so
+                          // after a long resume gap every restored row
+                          // would be past TTL at once.
+                          if (restamp) {
+                            FixedBlockPool::set_timestamp(block, restore_ts);
+                          }
+                          if (enable_ssd_backend_) {
+                            pool->set_dirty(block, true);
+                          }
 
-                              if (new_block) {
-                                if (is_eviction_enabled()) {
-                                  auto* feature_score_evict = dynamic_cast<
-                                      FeatureScoreBasedEvict<weight_type>*>(
-                                      feature_evict_.get());
-                                  if (feature_score_evict) {
-                                    feature_score_evict
-                                        ->update_feature_score_statistics(
-                                            block, 0, shard_id, true);
-                                  }
-                                }
+                          if (new_block) {
+                            if (is_eviction_enabled()) {
+                              auto* feature_score_evict = dynamic_cast<
+                                  FeatureScoreBasedEvict<weight_type>*>(
+                                  feature_evict_.get());
+                              if (feature_score_evict) {
+                                feature_score_evict
+                                    ->update_feature_score_statistics(
+                                        block, 0, shard_id, true);
                               }
                             }
                           }
-                        });
-                  });
+                        }
+                      }
+                    });
+              });
       futures.emplace_back(std::move(f));
     }
     return folly::collect(futures);
@@ -3274,9 +3424,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::mutex laser_write_mutex_;
   std::condition_variable laser_write_cv_;
 
-  // Dedicated executor for enrichment (separate from main executor)
-  std::unique_ptr<folly::CPUThreadPoolExecutor> enrichment_executor_;
-
   // Pre-initialized LaserClient for IGR enrichment (reused across fetches)
   std::shared_ptr<facebook::laser::LaserClient> laser_client_;
 
@@ -3294,7 +3441,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   bool parallel_shard_input_{false};
   bool segmented_shard_reads_{false};
   bool skip_disabled_initializers_{false};
+  bool refresh_timestamp_on_enrich_hit_{false};
+  bool restamp_on_restore_{false};
+  // Drops a refresh-only pass while the previous one is still running.
+  std::atomic<bool> timestamp_refresh_in_progress_{false};
+  std::atomic<int64_t> timestamp_refresh_ids_{0};
+  std::atomic<int64_t> timestamp_refresh_wlock_us_{0};
+  std::atomic<int64_t> timestamp_refresh_interrupts_{0};
   size_t executor_thread_count_{0};
+
+  // Destroyed first so queued enrichment/refresh tasks finish while every
+  // cache member they use, including the refresh atomics, is still alive.
+  std::unique_ptr<folly::CPUThreadPoolExecutor> enrichment_executor_;
 
   // Reporting-only clock. Returns 0 when perf stats are off, which leaves every
   // *_duration accumulator at 0 - they are logged, never branched on.

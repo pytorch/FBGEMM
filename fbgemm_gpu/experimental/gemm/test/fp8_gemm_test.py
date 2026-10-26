@@ -21,6 +21,9 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     prune_configs_h100_static,
     USED_MATMUL_NON_PERSISTENT_CONFIGS,
 )
+from fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model import (
+    estimate_matmul_time,
+)
 from torch._dynamo.source import LocalSource
 from torch._dynamo.testing import CompileCounterWithBackend
 from torch._subclasses.fake_tensor import FakeTensorMode
@@ -31,6 +34,7 @@ if torch.cuda.is_available():
         dequantize_fp8_block,
         dequantize_fp8_packed_row,
         dequantize_fp8_row,
+        get_fp8_constants,
         matmul_fp8_block,
         matmul_fp8_row,
         quantize_fp8_block,
@@ -41,9 +45,6 @@ if torch.cuda.is_available():
         quantize_fp8_row,
         quantize_fp8_row_meta,
         scale_fp8_row,
-    )
-    from fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model import (
-        estimate_matmul_time,
     )
 
 
@@ -240,6 +241,40 @@ class TestFp8Matmul(unittest.TestCase):
             transpose_inputs=True,
             use_jagged=True,
         )
+
+    def test_fp8_packed_scale_bytes_and_row_tails(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        fp8_dtype, _, max_fp8, _ = get_fp8_constants()
+        scales = torch.tensor([0.25, 0.5, 1.0], device=device)
+        expected_scale_bytes = scales.view(torch.uint8).reshape(3, 4)
+        for k in (1, 3, 5):
+            with self.subTest(k=k):
+                values = (
+                    torch.ones(1, device=device)
+                    if k == 1
+                    else torch.linspace(-1.0, 1.0, k, device=device)
+                )
+                a = (scales[:, None] * max_fp8 * values).to(torch.bfloat16)
+                packed = quantize_fp8_packed_row_raw(a)
+                self.assertEqual(packed.shape, (3, k + 4))
+                self.assertEqual(packed.device, a.device)
+                self.assertEqual(packed.dtype, fp8_dtype)
+                torch.testing.assert_close(
+                    packed[:, -4:].view(torch.uint8),
+                    expected_scale_bytes,
+                    atol=0,
+                    rtol=0,
+                )
+                expected_fp8 = (a.float() / scales[:, None]).to(fp8_dtype)
+                torch.testing.assert_close(
+                    packed[:, :k].view(torch.uint8),
+                    expected_fp8.view(torch.uint8),
+                    atol=0,
+                    rtol=0,
+                )
+                torch.testing.assert_close(
+                    dequantize_fp8_packed_row(packed), a, atol=0, rtol=0
+                )
 
     def test_quantize_fp8_packed_row(self) -> None:
         def _test_quantize_fp8_packed_row(
@@ -897,6 +932,25 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((256, 256, 64), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 192), (256, 256, 128), True)
 
+    def test_matmul_fp8_row_tma_aligned(self) -> None:
+        from fbgemm_gpu.experimental.gemm.triton_gemm.utils import TmaAutoTuneHelper
+
+        device = torch.accelerator.current_accelerator()
+        a = torch.randn(128, 64, dtype=torch.bfloat16, device=device)
+        b = torch.randn(128, 64, dtype=torch.bfloat16, device=device)
+        a_fp8, a_scale = quantize_fp8_row(a)
+        b_fp8, b_scale = quantize_fp8_row(b)
+        expected = (
+            a_fp8.float() @ b_fp8.float().T * a_scale[:, None] * b_scale[None, :]
+        ).to(torch.bfloat16)
+        with mock.patch(
+            "fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm.TmaAutoTuneHelper",
+            wraps=TmaAutoTuneHelper,
+        ) as descriptor_factory:
+            result = matmul_fp8_row(a_fp8, b_fp8, a_scale, b_scale, tma_persistent=True)
+        self.assertEqual(descriptor_factory.called, torch.version.hip is None)
+        torch.testing.assert_close(result, expected, atol=2e-2, rtol=1.6e-2)
+
 
 class TestPruneConfigsNonPersistent(unittest.TestCase):
     def test_pruning_preserves_symbolic_dimensions(self) -> None:
@@ -1273,7 +1327,6 @@ class TestPruneConfigsH100Static(unittest.TestCase):
         self.assertEqual(kept, configs)
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class TestPerfModelFp8(unittest.TestCase):
     """estimate_matmul_time must accept torch fp8 dtypes.
 
@@ -1283,10 +1336,35 @@ class TestPerfModelFp8(unittest.TestCase):
     """
 
     def test_fp8_dtypes_accepted(self) -> None:
-        device = torch.accelerator.current_accelerator()
-        for dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-            a = torch.empty(64, 256, dtype=dtype, device=device)
-            b = torch.empty(256, 256, dtype=dtype, device=device)
-            c = torch.empty(64, 256, dtype=torch.bfloat16, device=device)
-            est = estimate_matmul_time(4, 4, a, b, c, 64, 256, 256, 64, 128, 32, 1)
-            self.assertTrue(est > 0)
+        with (
+            mock.patch("triton.runtime.driver") as driver,
+            mock.patch(
+                "fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model.driver",
+                driver,
+            ),
+            mock.patch(
+                "fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model.get_clock_rate_in_khz",
+                return_value=1_410_000,
+            ),
+            mock.patch("torch.cuda.current_device", return_value=0),
+            mock.patch("torch.cuda.get_device_capability", return_value=(8, 0)),
+        ):
+            driver.active.utils.get_device_properties.return_value = {
+                "multiprocessor_count": 108,
+                "mem_clock_rate": 1_215_000,
+                "mem_bus_width": 5120,
+            }
+            for dtype in (
+                torch.float8_e4m3fn,
+                torch.float8_e5m2,
+                torch.float8_e4m3fnuz,
+                torch.float8_e5m2fnuz,
+            ):
+                with self.subTest(dtype=dtype, device="cpu"):
+                    a = torch.empty(64, 256, dtype=dtype, device="cpu")
+                    b = torch.empty(256, 256, dtype=dtype, device="cpu")
+                    c = torch.empty(64, 256, dtype=torch.bfloat16, device="cpu")
+                    est = estimate_matmul_time(
+                        4, 4, a, b, c, 64, 256, 256, 64, 128, 32, 1
+                    )
+                    self.assertTrue(est > 0)

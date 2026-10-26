@@ -550,7 +550,7 @@ def _kernel_silu_quantize_mx4_unpack(
         # Subtract largest exponent in target datatype and remove bias.
         group_exp = group_exp - EBITS
         # Make sure exponent is in valid range.
-        group_exp = tl.clamp(group_exp, -127, 125)
+        group_exp = tl.minimum(tl.maximum(group_exp, -127), 125)
 
         # Next we scale A in preparation for quantization.
         scale_ = tl.exp2(group_exp.to(tl.float64)).to(tl.float16)
@@ -663,7 +663,9 @@ def _kernel_silu_quantize_mx4_unpack(
         mantissa = tl.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
 
         # Construct FP4 value from components.
-        new_biased_exp = tl.clamp(new_biased_exp, 0, EXPONENT_OVERFLOW_THRESHOLD)
+        new_biased_exp = tl.minimum(
+            tl.maximum(new_biased_exp, 0), EXPONENT_OVERFLOW_THRESHOLD
+        )
 
         mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
         mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value
@@ -972,7 +974,7 @@ def _kernel_rms_quantize_mx4_unpack(
         # Subtract largest exponent in target datatype and remove bias.
         group_exp = group_exp - EBITS
         # Make sure exponent is in valid range.
-        group_exp = tl.clamp(group_exp, -127, 125)
+        group_exp = tl.minimum(tl.maximum(group_exp, -127), 125)
 
         # Next we scale A in preparation for quantization.
         scale_ = tl.exp2(group_exp.to(tl.float64)).to(tl.float16)
@@ -1085,7 +1087,9 @@ def _kernel_rms_quantize_mx4_unpack(
         mantissa = tl.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
 
         # Construct FP4 value from components.
-        new_biased_exp = tl.clamp(new_biased_exp, 0, EXPONENT_OVERFLOW_THRESHOLD)
+        new_biased_exp = tl.minimum(
+            tl.maximum(new_biased_exp, 0), EXPONENT_OVERFLOW_THRESHOLD
+        )
 
         mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
         mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value
