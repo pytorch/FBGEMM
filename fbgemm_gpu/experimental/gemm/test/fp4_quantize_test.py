@@ -29,6 +29,97 @@ if not open_source:
     from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
 
 
+def _fp4_rne_reference(values: torch.Tensor) -> torch.Tensor:
+    # Prefer even encodings when two E2M1 levels are equally close.
+    codes = torch.tensor([0, 2, 4, 6, 1, 3, 5, 7], device=values.device)
+    levels = torch.tensor(
+        [0.0, 1.0, 2.0, 4.0, 0.5, 1.5, 3.0, 6.0], device=values.device
+    )
+    magnitude = values.abs().clamp_max(6.0)
+    nearest = (magnitude[..., None] - levels).abs().argmin(dim=-1)
+    sign = ((values.contiguous().view(torch.int32) >> 31) & 1) << 3
+    bits = torch.where(torch.isnan(values), 7, codes[nearest] | sign).to(torch.uint8)
+    return bits[..., ::2] | (bits[..., 1::2] << 4)
+
+
+def _assert_rms_fp4_rounding(
+    result, reference, normalized, source, weight, global_scale, shared_scales, eps
+):
+    # Bound the FP32 reduction, reciprocal square root, and two products by32u.
+    # Exact FP4 codes remain required unless that envelope crosses a BF16 midpoint.
+    values = source.reshape(-1, weight.numel()).double()
+    exact = (
+        values
+        * torch.rsqrt(values.square().mean(dim=1, keepdim=True) + eps)
+        * weight.double()
+    ).reshape_as(source)
+    magnitude = exact.abs()
+    error = magnitude * (32 * 2**-24)
+    lower = (magnitude - error).clamp_min(0).bfloat16().float()
+    upper = (magnitude + error).bfloat16().float()
+    reference_magnitude = normalized.float().abs()
+    torch.testing.assert_close(
+        reference_magnitude,
+        torch.maximum(torch.minimum(reference_magnitude, upper), lower),
+        atol=0,
+        rtol=0,
+    )
+
+    def unpack(packed):
+        return torch.stack((packed & 15, packed >> 4), dim=-1).reshape_as(source)
+
+    actual_codes = unpack(result)
+    reference_codes = unpack(reference)
+    torch.testing.assert_close(actual_codes & 8, reference_codes & 8, atol=0, rtol=0)
+    delta = (actual_codes & 7).to(torch.int16) - (reference_codes & 7).to(torch.int16)
+    # Use the validated shared FP8 scales from the base quantizer. Recomputing
+    # them with a different floating-point expression can move an FP8 midpoint.
+    groups = source.numel() // weight.numel()
+    indices = torch.arange(groups, device=source.device, dtype=torch.int64)
+    indices = indices.reshape(source.shape[0], -1) + 1
+    permutation = to_blocked(indices).reshape(-1) - 1
+    valid = permutation >= 0
+    logical_scale_bytes = torch.empty(groups, device=source.device, dtype=torch.uint8)
+    logical_scale_bytes[permutation[valid]] = shared_scales.view(torch.uint8).reshape(
+        -1
+    )[valid]
+    local_scale = logical_scale_bytes.view(torch.float8_e4m3fn).float().reshape(-1, 1)
+    divisor = local_scale / global_scale
+    lower_codes = (
+        unpack(_fp4_rne_reference(lower.reshape(-1, weight.numel()) / divisor)) & 7
+    )
+    upper_codes = (
+        unpack(_fp4_rne_reference(upper.reshape(-1, weight.numel()) / divisor)) & 7
+    )
+    lower_delta = lower_codes.to(torch.int16) - (reference_codes & 7).to(torch.int16)
+    upper_delta = upper_codes.to(torch.int16) - (reference_codes & 7).to(torch.int16)
+    ambiguous = lower != upper
+    # A valid reference code is always allowed. Only an ambiguous BF16 rounding
+    # can permit an adjacent code actually reached by its other endpoint.
+    torch.testing.assert_close(
+        lower_delta.abs(), lower_delta.abs().clamp_max(1), atol=0, rtol=0
+    )
+    torch.testing.assert_close(
+        upper_delta.abs(), upper_delta.abs().clamp_max(1), atol=0, rtol=0
+    )
+    lower_delta = torch.where(
+        ambiguous,
+        torch.minimum(lower_delta, torch.zeros_like(lower_delta)),
+        torch.zeros_like(lower_delta),
+    )
+    upper_delta = torch.where(
+        ambiguous,
+        torch.maximum(upper_delta, torch.zeros_like(upper_delta)),
+        torch.zeros_like(upper_delta),
+    )
+    torch.testing.assert_close(
+        delta,
+        torch.maximum(torch.minimum(delta, upper_delta), lower_delta),
+        atol=0,
+        rtol=0,
+    )
+
+
 @unittest.skipIf(
     not torch.cuda.is_available()
     or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
@@ -69,6 +160,13 @@ class TestFp4Quantize(unittest.TestCase):
                 ]
                 x_scale[:, i] = xq_packed[:, end_idx]
 
+            # The packed software reference uses legacy half-up element casting;
+            # CUDA FP4 conversion uses round-to-nearest, ties-to-even.
+            scale = torch.ldexp(
+                torch.ones_like(x_scale, dtype=torch.float32), x_scale.int() - 127
+            )
+            scaled = x.float().reshape(M, groups_per_row, group_size) / scale[..., None]
+            xq = _fp4_rne_reference(scaled).reshape(M, N // 2)
             self.assertTrue(torch.equal(xq, xq_ref))
             self.assertTrue(
                 torch.equal(_to_blocked(x_scale), x_scale_ref.view(torch.uint8))
@@ -421,14 +519,19 @@ def nvfp4_quantize(
         # we want the per_tensor_scale ~= amax of the block_scale_fp32
         block_scale_fp32 = block_scale.to(torch.float32)
         # Quantize the blockwise scales w/ the per_tensor_scale
-        scaled_block_scales = block_scale_fp32 / per_tensor_scale
+        # The GPU API accepts the inverse global scale. Keep each FP32
+        # stage identical: reciprocal, multiply for FP8 scales, then divide
+        # to reconstruct the denominator. Algebraic reassociation can change
+        # E2M1 rounding at midpoints, even when the reciprocal roundtrips.
+        inverse_global_scale = per_tensor_scale.reciprocal()
+        scaled_block_scales = block_scale_fp32 * inverse_global_scale
         scaled_block_scales_fp8 = torch.clamp(
             scaled_block_scales, min=E4M3_EPS, max=F8E4M3_MAX
         ).to(torch.float8_e4m3fn)
         scaled_block_scales_fp32 = scaled_block_scales_fp8.to(torch.float32)
         # We "temporarily" dequant the scaled_block_scales_fp32 to get the per_tensor_scale
         # To apply to data
-        total_scale = per_tensor_scale * scaled_block_scales_fp32
+        total_scale = scaled_block_scales_fp32 / inverse_global_scale
         data_scaled = data_hp / total_scale.unsqueeze(-1)
         out_scales = scaled_block_scales_fp8
 
@@ -636,8 +739,10 @@ class TestNVFp4RmsQuantize(unittest.TestCase):
                 group_size=group_size,
             )
 
-            self.assertTrue(torch.equal(xq, xq_ref))
             self.assertTrue(torch.equal(x_scale, x_scale_ref))
+            _assert_rms_fp4_rounding(
+                xq_ref, xq, intermediate, x, w, x_global_scale, x_scale, 1e-5
+            )
 
         _test_rms_quantize_nvfp4((1, 128))
         _test_rms_quantize_nvfp4((4, 512))

@@ -1411,7 +1411,10 @@ def _kernel_nvfp4_quantize(
         # scaled_a = a * global_scale (fp32) / local_scale (fp8)
         scaled_a = tl.div_rn(
             tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]).to(tl.float32),
-            tl.reshape(scale_ / input_global_scale, [GROUP_LOAD, 1]).to(tl.float32),
+            tl.reshape(
+                tl.div_rn(scale_.to(tl.float32), input_global_scale.to(tl.float32)),
+                [GROUP_LOAD, 1],
+            ),
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -1762,8 +1765,12 @@ def _kernel_nvfp4_quantize_silu(
 
         # Apply scale_ to input. We do this by broadcasting scale.
         # scaled_a = a * global_scale (fp32) / local_scale (fp8)
-        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            input_global_scale / scale_, [GROUP_LOAD, 1]
+        scaled_a = tl.div_rn(
+            tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]).to(tl.float32),
+            tl.reshape(
+                tl.div_rn(scale_.to(tl.float32), input_global_scale.to(tl.float32)),
+                [GROUP_LOAD, 1],
+            ),
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -2122,8 +2129,12 @@ def _kernel_nvfp4_quantize_rms(
 
         # Apply scale_ to input. We do this by broadcasting scale.
         # scaled_a = a * global_scale (fp32) / local_scale (fp8)
-        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
-            input_global_scale / scale_, [GROUP_LOAD, 1]
+        scaled_a = tl.div_rn(
+            tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]).to(tl.float32),
+            tl.reshape(
+                tl.div_rn(scale_.to(tl.float32), input_global_scale.to(tl.float32)),
+                [GROUP_LOAD, 1],
+            ),
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
