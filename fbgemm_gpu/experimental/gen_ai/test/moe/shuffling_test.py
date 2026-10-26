@@ -99,14 +99,6 @@ class ShufflingTests(unittest.TestCase):
         compiled: bool,
         routing_score_dtype: torch.dtype,
     ) -> None:
-        if (
-            routing_score_dtype == torch.float
-            and num_experts > 16
-            and torch.version.hip
-        ):
-            self.skipTest(
-                f"Skipping test for {routing_score_dtype=}, {num_experts=} due to torch.AcceleratorError: HIP error: out of memory"
-            )
 
         torch.manual_seed(0)
 
