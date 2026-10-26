@@ -1851,4 +1851,5 @@ def nbit_cache(  # noqa C901
 
 
 if __name__ == "__main__":
+    torch.multiprocessing.freeze_support()
     cli()
