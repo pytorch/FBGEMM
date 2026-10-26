@@ -100,15 +100,6 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
     "test_faketensor__test_nbit_forward_cpu_seq_int8": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
-    "test_faketensor__test_nbit_forward_cpu_gpu_dequantize_parity": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_schema__test_nbit_forward_cpu_gpu_dequantize_parity": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_autograd_registration__test_nbit_forward_cpu_gpu_dequantize_parity": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
     "test_aot_dispatch_static__test_nbit_forward_cpu_gpu_dequantize_parity": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
