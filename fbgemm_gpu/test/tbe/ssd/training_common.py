@@ -558,6 +558,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         backend_type: BackendType = BackendType.SSD,
         enable_raw_embedding_streaming: bool = False,
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
+        l2_cache_size: int = 8,
     ) -> tuple[SSDTableBatchedEmbeddingBags, list[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -643,7 +644,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
                 stochastic_rounding=stochastic_rounding,
                 prefetch_pipeline=prefetch_pipeline,
                 bounds_check_mode=BoundsCheckMode.WARNING,
-                l2_cache_size=8,
+                l2_cache_size=l2_cache_size,
                 bulk_init_chunk_size=bulk_init_chunk_size,
                 lazy_bulk_init_enabled=lazy_bulk_init_enabled,
                 enable_raw_embedding_streaming=enable_raw_embedding_streaming,
