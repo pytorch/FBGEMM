@@ -33,6 +33,7 @@ except Exception:
 
 
 class MetricOpsTest(unittest.TestCase):
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]
     @given(
         n_tasks=st.integers(1, 5),
