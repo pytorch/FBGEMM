@@ -41,6 +41,14 @@ VIRTUAL_TABLE_ROWS = int(
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommon):
+    def test_rejects_post_construction_device_migration(self) -> None:
+        emb = SSDTableBatchedEmbeddingBags.__new__(SSDTableBatchedEmbeddingBags)
+        torch.nn.Module.__init__(emb)
+        emb.current_device = torch.device("cpu")
+
+        with self.assertRaisesRegex(RuntimeError, "cannot be moved after construction"):
+            emb.to("meta")
+
     def get_physical_table_arg_indices_(self, feature_table_map: list[int]):
         """
         Get the physical table arg indices for the reference and TBE.  The
@@ -1785,6 +1793,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         B = 16
         E = int(1e4)
         L = 10
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         emb = SSDTableBatchedEmbeddingBags(
             embedding_specs=[(E, D)] * T,
@@ -1803,8 +1812,8 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
         # Run a few iterations to generate cache activity
         for _ in range(5):
-            indices = torch.randint(0, E, (B * T * L,)).cuda()
-            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            indices = torch.randint(0, E, (B * T * L,), device=device)
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
             emb.prefetch(indices, offsets)
             emb(indices, offsets)
         torch.cuda.synchronize()
@@ -1839,6 +1848,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         B = 8
         E = int(1e4)
         L = 5
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         # Create TBE with auto-sizing sentinel (-1)
         emb = SSDTableBatchedEmbeddingBags(
@@ -1854,8 +1864,8 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         ).cuda()
 
         # Verify the TBE is functional with auto-sized block cache
-        indices = torch.randint(0, E, (B * T * L,)).cuda()
-        offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+        indices = torch.randint(0, E, (B * T * L,), device=device)
+        offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
         emb.prefetch(indices, offsets)
         output = emb(indices, offsets)
         self.assertFalse(torch.isnan(output).any().item())
@@ -1873,6 +1883,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         B = 4
         E = 100  # Very small table: 100 * 16 * 4 = 6400 bytes
         L = 5
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         # This should auto-size to 16MB minimum, not 10% of 6400 bytes
         emb = SSDTableBatchedEmbeddingBags(
@@ -1888,8 +1899,8 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         ).cuda()
 
         # Verify functional correctness with minimum block cache
-        indices = torch.randint(0, E, (B * T * L,)).cuda()
-        offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+        indices = torch.randint(0, E, (B * T * L,), device=device)
+        offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
         emb.prefetch(indices, offsets)
         output = emb(indices, offsets)
         self.assertFalse(torch.isnan(output).any().item())
@@ -1915,6 +1926,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         B = 8
         E = int(1e4)
         L = 5
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         emb = SSDTableBatchedEmbeddingBags(
             embedding_specs=[(E, D)] * T,
@@ -1929,8 +1941,8 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
         # Verify functional correctness across shard counts
         for _ in range(5):
-            indices = torch.randint(0, E, (B * T * L,)).cuda()
-            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            indices = torch.randint(0, E, (B * T * L,), device=device)
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
             emb.prefetch(indices, offsets)
             output = emb(indices, offsets)
             self.assertFalse(torch.isnan(output).any().item())
@@ -1951,6 +1963,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         B = 16
         E = int(1e4)
         L = 10
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         emb = SSDTableBatchedEmbeddingBags(
             embedding_specs=[(E, D)] * T,
@@ -1964,16 +1977,16 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
         # Run enough iterations to flush memtable to SST (triggers bloom filter)
         for _ in range(20):
-            indices = torch.randint(0, E, (B * T * L,)).cuda()
-            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            indices = torch.randint(0, E, (B * T * L,), device=device)
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
             emb.prefetch(indices, offsets)
             output = emb(indices, offsets)
             self.assertFalse(torch.isnan(output).any().item())
 
         # Verify same indices produce same results (bloom filter not causing
         # false negatives — they only cause false positives)
-        fixed_indices = torch.randint(0, E, (B * T * L,)).cuda()
-        fixed_offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+        fixed_indices = torch.randint(0, E, (B * T * L,), device=device)
+        fixed_offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
         emb.prefetch(fixed_indices, fixed_offsets)
         out1 = emb(fixed_indices, fixed_offsets).clone()
         emb.prefetch(fixed_indices, fixed_offsets)
@@ -2093,6 +2106,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         B = 16
         E = int(1e4)
         L = 10
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         emb = SSDTableBatchedEmbeddingBags(
             embedding_specs=[(E, D)] * T,
@@ -2107,8 +2121,8 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
         # Run several iterations of prefetch + forward
         for _ in range(5):
-            indices = torch.randint(0, E, (B * T * L,)).cuda()
-            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            indices = torch.randint(0, E, (B * T * L,), device=device)
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
             emb.prefetch(indices, offsets)
             emb(indices, offsets)
         torch.cuda.synchronize()
@@ -2134,6 +2148,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         B = 16
         E = int(1e4)
         L = 10
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         emb = SSDTableBatchedEmbeddingBags(
             embedding_specs=[(E, D)] * T,
@@ -2148,8 +2163,8 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
         # Run many iterations to stress the CV-based fill queue
         for i in range(20):
-            indices = torch.randint(0, E, (B * T * L,)).cuda()
-            offsets = torch.arange(0, B * T + 1, dtype=torch.long).cuda() * L
+            indices = torch.randint(0, E, (B * T * L,), device=device)
+            offsets = torch.arange(0, B * T + 1, dtype=torch.long, device=device) * L
             emb.prefetch(indices, offsets)
             output = emb(indices, offsets)
             # Verify output is valid (not NaN/Inf)
