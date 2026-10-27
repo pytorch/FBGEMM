@@ -287,3 +287,22 @@ def read_bool(section, field, default):
 
 def get_fbgemm_codegen_inference_mode():
     return read_bool("fbcode", "fbgemm_codegen_inference_mode", False)
+
+def _read_fp16_prefetch_distance(field):
+    val = native.read_config("fbcode", field)
+    if val == None:
+        return None
+    if not val.isdigit() or int(val) == 0 or int(val) % 64 != 0:
+        fail("`fbcode:{}`: must be a positive multiple of 64 (bytes), but was {}".format(field, val))
+    return int(val)
+
+def get_fbgemm_fp16_software_prefetch_flags():
+    distances = {
+        "FBGEMM_FP16_PREFETCH_B_L1_DIST": _read_fp16_prefetch_distance("fbgemm_fp16_software_prefetch_l1_distance"),
+        "FBGEMM_FP16_PREFETCH_B_L2_DIST": _read_fp16_prefetch_distance("fbgemm_fp16_software_prefetch_l2_distance"),
+    }
+    if not read_bool("fbcode", "fbgemm_fp16_software_prefetch", False):
+        if [d for d in distances.values() if d != None]:
+            fail("`fbcode:fbgemm_fp16_software_prefetch_l{1,2}_distance` need `fbcode:fbgemm_fp16_software_prefetch=true`")
+        return []
+    return ["-DFBGEMM_ENABLE_FP16_SOFTWARE_PREFETCH"] + ["-D{}={}".format(macro, d) for macro, d in distances.items() if d != None]
