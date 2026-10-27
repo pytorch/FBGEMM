@@ -27,7 +27,6 @@ from .training_common import (
     MAX_EXAMPLES,
     print_different_rows,
     SSDSplitTableBatchedEmbeddingsTestCommon,
-    VIRTUAL_TABLE_ROWS,
 )
 
 default_st: dict[str, Any] = default_strategies | {
@@ -709,7 +708,6 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
             split_optimizer_states.append(s)
 
         # Compare optimizer states
-        table_offset = 0
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
             m1, m2 = split_optimizer_states[t]
             # Some optimizers have non-float momentum values
@@ -800,12 +798,16 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
             self.assert_close_(m2_from_emb_w, m2_ref)
             self.assert_close_(m1_from_emb_w, m1_ref)
 
-            # Copmare the id part
+            # Whole-row checkpoints contain per-table IDs, without the physical
+            # table offset used to linearize backend storage keys.
             id_extracted_from_emb_w = (
                 emb_w[:, 0 : metaheader_dim // 2].view(torch.int64).view(-1)
             )
-            self.assert_close_(
-                id_extracted_from_emb_w, bucket_asc_ids_list[t].view(-1) + table_offset
+            torch.testing.assert_close(
+                id_extracted_from_emb_w,
+                bucket_asc_ids_list[t].view(-1),
+                rtol=0,
+                atol=0,
             )
             # Compare the weight part
             tolerance = 1.0e-2
@@ -815,8 +817,6 @@ class SSDSplitTBEPartialRowwiseAdamTest(SSDSplitTableBatchedEmbeddingsTestCommon
                 atol=tolerance,
                 rtol=tolerance,
             )
-
-            table_offset += VIRTUAL_TABLE_ROWS
 
     @given(**default_st)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
