@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <tuple>
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
+#include "merge_pooled_embedding_ops_gpu.h"
 
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
@@ -124,6 +125,10 @@ AdjacencyMatrix<Node> get_intermediate_node(
   }
 }
 
+} // namespace
+
+namespace fbgemm_gpu {
+
 // Transfers `src` to `dst`, which are expected to hold the same shape but may
 // live on different devices.
 //
@@ -183,6 +188,12 @@ void copy_to_device_async(
       cudaMemcpyDeviceToDevice,
       copy_stream));
 }
+
+} // namespace fbgemm_gpu
+
+namespace {
+
+using fbgemm_gpu::copy_to_device_async;
 
 void all_to_one_target_cpu(
     const std::vector<Tensor>& input_tensors,
