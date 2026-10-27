@@ -433,6 +433,8 @@ def get_available_compute_device() -> ComputeDevice:
         return ComputeDevice.CUDA
     elif torch.mtia.is_available():
         return ComputeDevice.MTIA
+    elif torch.xpu.is_available():
+        return ComputeDevice.XPU
     else:
         return ComputeDevice.CPU
 
@@ -512,6 +514,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             (2) `CUDA` = performing table lookup on GPU
 
             (3) `MTIA` = performing table lookup on MTIA
+
+            (4) `XPU` = performing table lookup on an Intel GPU,
+                        using kernels supplied by an out-of-tree plugin
+                        (fbgemm-xpu in intel/torchlib-xpu). Supported
+                        configurations depend on the plugin and FBGEMM's
+                        frontend restrictions.
 
         feature_table_map (list[int] | None = None): An optional list that
             specifies feature-table mapping. feature_table_map[i] indicates the
@@ -993,6 +1001,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.use_mtia: bool = compute_devices[0] == ComputeDevice.MTIA
         # Split TBE has different function schemas for CUDA and CPU.
         # For MTIA device type, it uses the CPU one.
+        # XPU uses the CUDA (GPU) one; its kernels come from an out-of-tree plugin such as fbgemm-xpu.
         self.use_cpu: bool = compute_devices[0] == ComputeDevice.CPU or self.use_mtia
 
         # Check if init is called from QRSplitTableBatchedEmbeddingBagsCodegen

@@ -19,6 +19,7 @@ Tests cover:
 
 import enum
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -73,6 +74,21 @@ class EmbeddingConfigClassmethodTest(unittest.TestCase):
 
         result = ComputeDevice.get_available()
         self.assertIn(result, list(ComputeDevice))
+
+        # (cuda, mtia, xpu) availability -> expected device
+        cases = [
+            ((True, False, False), ComputeDevice.CUDA),
+            ((False, True, False), ComputeDevice.MTIA),
+            ((False, False, True), ComputeDevice.XPU),
+            ((False, False, False), ComputeDevice.CPU),
+        ]
+        for (cuda, mtia, xpu), expected in cases:
+            with self.subTest(cuda=cuda, mtia=mtia, xpu=xpu), patch(
+                "torch.cuda.is_available", return_value=cuda
+            ), patch("torch.mtia.is_available", return_value=mtia), patch(
+                "torch.xpu.is_available", return_value=xpu
+            ):
+                self.assertEqual(ComputeDevice.get_available(), expected)
 
     def test_embedding_location_from_device_and_clf_cpu(self) -> None:
         from fbgemm_gpu.tbe.config import EmbeddingLocation
