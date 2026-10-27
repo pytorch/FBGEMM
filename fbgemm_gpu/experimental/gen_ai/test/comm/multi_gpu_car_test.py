@@ -33,6 +33,7 @@ logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
+gpu_unavailable: tuple[bool, str] = (not torch.cuda.is_available(), "No available GPU")
 
 
 @functools.lru_cache
@@ -310,6 +311,46 @@ def _run_oneshot_car_stress_inner(path: str) -> None:
             )
 
 
+def _run_oneshot_car_block_boundaries_inner(path: str) -> None:
+    rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    device = torch.device(f"cuda:{rank}")
+    torch.cuda.set_device(device)
+    torch.distributed.init_process_group(
+        backend="gloo",
+        init_method=f"file://{os.path.join(path, 'gloo_rdvz')}",
+        world_size=world_size,
+        rank=rank,
+    )
+    buffer = torch.ops.fbgemm.car_tensor()
+    barrier = torch.ops.fbgemm.car_tensor()
+    barrier.zero_()
+    buffer_handle = torch.ops.fbgemm.car_ipc_handle(buffer)
+    barrier_handle = torch.ops.fbgemm.car_ipc_handle(barrier)
+    buffer_handles = [torch.empty_like(buffer_handle) for _ in range(world_size)]
+    barrier_handles = [torch.empty_like(barrier_handle) for _ in range(world_size)]
+    torch.distributed.all_gather(buffer_handles, buffer_handle)
+    torch.distributed.all_gather(barrier_handles, barrier_handle)
+    torch.ops.fbgemm.car_init(
+        rank, world_size, barrier, barrier_handles, buffer, buffer_handles
+    )
+    torch.cuda.synchronize()
+    torch.distributed.barrier()
+    for enable_pipelining in (False, True):
+        for numel in (512, 2560, 5120, 7680, 16384):
+            for iteration in range(10):
+                src = torch.full(
+                    (numel,), rank + iteration, dtype=torch.bfloat16, device=device
+                )
+                dst = torch.empty_like(src)
+                torch.ops.fbgemm.one_shot_car_allreduce(
+                    dst, src, enable_pipelining=enable_pipelining
+                )
+                expected = world_size * (world_size - 1) // 2 + iteration * world_size
+                torch.testing.assert_close(dst, torch.full_like(dst, expected))
+    torch.distributed.destroy_process_group()
+
+
 @unittest.skipIf(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     "Skip when CUDA is not available or when there are not enough GPUs; these tests require at least two GPUs",
@@ -443,6 +484,25 @@ class LLamaMultiGpuTests(unittest.TestCase):
                 local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_allreduce_inner)(path)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_oneshot_car_block_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as path:
+            lc = LaunchConfig(
+                min_nodes=1,
+                max_nodes=1,
+                nproc_per_node=torch.cuda.device_count(),
+                run_id=str(uuid.uuid4()),
+                rdzv_backend="c10d",
+                rdzv_endpoint="localhost:0",
+                start_method="spawn",
+                monitor_interval=1,
+                max_restarts=0,
+                local_addr="localhost",
+            )
+            elastic_launch(
+                config=lc, entrypoint=_run_oneshot_car_block_boundaries_inner
+            )(path)
 
     def test_oneshot_car_stress(self) -> None:
         with tempfile.TemporaryDirectory() as path:

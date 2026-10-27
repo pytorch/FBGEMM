@@ -129,18 +129,15 @@ __launch_bounds__(512)
         reinterpret_cast<uint64_t*>(&ar_input[i])[1];
 #endif
   }
-  // Synchronize the ranks.
+  __syncthreads();
+  const auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
   if (threadIdx.x < kWorldSize) {
-    // The 1st block notifies the other ranks.
-    if (blockIdx.x == 0) {
-      st_flag_release(flag, barriers[threadIdx.x] + rank);
-    }
-
-    // Busy-wait until all ranks are ready.
+    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
     int32_t rank_barrier = 0;
     do {
-      ld_flag_acquire(rank_barrier, barriers[rank] + threadIdx.x);
-    } while (rank_barrier != flag);
+      ld_flag_acquire(
+          rank_barrier, barriers[rank] + flag_block_offset + threadIdx.x);
+    } while (rank_barrier < flag);
   }
 
   // Make sure we can move on...
@@ -193,9 +190,9 @@ __launch_bounds__(512)
 
   if (threadIdx.x < kWorldSize) {
     // notify all other blocks this blockIdx is ready
-    const auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
-
-    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
+    int32_t done_flag = flag + 1;
+    st_flag_release(
+        done_flag, barriers[threadIdx.x] + flag_block_offset + rank);
 
     int32_t rank_barrier = 0;
 
@@ -203,7 +200,7 @@ __launch_bounds__(512)
     do {
       ld_flag_acquire(
           rank_barrier, barriers[rank] + flag_block_offset + threadIdx.x);
-    } while (rank_barrier != flag);
+    } while (rank_barrier < done_flag);
   }
 }
 
@@ -245,18 +242,15 @@ __launch_bounds__(512)
         reinterpret_cast<uint64_t*>(&ar_input[i])[1];
 #endif
   }
-  // Synchronize the ranks.
+  __syncthreads();
+  const auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
   if (threadIdx.x < kWorldSize) {
-    // The 1st block notifies the other ranks.
-    if (blockIdx.x == 0) {
-      st_flag_release(flag, barriers[threadIdx.x] + rank);
-    }
-
-    // Busy-wait until all ranks are ready.
+    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
     int32_t rank_barrier = 0;
     do {
-      ld_flag_acquire(rank_barrier, barriers[rank] + threadIdx.x);
-    } while (rank_barrier != flag);
+      ld_flag_acquire(
+          rank_barrier, barriers[rank] + flag_block_offset + threadIdx.x);
+    } while (rank_barrier < flag);
   }
 
   // Make sure we can move on...
@@ -313,9 +307,9 @@ __launch_bounds__(512)
 
   if (threadIdx.x < kWorldSize) {
     // notify all other blocks this blockIdx is ready
-    const auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
-
-    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
+    int32_t done_flag = flag + 1;
+    st_flag_release(
+        done_flag, barriers[threadIdx.x] + flag_block_offset + rank);
 
     int32_t rank_barrier = 0;
 
@@ -323,7 +317,7 @@ __launch_bounds__(512)
     do {
       ld_flag_acquire(
           rank_barrier, barriers[rank] + flag_block_offset + threadIdx.x);
-    } while (rank_barrier != flag);
+    } while (rank_barrier < done_flag);
   }
 }
 
