@@ -1530,6 +1530,12 @@ class SSDCheckpointTest(unittest.TestCase):
                     narrowed[i, : metaheader_dim // 2].view(torch.int64),
                     torch.tensor([i + row_offset], dtype=torch.int64),
                 )
+                packed_metadata = int(
+                    narrowed[i, metaheader_dim // 2 : metaheader_dim]
+                    .view(torch.int64)
+                    .item()
+                )
+                self.assertNotEqual(packed_metadata & 0xFFFFFFFF, 0)
 
                 # Check if weight matches the one passed in with weights
                 torch.testing.assert_close(
@@ -1542,6 +1548,56 @@ class SSDCheckpointTest(unittest.TestCase):
                 narrowed[:, opt_offset : opt_offset + opt_dim],
                 torch.zeros(N, opt_dim, dtype=dtype),
             )
+            original_narrowed = narrowed.clone()
+            checkpoint_ids = (
+                original_narrowed[:, : metaheader_dim // 2]
+                .contiguous()
+                .view(torch.int64)
+                .reshape(-1)
+            )
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                original_narrowed, checkpoint_ids
+            )
+            restored = tensor_wrapper.narrow(0, 0, N)
+            torch.testing.assert_close(restored, original_narrowed, equal_nan=True)
+
+            zero_timestamp_rows = original_narrowed.clone()
+            zero_timestamp_metadata = zero_timestamp_rows[
+                :, metaheader_dim // 2 : metaheader_dim
+            ].view(torch.int64)
+            checkpoint_count = 7
+            zero_timestamp_metadata.fill_(-(1 << 63) | (checkpoint_count << 32))
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                zero_timestamp_rows, checkpoint_ids
+            )
+            restored_metadata = tensor_wrapper.narrow(0, 0, N)[
+                :, metaheader_dim // 2 : metaheader_dim
+            ].view(torch.int64)
+            self.assertTrue(torch.all(restored_metadata.bitwise_and(0xFFFFFFFF) != 0))
+            torch.testing.assert_close(
+                restored_metadata.bitwise_right_shift(32).bitwise_and(0x7FFFFFFF),
+                torch.full_like(restored_metadata, checkpoint_count),
+            )
+
+            zero_payload_row = original_narrowed[:1].clone()
+            zero_payload_row[:, metaheader_dim:] = 0
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                zero_payload_row, checkpoint_ids[:1]
+            )
+            zero_payload_restored = tensor_wrapper.narrow(0, 0, 1)
+            torch.testing.assert_close(
+                zero_payload_restored[:, metaheader_dim:],
+                torch.zeros_like(zero_payload_restored[:, metaheader_dim:]),
+            )
+
+            missing_row = torch.zeros_like(original_narrowed[:1])
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "set_weights_and_ids: all 1 checkpoint rows were filtered as missing",
+            ):
+                tensor_wrapper.set_prefixed_weights_and_ids(
+                    missing_row, checkpoint_ids[:1]
+                )
             row_offset += E
 
     @given(
