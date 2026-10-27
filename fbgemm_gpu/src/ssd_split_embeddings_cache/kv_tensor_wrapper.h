@@ -107,6 +107,10 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   void set_weights_and_ids(const at::Tensor& weights, const at::Tensor& ids);
 
+  void set_prefixed_weights_and_ids(
+      const at::Tensor& weights,
+      const at::Tensor& ids);
+
   at::Tensor get_weights_by_ids(const at::Tensor& ids);
 
   c10::IntArrayRef sizes();
@@ -142,6 +146,11 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       std::shared_ptr<kv_db::EmbeddingKVDB> db);
 
  private:
+  void set_weights_and_ids_impl(
+      const at::Tensor& weights,
+      const at::Tensor& ids,
+      bool weights_include_metadata);
+
   std::shared_ptr<kv_db::EmbeddingKVDB> db_;
   // For DRAM_SSD backend: stores the underlying EmbeddingRocksDB separately
   // because db_ holds the composite DramSsdKVEmbeddingCache (inherits

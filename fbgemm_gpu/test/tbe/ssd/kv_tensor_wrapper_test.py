@@ -7,6 +7,7 @@
 # pyre-strict
 
 import gc
+import pickle
 import tempfile
 import unittest
 from typing import Any
@@ -17,6 +18,9 @@ import torch
 import torch.testing
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.ssd.ssd_config import BackendType
+from fbgemm_gpu.tbe.ssd.utils.partially_materialized_tensor import (
+    PartiallyMaterializedTensor,
+)
 from fbgemm_gpu.utils.loader import load_torch_module
 from hypothesis import given, settings, strategies as st, Verbosity
 
@@ -40,6 +44,18 @@ default_settings: dict[str, Any] = {
 # pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_in_oss)
 class KvTensorWrapperTest(TestCase):
+
+    def test_partially_materialized_tensor_pickle_preserves_flags(self) -> None:
+        pmt = PartiallyMaterializedTensor(
+            torch.tensor([1.0]), is_virtual=True, includes_metadata=True
+        )
+
+        restored = pickle.loads(pickle.dumps(pmt))
+
+        self.assertTrue(restored.is_virtual)
+        _, args = restored.__reduce__()
+        self.assertEqual(args[1:], (True, True))
+        torch.testing.assert_close(restored.wrapped, pmt.wrapped)
 
     def create_db(
         self,
