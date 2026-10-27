@@ -1455,7 +1455,14 @@ Tensor {{ embedding_cuda_op }}(
                     {%- if vbe %}
                     if (use_hip_kernel) {
                     {%- else %}
-                    if (use_hip_kernel && mixed_D) {
+                    // Default off: TBE_ROCM_HIP_MIXED_D_UNIFORM=1 also sends uniform-D non-VBE TBEs here. A uniform D the
+                    // specialized HIP kernel covers (64, 128, 160, 192, 256, 320) is still overridden by it below; any
+                    // other uniform D (e.g. 96) would otherwise fall back to the generic warp_per_row kernel.
+                    static const bool hip_mixed_d_uniform = [] {
+                      const char* v = std::getenv("TBE_ROCM_HIP_MIXED_D_UNIFORM");
+                      return v != nullptr && std::string(v) == "1";
+                    }();
+                    if (use_hip_kernel && (mixed_D || hip_mixed_d_uniform)) {
                     {%- endif %}
                         backward_warp_per_row_kernel =
                         {{ hip_mixed_d_warp_kernel }}
@@ -1494,6 +1501,28 @@ Tensor {{ embedding_cuda_op }}(
                             // with kThreadGroupSize=64)
                             num_warp_per_row_groups = (kBackwardMaxThreads / 2) / 32;
                             warp_thread_group_size = 32;
+                            // Default off: 8-lane groups with four vectors per lane, so a wave64
+                            // carries eight rows instead of two (8 * 4 * vec_width >= max_D).
+                            static const bool eighth_wave = [] {
+                              const char* v = std::getenv("TBE_ROCM_HIP_MIXED_D_EIGHTH_WAVE");
+                              return v != nullptr && std::string(v) == "1";
+                            }();
+                            if (eighth_wave) {
+                              backward_warp_per_row_kernel =
+                              {{ hip_mixed_d_warp_kernel }}
+                                  <emb_t,
+                                  grad_t,
+                                  cache_t,
+                                  index_t,
+                                  {%- for ph_name in args.placeholder_tensor_names %}
+                                  {{ ph_name + "_ph_t" }},
+                                  {%- endfor %}
+                                  4,
+                                  8,
+                                  false>;
+                              num_warp_per_row_groups = (kBackwardMaxThreads / 2) / 8;
+                              warp_thread_group_size = 8;
+                            }
                         }
                         {%- endif %}
                     }
