@@ -498,6 +498,29 @@ def check_all_same_device(*tensors: Tensor | None) -> None:
         torch._check(tensor.device == first_tensor.device)
 
 
+def direct_mapped_lxu_cache_lookup_meta(
+    linear_cache_indices: Tensor,
+    lxu_cache_state: Tensor,
+    invalid_index: int = -1,
+    gather_cache_stats: bool = False,
+    uvm_cache_stats: Tensor | None = None,
+) -> Tensor:
+    check_all_same_device(linear_cache_indices, lxu_cache_state, uvm_cache_stats)
+    if gather_cache_stats and linear_cache_indices.device.type != "cpu":
+        torch._check(uvm_cache_stats is not None)
+    return torch.empty_like(linear_cache_indices, dtype=torch.int32)
+
+
+def pruned_hashmap_lookup_meta(
+    indices: Tensor,
+    offsets: Tensor,
+    hash_table: Tensor,
+    hash_table_offsets: Tensor,
+) -> Tensor:
+    check_all_same_device(indices, offsets, hash_table, hash_table_offsets)
+    return torch.empty_like(indices)
+
+
 def pruned_array_lookup_meta(
     indices: Tensor,
     offsets: Tensor,
@@ -1572,6 +1595,11 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::expand_into_jagged_permute", expand_into_jagged_permute_meta
         )
+        impl_abstract(
+            "fbgemm::direct_mapped_lxu_cache_lookup",
+            direct_mapped_lxu_cache_lookup_meta,
+        )
+        impl_abstract("fbgemm::pruned_hashmap_lookup", pruned_hashmap_lookup_meta)
         impl_abstract("fbgemm::pruned_array_lookup", pruned_array_lookup_meta)
         impl_abstract(
             "fbgemm::int_nbit_split_embedding_codegen_lookup_function",

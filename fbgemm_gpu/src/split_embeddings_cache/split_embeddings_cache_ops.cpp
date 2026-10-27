@@ -12,6 +12,11 @@
 namespace {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
   m.def(
       "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets, Tensor? B_offsets=None, int max_B=-1, int indices_base_offset=0) -> Tensor");
   m.def(
