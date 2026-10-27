@@ -16,8 +16,10 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from math import log2
+from typing import Callable
 
 import torch  # usort:skip
+from typing_extensions import Self  # usort:skip
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
@@ -35,7 +37,7 @@ from fbgemm_gpu.tbe.config import (
 from torch import distributed as dist, nn, Tensor  # usort:skip
 from torch.autograd.profiler import record_function
 
-from .common import ASSOC
+from .common import ensure_same_device, get_cache_assoc, normalize_device
 
 IS_ROCM: bool = hasattr(torch.version, "hip") and torch.version.hip is not None
 
@@ -114,9 +116,9 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
     AMD/ROCm support status:
         This operator supports AMD GPUs (ROCm/HIP). Key adaptations:
-        - Cache associativity (ASSOC) is set to 64 to match AMD's 64-wide
-          wavefronts (vs. 32 for NVIDIA warps). Python-side tensor shapes
-          and C++ kernel indexing are kept in sync via common.ASSOC.
+        - Cache associativity matches the active device warp size: 32 for
+          NVIDIA/RDNA and 64 for CDNA. Tensor shapes and kernel indexing
+          use the same layout.
         - BitonicSort includes a 6th merge stage (L=32) for 64-element sorts.
         - lxu_cache_lookup uses HIP-native __ballot() instead of
           __ballot_sync().
@@ -137,7 +139,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         row_alignment: int | None = None,
         fp8_exponent_bits: int | None = None,
         fp8_exponent_bias: int | None = None,
-        cache_assoc: int = ASSOC,
+        cache_assoc: int | None = None,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cache_sets: int = 0,
         ssd_storage_directory: str = "/tmp",
@@ -160,13 +162,9 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ps_max_local_index_length: int | None = None,
         tbe_unique_id: int = -1,  # unique id for this embedding, if not set, will derive based on current rank and tbe index id
         enable_cache_locking: bool = False,  # opt-in: lock cache lines during forward to prevent eviction races
+        device: torch.device | int | None = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super().__init__()
-
-        assert cache_assoc == ASSOC, (
-            f"cache_assoc must match platform ASSOC={ASSOC} "
-            f"(CUDA=32, ROCm=64), got {cache_assoc}"
-        )
 
         self.enable_cache_locking = enable_cache_locking
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
@@ -174,16 +172,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         self.embedding_specs = embedding_specs
         T_ = len(self.embedding_specs)
         assert T_ > 0
-        device = torch.cuda.current_device()
-        if device is None:
-            self.current_device: torch.device = torch.device(
-                torch.cuda.current_device()
-            )
-        elif isinstance(device, torch.device):
-            self.current_device = device
-        else:
-            self.current_device = torch.device(device)
+        self.current_device: torch.device = normalize_device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
+        self.cache_assoc: int = get_cache_assoc(self.current_device)
+        assert cache_assoc is None or cache_assoc == self.cache_assoc, (
+            f"cache_assoc must match device warp size {self.cache_assoc}, "
+            f"got {cache_assoc}"
+        )
 
         self.feature_table_map: list[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
@@ -288,7 +283,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         )
         assert cache_sets > 0
         element_size = 1
-        cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
+        cache_size = cache_sets * self.cache_assoc * element_size * self.max_D_cache
         logging.info(
             f"Using cache for SSD with admission algorithm "
             f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_shards} shards, "
@@ -301,10 +296,21 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         )
         self.register_buffer(
             "lxu_cache_state",
-            torch.zeros(cache_sets, ASSOC, dtype=torch.int64).fill_(-1),
+            torch.full(
+                (cache_sets, self.cache_assoc),
+                -1,
+                device=self.current_device,
+                dtype=torch.int64,
+            ),
         )
         self.register_buffer(
-            "lru_state", torch.zeros(cache_sets, ASSOC, dtype=torch.int64)
+            "lru_state",
+            torch.zeros(
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
+            ),
         )
         # Cache locking counter: prevents eviction of cache lines that are
         # currently being read by forward(). Without this, a concurrent
@@ -313,7 +319,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             "lxu_cache_locking_counter",
             torch.zeros(
                 cache_sets,
-                ASSOC,
+                self.cache_assoc,
                 device=self.current_device,
                 dtype=torch.int32,
             ),
@@ -328,14 +334,14 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 "lxu_cache_weights",
                 torch.ops.fbgemm.new_managed_tensor(
                     torch.zeros(1, device=self.current_device, dtype=torch.uint8),
-                    [cache_sets * ASSOC, self.max_D_cache],
+                    [cache_sets * self.cache_assoc, self.max_D_cache],
                 ),
             )
         else:
             self.register_buffer(
                 "lxu_cache_weights",
                 torch.zeros(
-                    cache_sets * ASSOC,
+                    cache_sets * self.cache_assoc,
                     self.max_D_cache,
                     device=self.current_device,
                     dtype=torch.uint8,
@@ -406,9 +412,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         # pyre-fixme[20]: Argument `self` expected.
         low_priority, high_priority = torch.cuda.Stream.priority_range()
-        self.ssd_stream = torch.cuda.Stream(priority=low_priority)
+        self.ssd_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         # Dedicated stream for D2H memory copies (overlaps with compute)
-        self.ssd_memcpy_stream = torch.cuda.Stream(priority=low_priority)
+        self.ssd_memcpy_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         self.ssd_set_start = torch.cuda.Event()
         self.ssd_set_end = torch.cuda.Event()
         # Event for D2H copy completion
@@ -439,6 +449,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             "weights_placements",
             torch.tensor(
                 [EmbeddingLocation.MANAGED_CACHING for _ in range(T_)],
+                device=self.current_device,
                 dtype=torch.int32,
             ),
         )
@@ -472,15 +483,19 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         if IS_ROCM:
             logging.info(
-                "SSD TBE inference running on ROCm with ASSOC=%d "
-                "(matching AMD 64-wide wavefronts).",
-                ASSOC,
+                "SSD TBE inference running on ROCm with cache associativity=%d "
+                "(matching the device wavefront width).",
+                self.cache_assoc,
             )
 
         # Read-write lock for concurrent inference + streaming updates.
         # prefetch/forward take shared read locks; streaming_update/load_snapshot
         # take exclusive write locks with CUDA synchronization.
         self._rw_lock: _RWLock = _RWLock()
+
+    def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
+        ensure_same_device(self.current_device, fn)
+        return super()._apply(fn, recurse)
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> Tensor:
@@ -515,7 +530,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             lock_cache_line=self.enable_cache_locking,
             lxu_cache_locking_counter=self.lxu_cache_locking_counter,
         )
-        current_stream = torch.cuda.current_stream()
+        current_stream = torch.cuda.current_stream(self.current_device)
         # D2H copies on dedicated memcpy stream (overlaps with compute on
         # default stream)
         actions_count_cpu = torch.empty(
@@ -544,11 +559,12 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         current_stream.wait_event(self.ssd_set_end)
         # Wait for D2H copies to complete before get_cuda
         current_stream.wait_event(self.ssd_event_memcpy)
-        self.ssd_db.get_cuda(
-            inserted_indices_cpu,
-            inserted_rows,
-            actions_count_cpu,
-        )
+        with torch.cuda.device(self.current_device):
+            self.ssd_db.get_cuda(
+                inserted_indices_cpu,
+                inserted_rows,
+                actions_count_cpu,
+            )
         current_stream.record_event(self.ssd_set_start)
         # TODO: T123943415 T123943414 this is a big copy that is (mostly) unnecessary with a decent cache hit rate.
         # Should we allocate on HBM?
@@ -574,12 +590,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             evicted_indices_cpu.copy_(evicted_indices, non_blocking=True)
             evicted_rows.record_stream(self.ssd_stream)
             evicted_indices.record_stream(self.ssd_stream)
-            self.ssd_db.set_cuda(
-                evicted_indices_cpu,
-                evicted_rows_cpu,
-                actions_count_cpu,
-                self.timestep_counter.get(),
-            )
+            with torch.cuda.device(self.current_device):
+                self.ssd_db.set_cuda(
+                    evicted_indices_cpu,
+                    evicted_rows_cpu,
+                    actions_count_cpu,
+                    self.timestep_counter.get(),
+                )
             # TODO: is this needed?
             # Need a way to synchronize
             #  actions_count_cpu.record_stream(self.ssd_stream)
@@ -684,11 +701,12 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 ),
                 dtype=torch.uint8,
             )
-            self.ssd_db.get_cuda(
-                torch.arange(rows_cumsum, rows_cumsum + row).to(torch.int64),
-                weights,
-                torch.as_tensor([row]),
-            )
+            with torch.cuda.device(self.current_device):
+                self.ssd_db.get_cuda(
+                    torch.arange(rows_cumsum, rows_cumsum + row).to(torch.int64),
+                    weights,
+                    torch.as_tensor([row]),
+                )
             rows_cumsum += row
             torch.cuda.synchronize(self.current_device)
 
@@ -785,7 +803,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             # Get (row_in_batch, slot) pairs for all matches
             n_idx, slot_idx = matches.nonzero(as_tuple=True)
             # Convert to flat indices into lxu_cache_state
-            flat_idx = cache_set_ids[n_idx] * ASSOC + slot_idx
+            flat_idx = cache_set_ids[n_idx] * self.cache_assoc + slot_idx
             self.lxu_cache_state.view(-1)[flat_idx] = -1
 
     @torch.jit.export

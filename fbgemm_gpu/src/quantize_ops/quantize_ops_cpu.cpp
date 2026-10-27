@@ -408,15 +408,12 @@ Tensor fusednbitrowwise_sbfront_to_float_cpu(
     case SparseType::FP32:
       return _fusednbitrowwise_sbfront_to_float_or_half_cpu<float>(
           input, bit_rate);
-      break;
     case SparseType::FP16:
       return _fusednbitrowwise_sbfront_to_float_or_half_cpu<at::Half>(
           input, bit_rate);
-      break;
     case SparseType::BF16:
       return _fusednbitrowwise_sbfront_to_float_or_half_cpu<at::BFloat16>(
           input, bit_rate);
-      break;
     default:
       TORCH_CHECK(false);
   }

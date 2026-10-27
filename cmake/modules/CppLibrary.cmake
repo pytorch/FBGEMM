@@ -191,14 +191,15 @@ function(fbgemm_get_warning_flags)
     # Remove this line when the warning count is zero.
     -Wno-error=shorten-64-to-32)
 
-  set(_cc_suppressions_clang_gt17
+  # -Wvla-cxx-extension is available starting with Clang 18.
+  set(_cc_suppressions_clang_ge18
     -Wno-vla-cxx-extension)
 
   # Full clang-shaped suppression set, assembled unconditionally so it is
   # available even when the HOST compiler is GCC. Used only for the hipcc list.
   set(_cc_suppressions_clang
     ${_cc_suppressions_clang_base}
-    ${_cc_suppressions_clang_gt17})
+    ${_cc_suppressions_clang_ge18})
 
   # Host-compiler-conditional suppression set for the CXX path. The version gates
   # are preserved exactly as before this refactor.
@@ -207,8 +208,8 @@ function(fbgemm_get_warning_flags)
   if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
     list(APPEND _cc_suppressions ${_cc_suppressions_clang_base})
 
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-      list(APPEND _cc_suppressions ${_cc_suppressions_clang_gt17})
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 18.0.0)
+      list(APPEND _cc_suppressions ${_cc_suppressions_clang_ge18})
     endif()
 
   endif()
@@ -411,7 +412,8 @@ function(cpp_library)
     endif()
 
     target_compile_options(${lib_name} PRIVATE
-        ${lib_cc_flags})
+        ${lib_cc_flags}
+        ${FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS})
 
     if(args_DEFINITIONS)
         target_compile_definitions(${lib_name}

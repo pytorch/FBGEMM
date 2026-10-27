@@ -85,34 +85,7 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
     "test_faketensor__test_nbit_forward_cpu": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
-    "test_faketensor__test_nbit_forward_fused_pooled_emb_quant": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_nbit_forward_gpu_no_cache": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_nbit_forward_gpu_no_cache_fp8_2048": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_nbit_forward_gpu_no_cache_nobag_aligned_D": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
     "test_faketensor__test_nbit_forward_cpu_seq_int8": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_nbit_forward_cpu_gpu_dequantize_parity": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_schema__test_nbit_forward_cpu_gpu_dequantize_parity": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_autograd_registration__test_nbit_forward_cpu_gpu_dequantize_parity": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_aot_dispatch_static__test_nbit_forward_cpu_gpu_dequantize_parity": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_aot_dispatch_dynamic__test_nbit_forward_cpu_gpu_dequantize_parity": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
     "test_faketensor__test_nbit_forward_cpu_seq_int4": {
@@ -185,9 +158,6 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
         unittest.skip("Operator not implemented for fake tensors"),
     ],
     "test_faketensor__test_nbit_forward_nan_zero_fill": [
-        unittest.skip("Operator not implemented for fake tensors"),
-    ],
-    "test_faketensor__test_nbit_forward_packed_bags_uneven_pooling": [
         unittest.skip("Operator not implemented for fake tensors"),
     ],
 }

@@ -420,7 +420,17 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
     // kThreadGroupSize derived per-arch from the device-pass kWarpSize.
     // The template's mangled name carries kSubwarpDivisor, not kThreadGroupSize,
     // so host and every per-arch device pass agree on the wrapper symbol.
-    constexpr int32_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
+    //
+    // The eighth-wave instantiation (kSubwarpDivisor = 8, TBE_ROCM_HIP_MIXED_D_EIGHTH_WAVE) is wave64-only: the
+    // host launches it only when kWarpSizeHost() == 64. In the wave32 device pass of a multi-arch build, 32 / 8 = 4
+    // lanes would fail subwarp_reduce_add's static_assert (8/16/32/64), so that pass compiles an 8-lane body that
+    // asserts and returns if it is ever reached. wave64 passes are unchanged.
+    constexpr int32_t kThreadGroupSize =
+        kWarpSize / kSubwarpDivisor < 8 ? 8 : kWarpSize / kSubwarpDivisor;
+    if constexpr (kWarpSize / kSubwarpDivisor < 8) {
+      CUDA_KERNEL_ASSERT(false && "hip_mixed_d <..., 4, 8, false> is wave64-only");
+      return;
+    }
     {%- if not nobag %}
     int32_t T = D_offsets.size(0) - 1;
     {%- else %}
@@ -1100,6 +1110,10 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
       to overflow PC32 relocations when linked. */ #}
 {%- if is_rocm and has_wave64 %}
 {{ bulk_template_instantiations(1, 2, 'false', hip_mixed_d_only=True) }}
+{#- /* 8-lane groups x 4 vectors (eighth wave, eight rows per wave64), reached only under the
+      default-off env gate TBE_ROCM_HIP_MIXED_D_EIGHTH_WAVE. 8 lanes is the smallest group the
+      optimizer device kernel accepts. */ #}
+{{ bulk_template_instantiations(4, 8, 'false', hip_mixed_d_only=True) }}
 {%- endif %}
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -55,10 +55,6 @@
       "NBitFowardTest.test_faketensor__test_nbit_forward_cpu_seq_int4": {
         "comment": "this operator outputs torch.quint4x2 tensors which is not compatible with generate_opcheck_tests",
         "status": "xfail"
-      },
-      "NBitFowardTest.test_schema__test_nbit_forward_cpu_gpu_dequantize_parity": {
-        "comment": "this operator outputs torch.quint4x2 tensors which is not compatible with generate_opcheck_tests",
-        "status": "xfail"
       }
     },
     "fbgemm::int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {

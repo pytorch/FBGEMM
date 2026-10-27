@@ -23,6 +23,7 @@ from math import floor, log2
 from typing import Any, ClassVar, Optional
 import torch  # usort:skip
 import weakref
+from typing_extensions import Self  # usort:skip
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
@@ -63,7 +64,13 @@ from dataclasses import dataclass
 from torch.autograd.profiler import record_function
 
 from ..cache import get_unique_indices_v2
-from .common import ASSOC, pad4, tensor_pad4
+from .common import (
+    ensure_same_device,
+    get_cache_assoc,
+    normalize_device,
+    pad4,
+    tensor_pad4,
+)
 from .utils.partially_materialized_tensor import PartiallyMaterializedTensor
 
 
@@ -705,6 +712,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         use_rowwise_bias_correction: bool = False,  # For Adam use
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
         pg: dist.ProcessGroup | None = None,
+        device: torch.device | int | None = None,
     ) -> None:
         super().__init__()
 
@@ -863,8 +871,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Direct mode bypasses the generic associative L1. Retain one set as
             # structural scaffolding for existing TBE state and checkpoint APIs.
             cache_sets = 1
-        # pyre-fixme[8]: Attribute has type `device`; used as `int`.
-        self.current_device: torch.device = torch.cuda.current_device()
+        self.current_device: torch.device = normalize_device(device)
+        self.cache_assoc: int = get_cache_assoc(self.current_device)
 
         self.enable_raw_embedding_streaming = enable_raw_embedding_streaming
         self._enable_ssd_raw_embedding_streaming: bool = (
@@ -975,7 +983,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert (
             element_size == 4 or element_size == 2
         ), f"Invalid element size {element_size}"
-        cache_size = cache_sets * ASSOC * element_size * self.cache_row_dim
+        cache_size = cache_sets * self.cache_assoc * element_size * self.cache_row_dim
         logging.info(
             f"Using cache for SSD with admission algorithm "
             f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_rocksdb_shards} shards, "
@@ -993,13 +1001,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ).fill_(-1),
         )
         self.register_buffer(
             "lru_state",
             torch.zeros(
-                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+                cache_sets,
+                self.cache_assoc,
+                device=self.current_device,
+                dtype=torch.int64,
             ),
         )
 
@@ -1023,7 +1037,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "lxu_cache_locking_counter",
                 torch.zeros(
                     cache_sets,
-                    ASSOC,
+                    self.cache_assoc,
                     device=self.current_device,
                     dtype=torch.int32,
                 ),
@@ -1051,7 +1065,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         device=self.current_device,
                         dtype=cache_dtype,
                     ),
-                    [cache_sets * ASSOC, self.cache_row_dim],
+                    [cache_sets * self.cache_assoc, self.cache_row_dim],
                     is_host_mapped=self.uvm_host_mapped,
                 ),
             )
@@ -1059,7 +1073,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.register_buffer(
                 "lxu_cache_weights",
                 torch.zeros(
-                    cache_sets * ASSOC,
+                    cache_sets * self.cache_assoc,
                     self.cache_row_dim,
                     device=self.current_device,
                     dtype=cache_dtype,
@@ -1608,13 +1622,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # pyre-fixme[20]: Argument `self` expected.
         low_priority, high_priority = torch.cuda.Stream.priority_range()
         # GPU stream for SSD cache eviction
-        self.ssd_eviction_stream = torch.cuda.Stream(priority=low_priority)
+        self.ssd_eviction_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         # GPU stream for SSD memory copy (also reused for feature score D2H)
-        self.ssd_memcpy_stream = torch.cuda.Stream(priority=low_priority)
+        self.ssd_memcpy_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         # GPU stream for async metadata operation
-        self.feature_score_stream = torch.cuda.Stream(priority=low_priority)
+        self.feature_score_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
         # GPU stream for embedding cache
-        self.enrichment_query_stream = torch.cuda.Stream(priority=low_priority)
+        self.enrichment_query_stream = torch.cuda.Stream(
+            device=self.current_device, priority=low_priority
+        )
 
         # SSD get completion event
         self.ssd_event_get = torch.cuda.Event()
@@ -2057,6 +2079,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.ignore
     def _feature_is_enabled(self, feature: FeatureGateName) -> bool:
         return FeatureGate.is_enabled(feature)
+
+    def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
+        ensure_same_device(self.current_device, fn)
+        return super()._apply(fn, recurse)
 
     @cached_property
     def cache_row_dim(self) -> int:
@@ -2833,7 +2859,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             pin_memory=True,
         )
         count_cpu = torch.tensor([indices.numel()], dtype=torch.long)
-        self.ssd_db.get_cuda(indices_cpu, rows_cpu, count_cpu)
+        with torch.cuda.device(self.current_device):
+            self.ssd_db.get_cuda(indices_cpu, rows_cpu, count_cpu)
         output.copy_(rows_cpu, non_blocking=True)
         return output
 
@@ -2860,12 +2887,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             indices.numel(), dtype=torch.uint8, pin_memory=True
         )
         count_cpu = torch.tensor([indices.numel()], dtype=torch.long)
-        self.ssd_db.get_cuda_with_found_mask(
-            indices_cpu,
-            rows_cpu,
-            count_cpu,
-            found_mask_cpu,
-        )
+        with torch.cuda.device(self.current_device):
+            self.ssd_db.get_cuda_with_found_mask(
+                indices_cpu,
+                rows_cpu,
+                count_cpu,
+                found_mask_cpu,
+            )
         output.copy_(rows_cpu, non_blocking=True)
         found_mask.copy_(found_mask_cpu, non_blocking=True)
         return output, found_mask
@@ -2876,7 +2904,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         rows: torch.Tensor,
         count_cpu: torch.Tensor,
     ) -> None:
-        self.ssd_db.get_cuda(indices_cpu, rows, count_cpu)
+        with torch.cuda.device(self.current_device):
+            self.ssd_db.get_cuda(indices_cpu, rows, count_cpu)
 
     def _direct_enrichment_lookup(self, indices: torch.Tensor) -> torch.Tensor:
         indices = indices.to(dtype=torch.int64)
@@ -4434,11 +4463,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             weights = torch.empty(
                 (row, self.max_D), dtype=self.weights_precision.as_dtype()
             )
-            self.ssd_db.get_cuda(
-                torch.arange(rows_cumsum[t], rows_cumsum[t + 1]).to(torch.int64),
-                weights,
-                torch.as_tensor([row]),
-            )
+            with torch.cuda.device(self.current_device):
+                self.ssd_db.get_cuda(
+                    torch.arange(rows_cumsum[t], rows_cumsum[t + 1]).to(torch.int64),
+                    weights,
+                    torch.as_tensor([row]),
+                )
             splits.append(weights)
 
         # Record the event to create a dependency between get_cuda's callback
@@ -4918,13 +4948,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # pyre-ignore [6]
             [copy_optimizer_state_(dst, src, local_ids) for (src, dst) in mapping]
 
-            self.ssd_db.set_cuda(
-                local_ids.view(-1),
-                weights,
-                torch.as_tensor(local_ids.size(0)),
-                1,
-                False,
-            )
+            with torch.cuda.device(self.current_device):
+                self.ssd_db.set_cuda(
+                    local_ids.view(-1),
+                    weights,
+                    torch.as_tensor(local_ids.size(0)),
+                    1,
+                    False,
+                )
 
     @torch.jit.ignore
     def apply_state_dict(self) -> None:

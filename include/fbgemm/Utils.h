@@ -22,11 +22,23 @@
 #include <type_traits>
 
 #ifndef HAVE_SVE
-#if defined(__aarch64__) && __ARM_FEATURE_SVE && \
-    __has_include(<arm_neon_sve_bridge.h>)
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
+#if __has_include(<arm_neon_sve_bridge.h>)
 #define HAVE_SVE 1
 #include <arm_neon_sve_bridge.h> // @manual
 #include <arm_sve.h>
+#else
+#if defined(__GNUC__) && !defined(__clang__)
+#error \
+    "SVE is enabled, but arm_neon_sve_bridge.h is unavailable. GCC 14 or newer is required."
+#elif defined(__clang__)
+#error \
+    "SVE is enabled, but arm_neon_sve_bridge.h is unavailable. Clang 17 or newer is required."
+#else
+#error \
+    "SVE is enabled, but arm_neon_sve_bridge.h is unavailable in the selected compiler toolchain."
+#endif
+#endif
 #else
 #define HAVE_SVE 0
 #endif
