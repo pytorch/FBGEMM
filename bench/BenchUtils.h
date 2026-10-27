@@ -78,9 +78,6 @@ NOINLINE float cache_evict(const T& vec) {
   float dummy = 0.0f;
   for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
     dummy += data[i] * 1.0f;
-#ifndef __aarch64__
-    _mm_mfence();
-#endif
 #ifndef _MSC_VER
     asm volatile("" ::: "memory");
 #endif
@@ -94,6 +91,13 @@ NOINLINE float cache_evict(const T& vec) {
         (char*)&data[i], (char*)(&data[i] + CACHE_LINE_SIZE));
 #endif
   }
+
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
+  _mm_mfence();
+#elif defined(__aarch64__)
+  asm volatile("dsb sy" ::: "memory");
+#endif
 
   return dummy;
 }

@@ -411,8 +411,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
           u4 = u4 << 4;
           u5 = u5 << 4;
 
-          u4 = veor_u8(u4, vget_low_u8(u2));
-          u5 = veor_u8(u5, vget_low_u8(u3));
+          u4 = veor_u8(u4, vget_low_u8(vreinterpretq_u8_u64(u2)));
+          u5 = veor_u8(u5, vget_low_u8(vreinterpretq_u8_u64(u3)));
 
           vst1_lane_u8(output_row, u4, 0);
           vst1_lane_u8(output_row + 1, u5, 0);
@@ -478,8 +478,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfNeon(
           u4 = u4 << 4;
           u5 = u5 << 4;
 
-          u4 = veor_u8(u4, vget_low_u8(u2));
-          u5 = veor_u8(u5, vget_low_u8(u3));
+          u4 = veor_u8(u4, vget_low_u8(vreinterpretq_u8_u64(u2)));
+          u5 = veor_u8(u5, vget_low_u8(vreinterpretq_u8_u64(u3)));
 
           vst1_lane_u8(output_row, u4, 0);
           if (loopRemainder > 4) {
@@ -658,19 +658,19 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
         in_v_1 = svreinterpret_u32_u64(svsli_n_u64(
             svreinterpret_u64_u32(in_v_1), svreinterpret_u64_u32(in_v_1), 28));
 
-        in_v_0 &= 15;
-        in_v_1 &= 15;
+        in_v_0 = svand_n_u32_x(allTruePred, in_v_0, 15);
+        in_v_1 = svand_n_u32_x(allTruePred, in_v_1, 15);
       } else if constexpr (BIT_RATE == 2) {
         in_v_0 = svreinterpret_u32_u8(svdup_n_u8(input[0]));
         in_v_1 = svreinterpret_u32_u8(svdup_n_u8(input[1]));
 
         input += 2;
 
-        in_v_0 = in_v_0 >> shift;
-        in_v_1 = in_v_1 >> shift;
+        in_v_0 = svlsr_u32_x(allTruePred, in_v_0, shift);
+        in_v_1 = svlsr_u32_x(allTruePred, in_v_1, shift);
 
-        in_v_0 &= 3;
-        in_v_1 &= 3;
+        in_v_0 = svand_n_u32_x(allTruePred, in_v_0, 3);
+        in_v_1 = svand_n_u32_x(allTruePred, in_v_1, 3);
       }
 
       svfloat32_t in_v_0_f = svcvt_f32_u32_x(allTruePred, in_v_0);
@@ -714,14 +714,14 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfNeon(
         in_v_1 = svreinterpret_u32_u64(svsli_n_u64(
             svreinterpret_u64_u32(in_v_1), svreinterpret_u64_u32(in_v_1), 28));
 
-        in_v_0 &= 15;
-        in_v_1 &= 15;
+        in_v_0 = svand_n_u32_x(allTruePred, in_v_0, 15);
+        in_v_1 = svand_n_u32_x(allTruePred, in_v_1, 15);
       } else if constexpr (BIT_RATE == 2) {
         in_v_0 = svreinterpret_u32_u8(svdup_n_u8(input[0]));
 
-        in_v_0 = in_v_0 >> shift;
+        in_v_0 = svlsr_u32_x(allTruePred, in_v_0, shift);
 
-        in_v_0 &= 3;
+        in_v_0 = svand_n_u32_x(allTruePred, in_v_0, 3);
       }
 
       input += input_columns_mod;

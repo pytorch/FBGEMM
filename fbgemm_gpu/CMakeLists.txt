@@ -128,6 +128,31 @@ project(
   VERSION 1.5.0
   LANGUAGES ${project_languages})
 
+option(
+  FBGEMM_AARCH64_BUILD_NATIVE
+  "Compile FBGEMM AArch64 targets for the build host CPU"
+  OFF)
+
+set(FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS)
+if(FBGEMM_AARCH64_BUILD_NATIVE)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    message(FATAL_ERROR
+      "FBGEMM_AARCH64_BUILD_NATIVE requires an AArch64 build host")
+  endif()
+
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag(
+    "-mcpu=native" FBGEMM_COMPILER_SUPPORTS_AARCH64_NATIVE)
+  if(NOT FBGEMM_COMPILER_SUPPORTS_AARCH64_NATIVE)
+    message(FATAL_ERROR
+      "The selected compiler does not support -mcpu=native")
+  endif()
+
+  set(FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS "-mcpu=native")
+  message(STATUS
+    "FBGEMM_AARCH64_BUILD_NATIVE=ON: compiling FBGEMM GPU AArch64 targets for the build host CPU")
+endif()
+
 # AVX Flags Setup - must be set AFTER project declaration
 include(${CMAKEMODULES}/FindAVX.cmake)
 
@@ -214,10 +239,11 @@ if(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_GENAI
 endif()
 
 set(fbgemm_thirdparty_include_directories
+  # Prefer FBGEMM's bundled AsmJit headers over the copy shipped by PyTorch.
+  ${THIRDPARTY}/asmjit/src
   # PyTorch
   ${TORCH_INCLUDE_DIRS}
   # Third-party
-  ${THIRDPARTY}/asmjit/src
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include

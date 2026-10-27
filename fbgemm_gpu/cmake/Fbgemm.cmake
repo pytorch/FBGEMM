@@ -18,6 +18,7 @@ set(fbgemm_sources_normal
   "${FBGEMM}/src/FbgemmFloat16Convert.cc"
   "${FBGEMM}/src/JitPerfMap.cc"
   "${FBGEMM}/src/QuantUtils.cc"
+  "${FBGEMM}/src/QuantUtilsNeon.cc"
   "${FBGEMM}/src/RefImplementations.cc"
   "${FBGEMM}/src/RowWiseSparseAdagradFused.cc"
   "${FBGEMM}/src/SparseAdagrad.cc"
@@ -97,6 +98,8 @@ gpu_cpp_library(
     fbgemm
   TYPE
     SHARED
+  CC_FLAGS
+    ${FBGEMM_AARCH64_NATIVE_COMPILE_OPTIONS}
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
   SYSTEM_INCLUDE_DIRS
