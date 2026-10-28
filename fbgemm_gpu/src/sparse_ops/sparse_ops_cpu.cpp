@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <utility>
 
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
@@ -3707,7 +3708,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
         input_shape_group.end(), input_shape.begin(), input_shape.end());
   }
 
-  for (int i = 0; i < input_shape_group.size(); i++) {
+  for (const auto i : c10::irange(input_shape_group.size())) {
     ctx->saved_data["input_shape_group_" + std::to_string(i)] =
         input_shape_group[i];
   }
@@ -3734,7 +3735,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   grad_output_group.resize(group_size);
 
   const auto saved_tensors = ctx->get_saved_variables();
-  TORCH_CHECK(saved_tensors.size() == group_size + 3);
+  TORCH_CHECK(std::cmp_equal(saved_tensors.size(), group_size + 3));
   std::vector<c10::SymInt> output_shape_group;
   int i = 0;
   while (true) {
