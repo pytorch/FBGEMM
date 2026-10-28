@@ -17,9 +17,9 @@ from .common import clone_tensor, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_rocm
+    from test_utils import gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
 class JaggedFlashAttentionBasicTest(unittest.TestCase):
@@ -34,8 +34,6 @@ class JaggedFlashAttentionBasicTest(unittest.TestCase):
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyrefly: ignore [bad-argument-type]
-    @unittest.skipIf(*running_on_rocm)
     @settings(deadline=40000)
     def test_triton_jagged_flash_attention_basic(
         self,
