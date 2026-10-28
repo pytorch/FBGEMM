@@ -56,27 +56,6 @@ else:
     )
 VERBOSITY: Verbosity = Verbosity.verbose
 
-# pyre-ignore
-additional_decorators.update(
-    {
-        "test_schema__test_backward_none_with_rowwise_adagrad": [
-            unittest.skip(
-                "Cannot access data pointer of Tensor that doesn't have storage"
-            )
-        ],
-        "test_faketensor__test_backward_none_with_rowwise_adagrad": [
-            unittest.skip(
-                "Cannot access data pointer of Tensor that doesn't have storage"
-            )
-        ],
-        "test_autograd_registration__test_backward_none_with_rowwise_adagrad": [
-            unittest.skip(
-                "Cannot access data pointer of Tensor that doesn't have storage"
-            )
-        ],
-    }
-)
-
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardNoneTest(unittest.TestCase):
