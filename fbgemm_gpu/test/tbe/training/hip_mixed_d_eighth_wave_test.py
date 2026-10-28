@@ -19,6 +19,9 @@ TBE backward), so this module sets them before the first TBE call and every test
 gate-OFF and "route must not change" cases live in hip_mixed_d_routes_test.py, a separate test module and therefore
 a separate process.
 
+The eighth-wave optimization is wave64-only. Wave32 devices retain the full-warp <..., 1, 1, false> instantiation
+and run the same coverage and numerical checks with the gates ON.
+
 Every case runs one forward + backward of a TBE with FP16 weights, rowwise Adagrad (EXACT_ROWWISE_ADAGRAD), int32
 indices and offsets and SUM pooling, and checks:
   1. Route: the kernel names the profiler saw prove which instantiation ran. On libraries without the change this
@@ -189,10 +192,17 @@ def run_and_check(
 @unittest.skipUnless(_rocm(), "ROCm only")
 class HipMixedDEighthWaveTest(unittest.TestCase):
     def _assert_eighth_wave(self, names: list[str]) -> None:
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
+        self.assertIn(warp_size, (32, 64))
+        expected = EIGHTH_WAVE if warp_size == 64 else ", 1, 1, false>"
         self.assertTrue(
-            any("hip_mixed_d" in n and EIGHTH_WAVE in n for n in names),
-            f"expected hip_mixed_d <..., 4, 8, false>, saw {names}",
+            any("hip_mixed_d" in n and expected in n for n in names),
+            f"expected hip_mixed_d <...{expected} on wave{warp_size}, saw {names}",
         )
+        if warp_size == 32:
+            self.assertFalse(any(EIGHTH_WAVE in n for n in names), names)
 
     def test_mixed_d_takes_eighth_wave_and_matches_exact_reference(self) -> None:
         """Mixed D 96/96/64/32 (max_D 96 <= 128), heavy duplication: the warp backward must run as
