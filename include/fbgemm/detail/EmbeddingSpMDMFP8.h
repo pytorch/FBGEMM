@@ -196,7 +196,7 @@ inline bool embedding_spmdm_fp8(
     }
 
     for (int64_t j = 0; j < block_size; ++j) {
-      out[j] = convert_from_float_ref<OutType>(buf[j]);
+      out[j] = convert_ref<OutType>(buf[j]);
     }
     out += output_stride;
   }

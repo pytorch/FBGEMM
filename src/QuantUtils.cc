@@ -778,7 +778,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
       quantized &= (1 << bit_rate) - 1;
       float output_value =
           static_cast<float>(double(scale) * quantized + double(bias));
-      output_row[col] = convert_from_float_ref<OutputType>(output_value);
+      output_row[col] = convert_ref<OutputType>(output_value);
     }
   }
 }
@@ -888,7 +888,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     for (int col = 0; col < output_columns; ++col) {
       float output_value =
           static_cast<float>(double(input_row[col]) * scale + double(bias));
-      output_row[col] = convert_from_float_ref<OutputType>(output_value);
+      output_row[col] = convert_ref<OutputType>(output_value);
     }
   }
 }

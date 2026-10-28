@@ -1257,12 +1257,10 @@ bool EmbeddingSpMDM_ref(
             scale = weight * scale_bias[0];
             bias = weight * scale_bias[1];
           } else {
-            scale = weight *
-                convert_to_float_ref(
-                        reinterpret_cast<const float16*>(scale_bias)[0]);
-            bias = weight *
-                convert_to_float_ref(
-                       reinterpret_cast<const float16*>(scale_bias)[1]);
+            scale = weight * convert_ref<float>(
+                                 reinterpret_cast<const float16*>(scale_bias)[0]);
+            bias = weight * convert_ref<float>(
+                                reinterpret_cast<const float16*>(scale_bias)[1]);
           }
 
           for (int j = 0; j < block_size; ++j) {
@@ -1274,7 +1272,7 @@ bool EmbeddingSpMDM_ref(
                 buf[j] + bias);
           }
           for (int j = 0; j < block_size; ++j) {
-            out[j] = convert_from_float_ref<OutType>(buf[j]);
+            out[j] = convert_ref<OutType>(buf[j]);
           }
         }
         out += output_stride;
@@ -1312,12 +1310,10 @@ bool EmbeddingSpMDM_ref(
           scale = weight * scale_bias[0];
           bias = weight * scale_bias[1];
         } else {
-          scale = weight *
-              convert_to_float_ref(
-                      reinterpret_cast<const float16*>(scale_bias)[0]);
-          bias = weight *
-              convert_to_float_ref(
-                     reinterpret_cast<const float16*>(scale_bias)[1]);
+          scale = weight * convert_ref<float>(
+                               reinterpret_cast<const float16*>(scale_bias)[0]);
+          bias = weight * convert_ref<float>(
+                              reinterpret_cast<const float16*>(scale_bias)[1]);
         }
 
         for (int j = 0; j < block_size; ++j) {
@@ -1336,7 +1332,7 @@ bool EmbeddingSpMDM_ref(
         }
       }
       for (int j = 0; j < block_size; ++j) {
-        out[j] = convert_from_float_ref<OutType>(buf[j]);
+        out[j] = convert_ref<OutType>(buf[j]);
       }
       out += output_stride;
     }
@@ -1361,10 +1357,10 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = std::fma(w, convert_to_float_ref(*inptr), buf[j]);
+          buf[j] = std::fma(w, convert_ref<float>(*inptr), buf[j]);
         }
         for (int j = 0; j < block_size; ++j) {
-          out[j] = convert_from_float_ref<OutType>(buf[j]);
+          out[j] = convert_ref<OutType>(buf[j]);
         }
         out += output_stride;
       } // m
@@ -1398,7 +1394,7 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = std::fma(w, convert_to_float_ref(*inptr), buf[j]);
+          buf[j] = std::fma(w, convert_ref<float>(*inptr), buf[j]);
         }
       }
       if (normalize_by_lengths && len) {
@@ -1408,7 +1404,7 @@ bool EmbeddingSpMDM_ref(
         }
       }
       for (int j = 0; j < block_size; ++j) {
-        out[j] = convert_from_float_ref<OutType>(buf[j]);
+        out[j] = convert_ref<OutType>(buf[j]);
       }
       out += output_stride;
     }
@@ -1535,8 +1531,8 @@ bool EmbeddingSpMDMNBit_ref(
       if (weights) {
         weight = weights[is_weight_positional ? i : current];
       }
-      const float scale = weight * convert_to_float_ref(scale_bias[0]);
-      const float bias = weight * convert_to_float_ref(scale_bias[1]);
+      const float scale = weight * convert_ref<float>(scale_bias[0]);
+      const float bias = weight * convert_ref<float>(scale_bias[1]);
 
       for (int j = 0; j < block_size; ++j) {
         uint8_t quantized = input
@@ -1555,7 +1551,7 @@ bool EmbeddingSpMDMNBit_ref(
       }
     }
     for (int j = 0; j < block_size; ++j) {
-      out[j] = convert_from_float_ref<OutType>(buf[j]);
+      out[j] = convert_ref<OutType>(buf[j]);
     }
     out += output_stride;
   }
@@ -1628,7 +1624,7 @@ bool EmbeddingSpMDMFP8_ref(
       }
     }
     for (int j = 0; j < block_size; ++j) {
-      out[j] = convert_from_float_ref<OutType>(buf[j]);
+      out[j] = convert_ref<OutType>(buf[j]);
     }
     out += output_stride;
   }
@@ -1739,7 +1735,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + block_size * idx + j;
-          out[j] = std::fma(w, convert_to_float_ref(*inptr), out[j]);
+          out[j] = std::fma(w, convert_ref<float>(*inptr), out[j]);
         }
 
         ++current;
@@ -1811,8 +1807,8 @@ bool EmbeddingSpMDMNBitRowWiseSparse_ref(
       if (weights) {
         weight = weights[is_weight_positional ? i : current];
       }
-      const float scale = weight * convert_to_float_ref(scale_bias[0]);
-      const float bias = weight * convert_to_float_ref(scale_bias[1]);
+      const float scale = weight * convert_ref<float>(scale_bias[0]);
+      const float bias = weight * convert_ref<float>(scale_bias[1]);
 
       for (int j = 0; j < block_size; ++j) {
         uint8_t quantized =
@@ -2060,7 +2056,7 @@ int rowwise_sparse_adagrad_fused_ref(
               float w_f32;
               uint32_t w_i32;
             };
-            w_f32 = convert_to_float_ref(w_[j]);
+            w_f32 = convert_ref<float>(w_[j]);
             w_f32 = std::fma(float_step, g_[j], w_f32);
             if (use_stochastic_rounding) {
               w_i32 += r[v];
