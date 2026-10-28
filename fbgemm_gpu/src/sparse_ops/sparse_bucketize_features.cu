@@ -6,8 +6,16 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "common.cuh"
+#include <ATen/Dispatch.h>
+#include <ATen/cuda/detail/KernelUtils.h>
+
+#include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 #include <limits>
 
@@ -84,67 +92,6 @@ __launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel2(
   }
 }
 
-#define LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT(   \
-    bucketize_pos, return_new_pos)                                    \
-  AT_DISPATCH_INDEX_TYPES(                                            \
-      indices_contig.scalar_type(),                                   \
-      "_bucketize_sparse_features_weight_cuda_kernel2_1",             \
-      ([&] {                                                          \
-        FBGEMM_DISPATCH_FLOAT_ONLY(                                   \
-            weights_value.scalar_type(),                              \
-            "_bucketize_sparse_features_cuda_weight_kernel2_2",       \
-            ([&] {                                                    \
-              FBGEMM_LAUNCH_KERNEL(                                   \
-                  (_bucketize_sparse_features_cuda_kernel2<           \
-                      true,                                           \
-                      bucketize_pos,                                  \
-                      index_t,                                        \
-                      scalar_t>),                                     \
-                  num_blocks,                                         \
-                  threads_per_block,                                  \
-                  0,                                                  \
-                  at::cuda::getCurrentCUDAStream(),                   \
-                  lengths_size,                                       \
-                  my_size,                                            \
-                  offsets_contig.data_ptr<index_t>(),                 \
-                  indices_contig.data_ptr<index_t>(),                 \
-                  weights_value_contig.data_ptr<scalar_t>(),          \
-                  new_offsets.data_ptr<index_t>(),                    \
-                  new_indices.data_ptr<index_t>(),                    \
-                  new_weights.data_ptr<scalar_t>(),                   \
-                  (return_new_pos) ? new_pos.data_ptr<index_t>()      \
-                                   : static_cast<index_t*>(nullptr)); \
-            }));                                                      \
-      }));
-
-#define LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT( \
-    bucketize_pos, return_new_pos)                                     \
-  AT_DISPATCH_INDEX_TYPES(                                             \
-      indices_contig.scalar_type(),                                    \
-      "_bucketize_sparse_features_cuda_kernel2",                       \
-      ([&] {                                                           \
-        FBGEMM_LAUNCH_KERNEL(                                          \
-            (_bucketize_sparse_features_cuda_kernel2<                  \
-                false,                                                 \
-                bucketize_pos,                                         \
-                index_t,                                               \
-                std::nullptr_t>),                                      \
-            num_blocks,                                                \
-            threads_per_block,                                         \
-            0,                                                         \
-            at::cuda::getCurrentCUDAStream(),                          \
-            lengths_size,                                              \
-            my_size,                                                   \
-            offsets_contig.data_ptr<index_t>(),                        \
-            indices_contig.data_ptr<index_t>(),                        \
-            nullptr,                                                   \
-            new_offsets.data_ptr<index_t>(),                           \
-            new_indices.data_ptr<index_t>(),                           \
-            nullptr,                                                   \
-            (return_new_pos) ? new_pos.data_ptr<index_t>()             \
-                             : static_cast<index_t*>(nullptr));        \
-      }));
-
 // This function partitions sparse features
 // cyclically along the sparse dimension into my_size blocks
 DLL_PUBLIC
@@ -199,32 +146,61 @@ bucketize_sparse_features_cuda(
 
   // Bucketize non-zeros
   new_offsets = fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(new_lengths);
-  if (weights.has_value() & bucketize_pos) {
-    Tensor weights_value = weights.value();
-    auto weights_value_contig = weights_value.contiguous();
-    new_weights = at::empty_like(weights_value);
+  const auto bucketize = [&]<bool kBucketizePos>() {
+    dispatch_index_types(
+        indices_contig.scalar_type(),
+        weights.has_value() ? "_bucketize_sparse_features_weight_cuda_kernel2_1"
+                            : "_bucketize_sparse_features_cuda_kernel2",
+        [&]<typename index_t>() {
+          const auto launch = [&]<bool kHasWeight, typename weights_t>(
+                                  const weights_t* weights_data,
+                                  weights_t* new_weights_data) {
+            FBGEMM_LAUNCH_KERNEL(
+                (_bucketize_sparse_features_cuda_kernel2<
+                    kHasWeight,
+                    kBucketizePos,
+                    index_t,
+                    weights_t>),
+                num_blocks,
+                threads_per_block,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                lengths_size,
+                my_size,
+                offsets_contig.data_ptr<index_t>(),
+                indices_contig.data_ptr<index_t>(),
+                weights_data,
+                new_offsets.data_ptr<index_t>(),
+                new_indices.data_ptr<index_t>(),
+                new_weights_data,
+                kBucketizePos ? new_pos.data_ptr<index_t>() : nullptr);
+          };
+          if (weights.has_value()) {
+            const auto weights_value = weights.value();
+            const auto weights_value_contig = weights_value.contiguous();
+            new_weights = at::empty_like(weights_value);
+            FBGEMM_DISPATCH_FLOAT_ONLY(
+                weights_value.scalar_type(),
+                "_bucketize_sparse_features_cuda_weight_kernel2_2",
+                ([&] {
+                  launch.template operator()<true>(
+                      weights_value_contig.data_ptr<scalar_t>(),
+                      new_weights.data_ptr<scalar_t>());
+                }));
+          } else {
+            launch.template operator()<false, std::nullptr_t>(nullptr, nullptr);
+          }
+        });
+  };
+  if (bucketize_pos) {
     new_pos = at::empty_like(indices);
-    LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT(true, true);
-
-  } else if (weights.has_value()) {
-    Tensor weights_value = weights.value();
-    auto weights_value_contig = weights_value.contiguous();
-    new_weights = at::empty_like(weights_value);
-    LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT(false, false);
-
-  } else if (bucketize_pos) {
-    new_pos = at::empty_like(indices);
-    LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT(true, true);
-
+    bucketize.template operator()<true>();
   } else {
-    LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT(false, false);
+    bucketize.template operator()<false>();
   }
 
   return {new_lengths, new_indices, new_weights, new_pos};
 }
-
-#undef LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT
-#undef LAUNCH_BUCKETIZE_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT
 
 } // namespace fbgemm_gpu
 
