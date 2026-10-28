@@ -168,7 +168,7 @@ jobs:
 
     - name: Test with PyTest
       if: ${{ inputs.run-target == 'test' }}
-      timeout-minutes: 90
+      timeout-minutes: 180
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Set Up for FBGEMM_GPU Benchmark

@@ -44,12 +44,6 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 additional_decorators: dict[str, list[Callable[..., Any]]] = {
-    "test_faketensor__test_nbit_uvm_cache_stats": [
-        unittest.skip("very slow"),
-    ],
-    "test_faketensor__test_nbit_direct_mapped_uvm_cache_stats": [
-        unittest.skip("very slow"),
-    ],
     "test_pt2_compliant_tag_fbgemm_int_nbit_split_embedding_codegen_lookup_function": [
         unittest.skip("fails on CI"),
     ],

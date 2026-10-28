@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <cstdlib>
 #include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
 using namespace fbgemm_gpu;
@@ -281,7 +282,11 @@ void _bounds_check_indices_cuda_v2(
   auto num_threads = kNumThreads;
   auto thread_group_size = fbgemm_gpu::kWarpSizeHost();
 #ifdef USE_ROCM
-  if (vbe &&
+  static const bool adaptive_all = [] {
+    const char* v = std::getenv("TBE_ROCM_BOUNDS_CHECK_ADAPTIVE_ALL");
+    return v != nullptr && v[0] == '1' && v[1] == '\0';
+  }();
+  if ((vbe || adaptive_all) &&
       (bounds_check_mode == BoundsCheckMode::WARNING ||
        bounds_check_mode == BoundsCheckMode::IGNORE)) {
     // Average pooling factor. Integer division, so sparse batches

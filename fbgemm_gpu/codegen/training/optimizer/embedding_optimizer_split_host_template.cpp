@@ -34,8 +34,8 @@ void split_embedding_{{ optimizer }}_update(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     m.def("split_embedding_{{ optimizer }}_update("
-          "Tensor dev_weights, Tensor uvm_weights, "
-          "Tensor lxu_cache_weights, "
+          "Tensor(a!) dev_weights, Tensor(b!) uvm_weights, "
+          "Tensor(c!) lxu_cache_weights, "
           "Tensor grad_dev_weights, "
           "Tensor grad_dev_indices, "
           "Tensor weights_placement, "

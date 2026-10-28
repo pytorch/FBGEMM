@@ -42,6 +42,14 @@ from fbgemm_gpu.tbe.config.embedding_config import (
     EmbeddingLocation,
     PoolingMode,
 )
+from fbgemm_gpu.tbe.config.optimizer_config import (
+    CounterBasedRegularizationDefinition,
+    CounterWeightDecayMode,
+    GradSumDecay,
+    LearningRateMode,
+    TailIdThreshold,
+    WeightDecayMode,
+)
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch import Tensor
@@ -84,6 +92,35 @@ def get_pooling(pooling: str | None) -> tuple[PoolingMode, bool]:
         pooling_mode = PoolingMode.NONE
         do_pooling = False
     return pooling_mode, do_pooling
+
+
+def set_counter_regularization(
+    counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE,
+    counter_halflife: int = 20000,
+    adjustment_iter: int = -1,
+    adjustment_ub: float = 1.0,
+    learning_rate_mode: LearningRateMode = LearningRateMode.EQUAL,
+    grad_sum_decay: GradSumDecay = GradSumDecay.NO_DECAY,
+    tail_id_threshold: TailIdThreshold | None = None,
+    max_counter_update_freq: int = 1000,
+) -> CounterBasedRegularizationDefinition:
+    """Create the counter configuration used by the device benchmark.
+
+    COUNTER selects the counter optimizer; counter_halflife controls row counter
+    updates. The inner NONE mode disables weight decay, not counter tracking.
+    """
+    return CounterBasedRegularizationDefinition(
+        counter_weight_decay_mode=counter_weight_decay_mode,
+        counter_halflife=counter_halflife,
+        adjustment_iter=adjustment_iter,
+        adjustment_ub=adjustment_ub,
+        learning_rate_mode=learning_rate_mode,
+        grad_sum_decay=grad_sum_decay,
+        tail_id_threshold=(
+            tail_id_threshold if tail_id_threshold is not None else TailIdThreshold()
+        ),
+        max_counter_update_freq=max_counter_update_freq,
+    )
 
 
 def compute_read_write_bytes(
@@ -325,6 +362,19 @@ def _benchmark_cpu_fwd_bwd(
     default=False,
     help="Enable torch.use_deterministic_algorithms(True) during benchmarking",
 )
+@click.option(
+    "--optimizer",
+    type=OptimType,
+    default=None,
+    help="Optimizer for embedding updates. Overrides --row-wise/--no-row-wise.",
+)
+@click.option(
+    "--weight-decay-mode",
+    type=click.Choice(["none", "l2", "decouple", "counter"], case_sensitive=False),
+    default="none",
+    help="Weight decay mode. Non-none modes require exact rowwise Adagrad. "
+    "Counter enables row counters (counter half-life: 20000).",
+)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -362,8 +412,15 @@ def device(  # noqa C901
     offsets_file: str | None,
     compare: bool,
     deterministic: bool,
+    optimizer: OptimType | None,
+    weight_decay_mode: str,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
+    if dense and (optimizer is not None or weight_decay_mode.lower() != "none"):
+        raise click.UsageError(
+            "--optimizer and non-none --weight-decay-mode require fused TBE "
+            "(no --dense)."
+        )
     num_requests = iters if num_requests == -1 else num_requests
     indices_dtype_torch: torch.dtype = (
         torch.int32 if int(indices_dtype) == 32 else torch.int64
@@ -380,13 +437,11 @@ def device(  # noqa C901
         weighted_requires_grad_tables = np.random.choice(
             T, replace=False, size=(weighted_num_requires_grad,)
         ).tolist()
-        feature_requires_grad = (
-            torch.tensor(
-                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
-            )
-            .to(get_device())
-            .int()
-        )
+        # Citrine C3: create tensors directly on the target device.
+        feature_requires_grad = torch.tensor(
+            [1 if t in weighted_requires_grad_tables else 0 for t in range(T)],
+            device=get_device(),
+        ).int()
     else:
         feature_requires_grad = None
     if mixed:
@@ -397,7 +452,26 @@ def device(  # noqa C901
         D = np.average(Ds)
     else:
         Ds = [D] * T
-    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
+    if optimizer is None:
+        optimizer = (
+            OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
+        )
+    resolved_weight_decay_mode = WeightDecayMode[weight_decay_mode.upper()]
+    if (
+        resolved_weight_decay_mode != WeightDecayMode.NONE
+        and optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
+    ):
+        raise click.UsageError(
+            "Non-none --weight-decay-mode requires exact_row_wise_adagrad."
+        )
+    if resolved_weight_decay_mode == WeightDecayMode.COUNTER and (dense or ssd):
+        raise click.UsageError(
+            "--weight-decay-mode counter requires exact_row_wise_adagrad "
+            "with split TBE (no --dense/--ssd)."
+        )
+    logging.info(
+        f"Optimizer: {optimizer}, weight decay mode: {resolved_weight_decay_mode.name}"
+    )
 
     if managed == "device":
         managed_option = (
@@ -422,10 +496,13 @@ def device(  # noqa C901
         "bounds_check_mode": BoundsCheckMode(bounds_check_mode),
         "uvm_host_mapped": uvm_host_mapped,
         "optimizer": optimizer,
+        "weight_decay_mode": resolved_weight_decay_mode,
         "learning_rate": 0.1,
         "eps": 0.1,
         "feature_table_map": list(range(T)),
     }
+    if resolved_weight_decay_mode == WeightDecayMode.COUNTER:
+        common_split_args["counter_based_regularization"] = set_counter_regularization()
 
     if dense:
         tbe_type: str = "dense"
@@ -563,9 +640,11 @@ def device(  # noqa C901
         return
 
     if do_pooling:
-        grad_output = torch.randn(B, sum(Ds)).to(get_device())
+        # Citrine C3: create tensors directly on the target device.
+        grad_output = torch.randn(B, sum(Ds), device=get_device())
     else:
-        grad_output = torch.randn(B * T * L, int(D)).to(get_device())
+        # Citrine C3: create tensors directly on the target device.
+        grad_output = torch.randn(B * T * L, int(D), device=get_device())
 
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
         # backward
@@ -1127,7 +1206,10 @@ def cache(  # noqa C901
         offset_dtype=torch.long,
     )
     warmup_requests, requests = requests[:iters], requests[iters:]
-    grad_output = torch.randn(B, sum(Ds)).cuda()
+    # Citrine C3: create tensors directly on the target device.
+    grad_output = torch.randn(
+        B, sum(Ds), device=torch.accelerator.current_accelerator()
+    )
 
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(
@@ -1482,12 +1564,14 @@ def device_with_spec(  # noqa C901
         return
 
     if do_pooling:
-        grad_output = torch.randn(B, sum(Ds)).to(get_device())
+        # Citrine C3: create tensors directly on the target device.
+        grad_output = torch.randn(B, sum(Ds), device=get_device())
     else:
         # Obtain B * L from indices len
         # pyre-ignore[19]
         # pyre-fixme[61]: `D` is undefined, or not always defined.
-        grad_output = torch.randn(requests[0].indices.numel(), D).to(get_device())
+        # Citrine C3: create tensors directly on the target device.
+        grad_output = torch.randn(requests[0].indices.numel(), D, device=get_device())
 
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
         # backward
@@ -2224,13 +2308,11 @@ def device_from_files(  # noqa C901
             weighted_requires_grad_tables = np.random.choice(
                 T, replace=False, size=(weighted_num_requires_grad,)
             ).tolist()
-            feature_requires_grad = (
-                torch.tensor(
-                    [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
-                )
-                .to(device)
-                .int()
-            )
+            # Citrine C3: create tensors directly on the target device.
+            feature_requires_grad = torch.tensor(
+                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)],
+                device=device,
+            ).int()
 
         with context_factory(lambda p: _kineto_trace_handler(p, device_name, "fwd")):
             fwd_time_per_iter = benchmark_requests_with_spec(
