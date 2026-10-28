@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <cstdlib>
+#include <type_traits>
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh" // @manual
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
 #include "fbgemm_gpu/utils/kernel_launcher.cuh" // @manual
@@ -64,6 +66,30 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   return t_out;
 }
 
+// TBE_ROCM_LINEARIZE_GROUP=8|16|32 (ROCm only): lanes per bag in
+// linearize_index_kernel's bag loop. 0, the value for unset, invalid values and
+// every CUDA build, selects the stock whole-wave loop. Read once per process.
+static int32_t linearize_lane_group() {
+#ifdef USE_ROCM
+  static const int32_t g = [] {
+    const char* v = std::getenv("TBE_ROCM_LINEARIZE_GROUP");
+    if (v == nullptr) {
+      return 0;
+    }
+    // the whole string must be the number: "8x" or "8 " is invalid
+    char* end = nullptr;
+    const long x = std::strtol(v, &end, 10);
+    if (end == v || *end != '\0') {
+      return 0;
+    }
+    return (x == 8 || x == 16 || x == 32) ? static_cast<int32_t>(x) : 0;
+  }();
+  return g;
+#else
+  return 0;
+#endif
+}
+
 template <typename index_t, typename info_acc_t, bool nobag, bool vbe>
 __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -81,7 +107,8 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     [[maybe_unused]] const uint32_t max_B,
     // Use a raw pointer to avoid creating dummy PackedTensorAccessor
     const uint32_t* const __restrict__ vbe_b_t_map,
-    FixedDivisor fd) {
+    FixedDivisor fd,
+    const int32_t lane_group) {
   const auto T = hash_size_cumsum.size(0) - 1;
   const auto total_B = offsets.size(0) - 1;
   const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
@@ -136,16 +163,40 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
         info = (reinterpret_cast<uint32_t*>(&t)[0] << info_B_num_bits) |
             reinterpret_cast<uint32_t*>(&b)[0];
       }
-      for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
-        const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-        const auto info_warp = fbgemm_gpu::shfl_sync(info, j);
-        const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
-        const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-        for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
-          const index_t idx = __ldg(&indices[indices_start_warp + i]);
-          reinterpret_cast<uint32_t*>(&infos[0])[indices_start_warp + i] =
-              info_warp;
-          linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+      if (lane_group <= 0 || lane_group >= fbgemm_gpu::kWarpSize) {
+        for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
+          const auto indices_start_warp =
+              fbgemm_gpu::shfl_sync(indices_start, j);
+          const auto info_warp = fbgemm_gpu::shfl_sync(info, j);
+          const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
+          const index_t hash_offset_warp =
+              fbgemm_gpu::shfl_sync(hash_offset, j);
+          for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+            const index_t idx = __ldg(&indices[indices_start_warp + i]);
+            reinterpret_cast<uint32_t*>(&infos[0])[indices_start_warp + i] =
+                info_warp;
+            linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+          }
+        }
+      } else {
+        // lane_group lanes per bag, kWarpSize / lane_group bags at a time
+        const int32_t sub = lane_id / lane_group;
+        const int32_t sub_lane = lane_id % lane_group;
+        const int32_t n_sub = fbgemm_gpu::kWarpSize / lane_group;
+        for (int32_t j0 = 0; j0 < fbgemm_gpu::kWarpSize; j0 += n_sub) {
+          const int32_t j = j0 + sub;
+          const auto indices_start_warp =
+              fbgemm_gpu::shfl_sync(indices_start, j);
+          const auto info_warp = fbgemm_gpu::shfl_sync(info, j);
+          const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
+          const index_t hash_offset_warp =
+              fbgemm_gpu::shfl_sync(hash_offset, j);
+          for (int32_t i = sub_lane; i < L_warp; i += lane_group) {
+            const index_t idx = __ldg(&indices[indices_start_warp + i]);
+            reinterpret_cast<uint32_t*>(&infos[0])[indices_start_warp + i] =
+                info_warp;
+            linear_indices[indices_start_warp + i] = hash_offset_warp + idx;
+          }
         }
       }
     }
@@ -310,7 +361,8 @@ transpose_embedding_input(
         (1u << info_B_num_bits) - 1,                                       \
         vbe ? reinterpret_cast<uint32_t*>(vbe_b_t_map.value().data_ptr())  \
             : nullptr,                                                     \
-        FixedDivisor(total_B / T));                                        \
+        FixedDivisor(total_B / T),                                         \
+        linearize_lane_group());                                           \
   }
 
 #define FBGEMM_DISPATCH_INFO_TYPES(TYPE, NAME, ...) \
@@ -386,7 +438,24 @@ transpose_embedding_input(
                 rocprim::default_config,
                 rocprim::default_config,
                 400000>;
-	        AT_CUDA_CHECK(rocprim::radix_sort_pairs<config>(
+                using config7 = rocprim::radix_sort_config<
+                rocprim::default_config,
+                rocprim::default_config,
+                rocprim::radix_sort_onesweep_config<
+                    rocprim::kernel_config<1024, 32>,
+                    rocprim::kernel_config<1024, 12>,
+                    7,
+                    rocprim::block_radix_rank_algorithm::match>,
+                400000>;
+                static const bool sort_radix7_env = [] {
+                  const char* v = std::getenv("TBE_ROCM_SORT_RADIX_BITS");
+                  return v != nullptr && v[0] == '7' && v[1] == '\0';
+                }();
+                const bool sort_radix7 = sort_radix7_env &&
+                    (total_hash_size_bits + 6) / 7 == (total_hash_size_bits + 7) / 8;
+                auto sort_pairs = [&](auto config_tag) {
+                using C = decltype(config_tag);
+	        AT_CUDA_CHECK(rocprim::radix_sort_pairs<C>(
                     nullptr,
                     temp_storage_bytes,
                     linear_indices.data_ptr<index_t>(),
@@ -401,7 +470,7 @@ transpose_embedding_input(
                 auto temp_storage = at::empty(
                     {static_cast<int64_t>(temp_storage_bytes)},
                     indices.options().dtype(at::kByte));
-                AT_CUDA_CHECK(rocprim::radix_sort_pairs<config>(
+                AT_CUDA_CHECK(rocprim::radix_sort_pairs<C>(
                     temp_storage.data_ptr(),
                     temp_storage_bytes,
                     linear_indices.data_ptr<index_t>(),
@@ -413,6 +482,18 @@ transpose_embedding_input(
                     total_hash_size_bits,
                     at::cuda::getCurrentCUDAStream(),
                     false));
+                };
+                // the 7-bit config is sized for 4-byte keys and values; int64 instantiations keep the stock config
+                // (selected by type, since this code is not a template and `if constexpr` would not discard it)
+                using config7_or_stock = std::conditional_t<
+                    sizeof(index_t) == 4 && sizeof(info_t) == 4,
+                    config7,
+                    config>;
+                if (sort_radix7) {
+                  sort_pairs(config7_or_stock{});
+                } else {
+                  sort_pairs(config{});
+                }
 #endif
               }
               if (total_unique_indices != -1) {
