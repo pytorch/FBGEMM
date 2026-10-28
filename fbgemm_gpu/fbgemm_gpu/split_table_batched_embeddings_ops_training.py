@@ -191,6 +191,9 @@ class RESParams:
     # per interval. That is what it is for: it stops a hot row flooding the
     # downstream, which has to absorb everything a drain sends.
     res_hbm_drain_interval: int = 1
+    # Table name -> drain period overriding `res_hbm_drain_interval`. The map is
+    # model-wide, so names of tables in other TBEs are ignored.
+    res_hbm_drain_interval_per_table: dict[str, int] = field(default_factory=dict)
     # Opt in to the per-drain token protocol.
     res_use_copy_done_token: bool = False
 
@@ -887,9 +890,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             and (res_params or RESParams()).enable_hbm_streaming
             and self._feature_is_enabled(FeatureGateName.RES_HBM_STREAMING)
         )
-        self._res_hbm_drain_interval: int = (
-            res_params or RESParams()
-        ).res_hbm_drain_interval
         self.pooling_mode = pooling_mode
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
 
@@ -2131,10 +2131,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(linear_size, device=self.current_device, dtype=torch.bool),
             persistent=False,  # RES buffer is not checkpointed
         )
-        self.register_buffer(
-            "_res_hbm_linear_mask",
-            self._build_res_hbm_linear_mask(linear_size),
-            persistent=False,
+        linear_mask, table_drain_intervals = self._build_res_hbm_linear_mask(
+            linear_size
+        )
+        self.register_buffer("_res_hbm_linear_mask", linear_mask, persistent=False)
+        # (first_row, num_rows, drain_interval) of every table in the lane.
+        self._res_hbm_table_drain_intervals: list[tuple[int, int, int]] = (
+            table_drain_intervals
         )
         self._res_drain_counter: int = 0
 
@@ -2185,22 +2188,36 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "res_hbm_drain_interval must be >= 1, got "
                 f"{self.res_params.res_hbm_drain_interval}"
             )
+        drain_interval_per_table = self.res_params.res_hbm_drain_interval_per_table
+        if any(
+            type(drain_interval) is not int or drain_interval < 1
+            for drain_interval in drain_interval_per_table.values()
+        ):
+            raise ValueError(
+                "res_hbm_drain_interval_per_table values must be ints >= 1, got "
+                f"{drain_interval_per_table}"
+            )
 
     @torch.jit.ignore
-    def _build_res_hbm_linear_mask(self, linear_size: int) -> Tensor:
-        """A mask over the rows of every table RES streams.
+    def _build_res_hbm_linear_mask(
+        self, linear_size: int
+    ) -> tuple[Tensor, list[tuple[int, int, int]]]:
+        """A mask over the rows of every table RES streams, and
+        `(first_row, num_rows, drain_interval)` of each of those tables.
 
         Streamed means DEVICE-placed AND allowlisted.
         """
         table_offsets = self.res_params.table_sizes
         table_names = self.res_params.table_names
         configured = self.res_params.res_enabled_tables
+        drain_interval_per_table = self.res_params.res_hbm_drain_interval_per_table
         # Empty means all tables, as it does for the UVM-cached lane.
         allowlist = set(configured) or set(table_names)
         linear_mask = torch.zeros(
             linear_size, device=self.current_device, dtype=torch.bool
         )
         streamed_tables, streamed_rows = 0, 0
+        table_drain_intervals = []
         for table_idx, spec in enumerate(self.embedding_specs):
             name = table_names[table_idx]
             if spec[2] != EmbeddingLocation.DEVICE or name not in allowlist:
@@ -2210,13 +2227,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             linear_mask.narrow(0, first_row, num_rows).fill_(True)
             streamed_tables += 1
             streamed_rows += num_rows
+            drain_interval = drain_interval_per_table.get(
+                name, self.res_params.res_hbm_drain_interval
+            )
+            table_drain_intervals.append((first_row, num_rows, drain_interval))
         self.log(
             f"[RES] HBM lane streams {streamed_tables} of "
             f"{len(table_names)} tables, {streamed_rows} rows; "
             f"res_enabled_tables={sorted(configured) if configured else 'ALL (empty)'}; "
+            f"res_hbm_drain_interval_per_table={drain_interval_per_table}; "
             f"tables={table_names}"
         )
-        return linear_mask
+        return linear_mask, table_drain_intervals
 
     @torch.jit.ignore
     def _mark_res_hbm_rows(
@@ -5395,13 +5417,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         The caller has already ticked the counter for this iteration, so
         `counter + 1` is the NEXT call: compact when that next call is the one
-        landing on the interval.
+        landing on the interval of any table in the lane.
 
         The counter is its own rather than `self.timestep`: what is controlled
         is the interval between drains of THIS TBE, not alignment to any global
         step.
         """
-        return (self._res_drain_counter + 1) % self._res_hbm_drain_interval == 0
+        return any(
+            (self._res_drain_counter + 1) % drain_interval == 0
+            for _, _, drain_interval in self._res_hbm_table_drain_intervals
+        )
 
     @torch.jit.ignore
     def _drain_hbm_rows(self, prefetched_info: PrefetchedInfo) -> None:
@@ -5427,6 +5452,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         with record_function(f"## res_drain {self.timestep} {self.uuid} ##"):
             # Which rows this drain may ship: marked, and streamed by RES.
             drain_mask = self._res_rows_seen & self._res_hbm_linear_mask
+            next_call = self._res_drain_counter + 1
+            table_drain_intervals = self._res_hbm_table_drain_intervals
+            # A table off its period keeps its marks for its own drain.
+            for first_row, num_rows, drain_interval in table_drain_intervals:
+                if next_call % drain_interval != 0:
+                    drain_mask.narrow(0, first_row, num_rows).zero_()
             rows, count = res_bitmap_compact(drain_mask)
             self._res_rows_seen.masked_fill_(drain_mask, False)
             # Hand the count to the host without waiting on it. `rows` stays
