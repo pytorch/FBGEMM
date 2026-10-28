@@ -11,10 +11,13 @@ import functools
 import logging
 import math
 import os
+import queue
 import tempfile
+import traceback
 import unittest
 import uuid
-from typing import Callable, Union
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Any, Callable, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import numpy as np
@@ -87,13 +90,15 @@ def _run_allgather_inner(
     dst_dtype: torch.dtype,
     src_dtype: torch.dtype,
     skip_torch_compile: bool = False,
+    initialize_nccl: bool = True,
 ) -> None:
     rank = int(os.environ["LOCAL_RANK"])
     W = int(os.environ["WORLD_SIZE"])
     device = torch.device(f"cuda:{rank}")
     torch.cuda.set_device(device)
     os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "0"
-    torch.ops.fbgemm.nccl_init(rank, W, rdvz)
+    if initialize_nccl:
+        torch.ops.fbgemm.nccl_init(rank, W, rdvz)
 
     B, T, D = 2, 4096, 1024
     y = torch.empty(size=(B, T, D), dtype=src_dtype, device="cuda")
@@ -123,6 +128,97 @@ def _run_allgather_inner(
 
     for _ in range(10):
         g.replay()
+
+
+def _run_allgather_worker(rdvz: str, commands: list[Any], responses: Any) -> None:
+    rank = int(os.environ["LOCAL_RANK"])
+    W = int(os.environ["WORLD_SIZE"])
+    torch.cuda.set_device(rank)
+    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "0"
+    try:
+        torch.ops.fbgemm.nccl_init(rank, W, rdvz)
+        responses.put((rank, "ready", ""))
+        while True:
+            dtype = commands[rank].get()
+            if dtype is None:
+                return
+            _run_allgather_inner(rdvz, dtype, dtype, initialize_nccl=False)
+            torch.cuda.synchronize()
+            responses.put((rank, "done", ""))
+    except Exception:
+        responses.put((rank, "error", traceback.format_exc()))
+        raise
+
+
+class _AllGatherWorkers:
+    def __init__(self, path: str) -> None:
+        context = torch.multiprocessing.get_context("spawn")
+        self.commands: list[Any] = [
+            context.Queue() for _ in range(torch.cuda.device_count())
+        ]
+        self.responses: Any = context.Queue()
+        self.path = path
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.future: Future[Any] | None = None
+
+    def start(self) -> None:
+        config = LaunchConfig(
+            min_nodes=1,
+            max_nodes=1,
+            nproc_per_node=len(self.commands),
+            run_id=str(uuid.uuid4()),
+            rdzv_backend="c10d",
+            rdzv_endpoint="localhost:0",
+            start_method="spawn",
+            monitor_interval=1,
+            max_restarts=0,
+            local_addr="localhost",
+        )
+        self.future = self.executor.submit(
+            elastic_launch(config=config, entrypoint=_run_allgather_worker),
+            os.path.join(self.path, "rdvz"),
+            self.commands,
+            self.responses,
+        )
+        self._wait("ready")
+
+    def _wait(self, expected: str) -> None:
+        assert self.future is not None
+        pending = set(range(len(self.commands)))
+        while pending:
+            try:
+                rank, status, message = self.responses.get(timeout=1)
+            except queue.Empty:
+                if self.future.done():
+                    self.future.result()
+                    raise RuntimeError(
+                        "Allgather workers exited before completing a case"
+                    )
+                continue
+            if status == "error":
+                raise RuntimeError(message)
+            if status != expected or rank not in pending:
+                raise RuntimeError(
+                    f"Unexpected allgather worker response: {rank} {status}"
+                )
+            pending.remove(rank)
+
+    def run(self, dtype: torch.dtype) -> None:
+        for command in self.commands:
+            command.put(dtype)
+        self._wait("done")
+
+    def close(self) -> None:
+        for command in self.commands:
+            command.put(None)
+        try:
+            if self.future is not None:
+                self.future.result(timeout=600)
+        finally:
+            self.executor.shutdown()
+            for command in self.commands:
+                command.close()
+            self.responses.close()
 
 
 def _run_reducescatter_inner(path: str) -> None:
@@ -360,6 +456,15 @@ def _run_oneshot_car_block_boundaries_inner(path: str) -> None:
     "Skip when running on GitHub and using ROCm",
 )
 class LLamaMultiGpuTests(unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        if self._testMethodName == "test_allgather":
+            path = tempfile.TemporaryDirectory()
+            self.addCleanup(path.cleanup)
+            self._allgather_workers = _AllGatherWorkers(path.name)
+            self.addCleanup(self._allgather_workers.close)
+            self._allgather_workers.start()
+
     @given(
         dtype=st.sampled_from(
             [
@@ -384,22 +489,7 @@ class LLamaMultiGpuTests(unittest.TestCase):
                     f"on {torch.cuda.get_device_capability()}"
                 )
 
-        with tempfile.TemporaryDirectory() as path:
-            lc = LaunchConfig(
-                min_nodes=1,
-                max_nodes=1,
-                nproc_per_node=torch.cuda.device_count(),
-                run_id=str(uuid.uuid4()),
-                rdzv_backend="c10d",
-                rdzv_endpoint="localhost:0",
-                start_method="spawn",
-                monitor_interval=1,
-                max_restarts=0,
-                local_addr="localhost",
-            )
-            elastic_launch(config=lc, entrypoint=_run_allgather_inner)(
-                os.path.join(path, "rdvz"), dtype, dtype
-            )
+        self._allgather_workers.run(dtype)
 
     @given(
         dtypes=st.sampled_from(
@@ -429,26 +519,17 @@ class LLamaMultiGpuTests(unittest.TestCase):
                     f"on {torch.cuda.get_device_capability()}"
                 )
 
-        with tempfile.TemporaryDirectory() as path:
-            lc = LaunchConfig(
-                min_nodes=1,
-                max_nodes=1,
-                nproc_per_node=torch.cuda.device_count(),
-                run_id=str(uuid.uuid4()),
-                rdzv_backend="c10d",
-                rdzv_endpoint="localhost:0",
-                start_method="spawn",
-                monitor_interval=1,
-                max_restarts=0,
-                local_addr="localhost",
+        W = torch.cuda.device_count()
+        B, T, D = 2, 4096, 1024
+        for rank in range(W):
+            device = torch.device(torch.accelerator.current_accelerator().type, rank)
+            y = torch.empty(size=(B, T, D), dtype=src_dtype, device=device)
+            y[:] = rank
+            y_gather = torch.full(
+                size=(W, B, T, D), fill_value=-1, dtype=dst_dtype, device=device
             )
             with self.assertRaises(Exception) as cm:
-                elastic_launch(config=lc, entrypoint=_run_allgather_inner)(
-                    os.path.join(path, "rdvz"),
-                    dst_dtype,
-                    src_dtype,
-                    True,
-                )
+                torch.ops.fbgemm.nccl_allgather(y_gather, y)
             self.assertTrue(
                 "dst and src tensors must have the same dtype." in cm.exception.args[0]
             )
