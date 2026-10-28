@@ -212,7 +212,7 @@ def py_quantize_mx4(
     packed_mx4 = torch.concat(
         [
             packed_mx4.view(-1, group_size // 2),
-            (shared_exp + FP32_EXP_BIAS).to(torch.int8).view(-1, 1),
+            (shared_exp + FP32_EXP_BIAS).to(torch.uint8).view(torch.int8).view(-1, 1),
         ],
         dim=1,
     )

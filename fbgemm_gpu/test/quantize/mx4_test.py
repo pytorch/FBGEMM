@@ -86,7 +86,9 @@ def fake_quantize_mx(
     round: str = "nearest",
     flush_fp32_subnorms: bool = False,
 ) -> torch.Tensor:
-    """Function used for MX* fake quantization"""
+    """Compute the MX* reference on CPU to preserve FP32 subnormal values."""
+
+    A = A.cpu()
 
     # Make sure axes is a list of non-negative numbers
     axes = [x + A.ndim if x < 0 else x for x in axes]
@@ -149,6 +151,37 @@ def fake_quantize_mx(
 class TestMXQuantizationConversion(unittest.TestCase):
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    def test_mx4_reference_scales(self) -> None:
+        group_size = 32
+        values = torch.tensor([0.0, 0.5, -1.0, 1.5, -2.0, 3.0, -4.0, 6.0]).repeat(4)
+        scales = torch.tensor([2.0**-127, 0.5, 4.0, 2.0**120]).repeat(32)
+        input_cpu = (scales[:, None] * values).reshape(-1)
+        self.assertNotEqual(input_cpu[1].item(), 0.0)
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        output_ref = fake_quantize_mx(
+            input_cpu.to(device), scale_bits=8, group_size=group_size
+        )
+        quantized_cpu = py_quantize_mx4(
+            input_cpu, group_size, rounding_mode=RoundingMode.floor
+        )
+        output_cpu = py_dequantize_mx4(quantized_cpu, group_size)
+        input_gpu = input_cpu.to(device)
+        output_native = fake_quantize_mx_cuda(input_gpu, group_size=group_size)
+        quantized_triton = fp32_to_mx4(
+            input_gpu, group_size, rounding_mode=RoundingMode.floor, use_triton=True
+        )
+        output_triton = mx4_to_fp32(quantized_triton, group_size, use_triton=True)
+        for name, output in (
+            ("oracle", output_ref),
+            ("python", output_cpu),
+            ("native", output_native),
+            ("triton", output_triton),
+        ):
+            with self.subTest(implementation=name):
+                torch.testing.assert_close(output.cpu(), input_cpu, rtol=0, atol=0)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
         power=st.integers(min_value=5, max_value=8),
@@ -191,7 +224,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         # Test intercompatibility between implementations.
         # Test CPU implementation
         quantized_cpu = py_quantize_mx4(
-            input, group_size, rounding_mode=RoundingMode.floor
+            input.cpu(), group_size, rounding_mode=RoundingMode.floor
         )
         output_cpu = py_dequantize_mx4(quantized_cpu, group_size)
 
