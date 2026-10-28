@@ -308,9 +308,8 @@ at::Tensor batch_auc(
       num_blocks);
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "auc_wrapper_1", [&] {
-    FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE(
-        labels.scalar_type(), "auc_wrapper_2", [&] {
-          using label_t = scalar_t;
+    dispatch_all_types_and_double(
+        labels.scalar_type(), "auc_wrapper_2", [&]<typename label_t>() {
           FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(
               weights.scalar_type(), "auc_wrapper_3", [&] {
                 using acc_t = at::acc_type<scalar_t, true>;
