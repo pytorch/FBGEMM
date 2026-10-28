@@ -65,7 +65,7 @@ template <typename OutType>
 static inline void
 fill_output(OutType* out, const float* src, const int64_t block_size) {
   for (int j = 0; j < block_size; ++j) {
-    out[j] = convert_from_float_ref<OutType>(src[j]);
+    out[j] = convert_ref<OutType>(src[j]);
   }
 }
 
@@ -914,24 +914,24 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = weight * convert_to_float_ref(*inptr);
+          buf[j] = weight * convert_ref<float>(*inptr);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = weight * convert_to_float_ref(*inptr);
+          buf[j] = weight * convert_ref<float>(*inptr);
         }
       } else {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = convert_to_float_ref(*inptr);
+          buf[j] = convert_ref<float>(*inptr);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = convert_to_float_ref(*inptr);
+          buf[j] = convert_ref<float>(*inptr);
         }
       }
       fill_output(out, buf, block_size);
@@ -1034,12 +1034,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
       for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
         InType value = *input_row++;
-        buf[j] = std::fma(w, convert_to_float_ref(value), buf[j]);
+        buf[j] = std::fma(w, convert_ref<float>(value), buf[j]);
       }
 #endif
       for (; j < block_size; ++j) {
         InType value = *input_row++;
-        buf[j] = std::fma(w, convert_to_float_ref(value), buf[j]);
+        buf[j] = std::fma(w, convert_ref<float>(value), buf[j]);
       }
 
       ++current;
@@ -1201,12 +1201,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(weight, convert_to_float_ref(*inptr), out[j]);
+          out[j] = std::fma(weight, convert_ref<float>(*inptr), out[j]);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(weight, convert_to_float_ref(*inptr), out[j]);
+          out[j] = std::fma(weight, convert_ref<float>(*inptr), out[j]);
         }
       }
       if (normalize_by_lengths && len) {
