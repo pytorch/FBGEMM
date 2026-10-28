@@ -46,7 +46,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         lxu_cache_locking_counter) {
   const int32_t C = lxu_cache_state.size(0);
   int32_t n_conflict_misses = 0;
-  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (int64_t n = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
     const bool segment_start =
