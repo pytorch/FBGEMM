@@ -124,6 +124,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a047abf23fb18225675fcb9846a39f2dd" id="r_a047abf23fb18225675fcb9846a39f2dd"><td class="memTemplParams" colspan="2">template&lt;typename FetchFn, typename PrepareFn&gt; </td></tr>
 <tr class="memitem:a047abf23fb18225675fcb9846a39f2dd template"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a047abf23fb18225675fcb9846a39f2dd">dispatchEnrichmentAsync</a> (std::vector&lt; int64_t &gt; hashed_ids, std::vector&lt; int64_t &gt; unhashed_ids, const char *log_prefix, FetchFn fetchFn, PrepareFn prepareFn)</td></tr>
 <tr class="memitem:aa8c1bbe2a7ab1e8e1d54118019abca60" id="r_aa8c1bbe2a7ab1e8e1d54118019abca60"><td class="memItemLeft">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight"><a class="el" href="#aa8c1bbe2a7ab1e8e1d54118019abca60">fetch_sids_sync</a> (at::Tensor hashed_indices, at::Tensor unhashed_indices, at::Tensor count) override</td></tr>
+<tr class="memitem:a21de68b41d1b90ba153697a3bc5df60e" id="r_a21de68b41d1b90ba153697a3bc5df60e"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a21de68b41d1b90ba153697a3bc5df60e">refresh_hit_timestamps_under_wlock</a> (int shard_id, const std::vector&lt; int64_t &gt; &amp;ids)</td></tr>
+<tr class="memitem:ad17849fed7f6bdcbfc48edf4988db3af" id="r_ad17849fed7f6bdcbfc48edf4988db3af"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ad17849fed7f6bdcbfc48edf4988db3af">refresh_hit_timestamps_async</a> (at::Tensor hashed_indices, at::Tensor count)</td></tr>
 <tr class="memitem:ab5172028ec58fd3ef007fc016b049265" id="r_ab5172028ec58fd3ef007fc016b049265"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ab5172028ec58fd3ef007fc016b049265">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt, const std::optional&lt; at::Tensor &gt; &amp;found_mask=std::nullopt)</td></tr>
 <tr class="memitem:a5ad7f6df6f124e625b38d688ba41077a" id="r_a5ad7f6df6f124e625b38d688ba41077a"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a5ad7f6df6f124e625b38d688ba41077a">get_kv_db_async_with_found_mask</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const at::Tensor &amp;found_mask) override</td></tr>
 <tr class="memitem:a089b321f90b6319a7c99cf01406cbd76" id="r_a089b321f90b6319a7c99cf01406cbd76"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a089b321f90b6319a7c99cf01406cbd76">maybe_evict</a> () override</td></tr>
@@ -654,6 +656,70 @@ template&lt;typename weight_type&gt; </div>
 <p>This method is called in between get and set to check if feature eviction should be triggered based on the configured eviction strategy. </p>
 
 <p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a15046e704688bd9fc930567ec176e866">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="ad17849fed7f6bdcbfc48edf4988db3af" name="ad17849fed7f6bdcbfc48edf4988db3af"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad17849fed7f6bdcbfc48edf4988db3af">&#9670;&#160;</a></span>refresh_hit_timestamps_async()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void refresh_hit_timestamps_async </td>
+          <td>(</td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>hashed_indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Refresh-only pass for a query dropped while an enrichment write is in flight: queues no fetch, only marks the non-zero rows it hits as used. </p>
+
+</div>
+</div>
+<a id="a21de68b41d1b90ba153697a3bc5df60e" name="a21de68b41d1b90ba153697a3bc5df60e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a21de68b41d1b90ba153697a3bc5df60e">&#9670;&#160;</a></span>refresh_hit_timestamps_under_wlock()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void refresh_hit_timestamps_under_wlock </td>
+          <td>(</td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>shard_id</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::vector&lt; int64_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>ids</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Sets the timestamps of <span class="tt">ids</span> that are still present and non-zero to now. Every training timestamp write happens under the shard write lock, so readers holding the read lock never see a concurrent write. Rows are re-found under the lock, so one evicted since the caller's lookup is skipped. <span class="tt">now</span> is read after taking the lock, so no earlier write carries a later timestamp. A row stamped ahead of <span class="tt">now</span> (clock stepped back, or a skewed checkpoint restored without restamping) is pulled back to <span class="tt">now</span>: the evictor's unsigned age check would otherwise evict it at once. Yields exactly like the enrichment write: the lock is held across rows and released only when a training lookup or write raises the interrupt flag, which is checked after every row. </p>
 
 </div>
 </div>

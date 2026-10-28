@@ -117,6 +117,7 @@ Inheritance diagram for KVInferenceEmbeddingInterface&lt; weight_type &gt;:</div
 <tr class="heading"><td colspan="2"><h2 id="header-pub-methods" class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:abe63965b47917fc335c543c40cec1bc0" id="r_abe63965b47917fc335c543c40cec1bc0"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#abe63965b47917fc335c543c40cec1bc0">initialize_initializers</a> (int64_t num_shards, int64_t max_D, double uniform_init_lower, double uniform_init_upper, int64_t row_storage_bitwidth, bool disable_random_init)=0</td></tr>
+<tr class="memitem:a0305a2692668e3c8bedec76c503d92cf" id="r_a0305a2692668e3c8bedec76c503d92cf"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a0305a2692668e3c8bedec76c503d92cf">set_disable_random_init</a> (bool)</td></tr>
 <tr class="memitem:a148e1a8f12d97d9c0570e82d7623a242" id="r_a148e1a8f12d97d9c0570e82d7623a242"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a148e1a8f12d97d9c0570e82d7623a242">set_kv_db_sync</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, std::optional&lt; uint32_t &gt; inplace_update_ts)=0</td></tr>
 <tr class="memitem:a20050d43486676ac326f530cc01bee58" id="r_a20050d43486676ac326f530cc01bee58"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a20050d43486676ac326f530cc01bee58">get_kv_db_sync</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)=0</td></tr>
 <tr class="memitem:adf5b1b467367fa75894c265535eb3ac2" id="r_adf5b1b467367fa75894c265535eb3ac2"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#adf5b1b467367fa75894c265535eb3ac2">inference_set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, std::optional&lt; uint32_t &gt; inplace_update_ts)=0</td></tr>
@@ -698,6 +699,40 @@ template&lt;typename weight_type&gt; </div>
 </dl>
 
 <p>Implemented in <a class="el" href="classkv__mem_1_1_dram_k_v_inference_embedding.html#a3467f940c7df2c2f71d0ec9c69a2f3fd">DramKVInferenceEmbedding&lt; weight_type &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a0305a2692668e3c8bedec76c503d92cf" name="a0305a2692668e3c8bedec76c503d92cf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0305a2692668e3c8bedec76c503d92cf">&#9670;&#160;</a></span>set_disable_random_init()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual void set_disable_random_init </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Set whether a lookup miss returns an all-zero row. Called when the backend is installed into a wrapper; backends that take this at construction time keep the default no-op.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">disable_random_init</td><td>whether to disable random initialization </td></tr>
+  </table>
+  </dd>
+</dl>
 
 </div>
 </div>

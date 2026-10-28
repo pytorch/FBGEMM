@@ -496,35 +496,9 @@
 </dd></dl>
 
 <dl class="cpp function">
-<dt class="sig sig-object cpp">
-<span class="target" id="group__tbe-cpu-autovec_1gac3f3272d344b2f9590f167e51b420ceb"></span><span class="sig-name descname"><span class="pre">template&lt;typename</span> <span class="pre">IndexType,</span> <span class="pre">typename</span> <span class="pre">OffsetType,</span> <span class="pre">typename</span> <span class="pre">OutType,</span> <span class="pre">typename</span> <span class="pre">Decode&gt;</span> <span class="pre">static</span> <span class="pre">bool</span> <span class="pre">ALWAYS_INLINE</span> <span class="pre">EmbeddingSpMDMFP8_autovec</span> <span class="pre">(const</span> <span class="pre">int64_t</span> <span class="pre">block_size,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_size,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">index_size,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">data_size,</span> <span class="pre">const</span> <span class="pre">uint8_t</span> <span class="pre">*input,</span> <span class="pre">const</span> <span class="pre">IndexType</span> <span class="pre">*indices,</span> <span class="pre">const</span> <span class="pre">OffsetType</span> <span class="pre">*offsets_or_lengths,</span> <span class="pre">const</span> <span class="pre">float</span> <span class="pre">*weights,</span> <span class="pre">OutType</span> <span class="pre">*out,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">is_weight_positional,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">normalize_by_lengths,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">use_offsets,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_stride,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">input_stride,</span> <span class="pre">Decode</span> <span class="pre">decode)</span></span></dt>
-<dd><p>Autovectorized version of method <code class="docutils literal notranslate"><span class="pre">EmbeddingSpMDM_ref</span></code> for FP8 weight type.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Template Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>IndexType</strong> – index data type (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code> is used) </p></li>
-<li><p><strong>OffsetType</strong> – offset data type (<code class="docutils literal notranslate"><span class="pre">int32_t</span></code> is used) </p></li>
-<li><p><strong>OutType</strong> – output data type (<code class="docutils literal notranslate"><span class="pre">float</span></code> is used)</p></li>
-</ul>
-</dd>
-<dt class="field-even">Parameters<span class="colon">:</span></dt>
-<dd class="field-even"><ul class="simple">
-<li><p><strong>block_size</strong> – Number of elements in a block (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
-<li><p><strong>output_size</strong> – Number of elements in output (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
-<li><p><strong>index_size</strong> – Number of elements in index (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
-<li><p><strong>data_size</strong> – Number of elements in data (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
-<li><p><strong>input</strong> – Address of input (<code class="docutils literal notranslate"><span class="pre">InType*</span></code>) </p></li>
-<li><p><strong>indices</strong> – Address of index (<code class="docutils literal notranslate"><span class="pre">IndexType*</span></code>) </p></li>
-<li><p><strong>offsets_or_lengths</strong> – Address of offset (<code class="docutils literal notranslate"><span class="pre">OffsetType*</span></code>) </p></li>
-<li><p><strong>weights</strong> – Weights of sum; optional, can be null for non-weighted sum (<code class="docutils literal notranslate"><span class="pre">float*</span></code>) </p></li>
-<li><p><strong>out</strong> – Address of output (<code class="docutils literal notranslate"><span class="pre">OutType*</span></code>) </p></li>
-<li><p><strong>is_weight_positional</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, weight is positional; set to <code class="docutils literal notranslate"><span class="pre">false</span></code> for FP8 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
-<li><p><strong>use_offsets</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, will use offsets instead of lengths; set to <code class="docutils literal notranslate"><span class="pre">true</span></code> for FP8 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
-<li><p><strong>output_stride</strong> – If -1, output_stride is same as block_size; set to -1 for FP8 autovec implementation (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
+<dt class="sig sig-object cpp" id="_CPPv4I0E23stride_SpMDMWithStrides7int64_t7int64_tb">
+<span id="_CPPv3I0E23stride_SpMDMWithStrides7int64_tb"></span><span id="_CPPv2I0E23stride_SpMDMWithStrides7int64_tb"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">InType</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__tbe-cpu-autovec_1ga8c2deb61ff42033e8ef90b249f0aae3c"></span><span class="k"><span class="pre">static</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">stride_SpMDMWithStrides</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">block_size</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">scale_bias_last</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0E23stride_SpMDMWithStrides7int64_t7int64_tb" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
 
 </section>
 </section>
