@@ -411,16 +411,4 @@ FBGEMM_API void compressed_indices_remap_ref(
     IndexType* out_offsets,
     float* out_weights);
 
-// Keep reference conversions scalar and independent from optimized kernels.
-template <typename T>
-float convert_to_float_ref(T src) {
-  if constexpr (std::is_same_v<T, bfloat16>) {
-    return cpu_bf162float(src);
-  } else if constexpr (std::is_same_v<T, float16>) {
-    return cpu_half2float(src);
-  } else {
-    return static_cast<float>(src);
-  }
-}
-
 } // namespace fbgemm
