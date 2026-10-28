@@ -45,8 +45,8 @@ rocm_install_dir () {
 
 install_rocm_pip () {
   # Install the ROCm devel extra from the same PyTorch wheel index as torch.
-  # nightly + rocm/7.14 resolves to
-  # https://download.pytorch.org/whl/nightly/rocm7.14/. The matrix version
+  # nightly + rocm/10.1 resolves to
+  # https://download.pytorch.org/whl/nightly/rocm10.1/. The matrix version
   # selects that index. The package pin is the rocm version torch already
   # installed, so the devel tree matches torch's runtime patch.
   local env_name="$1"
@@ -55,8 +55,8 @@ install_rocm_pip () {
   if [ "$rocm_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME ROCM_VERSION [PYTORCH_CHANNEL[/VERSION]]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env 7.14 nightly"
     echo "    ${FUNCNAME[0]} build_env 10.0 nightly"
+    echo "    ${FUNCNAME[0]} build_env 10.1 nightly"
     return 1
   else
     echo "################################################################################"
