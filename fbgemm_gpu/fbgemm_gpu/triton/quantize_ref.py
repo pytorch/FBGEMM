@@ -129,8 +129,8 @@ def py_quantize_mx4(
     # Convert exponent to scale and apply to input.
     # Need to do this calculation on cpu for accuracy.
     _shared_exp = shared_exp.cpu()
-    scale = (2**_shared_exp).to(device=a.device)
-    a = a / scale
+    scale = 2**_shared_exp
+    a = (a.cpu() / scale).to(device=a.device)
     # View as integer for bitwise ops.
     a = a.view(torch.int32)
 
@@ -276,10 +276,10 @@ def py_dequantize_mx4(
 
     # Exponent needs to be computed on cpu for perfect precision.
     _shared_exp = shared_exp.cpu().to(torch.float)
-    scale = (2**_shared_exp).to(device)
+    scale = 2**_shared_exp
 
-    # Finally, apply shared exponent to restore full value.
-    out = out.view(-1, num_groups, group_size) * scale.view(1, num_groups, 1)
+    out = out.view(-1, num_groups, group_size).cpu() * scale.view(1, num_groups, 1)
+    out = out.to(device)
     # Restore original shape and return.
     out_shape = list(orig_shape[:-1]) + [-1]
     return out.view(out_shape)
