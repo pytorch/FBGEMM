@@ -225,11 +225,37 @@ install_rocm_amdsmi_ubuntu () {
   publish_rocm_library_path "${env_name}" "${rocm_dir}" || return 1
   publish_rocm_bin_path "${rocm_dir}" || return 1
 
+  # Older ROCm wheels shipped a pip-installable tree at share/amd_smi (setup.py /
+  # pyproject.toml). ROCm 10.1+ TheRock wheels keep the Python package at
+  # share/amd_smi/amdsmi without packaging metadata, so pip install fails with
+  # "Neither setup.py nor pyproject.toml found". Prefer pip when possible;
+  # otherwise put the parent on PYTHONPATH so `import amdsmi` still works.
   local amd_smi_src="${rocm_dir}/share/amd_smi"
-  if [ -d "${amd_smi_src}" ]; then
+  if [ -f "${amd_smi_src}/pyproject.toml" ] || [ -f "${amd_smi_src}/setup.py" ]; then
     echo "[INSTALL] Installing amd-smi from ${amd_smi_src} ..."
     # shellcheck disable=SC2086
     (conda run ${env_prefix} python -m pip install "${amd_smi_src}") || return 1
+  elif [ -d "${amd_smi_src}/amdsmi" ]; then
+    echo "[INSTALL] ${amd_smi_src} is not pip-installable; adding it to PYTHONPATH"
+    local existing_pythonpath
+    # shellcheck disable=SC2086
+    existing_pythonpath=$(conda run ${env_prefix} printenv PYTHONPATH 2>/dev/null || true)
+    case ":${existing_pythonpath}:" in
+      *":${amd_smi_src}:"*) ;;
+      *)
+        if [ -n "${existing_pythonpath}" ]; then
+          existing_pythonpath="${amd_smi_src}:${existing_pythonpath}"
+        else
+          existing_pythonpath="${amd_smi_src}"
+        fi
+        # shellcheck disable=SC2086
+        print_exec conda env config vars set ${env_prefix} PYTHONPATH="${existing_pythonpath}"
+        export PYTHONPATH="${existing_pythonpath}"
+        if [ -n "${GITHUB_ENV:-}" ]; then
+          echo "PYTHONPATH=${existing_pythonpath}" >> "${GITHUB_ENV}"
+        fi
+        ;;
+    esac
   else
     echo "[INSTALL] ${amd_smi_src} is not present; expecting amd-smi from the ROCm wheel"
   fi
