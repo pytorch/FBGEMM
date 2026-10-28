@@ -8,6 +8,7 @@
 # pyre-strict
 
 import unittest
+from collections.abc import Sequence
 from unittest.mock import MagicMock
 
 import torch
@@ -136,6 +137,7 @@ class ResEnabledTablesTest(unittest.TestCase):
         feature_table_map: list[int] | None = None,
         dims: list[int] | None = None,
         res_hbm_drain_interval: int = 1,
+        res_hbm_drain_interval_per_table: dict[str, int] | None = None,
     ) -> SplitTableBatchedEmbeddingBagsCodegen:
         """One table per name, each with its own placement, row count and dim."""
         if res_hbm_streaming_unavailable[0]:
@@ -158,6 +160,7 @@ class ResEnabledTablesTest(unittest.TestCase):
             # Drain every prefetch: these tests assert on what a drain ships,
             # not on when one fires. The cadence tests set their own.
             res_hbm_drain_interval=res_hbm_drain_interval,
+            res_hbm_drain_interval_per_table=res_hbm_drain_interval_per_table or {},
         )
         tbe = SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
@@ -586,8 +589,11 @@ class ResEnabledTablesTest(unittest.TestCase):
     def _idle_iteration(
         self,
         tbe: SplitTableBatchedEmbeddingBagsCodegen,
+        t0_rows: Sequence[int] = (),
+        t1_rows: Sequence[int] = (),
     ) -> list[int] | None:
-        """Advance one iteration without a lookup, to collect the pending drain.
+        """Advance one iteration without a lookup, to collect the pending drain;
+        on a TBE with no UVM cache it can mark `t0_rows` and `t1_rows` first.
 
         The drain queues its row count to the host asynchronously, so what it
         compacted ships on the iteration after it ran, not its own.
@@ -600,7 +606,15 @@ class ResEnabledTablesTest(unittest.TestCase):
         empty = torch.zeros(0, device=device, dtype=torch.int64)
         # Every fixture this serves has two features, and offsets is one longer.
         offsets = torch.zeros(3, device=device, dtype=torch.int64)
-        tbe._mark_res_hbm_rows(empty, offsets, None)
+        tbe._mark_res_hbm_rows(
+            torch.tensor([*t0_rows, *t1_rows], device=device, dtype=torch.int64),
+            torch.tensor(
+                [0, len(t0_rows), len(t0_rows) + len(t1_rows)],
+                device=device,
+                dtype=torch.int64,
+            ),
+            None,
+        )
         tbe._store_prefetched_tensors(
             indices=empty,
             offsets=offsets,
@@ -1043,6 +1057,67 @@ class ResEnabledTablesTest(unittest.TestCase):
             self._drain_tbe(drain_interval=0)
         with self.assertRaisesRegex(ValueError, r"res_hbm_drain_interval must be"):
             self._drain_tbe(drain_interval=-3)
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_per_table_drain_ships_each_table_on_its_own_period(self) -> None:
+        # Calls 1-6 mark row k of both tables; calls 7-9 mark nothing.
+        # Pickup: t0 (period 2) on calls 2, 4, 6, 8;
+        # t1 (default 3) on calls 3, 6, 9.
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.DEVICE, EmbeddingLocation.DEVICE],
+            res_enabled_tables=["t0", "t1"],
+            res_hbm_drain_interval=3,
+            res_hbm_drain_interval_per_table={"t0": 2},
+        )
+        drains = [self._idle_iteration(tbe, [k], [k]) for k in range(1, 7)]
+        drains += [self._idle_iteration(tbe) for _ in range(3)]
+        self.assertEqual(
+            drains,
+            [
+                None,
+                [1],
+                [ROWS + 1, ROWS + 2],
+                [2, 3],
+                None,
+                [4, 5, ROWS + 3, ROWS + 4, ROWS + 5],
+                None,
+                [6],
+                [ROWS + 6],
+            ],
+        )
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_per_table_drain_ignores_tables_outside_the_lane(self) -> None:
+        # t0 is MANAGED_CACHING and t9 lives in another TBE: only t1 is in the
+        # lane, on the default 4.
+        tbe = self._build_mixed_tbe(
+            ["t0", "t1"],
+            [EmbeddingLocation.MANAGED_CACHING, EmbeddingLocation.DEVICE],
+            res_enabled_tables=["t0", "t1"],
+            res_hbm_drain_interval=4,
+            res_hbm_drain_interval_per_table={"t0": 1, "t9": 1},
+        )
+        self.assertEqual(tbe._res_hbm_table_drain_intervals, [(ROWS, ROWS, 4)])
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
+    def test_per_table_drain_interval_must_be_positive_int(self) -> None:
+        # 0 would divide by zero in prefetch; "4" and True are not periods.
+        for drain_interval in (0, "4", True):
+            with self.subTest(drain_interval=drain_interval):
+                with self.assertRaisesRegex(
+                    ValueError, "res_hbm_drain_interval_per_table values must be"
+                ):
+                    self._build_mixed_tbe(
+                        ["t0"],
+                        [EmbeddingLocation.DEVICE],
+                        res_enabled_tables=["t0"],
+                        # pyrefly: ignore[bad-assignment]
+                        res_hbm_drain_interval_per_table={"t0": drain_interval},
+                    )
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
