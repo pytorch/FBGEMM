@@ -1029,19 +1029,18 @@ template <
     typename offsetType,
     typename outType,
     bool THREAD_LOCAL>
-typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
-    Type
-    GenerateEmbeddingSpMDMWithStrides(
-        const int64_t block_size,
-        bool has_weight [[maybe_unused]],
-        bool normalize_by_lengths,
-        int prefetch [[maybe_unused]],
-        bool is_weight_positional,
-        bool use_offsets,
-        int64_t output_stride /*=-1*/,
-        int64_t input_stride /*=-1*/,
-        bool scale_bias_last /*=true*/,
-        bool no_bag /*=false*/) {
+EmbeddingSpMDMKernel<inType, indxType, offsetType, outType>
+GenerateEmbeddingSpMDMWithStrides(
+    const int64_t block_size,
+    bool has_weight [[maybe_unused]],
+    bool normalize_by_lengths,
+    int prefetch [[maybe_unused]],
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride /*=-1*/,
+    int64_t input_stride /*=-1*/,
+    bool scale_bias_last /*=true*/,
+    bool no_bag /*=false*/) {
   [[maybe_unused]] constexpr bool use_avx =
       !(std::is_same_v<inType, bfloat16> && std::is_same_v<outType, float>);
   if (output_stride == -1) {
@@ -1356,73 +1355,67 @@ template <
     typename offsetType,
     typename outType,
     bool THREAD_LOCAL>
-typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
-    Type
-    GenerateEmbeddingSpMDM(
-        const int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch,
-        bool is_weight_positional,
-        bool use_offsets) {
-  auto generate_kernel = [&]<typename ActualInType, typename ActualOutType>() ->
-      typename EmbeddingSpMDMKernelSignature<
-          inType,
-          indxType,
-          offsetType,
-          outType>::Type {
-        auto kernel = GenerateEmbeddingSpMDMWithStrides<
-            ActualInType,
-            indxType,
-            offsetType,
-            ActualOutType,
-            THREAD_LOCAL>(
-            block_size,
-            has_weight,
-            normalize_by_lengths,
-            prefetch,
-            is_weight_positional,
-            use_offsets,
-            /*output_stride=*/-1,
-            /*input_stride=*/-1,
-            /*scale_bias_last=*/true,
-            /*no_bag=*/false);
-        return [kernel](
-                   int64_t output_size,
-                   int64_t index_size,
-                   int64_t data_size,
-                   const inType* input,
-                   const indxType* indices,
-                   const offsetType* offsets_or_lengths,
-                   const float* weights,
-                   outType* out) {
-          return kernel(
-              output_size,
-              index_size,
-              data_size,
-              reinterpret_cast<const ActualInType*>(input),
-              indices,
-              offsets_or_lengths,
-              weights,
-              reinterpret_cast<ActualOutType*>(out));
-        };
-      };
+EmbeddingSpMDMKernel<inType, indxType, offsetType, outType>
+GenerateEmbeddingSpMDM(
+    const int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets) {
+  auto generate_kernel = [&]<typename ActualInType, typename ActualOutType>()
+      -> EmbeddingSpMDMKernel<inType, indxType, offsetType, outType> {
+    auto kernel = GenerateEmbeddingSpMDMWithStrides<
+        ActualInType,
+        indxType,
+        offsetType,
+        ActualOutType,
+        THREAD_LOCAL>(
+        block_size,
+        has_weight,
+        normalize_by_lengths,
+        prefetch,
+        is_weight_positional,
+        use_offsets,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*no_bag=*/false);
+    return [kernel](
+               int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const inType* input,
+               const indxType* indices,
+               const offsetType* offsets_or_lengths,
+               const float* weights,
+               outType* out) {
+      return kernel(
+          output_size,
+          index_size,
+          data_size,
+          reinterpret_cast<const ActualInType*>(input),
+          indices,
+          offsets_or_lengths,
+          weights,
+          reinterpret_cast<ActualOutType*>(out));
+    };
+  };
 
   return generate_kernel.template operator()<inType, outType>();
 }
 
 template <typename indxType, typename offsetType, typename outType>
-typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
-    Type
-    detail::GenerateEmbeddingSpMDMFP8WithStridesBytes(
-        const int64_t block_size,
-        bool normalize_by_lengths,
-        bool is_weight_positional,
-        bool use_offsets,
-        int64_t output_stride,
-        int64_t input_stride,
-        int exponent_bits,
-        int exponent_bias) {
+EmbeddingSpMDMKernel<uint8_t, indxType, offsetType, outType>
+detail::GenerateEmbeddingSpMDMFP8WithStridesBytes(
+    const int64_t block_size,
+    bool normalize_by_lengths,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    int exponent_bits,
+    int exponent_bias) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1631,68 +1624,59 @@ GenerateEmbeddingSpMDMRowWiseSparse(
   };
 }
 
-#define INSTANTIATE_SPMDM_BASE(                               \
-    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature< \
-      IN_TYPE,                                                \
-      INDEX_TYPE,                                             \
-      OFFSET_TYPE,                                            \
-      OUT_TYPE>::Type                                         \
-  GenerateEmbeddingSpMDMWithStrides<                          \
-      IN_TYPE,                                                \
-      INDEX_TYPE,                                             \
-      OFFSET_TYPE,                                            \
-      OUT_TYPE,                                               \
-      THREAD_LOCAL>(                                          \
-      const int64_t block_size,                               \
-      bool has_weight,                                        \
-      bool normalize_by_lengths,                              \
-      int prefetch,                                           \
-      bool is_weight_positional,                              \
-      bool use_offsets,                                       \
-      int64_t output_stride,                                  \
-      int64_t input_stride,                                   \
-      bool scale_bias_last,                                   \
-      bool no_bag);
+#define INSTANTIATE_SPMDM_BASE(                                        \
+    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL)          \
+  template FBGEMM_API                                                  \
+      EmbeddingSpMDMKernel<IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE> \
+      GenerateEmbeddingSpMDMWithStrides<                               \
+          IN_TYPE,                                                     \
+          INDEX_TYPE,                                                  \
+          OFFSET_TYPE,                                                 \
+          OUT_TYPE,                                                    \
+          THREAD_LOCAL>(                                               \
+          const int64_t block_size,                                    \
+          bool has_weight,                                             \
+          bool normalize_by_lengths,                                   \
+          int prefetch,                                                \
+          bool is_weight_positional,                                   \
+          bool use_offsets,                                            \
+          int64_t output_stride,                                       \
+          int64_t input_stride,                                        \
+          bool scale_bias_last,                                        \
+          bool no_bag);
 
-#define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature<        \
-      uint8_t,                                                       \
-      INDEX_TYPE,                                                    \
-      OFFSET_TYPE,                                                   \
-      OUT_TYPE>::Type                                                \
-  detail::GenerateEmbeddingSpMDMFP8WithStridesBytes<                 \
-      INDEX_TYPE,                                                    \
-      OFFSET_TYPE,                                                   \
-      OUT_TYPE>(                                                     \
-      const int64_t block_size,                                      \
-      bool normalize_by_lengths,                                     \
-      bool is_weight_positional,                                     \
-      bool use_offsets,                                              \
-      int64_t output_stride,                                         \
-      int64_t input_stride,                                          \
-      int exponent_bits,                                             \
-      int exponent_bias);
+#define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)   \
+  template FBGEMM_API                                                  \
+      EmbeddingSpMDMKernel<uint8_t, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE> \
+      detail::GenerateEmbeddingSpMDMFP8WithStridesBytes<               \
+          INDEX_TYPE,                                                  \
+          OFFSET_TYPE,                                                 \
+          OUT_TYPE>(                                                   \
+          const int64_t block_size,                                    \
+          bool normalize_by_lengths,                                   \
+          bool is_weight_positional,                                   \
+          bool use_offsets,                                            \
+          int64_t output_stride,                                       \
+          int64_t input_stride,                                        \
+          int exponent_bits,                                           \
+          int exponent_bias);
 
-#define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
-    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
-  template FBGEMM_API typename EmbeddingSpMDMKernelSignature< \
-      IN_TYPE,                                                \
-      INDEX_TYPE,                                             \
-      OFFSET_TYPE,                                            \
-      OUT_TYPE>::Type                                         \
-  GenerateEmbeddingSpMDM<                                     \
-      IN_TYPE,                                                \
-      INDEX_TYPE,                                             \
-      OFFSET_TYPE,                                            \
-      OUT_TYPE,                                               \
-      THREAD_LOCAL>(                                          \
-      const int64_t block_size,                               \
-      bool has_weight,                                        \
-      bool normalize_by_lengths,                              \
-      int prefetch,                                           \
-      bool is_weight_positional,                              \
-      bool use_offsets);
+#define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                               \
+    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL)          \
+  template FBGEMM_API                                                  \
+      EmbeddingSpMDMKernel<IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE> \
+      GenerateEmbeddingSpMDM<                                          \
+          IN_TYPE,                                                     \
+          INDEX_TYPE,                                                  \
+          OFFSET_TYPE,                                                 \
+          OUT_TYPE,                                                    \
+          THREAD_LOCAL>(                                               \
+          const int64_t block_size,                                    \
+          bool has_weight,                                             \
+          bool normalize_by_lengths,                                   \
+          int prefetch,                                                \
+          bool is_weight_positional,                                   \
+          bool use_offsets);
 
 #define INSTANTIATE_SPMDM_ROWWISE_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)   \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
