@@ -5262,6 +5262,35 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
 
     @torch.jit.ignore
+    def _discard_retained_scratch_pads(self) -> None:
+        """
+        Drop scratch pads kept only for the next prefetch's row hand-off.
+
+        With ``prefetch_pipeline``, each prefetch leaves its scratch pad queued
+        so the next prefetch can reuse rows from it, and nothing else reads it
+        once that iteration's forward has run. After a backend rewrite those
+        rows are pre-load values the hand-off would copy back into L1, so the
+        switch drops them instead. Eval only, where a scratch pad holds no rows
+        awaiting write-back; a sharded TBE does not see ``model.eval()``, so the
+        caller must put it in eval mode itself (SsdReadSnapshotCoordinator
+        does). A prefetch still in flight is left alone for the drain check to
+        reject.
+        """
+        if (
+            not self.prefetch_pipeline
+            or self.timesteps_prefetched
+            or self.ssd_prefetch_data
+        ):
+            return
+        # scratch_pad_idx_queue holds one index map per pad and is popped only
+        # together with a pad, so both go at once or later prefetches pair pads
+        # with stale maps. Synchronize first so a pending insert_cuda lands in
+        # the queue being dropped.
+        torch.cuda.synchronize()
+        self.ssd_scratch_pads.clear()
+        self.scratch_pad_idx_queue = torch.classes.fbgemm.SSDScratchPadIndicesQueue(-1)
+
+    @torch.jit.ignore
     def invalidate_l1_cache(self, *, backend_rewritten: bool = False) -> None:
         """
         Empty the GPU (L1) cache.
@@ -5421,7 +5450,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         The Python-level pipeline state is checked for you: the L1
         invalidation below cannot run safely with a forward or prefetch still
-        outstanding, so this raises rather than corrupting it.
+        outstanding, so this raises rather than corrupting it. In eval, scratch
+        pads retained only for the next prefetch's hand-off are dropped first.
 
         Args:
             snapshot_handle: snapshot produced by
@@ -5458,6 +5488,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "store has been rewritten, install a post-load snapshot "
                 "instead of reverting to the live DB."
             )
+        if backend_rewritten and not self.training:
+            self._discard_retained_scratch_pads()
         self._assert_lookup_pipeline_drained("switch_read_snapshot")
         switch_start = time.time()
         # DEBUG: its only unique content was `to_live_db`, which the caller

@@ -560,18 +560,22 @@ class SSDCheckpointTest(unittest.TestCase):
             self.assertTrue(torch.equal(out, post_load))
 
     def _build_tbe_for_read_snapshot_switch(
-        self, ssd_directory: str
+        self,
+        ssd_directory: str,
+        prefetch_pipeline: bool = False,
+        cache_sets: int = 4,
     ) -> SSDTableBatchedEmbeddingBags:
         return SSDTableBatchedEmbeddingBags(
             embedding_specs=[(64, 16)],
             feature_table_map=[0],
             ssd_storage_directory=ssd_directory,
-            cache_sets=4,
+            cache_sets=cache_sets,
             ssd_uniform_init_lower=-0.1,
             ssd_uniform_init_upper=0.1,
             weights_precision=SparseType.FP32,
             l2_cache_size=0,
             use_passed_in_path=True,
+            prefetch_pipeline=prefetch_pipeline,
         ).cuda()
 
     def test_switch_returns_after_l1_invalidation_finishes(self) -> None:
@@ -640,6 +644,92 @@ class SSDCheckpointTest(unittest.TestCase):
             del pre_load, post_load
             gc.collect()
             self.assertEqual(emb.ssd_db.get_snapshot_count(), 0)
+
+    def test_eval_switch_drops_scratch_pad_kept_for_next_prefetch(self) -> None:
+        """
+        With prefetch_pipeline, a finished forward leaves its scratch pad
+        queued for the next prefetch, which copies conflict-missed rows out of
+        it. In eval the switch drops that pad and its index map rather than
+        refusing, so later lookups read the post-load view and never reuse a
+        pre-load row from the pad.
+        """
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            # One cache set (32 slots) and 40 ids: 8 conflict misses stay in
+            # the pad, which is what the hand-off would copy forward.
+            emb = self._build_tbe_for_read_snapshot_switch(
+                ssd_directory, prefetch_pipeline=True, cache_sets=1
+            )
+            emb.eval()
+            ids = torch.arange(0, 40, dtype=torch.int64)
+            offsets = torch.arange(0, 41, dtype=torch.int64)
+            emb.ssd_db.set_kv_to_storage(ids, torch.full((40, emb.cache_row_dim), 1.0))
+            pre_load = emb.ssd_db.create_snapshot()
+            emb.switch_read_snapshot(pre_load)
+            with torch.no_grad():
+                emb(ids.cuda(), offsets.cuda())
+            torch.cuda.synchronize()
+            self.assertEqual(len(emb.ssd_scratch_pads), 1)
+            conflict_missed = emb.ssd_scratch_pads[0][1]
+            self.assertGreater(int((conflict_missed >= 0).sum()), 0)
+
+            emb.ssd_db.set_kv_to_storage(ids, torch.full((40, emb.cache_row_dim), 2.0))
+            post_load = emb.ssd_db.create_snapshot()
+            emb.switch_read_snapshot(post_load, backend_rewritten=True)
+            self.assertEqual(len(emb.ssd_scratch_pads), 0)
+            self.assertEqual(emb.scratch_pad_idx_queue.size(), 0)
+
+            # A pad and its index map are popped together from the second
+            # lookup on, so a queue left out of step would show up here too.
+            for batch_ids in (ids, ids[:3], ids[2:37], ids):
+                batch_offsets = torch.arange(
+                    0, batch_ids.numel() + 1, dtype=torch.int64
+                )
+                with torch.no_grad():
+                    out = emb(batch_ids.cuda(), batch_offsets.cuda())
+                torch.cuda.synchronize()
+                self.assertTrue(
+                    torch.equal(out.cpu(), torch.full((batch_ids.numel(), 16), 2.0)),
+                    "a lookup after the switch did not read the post-load view",
+                )
+                self.assertEqual(
+                    emb.scratch_pad_idx_queue.size(), len(emb.ssd_scratch_pads)
+                )
+
+            del pre_load, post_load
+            gc.collect()
+            self.assertEqual(emb.ssd_db.get_snapshot_count(), 0)
+
+    def test_eval_switch_still_refuses_with_prefetch_in_flight(self) -> None:
+        """
+        Only pads retained after their forward are dropped. A prefetch whose
+        forward has not run still holds L1 slot assignments for that forward,
+        so the switch must keep refusing.
+        """
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = self._build_tbe_for_read_snapshot_switch(
+                ssd_directory, prefetch_pipeline=True
+            )
+            emb.eval()
+            ids = torch.arange(
+                0, 8, dtype=torch.int64, device=torch.accelerator.current_accelerator()
+            )
+            offsets = torch.arange(
+                0, 9, dtype=torch.int64, device=torch.accelerator.current_accelerator()
+            )
+            pre_load = emb.ssd_db.create_snapshot()
+            emb.switch_read_snapshot(pre_load)
+            with torch.no_grad():
+                emb.prefetch(ids, offsets)
+            post_load = emb.ssd_db.create_snapshot()
+
+            with self.assertRaisesRegex(RuntimeError, "drained lookup pipeline"):
+                emb.switch_read_snapshot(post_load, backend_rewritten=True)
+            self.assertEqual(len(emb.ssd_scratch_pads), 1)
+
+            with torch.no_grad():
+                emb(ids, offsets)
+            del pre_load, post_load
+            gc.collect()
 
     @given(**default_st)
     @settings(**default_settings)
