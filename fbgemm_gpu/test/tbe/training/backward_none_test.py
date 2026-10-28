@@ -255,6 +255,9 @@ class BackwardNoneTest(unittest.TestCase):
 
         if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
+            if optimizer is None:
+                # Preserve FP16 input values while accumulating reference gradients in FP32.
+                bs = [b.float() for b in bs]
 
         feature_table_map = list(range(T))
         xs = [
@@ -300,17 +303,15 @@ class BackwardNoneTest(unittest.TestCase):
                     b_indices(
                         b,
                         x,
-                        per_sample_weights=xw.view(-1),
+                        per_sample_weights=xw.view(-1).to(b.weight.dtype),
                         use_cpu=use_cpu,
                         do_pooling=do_pooling,
                     )
                     for (b, x, xw) in zip(bs, xs, xws)
                 ]
             )
-            # Torch's Embedding only produces an output that has the same type
-            # as weight
-            if weights_precision != output_dtype:
-                fs = [f.to(output_dtype.as_dtype()) for f in fs]
+            # Match the requested output dtype after FP32 reference accumulation.
+            fs = [f.to(output_dtype.as_dtype()) for f in fs]
             gos: list[Tensor] | Tensor = [torch.randn_like(f) for f in fs]
             [f.backward(go) for (f, go) in zip(fs, gos)]
         else:
@@ -454,6 +455,31 @@ class BackwardNoneTest(unittest.TestCase):
             atol=tolerance,
             rtol=tolerance,
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_none_half_weight_float_output_reference(self) -> None:
+        random_state = random.getstate()
+        numpy_state = np.random.get_state()
+        try:
+            with torch.random.fork_rng(devices=list(range(torch.cuda.device_count()))):
+                random.seed(19)
+                np.random.seed(19)
+                torch.manual_seed(19)
+                self.execute_backward_none_(
+                    T=5,
+                    D=199,
+                    B=100,
+                    log_E=4,
+                    L=3,
+                    weights_precision=SparseType.FP16,
+                    weighted=True,
+                    long_segments=True,
+                    pooling_mode=PoolingMode.SUM,
+                    output_dtype=SparseType.FP32,
+                )
+        finally:
+            random.setstate(random_state)
+            np.random.set_state(numpy_state)
 
 
 if __name__ == "__main__":
