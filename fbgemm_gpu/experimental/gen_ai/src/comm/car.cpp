@@ -22,6 +22,7 @@
 #include <torch/csrc/cuda/nccl.h>
 #include <unistd.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <cmath>
@@ -38,11 +39,12 @@ static_assert(sizeof(cudaIpcMemHandle_t) == 64, "");
 constexpr size_t kMaxNumNcclComms = 5;
 
 static ncclComm_t* get_nccl_comm(int64_t comm_idx) {
-  static ncclComm_t comms[kMaxNumNcclComms];
+  static std::array<ncclComm_t, kMaxNumNcclComms> comms;
 
   TORCH_CHECK_GE(comm_idx, 0);
-  TORCH_CHECK_LT(comm_idx, kMaxNumNcclComms);
-  return &comms[comm_idx];
+  const auto unsigned_comm_idx = static_cast<size_t>(comm_idx);
+  TORCH_CHECK_LT(unsigned_comm_idx, kMaxNumNcclComms);
+  return &comms.at(unsigned_comm_idx);
 }
 
 void nccl_init(
