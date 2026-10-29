@@ -124,3 +124,81 @@ TEST(TransposeTest, TransposeTest) {
     EXPECT_TRUE(compare_tranpose_results(a_i16, b_i16, m, n, ld_src, ld_dst));
   }
 }
+
+namespace {
+
+template <typename T>
+void checkTransposeBoundary(int m, int n, int padding, bool guarded) {
+  SCOPED_TRACE(
+      ::testing::Message() << "m=" << m << " n=" << n << " padding=" << padding
+                           << " guarded=" << guarded
+                           << " element_bytes=" << sizeof(T));
+  const int ld_src = n + padding;
+  const int ld_dst = m + padding;
+  const int offset = guarded ? 1 : 0;
+  const int guard = guarded ? 2 : 0;
+  const T sentinel = static_cast<T>(0xa55a);
+  vector<T> src(m * ld_src + guard, sentinel);
+  vector<T> dst(n * ld_dst + guard, sentinel);
+  vector<T> expected = dst;
+  for (int i = 0; i < m; ++i) {
+    for (int j = 0; j < n; ++j) {
+      const T value = static_cast<T>((i * 7919 + j * 4051 + 0x8000) & 0xffff);
+      src[offset + i * ld_src + j] = value;
+      expected[offset + j * ld_dst + i] = value;
+    }
+  }
+  const auto original = src;
+  transpose_simd(
+      m, n, src.data() + offset, ld_src, dst.data() + offset, ld_dst);
+  EXPECT_EQ(dst, expected);
+  EXPECT_EQ(src, original);
+}
+
+} // namespace
+
+TEST(TransposeTest, Uint16BoundaryShapesAndPadding) {
+  for (int m : {0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10,
+                11, 12, 13, 14, 15, 16, 17, 63, 64, 65}) {
+    for (int n : {0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10,
+                  11, 12, 13, 14, 15, 16, 17, 63, 64, 65}) {
+      for (int padding : {0, 1, 7}) {
+        checkTransposeBoundary<uint16_t>(m, n, padding, true);
+      }
+    }
+  }
+}
+
+TEST(TransposeTest, FloatBoundaryShapesAndPadding) {
+  for (int m = 0; m <= 17; ++m) {
+    for (int n = 0; n <= 17; ++n) {
+      for (int padding : {0, 1, 7}) {
+        checkTransposeBoundary<float>(m, n, padding, true);
+      }
+    }
+  }
+}
+
+TEST(TransposeTest, ExactSizeAllocations) {
+  for (int m = 1; m <= 17; ++m) {
+    for (int n = 1; n <= 17; ++n) {
+      checkTransposeBoundary<uint16_t>(m, n, 0, false);
+      checkTransposeBoundary<float>(m, n, 0, false);
+    }
+  }
+}
+
+TEST(TransposeTest, Uint16AllBitPatterns) {
+  constexpr int size = 256;
+  vector<uint16_t> src(size * size);
+  vector<uint16_t> dst(src.size());
+  vector<uint16_t> expected(src.size());
+  for (int i = 0; i < size; ++i) {
+    for (int j = 0; j < size; ++j) {
+      src[i * size + j] = static_cast<uint16_t>(i * size + j);
+      expected[j * size + i] = src[i * size + j];
+    }
+  }
+  transpose_simd(size, size, src.data(), size, dst.data(), size);
+  EXPECT_EQ(dst, expected);
+}
