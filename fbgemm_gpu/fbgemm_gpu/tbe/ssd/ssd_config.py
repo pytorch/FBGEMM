@@ -286,6 +286,10 @@ class EnrichmentPolicy(NamedTuple):
     # embedding row written into the cache, and every row restored from a
     # checkpoint, is stored as the values serving decodes from that publish.
     serving_qdq_bit_rate: int = 0
+    # 0: the publish is rowwise (fp16 scale and bias per row). Otherwise the
+    # publish is group-wise INT4 with one float8_e4m3fn scale per this many dims
+    # (fbgemm.FloatOrHalfToGroupedInt4E4M3); requires serving_qdq_bit_rate 4.
+    serving_qdq_group_size: int = 0
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (

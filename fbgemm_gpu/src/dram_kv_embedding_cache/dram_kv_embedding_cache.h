@@ -2551,21 +2551,21 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     if constexpr (!std::is_same_v<weight_type, at::Half>) {
       return -1;
     } else {
-      const int bit_rate = serving_qdq_bit_rate();
-      if (bit_rate == 0) {
+      const auto format = serving_qdq_format();
+      if (format.bit_rate == 0) {
         return 0;
       }
       const auto start_ts = facebook::WallClockUtil::NowInUsecFast();
       const int64_t dim = enrichment_config_.value()->enrichment_dim_;
-      serving_qdq::check_round_trip_args(dim, bit_rate);
+      serving_qdq::check_round_trip_args(dim, format);
       TORCH_CHECK(dim <= max_D_, "serving_qdq dim ", dim, " > max_D ", max_D_);
       std::vector<folly::Future<serving_qdq::Stats>> futures;
       futures.reserve(num_shards_);
       for (int64_t shard_id = 0; shard_id < num_shards_; ++shard_id) {
         futures.emplace_back(
             folly::via(executor_.get())
-                .thenValue([this, shard_id, dim, bit_rate](folly::Unit) {
-                  return serving_qdq_shard(shard_id, dim, bit_rate);
+                .thenValue([this, shard_id, dim, format](folly::Unit) {
+                  return serving_qdq_shard(shard_id, dim, format);
                 }));
       }
       serving_qdq::Stats total;
@@ -2583,25 +2583,29 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
  private:
   using FlatPositions = folly::small_vector<int64_t, 0>;
 
-  /// Publish bit rate to round-trip rows at, or 0. Only embedding payloads
-  /// qualify; SID payloads are bit-cast integers.
-  int serving_qdq_bit_rate() const {
+  /// Publish encoding to round-trip rows through; bit_rate 0 means off. Only
+  /// embedding payloads qualify; SID payloads are bit-cast integers.
+  serving_qdq::Format serving_qdq_format() const {
     if (!enrichment_config_.has_value()) {
-      return 0;
+      return {};
     }
     const auto& config = *enrichment_config_.value();
     const bool embedding_payload = config.enrichment_type_ ==
             kv_mem::EnrichmentType::IGR_LASER_EMBEDDING ||
         config.enrichment_type_ == kv_mem::EnrichmentType::IN_MEMORY_TEST_ONLY;
-    return embedding_payload ? static_cast<int>(config.serving_qdq_bit_rate_)
-                             : 0;
+    if (!embedding_payload) {
+      return {};
+    }
+    return {
+        static_cast<int>(config.serving_qdq_bit_rate_),
+        config.serving_qdq_group_size_};
   }
 
   /// Round-trips the first `num_rows` rows of a CPU write tensor in place.
   void apply_serving_qdq(at::Tensor& weights, int64_t num_rows) const {
     if constexpr (std::is_same_v<weight_type, at::Half>) {
-      const int bit_rate = serving_qdq_bit_rate();
-      if (bit_rate == 0 || num_rows == 0) {
+      const auto format = serving_qdq_format();
+      if (format.bit_rate == 0 || num_rows == 0) {
         return;
       }
       CHECK(weights.is_contiguous());
@@ -2612,7 +2616,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           num_rows,
           weights.size(1),
           enrichment_config_.value()->enrichment_dim_,
-          bit_rate);
+          format);
       if (stats.non_finite > 0 || stats.not_converged > 0) {
         XLOG(WARN) << "[EmbeddingCacheEnrich] serving_qdq " << stats;
       } else {
@@ -2622,8 +2626,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
   }
 
-  serving_qdq::Stats
-  serving_qdq_shard(int64_t shard_id, int64_t dim, int bit_rate) {
+  serving_qdq::Stats serving_qdq_shard(
+      int64_t shard_id,
+      int64_t dim,
+      const serving_qdq::Format& format) {
     serving_qdq::Scratch scratch;
     serving_qdq::Stats stats;
     auto wlmap = kv_store_.by(shard_id).wlock();
@@ -2633,7 +2639,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         continue;
       }
       const auto result = serving_qdq::round_trip_row(
-          FixedBlockPool::data_ptr<weight_type>(block), dim, bit_rate, scratch);
+          FixedBlockPool::data_ptr<weight_type>(block), dim, format, scratch);
       stats.record(result);
       if (enable_ssd_backend_ &&
           result != serving_qdq::RowResult::kAlreadyFixed &&

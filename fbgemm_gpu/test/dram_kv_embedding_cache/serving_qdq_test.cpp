@@ -11,14 +11,18 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/serving_qdq.h"
 
 #include <ATen/ATen.h>
+#include <c10/util/Float8_e4m3fn.h>
 #include <fbgemm/QuantUtils.h>
 #include <folly/coro/BlockingWait.h>
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace kv_mem {
@@ -26,8 +30,11 @@ namespace {
 
 constexpr int64_t kDim = 128;
 constexpr int kBitRate = 4;
+constexpr int64_t kGroupSize = 8;
 constexpr int64_t kPackedBytes = kDim / 2 + 4;
 constexpr int64_t kNumShards = 4;
+constexpr serving_qdq::Format kRowwise{kBitRate, 0};
+constexpr serving_qdq::Format kGrouped{kBitRate, kGroupSize};
 
 // The publish quantizer's scalar reference, independent of the optimized path
 // the code under test calls.
@@ -67,6 +74,48 @@ bool is_serving_fixed_point(const c10::Half* row) {
   return same_bits(dequantize_ref(quantize_ref(row)).data(), row, kDim);
 }
 
+// The group-wise INT4 publish, written from its spec: per group of kGroupSize
+// values, scale = e4m3fn(max|x| / 7) clamped to [2^-9, 448] and
+// code = rint(x / scale) in [-7, 7]. Returns the decoded row.
+std::vector<c10::Half> grouped_publish_ref(const c10::Half* row) {
+  std::vector<c10::Half> decoded(kDim);
+  for (int64_t start = 0; start < kDim; start += kGroupSize) {
+    float abs_max = 0;
+    for (int64_t j = start; j < start + kGroupSize; ++j) {
+      abs_max = std::max(abs_max, std::abs(static_cast<float>(row[j])));
+    }
+    const float scale = static_cast<float>(
+        c10::Float8_e4m3fn(std::clamp(abs_max / 7.0f, 1.0f / 512.0f, 448.0f)));
+    for (int64_t j = start; j < start + kGroupSize; ++j) {
+      // Integer codes: a stored code of 0 decodes to +0, never -0.
+      const int code = static_cast<int>(std::clamp(
+          std::nearbyint(static_cast<float>(row[j]) / scale), -7.0f, 7.0f));
+      decoded[j] = c10::Half(static_cast<float>(code) * scale);
+    }
+  }
+  return decoded;
+}
+
+bool is_grouped_serving_fixed_point(const c10::Half* row) {
+  return same_bits(grouped_publish_ref(row).data(), row, kDim);
+}
+
+// Repeats the publish round trip from `row` until it stops changing. Unlike
+// rowwise, a group whose first scale rounded up far enough to leave its largest
+// code at 6 re-derives a smaller scale on the second pass, so the stored codes
+// can differ from the first publish of the original row.
+std::vector<c10::Half> grouped_fixed_point_ref(const c10::Half* row) {
+  std::vector<c10::Half> current(row, row + kDim);
+  for (int pass = 0; pass < 4; ++pass) {
+    auto next = grouped_publish_ref(current.data());
+    if (same_bits(next.data(), current.data(), kDim)) {
+      break;
+    }
+    current = std::move(next);
+  }
+  return current;
+}
+
 const c10::Half* row_ptr(const at::Tensor& rows, int64_t r) {
   return rows.const_data_ptr<at::Half>() + r * rows.size(1);
 }
@@ -81,7 +130,8 @@ at::Tensor dex_like_rows(int64_t num_rows, uint64_t seed) {
 }
 
 c10::intrusive_ptr<EnrichmentConfig> fake_enrichment_config(
-    int64_t serving_qdq_bit_rate) {
+    int64_t serving_qdq_bit_rate,
+    int64_t serving_qdq_group_size) {
   return c10::make_intrusive<EnrichmentConfig>(
       static_cast<int64_t>(EnrichmentType::IN_MEMORY_TEST_ONLY),
       /*provider_name=*/"",
@@ -105,11 +155,13 @@ c10::intrusive_ptr<EnrichmentConfig> fake_enrichment_config(
       /*laser_batch_size=*/0,
       /*laser_key_suffix=*/"",
       /*laser_key_suffixes=*/std::vector<std::string>{},
-      serving_qdq_bit_rate);
+      serving_qdq_bit_rate,
+      serving_qdq_group_size);
 }
 
 std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
-    int64_t serving_qdq_bit_rate) {
+    int64_t serving_qdq_bit_rate,
+    int64_t serving_qdq_group_size = 0) {
   return std::make_shared<DramKVEmbeddingCache<at::Half>>(
       kDim,
       /*uniform_init_lower=*/-0.1,
@@ -130,7 +182,7 @@ std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
       /*table_names=*/std::vector<std::string>{},
       /*table_offsets=*/std::vector<int64_t>{},
       /*table_sizes=*/std::vector<int64_t>{},
-      fake_enrichment_config(serving_qdq_bit_rate));
+      fake_enrichment_config(serving_qdq_bit_rate, serving_qdq_group_size));
 }
 
 at::Tensor read_rows(
@@ -172,7 +224,7 @@ TEST(ServingQdqTest, RoundTripRowIsServingFixedPointWithPublishCodes) {
   auto rows = original.clone();
 
   const auto stats = serving_qdq::round_trip_rows(
-      rows.mutable_data_ptr<at::Half>(), rows.size(0), kDim, kDim, kBitRate);
+      rows.mutable_data_ptr<at::Half>(), rows.size(0), kDim, kDim, kRowwise);
 
   EXPECT_EQ(stats.rows, rows.size(0));
   EXPECT_EQ(stats.not_converged, 0);
@@ -191,7 +243,7 @@ TEST(ServingQdqTest, RoundTripRowLeavesColumnsPastDimUntouched) {
   const auto expected_tail = rows.narrow(1, kDim, 4).clone();
 
   serving_qdq::round_trip_rows(
-      rows.mutable_data_ptr<at::Half>(), 8, kStride, kDim, kBitRate);
+      rows.mutable_data_ptr<at::Half>(), 8, kStride, kDim, kRowwise);
 
   EXPECT_TRUE(at::equal(rows.narrow(1, kDim, 4), expected_tail));
 }
@@ -200,7 +252,7 @@ TEST(ServingQdqTest, ZeroRowStaysZero) {
   auto rows = at::zeros({1, kDim}, at::kHalf);
 
   const auto stats = serving_qdq::round_trip_rows(
-      rows.mutable_data_ptr<at::Half>(), 1, kDim, kDim, kBitRate);
+      rows.mutable_data_ptr<at::Half>(), 1, kDim, kDim, kRowwise);
 
   EXPECT_EQ(stats.changed, 0);
   EXPECT_TRUE(at::equal(rows, at::zeros({1, kDim}, at::kHalf)));
@@ -212,7 +264,7 @@ TEST(ServingQdqTest, NonFiniteRowIsLeftAsIs) {
   const auto original = rows.clone();
 
   const auto stats = serving_qdq::round_trip_rows(
-      rows.mutable_data_ptr<at::Half>(), 1, kDim, kDim, kBitRate);
+      rows.mutable_data_ptr<at::Half>(), 1, kDim, kDim, kRowwise);
 
   EXPECT_EQ(stats.non_finite, 1);
   EXPECT_TRUE(same_bits(row_ptr(rows, 0), row_ptr(original, 0), kDim));
@@ -226,7 +278,7 @@ TEST(ServingQdqTest, RowWhoseDecodeOverflowsIsLeftAsIs) {
   const auto original = rows.clone();
 
   const auto stats = serving_qdq::round_trip_rows(
-      rows.mutable_data_ptr<at::Half>(), 1, kDim, kDim, kBitRate);
+      rows.mutable_data_ptr<at::Half>(), 1, kDim, kDim, kRowwise);
 
   EXPECT_EQ(stats.non_finite, 1);
   EXPECT_TRUE(same_bits(row_ptr(rows, 0), row_ptr(original, 0), kDim));
@@ -294,6 +346,79 @@ TEST(ServingQdqTest, EnrichmentFillStoresFetchedRowsWhenOff) {
   const auto stored = wait_for_enriched_rows(*cache, id_tensor);
 
   EXPECT_TRUE(at::equal(stored, fake_enrichment_rows(ids)));
+}
+
+TEST(ServingQdqTest, GroupedRoundTripIsTheServingFixedPoint) {
+  const auto original = dex_like_rows(4096, /*seed=*/5);
+  auto rows = original.clone();
+
+  const auto stats = serving_qdq::round_trip_rows(
+      rows.mutable_data_ptr<at::Half>(), rows.size(0), kDim, kDim, kGrouped);
+
+  EXPECT_EQ(stats.rows, rows.size(0));
+  EXPECT_EQ(stats.not_converged, 0);
+  EXPECT_GT(stats.multi_pass, 0);
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    EXPECT_TRUE(is_grouped_serving_fixed_point(row_ptr(rows, r)))
+        << "row " << r;
+    EXPECT_TRUE(same_bits(
+        row_ptr(rows, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+}
+
+TEST(ServingQdqTest, GroupSizeNeedsBitRate4) {
+  auto rows = dex_like_rows(1, /*seed=*/6);
+  EXPECT_THROW(
+      serving_qdq::round_trip_rows(
+          rows.mutable_data_ptr<at::Half>(),
+          1,
+          kDim,
+          kDim,
+          serving_qdq::Format{2, kGroupSize}),
+      c10::Error);
+}
+
+TEST(ServingQdqTest, RestoredRowsAreRewrittenToGroupedServingValues) {
+  auto cache = make_cache(kBitRate, kGroupSize);
+  const auto original = dex_like_rows(256, /*seed=*/7);
+  const auto ids = at::arange(256, at::kLong);
+  folly::coro::blockingWait(
+      cache->set_kv_db_async(ids, original, at::tensor({256}, at::kLong)));
+
+  EXPECT_GT(cache->serving_qdq_existing_rows(), 0);
+  const auto stored = read_rows(*cache, ids);
+
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->serving_qdq_existing_rows(), 0);
+}
+
+TEST(ServingQdqTest, EnrichmentFillStoresGroupedServingValues) {
+  auto cache = make_cache(kBitRate, kGroupSize);
+  const std::vector<int64_t> ids = {1, 2, 3, 7};
+  const auto id_tensor = at::tensor(ids, at::kLong);
+  const auto fetched = fake_enrichment_rows(ids);
+
+  cache->set_embedding_cache_enrich_query_id_async(
+      id_tensor, id_tensor, at::tensor({4}, at::kLong));
+  const auto stored = wait_for_enriched_rows(*cache, id_tensor);
+
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(fetched, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_FALSE(at::equal(stored, fetched));
 }
 
 } // namespace

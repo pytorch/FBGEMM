@@ -1452,6 +1452,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.laser_key_suffix,
                     list(ep.laser_key_suffixes),
                     self._serving_qdq_bit_rate(ep),
+                    ep.serving_qdq_group_size,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -4970,10 +4971,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
 
     def _serving_qdq_bit_rate(self, ep: EnrichmentPolicy) -> int:
-        """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE."""
-        bit_rate = ep.serving_qdq_bit_rate
+        """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE, also
+        validating serving_qdq_group_size, which depends on it."""
+        bit_rate, group_size = ep.serving_qdq_bit_rate, ep.serving_qdq_group_size
         if bit_rate == 0:
+            if group_size != 0:
+                raise ValueError("serving_qdq_group_size needs serving_qdq_bit_rate 4")
             return 0
+        if group_size != 0 and (
+            bit_rate != 4
+            or group_size < 0
+            or group_size % 2 != 0
+            or ep.enrichment_dim % group_size != 0
+        ):
+            raise ValueError(
+                f"serving_qdq_group_size {group_size} needs serving_qdq_bit_rate 4 "
+                f"and an even group size dividing enrichment_dim ({ep.enrichment_dim})"
+            )
         if bit_rate not in (2, 4):
             raise ValueError(f"serving_qdq_bit_rate must be 0, 2 or 4, got {bit_rate}")
         if ep.enrichment_type not in (
