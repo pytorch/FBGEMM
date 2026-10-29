@@ -9,8 +9,19 @@
 
 import unittest
 
+import fbgemm_gpu
 import torch
 from hypothesis import example, given, settings, strategies as st, Verbosity
+
+open_source: bool = bool(getattr(fbgemm_gpu, "open_source", False))
+
+if open_source:
+    gpu_unavailable: tuple[bool, str] = (
+        not torch.cuda.is_available() or torch.cuda.device_count() == 0,
+        "CUDA is not available or no GPUs detected",
+    )
+else:
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
@@ -30,6 +41,66 @@ _MAX_SAMPLES = 32
 class TestGroupedGEMM(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
+
+    @unittest.skipIf(bool(gpu_unavailable[0]), str(gpu_unavailable[1]))
+    @unittest.skipIf(
+        (not torch.cuda.is_available())
+        or (torch.version.hip is None)
+        and (torch.cuda.get_device_properties(0).major < 9),
+        "Skip FP8 test on architectures before SM90.",
+    )
+    def test_grouped_gemm_fp8_k_tail(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        m_sizes = torch.tensor([33, 0, 36], dtype=torch.int32, device=device)
+        M, N, G = 69, 80, 3
+        for K in [64, 192]:
+            a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+            b = torch.randn(G * N, K, dtype=torch.bfloat16, device=device)
+            a_fp8, a_scale = quantize_fp8_row(a)
+            b_fp8, b_scale = quantize_fp8_row(b)
+            expected = torch.empty(M, N, dtype=torch.bfloat16, device=device)
+            start = 0
+            for g, size in enumerate([33, 0, 36]):
+                end = start + size
+                expected[start:end] = (
+                    a_fp8[start:end].float()
+                    @ b_fp8[g * N : (g + 1) * N].float().T
+                    * a_scale[start:end, None]
+                    * b_scale[None, g * N : (g + 1) * N]
+                ).to(torch.bfloat16)
+                start = end
+
+            for scatter_add in [False, True]:
+                with self.subTest(K=K, scatter_add=scatter_add):
+                    target = (
+                        torch.randn(M, N, dtype=torch.bfloat16, device=device)
+                        if scatter_add
+                        else None
+                    )
+                    indices = (
+                        torch.randperm(M, device=device).to(torch.int32)
+                        if scatter_add
+                        else None
+                    )
+                    reference = expected
+                    if scatter_add:
+                        assert target is not None and indices is not None
+                        reference = target.clone().scatter_add_(
+                            0, indices.long()[:, None].expand(M, N), expected
+                        )
+                    result = grouped_gemm_fp8_rowwise(
+                        a_fp8,
+                        b_fp8,
+                        m_sizes,
+                        a_scale,
+                        b_scale,
+                        _use_warp_specialization=False,
+                        _output_tensor=target,
+                        _scatter_add_indices=indices,
+                    )
+                    torch.testing.assert_close(
+                        result, reference, atol=2e-2, rtol=1.6e-2
+                    )
 
     @given(
         G=st.sampled_from([1, 4, 16, 128]),
@@ -63,7 +134,7 @@ class TestGroupedGEMM(unittest.TestCase):
     ) -> None:
         torch.manual_seed(0)
 
-        device = torch.device("cuda")
+        device = torch.accelerator.current_accelerator("cuda")
         a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
         b = torch.randn(N * G, K, dtype=torch.bfloat16, device=device)
         m_ends, _ = torch.sort(

@@ -122,7 +122,9 @@ _AMD_CONFIGS = [
 ]
 
 
-def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
+def early_config_prune(  # noqa: C901
+    configs, named_args, dtsize=None, dtype=None, **kwargs
+):
     device = torch.cuda.current_device()
     # BLOCK_M, BLOCK_N, BLOCK_K, SPLIT_K, num_warps, num_stages
     if dtsize is None:
@@ -146,6 +148,8 @@ def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
             config.num_stages,
             kw.get("USE_TMA_LOAD_ON_SCALES", False),
         )
+        if named_args.get("USE_TMA_LOAD", False) and named_args["K"] % BLOCK_K != 0:
+            continue
         G, M, N = (
             named_args["G"],
             named_args["M_BUCKET"],
@@ -677,6 +681,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                 )
 
             if USE_TMA_LOAD:
+                tl.static_assert(K % BLOCK_SIZE_K == 0)
                 a_desc_ptr = tl.make_tensor_descriptor(
                     a_ptr + M_start_offset * K,
                     # pyrefly: ignore [bad-argument-type]
@@ -702,7 +707,6 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                 tile_n_idx = gidx // num_m_tiles
 
                 accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-                tl.static_assert(K % BLOCK_SIZE_K == 0)
                 if USE_TMA_LOAD:
                     m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
                     n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
@@ -730,8 +734,17 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                         + offs_k[None, :]
                     )
                     for k_offset in range(0, K, BLOCK_SIZE_K):
-                        a = tl.load(a_ptrs, mask=offs_am[:, None] < m_size)
-                        b = tl.load(b_ptrs, mask=offs_bn[:, None] < n_size)
+                        mask_k = (k_offset + offs_k)[None, :] < K
+                        a = tl.load(
+                            a_ptrs,
+                            mask=(offs_am[:, None] < m_size) & mask_k,
+                            other=0.0,
+                        )
+                        b = tl.load(
+                            b_ptrs,
+                            mask=(offs_bn[:, None] < n_size) & mask_k,
+                            other=0.0,
+                        )
                         accumulator += tl.dot(a, b.T)
                         a_ptrs += BLOCK_SIZE_K
                         b_ptrs += BLOCK_SIZE_K
@@ -1033,7 +1046,6 @@ def _grouped_gemm(
             output_tensor is None
         ), f"Fused scatter add has large rounding error when K or N is not a multiple of 8: {K=}, {N=}."
 
-    # No fp8 K%16 gate needed: K % BLOCK_SIZE_K == 0 and every BLOCK_SIZE_K % 16 == 0.
     if output_tensor is None:
         FUSE_SCATTER_ADD = False
         assert scatter_add_indices is None
@@ -1065,7 +1077,9 @@ def _grouped_gemm(
     if USE_TMA_LOAD or USE_TMA_STORE:
 
         def alloc_fn(size: int, alignment: int, stream: int | None):
-            return torch.empty(size, device="cuda", dtype=torch.int8)
+            return torch.empty(
+                size, device=torch.accelerator.current_accelerator(), dtype=torch.int8
+            )
 
         triton.set_allocator(alloc_fn)
 
