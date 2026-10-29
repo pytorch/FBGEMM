@@ -17,21 +17,12 @@
 
 #include "./Types.h" // @manual
 
-// Use native __fp16 only on aarch64 where the compiler emits hardware FCVT
-// instructions.  On x86_64, clang recognises __fp16/_Float16 as keywords but
-// conversions go through software builtins (__extendhfsf2 / __truncsfhf2) that
-// may not be linked, so we stick with the portable software path there.
-#if defined(__aarch64__) && defined(__clang__)
-#define HAS_NATIVE_FP16_TYPE
-#endif
-
 // On x86_64 with F16C support, use hardware VCVTPH2PS / VCVTPS2PH
 // instructions for scalar fp16<->fp32 conversion.
 // - GCC/Clang: __F16C__ is defined by -mf16c or -march=haswell+
 // - MSVC: never defines __F16C__, but /arch:AVX2 implies F16C hardware
 #if !defined(__CUDACC__) && \
     (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
-#define HAS_F16C
 #include <immintrin.h>
 #endif
 
@@ -285,9 +276,11 @@ constexpr float cpu_half2float_ref(const float16 h) {
 }
 
 inline float cpu_half2float(const float16 h) {
-#ifdef HAS_NATIVE_FP16_TYPE
+#if defined(__aarch64__) && defined(__clang__)
+  // Only use native __fp16 on ARM, where it emits hardware FCVT instructions.
   return std::bit_cast<__fp16>(h.val);
-#elif defined(HAS_F16C)
+#elif !defined(__CUDACC__) && \
+    (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
   // Use F16C VCVTPH2PS instruction
   __m128i v = _mm_cvtsi32_si128(static_cast<int>(h.val));
   return _mm_cvtss_f32(_mm_cvtph_ps(v));
@@ -297,10 +290,11 @@ inline float cpu_half2float(const float16 h) {
 }
 
 inline float16 cpu_float2half(const float f) {
-#ifdef HAS_NATIVE_FP16_TYPE
+#if defined(__aarch64__) && defined(__clang__)
   __fp16 h = f;
   return {std::bit_cast<uint16_t>(h)};
-#elif defined(HAS_F16C)
+#elif !defined(__CUDACC__) && \
+    (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
   // Use F16C VCVTPS2PH instruction
   __m128 v = _mm_set_ss(f);
   return {static_cast<uint16_t>(
@@ -370,15 +364,30 @@ constexpr T from_float(float src) {
       detail::RoundingMode::ToNearestTiesToEven>(bits)};
 }
 
+// Infer the input type and preserve identical types without a float round trip.
 // Keep output conversion independent of hardware-specific half instructions.
-template <typename T>
-T convert_from_float_ref(float src) {
-  if constexpr (std::is_same_v<T, bfloat16>) {
+template <typename OutputType, typename InputType>
+OutputType convert_ref(InputType src) {
+  if constexpr (std::is_same_v<InputType, OutputType>) {
+    return src;
+  } else if constexpr (!std::is_same_v<InputType, float>) {
+    if constexpr (
+        std::is_arithmetic_v<InputType> && std::is_arithmetic_v<OutputType>) {
+      return static_cast<OutputType>(src);
+    } else if constexpr (
+        FbgemmHalfType<InputType> || FbgemmFP8Type<InputType>) {
+      return convert_ref<OutputType>(to_float(src));
+    } else {
+      return convert_ref<OutputType>(static_cast<float>(src));
+    }
+  } else if constexpr (std::is_same_v<OutputType, bfloat16>) {
     return cpu_float2bfloat16(src);
-  } else if constexpr (std::is_same_v<T, float16>) {
+  } else if constexpr (std::is_same_v<OutputType, float16>) {
     return cpu_float2half_rn(src);
+  } else if constexpr (FbgemmFP8Type<OutputType>) {
+    return from_float<OutputType>(src);
   } else {
-    return static_cast<T>(src);
+    return static_cast<OutputType>(src);
   }
 }
 
