@@ -17,6 +17,23 @@
 
 namespace fbgemm {
 
+/**
+ * Behavior is as the follow pseudocode
+ * (when use_offsets == true, lengths[i] == offsets[i + 1] - offsets[i])
+ * (when is_weight_positional == true, use weights[j - offsets[i]] instead of
+ *  weights[j])
+ *
+ * for i in range(output_size):
+ *  out[i * block_size : (i + 1) * block_size] = 0
+ *  for j in range(offsets[i], offsets[i + 1]):
+ *   for k in range(block_size):
+ *    out[i * block_size + k] += input[indices[j] * block_size + k] *
+ *                               weights ? weights[j] : 1;
+ *  if normalize_weights and lengths[i] > 0:
+ *   out[i * block_size : (i + 1) * block_size] /= lengths[i]
+ *
+ * @param data_size the number of rows in embedding table
+ */
 template <
     typename InType,
     typename IndexType,
@@ -24,23 +41,6 @@ template <
     typename OutType = float>
 class EmbeddingSpMDMKernelSignature {
  public:
-  /**
-   * Behavior is as the follow pseudocode
-   * (when use_offsets == true, lengths[i] == offsets[i + 1] - offsets[i])
-   * (when is_weight_positional == true, use weights[j - offsets[i]] instead of
-   *  weights[j])
-   *
-   * for i in range(output_size):
-   *  out[i * block_size : (i + 1) * block_size] = 0
-   *  for j in range(offsets[i], offsets[i + 1]):
-   *   for k in range(block_size):
-   *    out[i * block_size + k] += input[indices[j] * block_size + k] *
-   *                               weights ? weights[j] : 1;
-   *  if normalize_weights and lengths[i] > 0:
-   *   out[i * block_size : (i + 1) * block_size] /= lengths[i]
-   *
-   * @param data_size the number of rows in embedding table
-   */
   using Type = std::function<bool(
       std::int64_t output_size,
       std::int64_t index_size,
@@ -48,9 +48,20 @@ class EmbeddingSpMDMKernelSignature {
       const InType* input,
       const IndexType* indices,
       const OffsetType* offsets_or_lengths,
-      const float* weights, // optional, can be null for non-weighted sum
+      const float* weights,
       OutType* out)>;
 };
+
+template <
+    typename InType,
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+using EmbeddingSpMDMKernel = typename EmbeddingSpMDMKernelSignature<
+    InType,
+    IndexType,
+    OffsetType,
+    OutType>::Type;
 
 /**
  * @tparam InType can be float, float16, or uint8_t
@@ -71,11 +82,7 @@ template <
     typename OffsetType = std::int32_t,
     typename OutType = float,
     bool THREAD_LOCAL = false>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
-    InType,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+FBGEMM_API EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDM(
     const std::int64_t block_size,
     bool has_weight,
@@ -98,11 +105,7 @@ template <
     typename OffsetType = std::int32_t,
     typename OutType = float,
     bool THREAD_LOCAL = false>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
-    InType,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+FBGEMM_API EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMWithStrides(
     const std::int64_t block_size,
     bool has_weight,
@@ -124,11 +127,7 @@ template <
     typename IndexType,
     typename OffsetType = std::int32_t,
     typename OutType = float>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
-    std::uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+FBGEMM_API EmbeddingSpMDMKernel<std::uint8_t, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBit(
     int bit_rate,
     const std::int64_t block_size,
@@ -157,11 +156,7 @@ template <
     typename OffsetType = std::int32_t,
     typename OutType = float,
     bool THREAD_LOCAL = false>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
-    std::uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+FBGEMM_API EmbeddingSpMDMKernel<std::uint8_t, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBitWithStrides(
     const int input_bit_rate,
     const std::int64_t block_size,
@@ -183,11 +178,7 @@ namespace detail {
 // subtracted from the stored exponent to obtain the actual exponent. Strides
 // are in elements, and -1 means block_size.
 template <typename IndexType, typename OffsetType, typename OutType>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
-    std::uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+FBGEMM_API EmbeddingSpMDMKernel<std::uint8_t, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMFP8WithStridesBytes(
     const std::int64_t block_size,
     bool normalize_by_lengths,
