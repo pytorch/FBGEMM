@@ -70,7 +70,7 @@ def compute_writeback_indices(
     )
     _, ind_sorted = torch.sort(idx, stable=True)
     cum_sum = counts.cumsum(0)
-    cum_sum = torch.cat((torch.tensor([0]).to(indices.device), cum_sum[:-1]))
+    cum_sum = torch.cat((cum_sum.new_zeros(1), cum_sum[:-1]))
     first_indices = ind_sorted[cum_sum]
     original_index = non_empty_index[first_indices]
 
@@ -110,7 +110,7 @@ def compute_writeback_indices_first_feature_only(
     )
     _, ind_sorted = torch.sort(idx, stable=True)
     cum_sum = counts.cumsum(0)
-    cum_sum = torch.cat((torch.tensor([0]).to(shrink_indices.device), cum_sum[:-1]))
+    cum_sum = torch.cat((cum_sum.new_zeros(1), cum_sum[:-1]))
     first_indices = ind_sorted[cum_sum]
 
     return first_indices
@@ -156,7 +156,7 @@ def compute_writeback_indices_nobag(
     )
     _, ind_sorted = torch.sort(idx, stable=True)
     cum_sum = counts.cumsum(0)
-    cum_sum = torch.cat((torch.tensor([0]).to(indices.device), cum_sum[:-1]))
+    cum_sum = torch.cat((cum_sum.new_zeros(1), cum_sum[:-1]))
     first_indices = ind_sorted[cum_sum]
 
     return first_indices
