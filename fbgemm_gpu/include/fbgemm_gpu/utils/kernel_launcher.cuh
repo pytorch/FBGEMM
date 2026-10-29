@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace fbgemm_gpu::utils {
 
@@ -106,7 +107,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
     const auto grid_limits = properties.maxGridSize;
 
     TORCH_CHECK(
-        grid.x > 0 && grid.x <= grid_limits[0],
+        grid.x > 0 && std::cmp_less_equal(grid.x, grid_limits[0]),
         context.description(),
         ": grid.x value ",
         grid.x,
@@ -115,7 +116,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
         "]");
 
     TORCH_CHECK(
-        grid.y > 0 && grid.y <= grid_limits[1],
+        grid.y > 0 && std::cmp_less_equal(grid.y, grid_limits[1]),
         context.description(),
         ": grid.y value ",
         grid.y,
@@ -124,7 +125,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
         "]");
 
     TORCH_CHECK(
-        grid.z > 0 && grid.z <= grid_limits[2],
+        grid.z > 0 && std::cmp_less_equal(grid.z, grid_limits[2]),
         context.description(),
         ": grid.z value ",
         grid.z,
@@ -139,7 +140,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
     const auto block_limits = properties.maxThreadsDim;
 
     TORCH_CHECK(
-        block.x > 0 && block.x <= block_limits[0],
+        block.x > 0 && std::cmp_less_equal(block.x, block_limits[0]),
         context.description(),
         ": block.x value ",
         block.x,
@@ -148,7 +149,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
         "]");
 
     TORCH_CHECK(
-        block.y > 0 && block.y <= block_limits[1],
+        block.y > 0 && std::cmp_less_equal(block.y, block_limits[1]),
         context.description(),
         ": block.y value ",
         block.y,
@@ -157,7 +158,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
         "]");
 
     TORCH_CHECK(
-        block.z > 0 && block.z <= block_limits[2],
+        block.z > 0 && std::cmp_less_equal(block.z, block_limits[2]),
         context.description(),
         ": block.z value ",
         block.z,
@@ -176,7 +177,7 @@ struct __attribute__((visibility("hidden"))) KernelLauncher {
         U64(block.x) * U64(block.y) * U64(block.z);
 
     TORCH_CHECK(
-        threads_per_block <= properties.maxThreadsPerBlock,
+        std::cmp_less_equal(threads_per_block, properties.maxThreadsPerBlock),
         context.description(),
         ": [block dim ",
         block.x,
