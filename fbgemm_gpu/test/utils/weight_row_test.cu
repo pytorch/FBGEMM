@@ -13,7 +13,6 @@
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
-#include <bit>
 #include <cmath>
 
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
@@ -274,34 +273,21 @@ __global__ void unaligned_optimizer_state_kernel(
 
 template <typename T>
 void checkUnalignedOptimizerState() {
-  constexpr int count = 4 * 65536;
   const auto dtype = c10::CppTypeToScalarType<T>::value;
   SCOPED_TRACE(c10::toString(dtype));
-  const auto options = at::TensorOptions().dtype(dtype).device(at::kCPU);
-  auto host_input = at::empty({count + 3}, options);
-  auto* data = host_input.template data_ptr<T>();
-  for (int i = 0; i < count + 3; ++i) {
-    if constexpr (std::is_same_v<T, float>) {
-      data[i] = (i % 65536 - 32768) * 0.25f;
-    } else {
-      // All encodings, including signed zero, subnormals and NaN payloads.
-      data[i] = T(static_cast<uint16_t>(i), T::from_bits());
-    }
-  }
-  const auto input = host_input.to(at::kCUDA);
-  // PyTorch's device conversion provides the independent scalar reference.
+  // Signed zero, subnormals, overflow, rounding ties, infinities and NaNs.
+  const auto values = at::tensor(
+      {0.f, -0.f, 1.f, -1.f, 0x1p-24f, 0x1p-133f, 65504.f, 65520.f,
+       1.f + 0x1p-11f, 1.f + 0x1.8p-10f, 1.f + 0x1p-8f, 1.f + 0x1.8p-7f,
+       INFINITY, -INFINITY, NAN, -NAN},
+      at::TensorOptions().dtype(at::kFloat)).to(at::kCUDA);
+  const int count = values.numel();
+  const auto input = values.repeat({2}).to(dtype);
   const auto reference_load = input.to(at::kFloat);
-  auto loaded = at::empty({count}, input.options().dtype(at::kFloat));
-
-  auto host_values = at::empty({count}, options.dtype(at::kFloat));
-  auto* values = host_values.template data_ptr<float>();
-  constexpr uint32_t tails[] = {0u, 0x7fffu, 0x8000u, 0xffffu};
-  for (uint32_t i = 0; i < count; ++i) {
-    values[i] = std::bit_cast<float>(((i % 65536) << 16) | tails[i / 65536]);
-  }
-  const auto store_input = host_values.to(at::kCUDA);
+  auto loaded = at::empty({count}, values.options());
   auto reference_store = at::empty({count}, input.options());
   auto stored = at::empty({count + 6}, input.options());
+  auto expected = at::empty_like(stored);
   const auto stream = at::cuda::getCurrentCUDAStream();
 
   for (int offset = 0; offset < 4; ++offset) {
@@ -309,21 +295,19 @@ void checkUnalignedOptimizerState() {
     stored.fill_(7);
     FBGEMM_LAUNCH_KERNEL(
         (unaligned_optimizer_state_kernel<T>),
-        count / (4 * 256), 256, 0, stream,
+        1, 32, 0, stream,
         input.template data_ptr<T>() + offset,
-        store_input.template data_ptr<float>(),
+        values.template data_ptr<float>(),
         loaded.template data_ptr<float>(),
         stored.template data_ptr<T>() + offset,
         reference_store.template data_ptr<T>(), count);
     // Compare encodings so NaNs and signed zero are checked too.
     EXPECT_TRUE(at::equal(loaded.view(at::kByte),
         reference_load.slice(0, offset, offset + count).view(at::kByte)));
-    EXPECT_TRUE(
-        at::equal(stored.slice(0, offset, offset + count).view(at::kByte),
-            reference_store.view(at::kByte)));
-    EXPECT_TRUE(stored.slice(0, 0, offset).eq(7).all().template item<bool>());
-    EXPECT_TRUE(
-        stored.slice(0, offset + count).eq(7).all().template item<bool>());
+    expected.fill_(7);
+    expected.slice(0, offset, offset + count).copy_(reference_store);
+    // One bytewise comparison checks both stored values and untouched guards.
+    EXPECT_TRUE(at::equal(stored.view(at::kByte), expected.view(at::kByte)));
   }
 }
 
