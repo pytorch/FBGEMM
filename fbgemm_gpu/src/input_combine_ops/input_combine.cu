@@ -78,29 +78,37 @@ __launch_bounds__(kMaxThreads) void tbe_input_combine_with_length_kernel(
     const auto lengths_start = lengths_offsets[list_id];
     const auto lengths_end = lengths_offsets[list_id + 1];
 
-    // Invoke a function based on the indices type
-    ((indices_is_long[is_long_idx] & is_long_mask)
-         ? vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>
-         : vec_copy_with_implicit_type_cast<
-               int32_t,
-               int32_t,
-               VEC_WIDTH>)(combined_indices,
-                           indices_addrs[list_id],
-                           src_idx,
-                           indices_start + src_idx,
-                           indices_end - indices_start);
+    if (indices_is_long[is_long_idx] & is_long_mask) {
+      vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>(
+          combined_indices,
+          indices_addrs[list_id],
+          src_idx,
+          indices_start + src_idx,
+          indices_end - indices_start);
+    } else {
+      vec_copy_with_implicit_type_cast<int32_t, int32_t, VEC_WIDTH>(
+          combined_indices,
+          indices_addrs[list_id],
+          src_idx,
+          indices_start + src_idx,
+          indices_end - indices_start);
+    }
 
-    // Invoke a function based on the lengths type
-    ((lengths_is_long[is_long_idx] & is_long_mask)
-         ? vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>
-         : vec_copy_with_implicit_type_cast<
-               int32_t,
-               int32_t,
-               VEC_WIDTH>)(combined_lengths,
-                           lengths_addrs[list_id],
-                           src_idx,
-                           lengths_start + src_idx,
-                           lengths_end - lengths_start);
+    if (lengths_is_long[is_long_idx] & is_long_mask) {
+      vec_copy_with_implicit_type_cast<int64_t, int32_t, VEC_WIDTH>(
+          combined_lengths,
+          lengths_addrs[list_id],
+          src_idx,
+          lengths_start + src_idx,
+          lengths_end - lengths_start);
+    } else {
+      vec_copy_with_implicit_type_cast<int32_t, int32_t, VEC_WIDTH>(
+          combined_lengths,
+          lengths_addrs[list_id],
+          src_idx,
+          lengths_start + src_idx,
+          lengths_end - lengths_start);
+    }
 
     if (per_sample_weights_addrs && per_sample_weights_addrs[list_id] > 0) {
       vec_copy_with_implicit_type_cast<float, float, VEC_WIDTH>(

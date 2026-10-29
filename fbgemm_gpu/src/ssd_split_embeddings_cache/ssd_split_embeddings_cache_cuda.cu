@@ -1439,8 +1439,8 @@ Tensor kvzch_direct_cache_insert_cuda(
     return cache_weights;
   }
 
-  constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
-  const dim3 threads(kWarpSize, kWarpsPerBlock);
+  const int32_t kWarpsPerBlock = kMaxThreads / kWarpSizeHost();
+  const dim3 threads(kWarpSizeHost(), kWarpsPerBlock);
   const auto grid_size = utils::cuda::cap_grid_dim_x(
       div_round_up(indices.numel(), kWarpsPerBlock),
       kMaxThreads,
@@ -1506,8 +1506,8 @@ Tensor kvzch_direct_cache_insert_int8_cuda(
     return cache_weights;
   }
 
-  constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
-  const dim3 threads(kWarpSize, kWarpsPerBlock);
+  const int32_t kWarpsPerBlock = kMaxThreads / kWarpSizeHost();
+  const dim3 threads(kWarpSizeHost(), kWarpsPerBlock);
   const auto grid_size = utils::cuda::cap_grid_dim_x(
       div_round_up(indices.numel(), kWarpsPerBlock),
       kMaxThreads,

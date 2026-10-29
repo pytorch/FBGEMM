@@ -112,7 +112,7 @@ bool EmbeddingSpMDMBlockSize1_(
       }
 
       const InType* inptr = input + indices[current];
-      temp = std::fma(w, convert_to_float_ref(*inptr), temp);
+      temp = std::fma(w, convert_ref<float>(*inptr), temp);
 
       ++current;
     }

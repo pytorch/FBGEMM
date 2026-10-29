@@ -9,6 +9,8 @@
 // clang-format off
 #pragma once
 
+#include <utility>
+
 namespace fbgemm_gpu {
 
 /* This file is code-generated from generate_backward_split.py to enumerate index of
@@ -35,7 +37,7 @@ namespace utils {
               std::remove_pointer_t<std::remove_reference_t<T>>>>,
       "T must be a pure type (no pointers, references, or cv-qualifiers)");
 
-    if (idx < 0 || idx >= list.size()) {
+    if (idx < 0 || std::cmp_greater_equal(idx, list.size())) {
       return default_value;
     }
 

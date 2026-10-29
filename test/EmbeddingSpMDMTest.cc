@@ -291,7 +291,7 @@ TEST(EmbeddingSpMDMTest, TypedFP8CoreMatchesReference) {
                             const Offset*,
                             const float*,
                             Out*>);
-              const Out sentinel = convert_from_float_ref<Out>(-42.f);
+              const Out sentinel = convert_ref<Out>(-42.f);
               vector<Out> expected(3 * output_stride, sentinel);
               vector<Out> actual(3 * output_stride, sentinel);
               ASSERT_TRUE((EmbeddingSpMDMFP8_ref<Index, Offset, Out>(

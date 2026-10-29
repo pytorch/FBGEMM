@@ -65,7 +65,7 @@ template <typename OutType>
 static inline void
 fill_output(OutType* out, const float* src, const int64_t block_size) {
   for (int j = 0; j < block_size; ++j) {
-    out[j] = convert_from_float_ref<OutType>(src[j]);
+    out[j] = convert_ref<OutType>(src[j]);
   }
 }
 
@@ -914,24 +914,24 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = weight * convert_to_float_ref(*inptr);
+          buf[j] = weight * convert_ref<float>(*inptr);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = weight * convert_to_float_ref(*inptr);
+          buf[j] = weight * convert_ref<float>(*inptr);
         }
       } else {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = convert_to_float_ref(*inptr);
+          buf[j] = convert_ref<float>(*inptr);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = convert_to_float_ref(*inptr);
+          buf[j] = convert_ref<float>(*inptr);
         }
       }
       fill_output(out, buf, block_size);
@@ -1034,12 +1034,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
       for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
         InType value = *input_row++;
-        buf[j] = std::fma(w, convert_to_float_ref(value), buf[j]);
+        buf[j] = std::fma(w, convert_ref<float>(value), buf[j]);
       }
 #endif
       for (; j < block_size; ++j) {
         InType value = *input_row++;
-        buf[j] = std::fma(w, convert_to_float_ref(value), buf[j]);
+        buf[j] = std::fma(w, convert_ref<float>(value), buf[j]);
       }
 
       ++current;
@@ -1201,12 +1201,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % FBGEMM_VECTOR_WIDTH); ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(weight, convert_to_float_ref(*inptr), out[j]);
+          out[j] = std::fma(weight, convert_ref<float>(*inptr), out[j]);
         }
 #endif
         for (; j < block_size; ++j) {
           const InType* inptr = input_row++;
-          out[j] = std::fma(weight, convert_to_float_ref(*inptr), out[j]);
+          out[j] = std::fma(weight, convert_ref<float>(*inptr), out[j]);
         }
       }
       if (normalize_by_lengths && len) {
@@ -1245,18 +1245,16 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
-    make_spmdm_generic(
-        int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        bool is_weight_positional,
-        bool use_offsets,
-        int64_t output_stride,
-        int64_t input_stride,
-        bool scale_bias_last,
-        bool no_bag) {
+EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType> make_spmdm_generic(
+    int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    bool scale_bias_last,
+    bool no_bag) {
   return [=](int64_t output_size,
              int64_t index_size,
              int64_t data_size,
@@ -1320,9 +1318,8 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
-    make_spmdm_fixed_block_size(int64_t output_stride) {
+EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>
+make_spmdm_fixed_block_size(int64_t output_stride) {
   // Pinned by every FBGEMM_MORE_SPECIALIZATION variant.
   constexpr bool kNormalizeByLengths = false;
   constexpr bool kIsWeightPositional = false;
@@ -1393,12 +1390,11 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
-    try_spmdm_fixed_block_size(
-        int64_t block_size,
-        int64_t input_stride,
-        int64_t output_stride) {
+EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>
+try_spmdm_fixed_block_size(
+    int64_t block_size,
+    int64_t input_stride,
+    int64_t output_stride) {
   // Block sizes that get a compile-time-specialized kernel. Listing them as
   // data lets the fold below enumerate them instead of a macro per value.
   static constexpr std::array<int64_t, 18> kBlockSizes{
@@ -1420,11 +1416,8 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
        576,
        768,
        1024}};
-  using KernelType = typename EmbeddingSpMDMKernelSignature<
-      InType,
-      IndexType,
-      OffsetType,
-      OutType>::Type;
+  using KernelType =
+      EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>;
   KernelType kernel = nullptr;
   [&]<std::size_t... Is>(std::index_sequence<Is...>) {
     (
@@ -1455,19 +1448,18 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
-    Type
-    GenerateEmbeddingSpMDMWithStrides_autovec(
-        int64_t block_size,
-        bool has_weight,
-        bool normalize_by_lengths,
-        int prefetch [[maybe_unused]],
-        bool is_weight_positional,
-        bool use_offsets,
-        int64_t output_stride,
-        int64_t input_stride,
-        bool scale_bias_last,
-        bool no_bag) {
+EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>
+GenerateEmbeddingSpMDMWithStrides_autovec(
+    int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch [[maybe_unused]],
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    bool scale_bias_last,
+    bool no_bag) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1483,11 +1475,8 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
   // fold over the candidate block sizes.
   if (!normalize_by_lengths && !is_weight_positional && use_offsets &&
       !no_bag) {
-    typename EmbeddingSpMDMKernelSignature<
-        InType,
-        IndexType,
-        OffsetType,
-        OutType>::Type kernel = nullptr;
+    EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType> kernel =
+        nullptr;
     if (has_weight && !scale_bias_last) {
       kernel = try_spmdm_fixed_block_size<
           true,
@@ -1572,12 +1561,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<
-    uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
-make_nbit_generic(
+EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> make_nbit_generic(
     int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
@@ -1631,11 +1615,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<
-    uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
 make_nbit_fixed_block_size(int64_t output_stride) {
   // Pinned by every FBGEMM_MORE_SPECIALIZATION variant.
   constexpr bool kNormalizeByLengths = false;
@@ -1687,11 +1667,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-typename EmbeddingSpMDMKernelSignature<
-    uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
 try_nbit_fixed_block_size(
     int64_t block_size,
     int64_t input_stride,
@@ -1699,11 +1675,8 @@ try_nbit_fixed_block_size(
     int output_bit_rate) {
   static constexpr std::array<int64_t, 14> kBlockSizes{
       {32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024}};
-  using KernelType = typename EmbeddingSpMDMKernelSignature<
-      uint8_t,
-      IndexType,
-      OffsetType,
-      OutType>::Type;
+  using KernelType =
+      EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>;
   KernelType kernel = nullptr;
   if (output_bit_rate != 8 * static_cast<int>(sizeof(OutType))) {
     return kernel;
@@ -1732,11 +1705,7 @@ try_nbit_fixed_block_size(
 } // namespace
 
 template <typename IndexType, typename OffsetType, typename OutType>
-FBGEMM_API typename EmbeddingSpMDMKernelSignature<
-    uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+FBGEMM_API EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int input_bit_rate,
     int64_t block_size,
@@ -1771,11 +1740,8 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
   // scale_bias_last) on top of the block size.
   if (input_bit_rate == 4 && !normalize_by_lengths && !is_weight_positional &&
       use_offsets && !no_bag) {
-    typename EmbeddingSpMDMKernelSignature<
-        uint8_t,
-        IndexType,
-        OffsetType,
-        OutType>::Type kernel = nullptr;
+    EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> kernel =
+        nullptr;
     if (has_weight && !scale_bias_last) {
       kernel = try_nbit_fixed_block_size<
           4,
@@ -1864,11 +1830,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
 }
 
 template <typename IndexType, typename OffsetType, typename OutType>
-typename EmbeddingSpMDMKernelSignature<
-    uint8_t,
-    IndexType,
-    OffsetType,
-    OutType>::Type
+EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMFP8WithStrides_autovec(
     int64_t block_size,
     bool normalize_by_lengths,
@@ -1968,45 +1930,37 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
 }
 
 #define INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template typename EmbeddingSpMDMKernelSignature<                             \
-      uint8_t,                                                                 \
-      INDEX_TYPE,                                                              \
-      OFFSET_TYPE,                                                             \
-      OUT_TYPE>::Type FBGEMM_API                                               \
-  GenerateEmbeddingSpMDMNBitWithStrides_autovec<                               \
-      INDEX_TYPE,                                                              \
-      OFFSET_TYPE,                                                             \
-      OUT_TYPE>(                                                               \
-      int input_bit_rate,                                                      \
-      int64_t block_size,                                                      \
-      bool has_weight,                                                         \
-      bool normalize_by_lengths,                                               \
-      int prefetch,                                                            \
-      bool is_weight_positional,                                               \
-      bool use_offsets,                                                        \
-      int64_t output_stride,                                                   \
-      int64_t input_stride,                                                    \
-      bool scale_bias_last,                                                    \
-      bool no_bag,                                                             \
-      int output_bit_rate);
+  template EmbeddingSpMDMKernel<uint8_t, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>    \
+      FBGEMM_API GenerateEmbeddingSpMDMNBitWithStrides_autovec<                \
+          INDEX_TYPE,                                                          \
+          OFFSET_TYPE,                                                         \
+          OUT_TYPE>(                                                           \
+          int input_bit_rate,                                                  \
+          int64_t block_size,                                                  \
+          bool has_weight,                                                     \
+          bool normalize_by_lengths,                                           \
+          int prefetch,                                                        \
+          bool is_weight_positional,                                           \
+          bool use_offsets,                                                    \
+          int64_t output_stride,                                               \
+          int64_t input_stride,                                                \
+          bool scale_bias_last,                                                \
+          bool no_bag,                                                         \
+          int output_bit_rate);
 
-#define INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template typename EmbeddingSpMDMKernelSignature<               \
-      uint8_t,                                                   \
-      INDEX_TYPE,                                                \
-      OFFSET_TYPE,                                               \
-      OUT_TYPE>::Type                                            \
-  GenerateEmbeddingSpMDMFP8WithStrides_autovec<                  \
-      INDEX_TYPE,                                                \
-      OFFSET_TYPE,                                               \
-      OUT_TYPE>(                                                 \
-      int64_t block_size,                                        \
-      bool normalize_by_lengths,                                 \
-      bool is_weight_positional,                                 \
-      bool use_offsets,                                          \
-      int64_t output_stride,                                     \
-      int64_t input_stride,                                      \
-      int exponent_bits,                                         \
+#define INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)            \
+  template EmbeddingSpMDMKernel<uint8_t, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE> \
+  GenerateEmbeddingSpMDMFP8WithStrides_autovec<                             \
+      INDEX_TYPE,                                                           \
+      OFFSET_TYPE,                                                          \
+      OUT_TYPE>(                                                            \
+      int64_t block_size,                                                   \
+      bool normalize_by_lengths,                                            \
+      bool is_weight_positional,                                            \
+      bool use_offsets,                                                     \
+      int64_t output_stride,                                                \
+      int64_t input_stride,                                                 \
+      int exponent_bits,                                                    \
       int exponent_bias);
 
 #define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)        \
@@ -2046,26 +2000,22 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
       bool is_weight_positional,                                               \
       bool use_offsets);
 
-#define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template typename EmbeddingSpMDMKernelSignature<                         \
-      IN_TYPE,                                                             \
-      INDEX_TYPE,                                                          \
-      OFFSET_TYPE,                                                         \
-      OUT_TYPE>::Type                                                      \
-  GenerateEmbeddingSpMDMWithStrides_autovec<                               \
-      IN_TYPE,                                                             \
-      INDEX_TYPE,                                                          \
-      OFFSET_TYPE,                                                         \
-      OUT_TYPE>(                                                           \
-      int64_t block_size,                                                  \
-      bool has_weight,                                                     \
-      bool normalize_by_lengths,                                           \
-      int prefetch,                                                        \
-      bool is_weight_positional,                                           \
-      bool use_offsets,                                                    \
-      int64_t output_stride,                                               \
-      int64_t input_stride,                                                \
-      bool scale_bias_last,                                                \
+#define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)  \
+  template EmbeddingSpMDMKernel<IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE> \
+  GenerateEmbeddingSpMDMWithStrides_autovec<                                \
+      IN_TYPE,                                                              \
+      INDEX_TYPE,                                                           \
+      OFFSET_TYPE,                                                          \
+      OUT_TYPE>(                                                            \
+      int64_t block_size,                                                   \
+      bool has_weight,                                                      \
+      bool normalize_by_lengths,                                            \
+      int prefetch,                                                         \
+      bool is_weight_positional,                                            \
+      bool use_offsets,                                                     \
+      int64_t output_stride,                                                \
+      int64_t input_stride,                                                 \
+      bool scale_bias_last,                                                 \
       bool no_bag);
 
 #define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \

@@ -22,10 +22,10 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, skipIfRocm
+    from test_utils import gpu_unavailable
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, skipIfRocm
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
@@ -106,9 +106,6 @@ def empty_padded_like(value: torch.Tensor) -> torch.Tensor:
 # @unittest.skipIf(open_source, "Not supported in open source yet")
 @unittest.skipIf(*typed_gpu_unavailable)
 class MergePooledEmbeddingsTest(unittest.TestCase):
-    @skipIfRocm(
-        "Cross-device copies return zeros on the MI350X VF CI runners with ROCm 10.0"
-    )
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
     #  10)` to decorator factory `hypothesis.given`.
@@ -371,9 +368,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(
         torch.cuda.device_count() < 2,
         "Requires at least two devices to transfer between",
-    )
-    @skipIfRocm(
-        "Cross-device copies return zeros on the MI350X VF CI runners with ROCm 10.0"
     )
     def test_all_to_one_device_spanning_multiple_expandable_segments(self) -> None:
         # An expandable segment is mapped in 20MiB chunks and ROCm registers each

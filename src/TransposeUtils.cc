@@ -49,7 +49,7 @@ void transpose_simd(
   }
 
 #ifdef __aarch64__
-  if constexpr (std::is_same_v<T, float>) {
+  if constexpr (std::is_same_v<T, float> || std::is_same_v<T, uint16_t>) {
     internal::transpose_neon<T>(M, N, src, ld_src, dst, ld_dst);
   } else {
     transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);

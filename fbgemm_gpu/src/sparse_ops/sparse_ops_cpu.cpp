@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <utility>
 
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
@@ -989,12 +990,11 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_1D_sparse_data_cpu(
         FBGEMM_DISPATCH_ALL_TYPES(
             indices.scalar_type(), "permute_1D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
-              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(
+              fbgemm_gpu::dispatch_float_and_double(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_1D_indices_weights_kernel_3",
-                  [&] {
-                    using weights_t = scalar_t;
+                  [&]<typename weights_t>() {
                     if (weights.has_value()) {
                       const auto weights_value_contig =
                           weights.value().expect_contiguous();
@@ -1218,17 +1218,17 @@ _block_bucketize_sparse_features_cpu(
             indices.scalar_type(),                               \
             "block_bucketize_sparse_features_weights_cpu_2",     \
             [&] {                                                \
-              FBGEMM_DISPATCH_FLOAT_AND_DOUBLE(                  \
+              fbgemm_gpu::dispatch_float_and_double(             \
                   weights_value.scalar_type(),                   \
                   "bucketize_sparse_features_weights_cpu_3",     \
-                  [&] {                                          \
+                  [&]<typename weights_t>() {                    \
                     _block_bucketize_sparse_features_cpu_kernel< \
                         sequence,                                \
                         true,                                    \
                         return_bucket_mapping,                   \
                         offset_t,                                \
                         index_t,                                 \
-                        scalar_t>(                               \
+                        weights_t>(                              \
                         lengths,                                 \
                         indices,                                 \
                         weights,                                 \
@@ -3052,7 +3052,7 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_sparse_features_cpu(
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_data_kernel_1", ([&] {
         // Include Half to match permute_2D_sparse_data_cuda
-        // (FBGEMM_DISPATCH_ALL_TYPES_AND_DOUBLE), so half weights are supported
+        // (dispatch_all_types_and_double), so half weights are supported
         // on CPU as well and CPU/CUDA stay at dtype parity. T191384137
         FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(
             weights.has_value() ? weights.value().scalar_type()
@@ -3707,7 +3707,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
         input_shape_group.end(), input_shape.begin(), input_shape.end());
   }
 
-  for (int i = 0; i < input_shape_group.size(); i++) {
+  for (const auto i : c10::irange(input_shape_group.size())) {
     ctx->saved_data["input_shape_group_" + std::to_string(i)] =
         input_shape_group[i];
   }
@@ -3734,7 +3734,7 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
   grad_output_group.resize(group_size);
 
   const auto saved_tensors = ctx->get_saved_variables();
-  TORCH_CHECK(saved_tensors.size() == group_size + 3);
+  TORCH_CHECK(std::cmp_equal(saved_tensors.size(), group_size + 3));
   std::vector<c10::SymInt> output_shape_group;
   int i = 0;
   while (true) {
