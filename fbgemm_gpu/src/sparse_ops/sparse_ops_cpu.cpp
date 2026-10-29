@@ -1807,21 +1807,19 @@ bucketize_sparse_features_cpu(
     new_weights = native_empty_like(weights_value);
     AT_DISPATCH_INDEX_TYPES(
         indices.scalar_type(), "bucketize_sparse_features_weights_cpu_1", ([&] {
-          FBGEMM_DISPATCH_FLOAT_ONLY(
-              weights_value.scalar_type(),
-              "bucketize_sparse_features_weights_cpu_2",
-              ([&] {
-                _bucketize_sparse_features_cpu<true, index_t, scalar_t>(
-                    lengths,
-                    indices,
-                    weights,
-                    bucketize_pos,
-                    my_size,
-                    new_lengths,
-                    new_indices,
-                    new_weights,
-                    new_pos);
-              }));
+          TORCH_CHECK(
+              weights_value.scalar_type() == at::kFloat,
+              "bucketize_sparse_features only supports float32 weights");
+          _bucketize_sparse_features_cpu<true, index_t, float>(
+              lengths,
+              indices,
+              weights,
+              bucketize_pos,
+              my_size,
+              new_lengths,
+              new_indices,
+              new_weights,
+              new_pos);
         }));
   } else {
     AT_DISPATCH_INDEX_TYPES(

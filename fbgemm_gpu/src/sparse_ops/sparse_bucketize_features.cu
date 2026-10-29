@@ -179,14 +179,12 @@ bucketize_sparse_features_cuda(
             const auto weights_value = weights.value();
             const auto weights_value_contig = weights_value.contiguous();
             new_weights = at::empty_like(weights_value);
-            FBGEMM_DISPATCH_FLOAT_ONLY(
-                weights_value.scalar_type(),
-                "_bucketize_sparse_features_cuda_weight_kernel2_2",
-                ([&] {
-                  launch.template operator()<true>(
-                      weights_value_contig.data_ptr<scalar_t>(),
-                      new_weights.data_ptr<scalar_t>());
-                }));
+            TORCH_CHECK(
+                weights_value.scalar_type() == at::kFloat,
+                "bucketize_sparse_features only supports float32 weights");
+            launch.template operator()<true>(
+                weights_value_contig.data_ptr<float>(),
+                new_weights.data_ptr<float>());
           } else {
             launch.template operator()<false, std::nullptr_t>(nullptr, nullptr);
           }

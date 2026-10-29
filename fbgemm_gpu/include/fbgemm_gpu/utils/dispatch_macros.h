@@ -345,10 +345,6 @@ decltype(auto) dispatch_float_and_double(
 /// at::ScalarType::Double
 ////////////////////////////////////////////////////////////////////////////////
 
-#define FBGEMM_DISPATCH_FLOAT_ONLY(TYPE, NAME, ...) \
-  AT_DISPATCH_SWITCH(                               \
-      TYPE, NAME, AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__))
-
 #define FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                          \
       TYPE, NAME, FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE_CASE(__VA_ARGS__))
