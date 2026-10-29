@@ -1328,11 +1328,12 @@ class SSDCheckpointTest(unittest.TestCase):
                 20,
                 19,
             ],
+            # Each table's 10 zero-score rows are exactly the 25 - 15 to evict.
             training_id_keep_count=[
-                18,
-                18,
-                18,
-                18,
+                15,
+                15,
+                15,
+                15,
             ],
             ttls_in_mins=[
                 0,

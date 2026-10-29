@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <set>
 
 #include <fmt/format.h>
@@ -218,7 +219,8 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   }
   LOG(INFO) << feature_score_evict->get_thresholds();
   LOG(INFO) << "remaining: " << remaining;
-  ASSERT_EQ(remaining, 1100);
+  // Keep counts 900 + 800; the boundary buckets are split by key hash.
+  EXPECT_NEAR(static_cast<double>(remaining), 1700.0, 70.0);
 
   // Test feature score based eviction for ttl
   auto kv_store_with_ttl_ =
@@ -426,7 +428,8 @@ TEST(FeatureEvictTest, FeatureScoreBasedWithNoEviction) {
   }
   LOG(INFO) << feature_score_evict->get_thresholds();
   LOG(INFO) << "remaining: " << remaining;
-  ASSERT_EQ(remaining, 2100);
+  // Keep counts 900 + 800, plus table 3's 1000 rows.
+  EXPECT_NEAR(static_cast<double>(remaining), 2700.0, 70.0);
 }
 
 TEST(FeatureEvictTest, TimeBasedEviction) {
@@ -1623,6 +1626,136 @@ TEST(FeatureEvictTest, WritebackDisabledByFlag) {
   feature_evict->wait_until_eviction_done();
 
   EXPECT_FALSE(callback_invoked);
+}
+
+namespace {
+
+constexpr int SCORE_TABLE_SHARDS = 4;
+
+// A single count-bound feature-score table whose key i has score scores[i].
+struct ScoreTable {
+  std::unique_ptr<SynchronizedShardedMap<int64_t, float*>> kv_store;
+  // FeatureEvict holds references into these two.
+  c10::intrusive_ptr<FeatureEvictConfig> config;
+  std::unique_ptr<std::vector<int64_t>> sub_table_hash_cumsum;
+  std::unique_ptr<FeatureEvict<float>> feature_evict;
+};
+
+ScoreTable make_score_table(
+    const std::vector<float>& scores,
+    int64_t keep_count,
+    double decay_rate = 1.0,
+    int64_t decay_interval_s = 100000) {
+  const auto num_rows = static_cast<int64_t>(scores.size());
+  ScoreTable t;
+  t.kv_store = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      SCORE_TABLE_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  t.config = c10::make_intrusive<FeatureEvictConfig>(
+      static_cast<int64_t>(EvictTriggerMode::ID_COUNT),
+      static_cast<int64_t>(EvictTriggerStrategy::BY_FEATURE_SCORE),
+      std::nullopt, // trigger_step_interval
+      std::nullopt, // mem_util_threshold_in_GB
+      std::vector<int64_t>{0}, // ttls_in_mins
+      std::nullopt, // counter_thresholds
+      std::nullopt, // counter_decay_rates
+      std::vector<double>{decay_rate},
+      std::vector<int64_t>{num_rows}, // training_id_eviction_trigger_count
+      std::vector<int64_t>{keep_count},
+      std::vector<int8_t>{1},
+      std::nullopt, // l2_weight_thresholds
+      std::nullopt, // embedding_dims
+      0.2, // threshold_calculation_bucket_stride
+      20, // threshold_calculation_bucket_num
+      0, // interval_for_insufficient_eviction_s
+      0, // interval_for_sufficient_eviction_s
+      decay_interval_s);
+  t.sub_table_hash_cumsum = std::make_unique<std::vector<int64_t>>(1, num_rows);
+  t.feature_evict = create_feature_evict(
+      t.config, *t.kv_store, *t.sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto* feature_score_evict =
+      dynamic_cast<FeatureScoreBasedEvict<float>*>(t.feature_evict.get());
+  CHECK(feature_score_evict != nullptr);
+  for (int64_t i = 0; i < num_rows; ++i) {
+    const int shard_id = static_cast<int>(i % SCORE_TABLE_SHARDS);
+    auto wlock = t.kv_store->by(shard_id).wlock();
+    auto* block = t.kv_store->pool_by(shard_id)->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
+    FixedBlockPool::set_feature_score_rate(block, scores[i]);
+    wlock->insert({i, block});
+    feature_score_evict->update_feature_score_statistics(
+        block, 0, shard_id, /*add_new_block=*/true);
+  }
+  return t;
+}
+
+// Runs one eviction round and returns the score of each surviving key.
+std::map<int64_t, float> evict_one_round(ScoreTable& t) {
+  t.feature_evict->trigger_evict();
+  t.feature_evict->wait_until_eviction_done();
+  std::map<int64_t, float> survivors;
+  for (int shard_id = 0; shard_id < SCORE_TABLE_SHARDS; ++shard_id) {
+    auto rlock = t.kv_store->by(shard_id).rlock();
+    for (const auto& [key, block] : *rlock) {
+      survivors[key] = FixedBlockPool::get_feature_score_rate(block);
+    }
+  }
+  return survivors;
+}
+
+std::vector<float> concat_scores(
+    std::initializer_list<std::pair<int, float>> runs) {
+  std::vector<float> scores;
+  for (const auto& [count, score] : runs) {
+    scores.insert(scores.end(), count, score);
+  }
+  return scores;
+}
+
+} // namespace
+
+TEST(FeatureEvictTest, FeatureScoreEvictSplitsTiedBoundaryBucket) {
+  // 0.0 takes the ONLY_ZERO path; 0.5 takes THRESHOLD.
+  for (const float low_score : {0.0f, 0.5f}) {
+    SCOPED_TRACE(low_score);
+    auto t = make_score_table(
+        concat_scores({{1000, low_score}, {1000, 1.0f}}),
+        /*keep_count=*/1500);
+    const auto survivors = evict_one_round(t);
+    // Half of the 1000 tied rows go; the binomial sd is about 16.
+    EXPECT_NEAR(static_cast<double>(survivors.size()), 1500.0, 80.0);
+    for (int64_t key = 1000; key < 2000; ++key) {
+      EXPECT_TRUE(survivors.contains(key)) << key;
+    }
+  }
+}
+
+TEST(FeatureEvictTest, FeatureScoreEvictKeepsRowsOnBucketEdge) {
+  // 1.9 falls in bucket 10 and 2.0 in bucket 11, but 2.0 equals bucket 10's
+  // upper edge (10 * stride).
+  auto t = make_score_table(
+      concat_scores({{400, 1.9f}, {600, 2.0f}}), /*keep_count=*/600);
+  const auto survivors = evict_one_round(t);
+  EXPECT_EQ(survivors.size(), 600);
+  for (const auto& [key, score] : survivors) {
+    EXPECT_EQ(score, 2.0f) << key;
+  }
+}
+
+TEST(FeatureEvictTest, FeatureScoreEvictDecidesOnPreDecayScore) {
+  // Halving 1.1 gives 0.55, which is in the boundary bucket of the pre-decay
+  // histogram (bucket 3, holding the 0.5 rows).
+  auto t = make_score_table(
+      concat_scores({{500, 0.5f}, {500, 1.1f}}),
+      /*keep_count=*/500,
+      /*decay_rate=*/0.5,
+      /*decay_interval_s=*/0);
+  const auto survivors = evict_one_round(t);
+  EXPECT_EQ(survivors.size(), 500);
+  for (const auto& [key, score] : survivors) {
+    EXPECT_GE(key, 500);
+    EXPECT_FLOAT_EQ(score, 1.1f * 0.5f) << key;
+  }
 }
 
 } // namespace kv_mem
