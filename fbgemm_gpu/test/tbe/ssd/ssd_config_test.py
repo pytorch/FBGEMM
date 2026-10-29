@@ -141,6 +141,23 @@ class EnrichmentPolicyValidateTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             policy.validate()
 
+    def test_repr_leaves_out_unset_serving_qdq_fields(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(provider_name="p", enrichment_dim=8)
+
+        self.assertNotIn("serving_qdq_", repr(policy))
+        self.assertTrue(repr(policy).startswith("EnrichmentPolicy(enrichment_type="))
+        self.assertTrue(repr(policy).endswith(", owner_cache_gather_reserved_sms=0)"))
+        self.assertEqual(str(policy), repr(policy))
+
+    def test_repr_keeps_set_serving_qdq_fields(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(serving_qdq_bit_rate=4)
+
+        self.assertTrue(repr(policy).endswith(", serving_qdq_bit_rate=4)"))
+
 
 class KVZCHParamsValidateTest(unittest.TestCase):
     """Test KVZCHParams.validate() logic."""

@@ -50,6 +50,7 @@
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
+#include "serving_qdq.h"
 
 namespace kv_db {
 template <typename W>
@@ -1045,6 +1046,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           if (!payloads.empty()) {
             auto result = prepareFn(hashed_ids, unhashed_ids, payloads);
             if (result.has_value()) {
+              apply_serving_qdq(
+                  result->weights, result->count.template item<int64_t>());
               set_kv_db_async_on_enrichment_executor(
                   result->indices, result->weights, result->count)
                   .via(enrichment_executor_.get())
@@ -2544,8 +2547,102 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return block_size_;
   }
 
+  int64_t serving_qdq_existing_rows() override {
+    if constexpr (!std::is_same_v<weight_type, at::Half>) {
+      return -1;
+    } else {
+      const int bit_rate = serving_qdq_bit_rate();
+      if (bit_rate == 0) {
+        return 0;
+      }
+      const auto start_ts = facebook::WallClockUtil::NowInUsecFast();
+      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+      serving_qdq::check_round_trip_args(dim, bit_rate);
+      TORCH_CHECK(dim <= max_D_, "serving_qdq dim ", dim, " > max_D ", max_D_);
+      std::vector<folly::Future<serving_qdq::Stats>> futures;
+      futures.reserve(num_shards_);
+      for (int64_t shard_id = 0; shard_id < num_shards_; ++shard_id) {
+        futures.emplace_back(
+            folly::via(executor_.get())
+                .thenValue([this, shard_id, dim, bit_rate](folly::Unit) {
+                  return serving_qdq_shard(shard_id, dim, bit_rate);
+                }));
+      }
+      serving_qdq::Stats total;
+      for (const auto& stats : folly::collect(std::move(futures)).get()) {
+        total += stats;
+      }
+      XLOG(INFO) << "[EmbeddingCacheEnrich] serving_qdq_existing_rows " << total
+                 << " latency_ms="
+                 << (facebook::WallClockUtil::NowInUsecFast() - start_ts) /
+              1000;
+      return total.changed;
+    }
+  }
+
  private:
   using FlatPositions = folly::small_vector<int64_t, 0>;
+
+  /// Publish bit rate to round-trip rows at, or 0. Only embedding payloads
+  /// qualify; SID payloads are bit-cast integers.
+  int serving_qdq_bit_rate() const {
+    if (!enrichment_config_.has_value()) {
+      return 0;
+    }
+    const auto& config = *enrichment_config_.value();
+    const bool embedding_payload = config.enrichment_type_ ==
+            kv_mem::EnrichmentType::IGR_LASER_EMBEDDING ||
+        config.enrichment_type_ == kv_mem::EnrichmentType::IN_MEMORY_TEST_ONLY;
+    return embedding_payload ? static_cast<int>(config.serving_qdq_bit_rate_)
+                             : 0;
+  }
+
+  /// Round-trips the first `num_rows` rows of a CPU write tensor in place.
+  void apply_serving_qdq(at::Tensor& weights, int64_t num_rows) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const int bit_rate = serving_qdq_bit_rate();
+      if (bit_rate == 0 || num_rows == 0) {
+        return;
+      }
+      CHECK(weights.is_contiguous());
+      CHECK(weights.device().is_cpu());
+      CHECK_EQ(weights.scalar_type(), at::kHalf);
+      const auto stats = serving_qdq::round_trip_rows(
+          weights.data_ptr<at::Half>(),
+          num_rows,
+          weights.size(1),
+          enrichment_config_.value()->enrichment_dim_,
+          bit_rate);
+      if (stats.non_finite > 0 || stats.not_converged > 0) {
+        XLOG(WARN) << "[EmbeddingCacheEnrich] serving_qdq " << stats;
+      } else {
+        XLOG_EVERY_MS(INFO, 60000)
+            << "[EmbeddingCacheEnrich] serving_qdq " << stats;
+      }
+    }
+  }
+
+  serving_qdq::Stats
+  serving_qdq_shard(int64_t shard_id, int64_t dim, int bit_rate) {
+    serving_qdq::Scratch scratch;
+    serving_qdq::Stats stats;
+    auto wlmap = kv_store_.by(shard_id).wlock();
+    auto* pool = kv_store_.pool_by(shard_id);
+    for (auto& [key, block] : *wlmap) {
+      if (FixedBlockPool::is_weights_all_zero(block, block_size_)) {
+        continue;
+      }
+      const auto result = serving_qdq::round_trip_row(
+          FixedBlockPool::data_ptr<weight_type>(block), dim, bit_rate, scratch);
+      stats.record(result);
+      if (enable_ssd_backend_ &&
+          result != serving_qdq::RowResult::kAlreadyFixed &&
+          result != serving_qdq::RowResult::kNonFinite) {
+        pool->set_dirty(block, true);
+      }
+    }
+    return stats;
+  }
 
   struct FlatShardInput {
     std::shared_ptr<const FlatPositions> positions;

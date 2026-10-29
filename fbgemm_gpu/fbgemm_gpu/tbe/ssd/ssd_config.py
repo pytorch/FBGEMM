@@ -282,6 +282,10 @@ class EnrichmentPolicy(NamedTuple):
     # Whole SMs the owner-cache gather leaves free for concurrent kernels such as
     # NCCL collectives: its grid is capped at (SM count - this) CTAs. 0 = uncapped.
     owner_cache_gather_reserved_sms: int = 0
+    # Rowwise bit rate the cache is published at (0 = off). When set, every
+    # embedding row written into the cache, and every row restored from a
+    # checkpoint, is stored as the values serving decodes from that publish.
+    serving_qdq_bit_rate: int = 0
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -324,6 +328,17 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             self.owner_cache_gather_reserved_sms == 0 or self.owner_cache_size_mb > 0
         ), "owner_cache_gather_reserved_sms requires owner_cache_size_mb"
+
+    def __repr__(self) -> str:
+        # The torchrec planner hashes str() of the policy into its context hash
+        # and plan cache key. Leaving serving_qdq_* fields at 0 out keeps both
+        # unchanged for policies that do not use them.
+        fields = ", ".join(
+            f"{name}={value!r}"
+            for name, value in self._asdict().items()
+            if not (name.startswith("serving_qdq_") and value == 0)
+        )
+        return f"{type(self).__name__}({fields})"
 
 
 class KVZCHParams(NamedTuple):

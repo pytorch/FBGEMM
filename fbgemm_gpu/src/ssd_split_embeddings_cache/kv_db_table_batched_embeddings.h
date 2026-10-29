@@ -300,6 +300,14 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       at::Tensor unhashed_indices,
       at::Tensor count) = 0;
 
+  /// Rewrites every stored embedding row as the values serving decodes from
+  /// its rowwise publish (see EnrichmentConfig::serving_qdq_bit_rate_), for
+  /// rows that bypassed the enrichment write path, e.g. checkpoint restores.
+  /// @return rows changed, or -1 where unsupported
+  virtual int64_t serving_qdq_existing_rows() {
+    return -1;
+  }
+
   /// Sync fetch SIDs for publish. Cache-first: reads SIDs from kv_store if
   /// available, only calls remote (FeatureStore/OpenTab) for cache misses.
   /// Default no-op for non-DRAM backends.
