@@ -148,6 +148,7 @@ void copy_to_device_async(
     const Tensor& src,
     Tensor& dst,
     const at::cuda::CUDAStream& copy_stream) {
+  const c10::cuda::CUDAGuard device_guard(copy_stream.device());
   if (src.numel() == 0) {
     return;
   }
