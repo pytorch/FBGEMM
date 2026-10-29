@@ -24,8 +24,9 @@ on:
         default: ""
 
 concurrency:
-  # Cancel previous runs in the PR if a new commit is pushed
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # PRs: cancel previous runs when a new commit is pushed.
+  # Push/main: group by sha so a new merge does not cancel an in-flight run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 permissions:
