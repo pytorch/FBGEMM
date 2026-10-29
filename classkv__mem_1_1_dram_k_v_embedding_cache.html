@@ -132,6 +132,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ab046b99f3345b44e6ff583b776c4a3d1" id="r_ab046b99f3345b44e6ff583b776c4a3d1"><td class="memItemLeft">size_t&#160;</td><td class="memItemRight"><a class="el" href="#ab046b99f3345b44e6ff583b776c4a3d1">get_map_used_memsize_in_bytes</a> () const override</td></tr>
 <tr class="memitem:a21a0f0c644433c7e4af4f1182eca1549" id="r_a21a0f0c644433c7e4af4f1182eca1549"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a21a0f0c644433c7e4af4f1182eca1549">wait_until_laser_write_resume</a> ()</td></tr>
 <tr class="memitem:a882b3d3ba64e812e22bc8bdb3c78d2b9" id="r_a882b3d3ba64e812e22bc8bdb3c78d2b9"><td class="memItemLeft">FeatureEvict&lt; weight_type &gt; *&#160;</td><td class="memItemRight"><a class="el" href="#a882b3d3ba64e812e22bc8bdb3c78d2b9">get_feature_evict</a> ()</td></tr>
+<tr class="memitem:a7dde1fffca13afabaec71226ee39758f" id="r_a7dde1fffca13afabaec71226ee39758f"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a7dde1fffca13afabaec71226ee39758f">serving_qdq_existing_rows</a> () override</td></tr>
 <tr class="inherit_header pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td colspan="2">Public Member Functions inherited from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
 <tr class="memitem:abd9970c497076f72cba47c2ac6a2c712 pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_abd9970c497076f72cba47c2ac6a2c712"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#abd9970c497076f72cba47c2ac6a2c712">get</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t sleep_ms=0)</td></tr>
@@ -720,6 +721,36 @@ template&lt;typename weight_type&gt; </div>
 </table>
 </div><div class="memdoc">
 <p>Sets the timestamps of <span class="tt">ids</span> that are still present and non-zero to now. Every training timestamp write happens under the shard write lock, so readers holding the read lock never see a concurrent write. Rows are re-found under the lock, so one evicted since the caller's lookup is skipped. <span class="tt">now</span> is read after taking the lock, so no earlier write carries a later timestamp. A row stamped ahead of <span class="tt">now</span> (clock stepped back, or a skewed checkpoint restored without restamping) is pulled back to <span class="tt">now</span>: the evictor's unsigned age check would otherwise evict it at once. Yields exactly like the enrichment write: the lock is held across rows and released only when a training lookup or write raises the interrupt flag, which is checked after every row. </p>
+
+</div>
+</div>
+<a id="a7dde1fffca13afabaec71226ee39758f" name="a7dde1fffca13afabaec71226ee39758f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7dde1fffca13afabaec71226ee39758f">&#9670;&#160;</a></span>serving_qdq_existing_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t serving_qdq_existing_rows </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Rewrites every stored embedding row as the values serving decodes from its rowwise publish (see EnrichmentConfig::serving_qdq_bit_rate_), for rows that bypassed the enrichment write path, e.g. checkpoint restores. </p><dl class="section return"><dt>Returns</dt><dd>rows changed, or -1 where unsupported </dd></dl>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a4d877b043dc04eb076f3dbdf3eaf61bf">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>
