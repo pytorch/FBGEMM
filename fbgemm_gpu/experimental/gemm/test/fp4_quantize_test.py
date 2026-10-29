@@ -9,7 +9,10 @@ import unittest
 
 import fbgemm_gpu
 import torch
+import triton
+import triton.language as tl
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
+    _pack_fp4x8,
     _to_blocked,
     triton_quantize_mx4_unpack,
     triton_rms_quantize_mx4_unpack,
@@ -24,9 +27,33 @@ from torch import Tensor
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
+if open_source:
+    gpu_unavailable: tuple[bool, str] = (
+        not torch.cuda.is_available() or torch.cuda.device_count() == 0,
+        "CUDA is not available or no GPUs detected",
+    )
+else:
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
+
 if not open_source:
     from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm
     from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
+
+
+@triton.jit
+def _pack_fp4_test_kernel(X, Y, N, BLOCK: tl.constexpr):
+    offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    packed = _pack_fp4x8(
+        tl.load(X + offsets * 8 + 0, mask=offsets < N, other=0),
+        tl.load(X + offsets * 8 + 1, mask=offsets < N, other=0),
+        tl.load(X + offsets * 8 + 2, mask=offsets < N, other=0),
+        tl.load(X + offsets * 8 + 3, mask=offsets < N, other=0),
+        tl.load(X + offsets * 8 + 4, mask=offsets < N, other=0),
+        tl.load(X + offsets * 8 + 5, mask=offsets < N, other=0),
+        tl.load(X + offsets * 8 + 6, mask=offsets < N, other=0),
+        tl.load(X + offsets * 8 + 7, mask=offsets < N, other=0),
+    )
+    tl.store(Y + offsets, packed, mask=offsets < N)
 
 
 @unittest.skipIf(
@@ -78,6 +105,45 @@ class TestFp4Quantize(unittest.TestCase):
         _test_quantize_fp4((3, 512))
         _test_quantize_fp4((128, 1024))
         _test_quantize_fp4((4096, 10240))
+
+    @unittest.skipIf(bool(gpu_unavailable[0]), str(gpu_unavailable[1]))
+    def test_fp4_packed_conversion_boundaries(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        # Exhaust every BF16 encoding, including signed zeros, infinities and NaNs.
+        values = (torch.arange(65536, dtype=torch.int32, device=device) << 16).view(
+            torch.float32
+        )
+        midpoints = torch.tensor([0.25, 0.75, 1.25, 1.75, 2.5, 3.5, 5.0], device=device)
+        midpoints = torch.cat((midpoints, -midpoints))
+        values = torch.cat(
+            (
+                values,
+                midpoints,
+                torch.nextafter(midpoints, torch.full_like(midpoints, float("inf"))),
+                torch.nextafter(midpoints, torch.full_like(midpoints, -float("inf"))),
+            )
+        )
+        values = torch.cat((values, torch.zeros((-values.numel()) % 8, device=device)))
+        levels = torch.tensor([0, 0.5, 1, 1.5, 2, 3, 4, 6], device=device)
+        magnitude = torch.nan_to_num(values.abs(), nan=6, posinf=6).clamp(max=6)
+        distance = (magnitude[:, None] - levels).abs()
+        nearest = distance == distance.amin(dim=1, keepdim=True)
+        even = torch.arange(8, device=device) % 2 == 0
+        even_nearest = nearest & even
+        chosen = torch.where(
+            even_nearest.any(dim=1, keepdim=True), even_nearest, nearest
+        )
+        encoded = chosen.to(torch.int32).argmax(dim=1)
+        encoded |= torch.signbit(values).to(torch.int64) << 3
+        encoded = torch.where(torch.isnan(values), torch.full_like(encoded, 7), encoded)
+        shifts = 4 * torch.arange(8, dtype=torch.int64, device=device)
+        powers = torch.bitwise_left_shift(torch.ones_like(shifts), shifts)
+        expected = (encoded.view(-1, 8) * powers).sum(dim=1).to(torch.int32)
+        result = torch.empty_like(expected)
+        _pack_fp4_test_kernel[(triton.cdiv(result.numel(), 128),)](
+            values, result, result.numel(), BLOCK=128
+        )
+        torch.testing.assert_close(result, expected, atol=0, rtol=0)
 
 
 @unittest.skipIf(
