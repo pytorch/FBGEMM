@@ -7,6 +7,7 @@
  */
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <cuda.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -15,6 +16,7 @@
 #include <cmath>
 
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
+#include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/weight_row.cuh"
 
 namespace fbgemm_gpu::utils {
@@ -248,5 +250,93 @@ TEST(WeightRowAccessor, update_optimizer_state) {
   EXPECT_TRUE(
       torch::all(weights.slice(1, cols, cols + 1) == kMomentum1).item<bool>());
 }
+
+namespace {
+
+template <typename T>
+__global__ void unaligned_optimizer_state_kernel(
+    const T* input,
+    const float* values,
+    float* loaded,
+    T* stored,
+    T* reference,
+    int count) {
+  const int i = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
+  if (i < count) {
+    *reinterpret_cast<float4*>(loaded + i) = vec4_load_unaligned(input + i).acc;
+    const Vec4T<T> value(values + i);
+    vec4_store_unaligned(value, stored + i);
+    // Use the established aligned global-memory store as the reference.
+    value.store(reference + i);
+  }
+}
+
+template <typename T>
+void checkUnalignedOptimizerState() {
+  const auto dtype = c10::CppTypeToScalarType<T>::value;
+  SCOPED_TRACE(c10::toString(dtype));
+  // Signed zero, subnormals, overflow, rounding ties, infinities and NaNs.
+  const auto values = at::tensor(
+                          {0.f,
+                           -0.f,
+                           1.f,
+                           -1.f,
+                           0x1p-24f,
+                           0x1p-133f,
+                           65504.f,
+                           65520.f,
+                           1.f + 0x1p-11f,
+                           1.f + 0x1.8p-10f,
+                           1.f + 0x1p-8f,
+                           1.f + 0x1.8p-7f,
+                           INFINITY,
+                           -INFINITY,
+                           NAN,
+                           -NAN},
+                          at::TensorOptions().dtype(at::kFloat))
+                          .to(at::kCUDA);
+  const int count = values.numel();
+  const auto input = values.repeat({2}).to(dtype);
+  const auto reference_load = input.to(at::kFloat);
+  auto loaded = at::empty({count}, values.options());
+  auto reference_store = at::empty({count}, input.options());
+  auto stored = at::empty({count + 6}, input.options());
+  auto expected = at::empty_like(stored);
+  const auto stream = at::cuda::getCurrentCUDAStream();
+
+  for (int offset = 0; offset < 4; ++offset) {
+    SCOPED_TRACE(offset);
+    stored.fill_(7);
+    FBGEMM_LAUNCH_KERNEL(
+        (unaligned_optimizer_state_kernel<T>),
+        1,
+        32,
+        0,
+        stream,
+        input.template data_ptr<T>() + offset,
+        values.template data_ptr<float>(),
+        loaded.template data_ptr<float>(),
+        stored.template data_ptr<T>() + offset,
+        reference_store.template data_ptr<T>(),
+        count);
+    // Compare encodings so NaNs and signed zero are checked too.
+    EXPECT_TRUE(
+        at::equal(
+            loaded.view(at::kByte),
+            reference_load.slice(0, offset, offset + count).view(at::kByte)));
+    expected.fill_(7);
+    expected.slice(0, offset, offset + count).copy_(reference_store);
+    // One bytewise comparison checks both stored values and untouched guards.
+    EXPECT_TRUE(at::equal(stored.view(at::kByte), expected.view(at::kByte)));
+  }
+}
+
+TEST(WeightRow, unaligned_optimizer_state_vectors) {
+  checkUnalignedOptimizerState<float>();
+  checkUnalignedOptimizerState<at::Half>();
+  checkUnalignedOptimizerState<at::BFloat16>();
+}
+
+} // namespace
 
 } // namespace fbgemm_gpu::utils
