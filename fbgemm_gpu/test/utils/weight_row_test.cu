@@ -7,14 +7,17 @@
  */
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <cuda.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
+#include <bit>
 #include <cmath>
 
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
+#include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/weight_row.cuh"
 
 namespace fbgemm_gpu::utils {
@@ -248,5 +251,88 @@ TEST(WeightRowAccessor, update_optimizer_state) {
   EXPECT_TRUE(
       torch::all(weights.slice(1, cols, cols + 1) == kMomentum1).item<bool>());
 }
+
+namespace {
+
+template <typename T>
+__global__ void unaligned_optimizer_state_kernel(
+    const T* input,
+    const float* values,
+    float* loaded,
+    T* stored,
+    T* reference,
+    int count) {
+  const int i = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
+  if (i < count) {
+    *reinterpret_cast<float4*>(loaded + i) = vec4_load_unaligned(input + i).acc;
+    const Vec4T<T> value(values + i);
+    vec4_store_unaligned(value, stored + i);
+    // Use the established aligned global-memory store as the reference.
+    value.store(reference + i);
+  }
+}
+
+template <typename T>
+void checkUnalignedOptimizerState() {
+  constexpr int count = 4 * 65536;
+  const auto dtype = c10::CppTypeToScalarType<T>::value;
+  SCOPED_TRACE(c10::toString(dtype));
+  const auto options = at::TensorOptions().dtype(dtype).device(at::kCPU);
+  auto host_input = at::empty({count + 3}, options);
+  auto* data = host_input.template data_ptr<T>();
+  for (int i = 0; i < count + 3; ++i) {
+    if constexpr (std::is_same_v<T, float>) {
+      data[i] = (i % 65536 - 32768) * 0.25f;
+    } else {
+      // All encodings, including signed zero, subnormals and NaN payloads.
+      data[i] = T(static_cast<uint16_t>(i), T::from_bits());
+    }
+  }
+  const auto input = host_input.to(at::kCUDA);
+  // PyTorch's device conversion provides the independent scalar reference.
+  const auto reference_load = input.to(at::kFloat);
+  auto loaded = at::empty({count}, input.options().dtype(at::kFloat));
+
+  auto host_values = at::empty({count}, options.dtype(at::kFloat));
+  auto* values = host_values.template data_ptr<float>();
+  constexpr uint32_t tails[] = {0u, 0x7fffu, 0x8000u, 0xffffu};
+  for (uint32_t i = 0; i < count; ++i) {
+    values[i] = std::bit_cast<float>(((i % 65536) << 16) | tails[i / 65536]);
+  }
+  const auto store_input = host_values.to(at::kCUDA);
+  auto reference_store = at::empty({count}, input.options());
+  auto stored = at::empty({count + 6}, input.options());
+  const auto stream = at::cuda::getCurrentCUDAStream();
+
+  for (int offset = 0; offset < 4; ++offset) {
+    SCOPED_TRACE(offset);
+    stored.fill_(7);
+    FBGEMM_LAUNCH_KERNEL(
+        (unaligned_optimizer_state_kernel<T>),
+        count / (4 * 256), 256, 0, stream,
+        input.template data_ptr<T>() + offset,
+        store_input.template data_ptr<float>(),
+        loaded.template data_ptr<float>(),
+        stored.template data_ptr<T>() + offset,
+        reference_store.template data_ptr<T>(), count);
+    // Compare encodings so NaNs and signed zero are checked too.
+    EXPECT_TRUE(at::equal(loaded.view(at::kByte),
+        reference_load.slice(0, offset, offset + count).view(at::kByte)));
+    EXPECT_TRUE(
+        at::equal(stored.slice(0, offset, offset + count).view(at::kByte),
+            reference_store.view(at::kByte)));
+    EXPECT_TRUE(stored.slice(0, 0, offset).eq(7).all().template item<bool>());
+    EXPECT_TRUE(
+        stored.slice(0, offset + count).eq(7).all().template item<bool>());
+  }
+}
+
+TEST(WeightRow, unaligned_optimizer_state_vectors) {
+  checkUnalignedOptimizerState<float>();
+  checkUnalignedOptimizerState<at::Half>();
+  checkUnalignedOptimizerState<at::BFloat16>();
+}
+
+} // namespace
 
 } // namespace fbgemm_gpu::utils

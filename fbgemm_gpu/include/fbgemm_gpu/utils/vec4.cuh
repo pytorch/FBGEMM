@@ -117,6 +117,8 @@ using Vec4TAcc = Vec4T<at::acc_type<T, true>>;
 
 // load() requires the input pointer to be naturally aligned for its vectorized
 // access. Use vec4_load_unaligned() when the caller cannot guarantee alignment.
+// Half inputs must also reside in global memory: their packed loads use
+// ld.global inline assembly, which cannot read shared or local arrays.
 
 template <>
 struct Vec4T<float> : public Vec4BaseT<float> {
