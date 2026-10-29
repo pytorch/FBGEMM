@@ -162,6 +162,9 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 pooled_ad_embeddings, uncat_size, batch_indices.device, dim
             )
 
+        if non_default_stream:
+            streams[dst_device].synchronize()
+
         def ref(pooled_ad_embeddings: list[torch.Tensor]) -> torch.Tensor:
             return torch.cat([p.cpu() for p in pooled_ad_embeddings], dim=dim)
 
