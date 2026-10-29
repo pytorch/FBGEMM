@@ -677,33 +677,27 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
 
 template <typename T>
 DEVICE_INLINE Vec4T<T> vec4_load_unaligned(const T* src) {
-  // src is not guaranteed to have proper alignment.
-  // Create a temporary aligned array on the stack.
-  alignas(16) T temp[4];
-
-  // Load values from src into the byte-aligned array
-#pragma unroll
-  for (auto i = 0; i < 4; i++) {
-    temp[i] = src[i];
-  }
-
-  // Then load the aligned array values into Vec4T
-  return Vec4T<T>(temp);
+  // Only require scalar alignment. In particular, do not pass a local array
+  // to the half constructor, whose inline assembly loads from global memory.
+  return Vec4T<T>::template from<false>(src);
 }
 
 template <typename T>
 DEVICE_INLINE void vec4_store_unaligned(const Vec4T<T>& vec, T* dst) {
-  // dst is not guaranteed to have proper alignment.
-  // Create a temporary aligned array on the stack.
-  alignas(16) T temp[4];
-
-  // Store Vec4T values into the byte-aligned array
-  vec.store(temp);
-
-  // Then store the aligned array values into dst
-#pragma unroll
-  for (auto i = 0; i < 4; i++) {
-    dst[i] = temp[i];
+  if constexpr (std::is_same_v<T, at::Half>) {
+    // Keep the same packed round-to-nearest conversion as Vec4T::store(),
+    // then copy the half lanes without another floating-point conversion.
+    const auto a = __float22half2_rn(make_float2(vec.acc.x, vec.acc.y));
+    const auto b = __float22half2_rn(make_float2(vec.acc.z, vec.acc.w));
+    dst[0] = at::Half(__low2half(a));
+    dst[1] = at::Half(__high2half(a));
+    dst[2] = at::Half(__low2half(b));
+    dst[3] = at::Half(__high2half(b));
+  } else {
+    dst[0] = vec.acc.x;
+    dst[1] = vec.acc.y;
+    dst[2] = vec.acc.z;
+    dst[3] = vec.acc.w;
   }
 }
 
