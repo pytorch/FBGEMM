@@ -278,7 +278,8 @@ __global__ void nope_qkv_varseq_prefill_kernel(
         block_tables_b_stride);
   }
 
-  for (auto head_id = 4 * threadIdx.x; head_id < head_dim;
+  for (int64_t head_id = 4 * static_cast<int64_t>(threadIdx.x);
+       head_id < head_dim;
        head_id += kThreadsPerWarp * 4) {
     // assert D_H % 4 == 0;
     // load 4 elements per thread in a warp.
@@ -410,7 +411,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
     qkv = QKV::V;
   }
 
-  for (auto head_id = 4 * threadIdx.x; head_id < head_dim;
+  for (int64_t head_id = 4 * static_cast<int64_t>(threadIdx.x);
+       head_id < head_dim;
        head_id += kThreadsPerWarp * 4) {
     // assert D_H % 4 == 0;
     // load 4 elements per thread in a warp.
@@ -636,7 +638,8 @@ quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm = false) {
     warp_max = warpReduceMax(thread_max, mask);
   } else {
     auto group_size = D_H / KVQuantNumGroups;
-    auto group_idx = threadIdx.x * 4 / group_size;
+    const int64_t group_idx =
+        static_cast<int64_t>(threadIdx.x) * 4 / group_size;
     int4_qparam_offset = 4 * KVQuantNumGroups;
     unsigned masks[KVQuantNumGroups];
     for (const auto i : c10::irange(KVQuantNumGroups)) {
@@ -868,7 +871,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
   CUDA_KERNEL_ASSERT(
       head_dim <= 4 * kThreadsPerWarp &&
       "head dimension exceeds the kernel warp capacity");
-  if (4 * threadIdx.x >= head_dim) {
+  if (4 * static_cast<int64_t>(threadIdx.x) >= head_dim) {
     return;
   }
   bfx4 src;
@@ -1066,7 +1069,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_fp8(
   CUDA_KERNEL_ASSERT(
       head_dim <= 4 * kThreadsPerWarp &&
       "head dimension exceeds the kernel warp capacity");
-  if (4 * threadIdx.x >= head_dim) {
+  if (4 * static_cast<int64_t>(threadIdx.x) >= head_dim) {
     return;
   }
   bfx4 src;
