@@ -303,3 +303,78 @@ class WritebackUtilsTest(unittest.TestCase):
                     precomputed_indices=dispatched,
                 )
                 self.assertTrue(torch.equal(result_without[0], result_with[0]))
+
+    def test_compute_writeback_indices_on_device(self) -> None:
+        """Check all 3 compute fns against hand-computed indices on CPU and CUDA.
+        The single-unique-index case has an empty ``cum_sum[:-1]``, so the
+        result is just the prepended leading zero."""
+        devices = [torch.device("cpu")]
+        accelerator = torch.accelerator.current_accelerator()
+        if torch.cuda.is_available() and accelerator is not None:
+            devices.append(accelerator)
+        # (indices, offsets, feature_table_map, {compute_fn: expected})
+        cases = [
+            # 2 tables, batch size 3, one lookup per bag. Table 0 sees
+            # [5, 3, 5] and table 1 sees [3, 7, 3]; first occurrences ordered by
+            # (table, index) are positions 1, 0, 3, 4.
+            (
+                [5, 3, 5, 3, 7, 3],
+                [0, 1, 2, 3, 4, 5, 6],
+                [0, 1],
+                {
+                    compute_writeback_indices: [1, 0, 3, 4],
+                    compute_writeback_indices_nobag: [1, 0, 3, 4],
+                    compute_writeback_indices_first_feature_only: [1, 0],
+                },
+            ),
+            # 1 table, every lookup hits index 2.
+            (
+                [2, 2, 2],
+                [0, 1, 2, 3],
+                [0],
+                {
+                    compute_writeback_indices: [0],
+                    compute_writeback_indices_nobag: [0],
+                    compute_writeback_indices_first_feature_only: [0],
+                },
+            ),
+        ]
+        for device in devices:
+            for indices, offsets, feature_table_map, expected_by_fn in cases:
+                for compute_fn, expected in expected_by_fn.items():
+                    with self.subTest(
+                        device=device, fn=compute_fn.__name__, indices=indices
+                    ):
+                        result = compute_fn(
+                            torch.tensor(indices, dtype=torch.long, device=device),
+                            torch.tensor(offsets, dtype=torch.long, device=device),
+                            feature_table_map,
+                        )
+                        self.assertEqual(result.dtype, torch.int64)
+                        self.assertEqual(result.device.type, device.type)
+                        self.assertEqual(result.tolist(), expected)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is not available")
+    def test_compute_writeback_indices_cuda_matches_cpu(self) -> None:
+        T, B, L, E = 3, 16, 1, 10
+        torch.manual_seed(0)
+        x = torch.randint(low=0, high=E, size=(T, B, L))
+        indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=True)
+        feature_table_map = list(range(T))
+        accelerator = torch.accelerator.current_accelerator()
+        assert accelerator is not None
+        for compute_fn in [
+            compute_writeback_indices,
+            compute_writeback_indices_first_feature_only,
+            compute_writeback_indices_nobag,
+        ]:
+            with self.subTest(fn=compute_fn.__name__):
+                cpu_result = compute_fn(indices, offsets, feature_table_map)
+                cuda_result = compute_fn(
+                    indices.to(accelerator),
+                    offsets.to(accelerator),
+                    feature_table_map,
+                )
+                self.assertEqual(cuda_result.dtype, torch.int64)
+                self.assertTrue(cuda_result.is_cuda)
+                self.assertTrue(torch.equal(cuda_result.cpu(), cpu_result))
