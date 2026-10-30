@@ -26,10 +26,21 @@ double naive_run_time = 0.0;
 
 namespace fbgemm {
 
+#if defined(__aarch64__) && defined(FBGEMM_HAVE_BF16_BFCVT)
+namespace detail {
+void float_to_bfloat16_bfcvt(const float* src, bfloat16* dst, size_t size);
+}
+#endif
+
 void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
-#if !defined(__aarch64__)
+#if defined(__aarch64__) && defined(FBGEMM_HAVE_BF16_BFCVT)
+    if (cpuinfo_has_arm_bf16()) {
+      detail::float_to_bfloat16_bfcvt(src, dst, size);
+      return;
+    }
+#elif !defined(__aarch64__)
     if (fbgemmHasAvx512Support()) {
       FloatToBfloat16_avx512(src, dst, size);
     } else if (fbgemmHasAvx2Support()) {

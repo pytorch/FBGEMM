@@ -232,6 +232,29 @@ if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
 endif()
 
+# Keep BF16 instructions confined to this source file.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+  include(CheckCXXSourceCompiles)
+  include(CMakePushCheckState)
+  cmake_push_check_state(RESET)
+  set(CMAKE_REQUIRED_FLAGS "-march=armv8-a+bf16")
+  check_cxx_source_compiles("
+    #include <bit>
+    #include <cstdint>
+    uint16_t convert(float x) {
+      return std::bit_cast<uint16_t>(static_cast<__bf16>(x));
+    }
+    int main() { return convert(1.0f) == 0; }
+  " FBGEMM_COMPILER_HAS_NATIVE_BF16)
+  cmake_pop_check_state()
+  if(FBGEMM_COMPILER_HAS_NATIVE_BF16)
+    list(APPEND FBGEMM_GENERIC_SRCS src/FbgemmBfloat16ConvertBfcvt.cc)
+    set_source_files_properties(src/FbgemmBfloat16ConvertBfcvt.cc
+      PROPERTIES COMPILE_OPTIONS "-march=armv8-a+bf16")
+    list(APPEND fbgemm_generic_defs FBGEMM_HAVE_BF16_BFCVT)
+  endif()
+endif()
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
   set(fbgemm_generic_defs ${fbgemm_generic_defs} FBGEMM_ENABLE_KLEIDIAI)
 endif()
