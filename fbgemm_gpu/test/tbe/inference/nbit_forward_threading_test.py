@@ -31,6 +31,7 @@ def _run(
     row_parallelism: Optional[bool] = None,
     bag_parallelism: Optional[bool] = None,
     bags_per_thread: Optional[int] = None,
+    output_pool: Optional[bool] = None,
 ) -> torch.Tensor:
     """Run the worker in a fresh process with the given threading env and load
     its forward output. The thread count is read once (cached) at the first
@@ -46,6 +47,8 @@ def _run(
     env.pop("FBGEMM_TBE_BAG_PARALLELISM", None)
     env.pop("FBGEMM_TBE_MIN_BAGS_PER_THREAD", None)
     env.pop("FBGEMM_TBE_BAG_PARALLELISM_MIN_B", None)
+    env.pop("FBGEMM_TBE_CPU_OUTPUT_POOL", None)
+    env.pop("FBGEMM_TBE_CPU_OUTPUT_POOL_MIN_KB", None)
     # Stats collection forces the whole-table path, so it must not leak in from
     # the ambient environment and silently skip the scheduler under test.
     env.pop("FBGEMM_STATS_ENABLE", None)
@@ -68,6 +71,12 @@ def _run(
         env["FBGEMM_TBE_BAG_PARALLELISM"] = "1" if bag_parallelism else "0"
     if bags_per_thread is not None:
         env["FBGEMM_TBE_MIN_BAGS_PER_THREAD"] = str(bags_per_thread)
+    if output_pool is not None:
+        # Plain env var, read once per process. The test outputs are under the
+        # default 1 MiB pooling floor, so lower it to make sure the pooled
+        # allocation is what runs (the worker reports block reuse).
+        env["FBGEMM_TBE_CPU_OUTPUT_POOL"] = "1" if output_pool else "0"
+        env["FBGEMM_TBE_CPU_OUTPUT_POOL_MIN_KB"] = "64"
     subprocess.run([worker, out_path, mode], env=env, check=True)
     return torch.load(out_path)
 
@@ -85,6 +94,27 @@ def _paths_ran(out_path: str) -> dict[str, bool]:
     "not available in the OSS build",
 )
 class NBitForwardThreadingTest(unittest.TestCase):
+    def test_output_pool_reuse_is_bitwise_identical(self) -> None:
+        # With FBGEMM_TBE_CPU_OUTPUT_POOL=1, the last NOBAG call in the worker
+        # reuses the previous call's (dirty) output block. The result must equal
+        # the pool-off run bit for bit, for the INT4 passthrough and FP16 paths.
+        with tempfile.TemporaryDirectory() as d:
+            for mode in ("nobag_skewed_reuse", "nobag_fp16_reuse"):
+                for threads in (None, 4):
+                    off_path = os.path.join(d, f"{mode}_{threads}_off.pt")
+                    on_path = os.path.join(d, f"{mode}_{threads}_on.pt")
+                    off = _run(off_path, threads, None, mode=mode, output_pool=False)
+                    on = _run(on_path, threads, None, mode=mode, output_pool=True)
+                    self.assertTrue(
+                        _paths_ran(on_path)["reused"],
+                        f"{mode}/{threads}: pooled run did not reuse its block",
+                    )
+                    self.assertGreater(int(torch.count_nonzero(off)), 0)
+                    self.assertTrue(
+                        torch.equal(on, off),
+                        f"{mode}/{threads}: pooled output differs from unpooled",
+                    )
+
     def test_threading_does_not_change_result(self) -> None:
         # Each config maps to (FBGEMM_TBE_MAX_NUM_THREADS, FBGEMM_TBE_MIN_TABLES_PER_THREAD).
         # Outputs must be BITWISE identical across all of them: table-threading
