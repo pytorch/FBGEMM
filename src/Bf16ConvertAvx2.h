@@ -17,9 +17,14 @@ namespace fbgemm::internal {
 inline __m256i cvt_fp32_to_bf16x8(__m256i val) {
   __m256i lsb =
       _mm256_and_si256(_mm256_srli_epi32(val, 16), _mm256_set1_epi32(1));
+  const __m256i rounded =
+      _mm256_add_epi32(val, _mm256_add_epi32(lsb, _mm256_set1_epi32(0x7FFF)));
+  const __m256i is_nan = _mm256_cmpgt_epi32(
+      _mm256_and_si256(val, _mm256_set1_epi32(0x7fffffff)),
+      _mm256_set1_epi32(0x7f800000));
+  const __m256i quiet_nan = _mm256_or_si256(val, _mm256_set1_epi32(0x00400000));
   return _mm256_srli_epi32(
-      _mm256_add_epi32(val, _mm256_add_epi32(lsb, _mm256_set1_epi32(0x7FFF))),
-      16);
+      _mm256_blendv_epi8(rounded, quiet_nan, is_nan), 16);
 }
 
 // Convert 2x8 fp32 to 16 packed bf16

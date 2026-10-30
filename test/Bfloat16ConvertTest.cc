@@ -17,7 +17,29 @@
 using namespace std;
 using namespace fbgemm;
 
+namespace {
+void checkSpecialValues(void (*convert)(const float*, bfloat16*, size_t)) {
+  constexpr uint32_t inputs[] = {
+      0x7f800001u, 0x7fc00001u, 0x7fff8000u, 0x7fffffffu,
+      0xff800001u, 0xffc00001u, 0xffff8000u, 0xffffffffu,
+      0x7f800000u, 0xff800000u};
+  constexpr uint16_t expected[] = {
+      0x7fc0, 0x7fc0, 0x7fff, 0x7fff, 0xffc0, 0xffc0, 0xffff, 0xffff,
+      0x7f80, 0xff80};
+  float src[33];
+  bfloat16 dst[33];
+  for (size_t i = 0; i < 33; ++i) {
+    src[i] = std::bit_cast<float>(inputs[i % 10]);
+  }
+  convert(src, dst, 33); // SIMD blocks followed by a scalar tail.
+  for (size_t i = 0; i < 33; ++i) {
+    EXPECT_EQ(dst[i].val, expected[i % 10]);
+  }
+}
+} // namespace
+
 TEST(FBGemmBfloat16Test, Conversion) {
+  checkSpecialValues(FloatToBfloat16_ref);
   float a[100]; // fp32 type
   for (int i = 0; i < 100; ++i) {
     const uint32_t high = (0x3f00u + i) | (i & 2 ? 0x8000u : 0);
@@ -35,6 +57,7 @@ TEST(FBGemmBfloat16Test, Conversion) {
 }
 
 TEST(FBGemmBfloat16Test, Conversion_simd) {
+  checkSpecialValues(FloatToBfloat16_simd);
   float a[100]; // fp32 type
   for (int i = 0; i < 100; ++i) {
     const uint32_t high = (0x3f00u + i) | (i & 2 ? 0x8000u : 0);

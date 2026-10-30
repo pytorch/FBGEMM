@@ -10,8 +10,6 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Utils.h"
 
-#include <algorithm>
-#include <bit>
 #include <stdexcept>
 
 #include <cpuinfo.h>
@@ -32,57 +30,7 @@ void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
 #if !defined(__aarch64__)
-    const bool has_avx512 = fbgemmHasAvx512Support();
-#endif
-#if defined(FBGEMM_HAVE_NATIVE_BF16) && \
-    (defined(__aarch64__) || defined(__x86_64__) || defined(_M_X64))
-#if defined(__aarch64__)
-    const bool native_bf16 = cpuinfo_has_arm_bf16();
-#else
-    const bool native_bf16 = has_avx512 && fbgemmHasAvx512Bf16Support();
-#endif
-    if (native_bf16) {
-      [](const float* src, bfloat16* dst, size_t size)
-#if defined(__aarch64__)
-          __attribute__((target("+bf16")))
-#else
-          __attribute__((target("avx512bf16,avx512vl")))
-#endif
-      {
-#if defined(__aarch64__)
-        uint64_t fpcr;
-        asm volatile("mrs %0, fpcr" : "=r"(fpcr));
-        // Fall back for nondefault rounding/denormal handling or FP traps.
-        if (fpcr & ((3ull << 22) | (1ull << 24) | 0x9f03ull)) {
-          FloatToBfloat16_ref(src, dst, size);
-          return;
-        }
-#endif
-        for (size_t i = 0; i < size;) {
-          const size_t count = std::min(size - i, size_t{32});
-          bool needs_reference = false;
-          for (size_t j = 0; j < count; ++j) {
-            const uint32_t bits = std::bit_cast<uint32_t>(src[i + j]) & 0x7fffffffu;
-            needs_reference |= bits > 0x7f800000u ||
-                (bits != 0 && bits < 0x00800000u);
-          }
-          // Preserve NaN behavior and subnormals, which x86 BF16 flushes.
-          if (needs_reference) {
-            FloatToBfloat16_ref(src + i, dst + i, count);
-          } else {
-            for (size_t j = 0; j < count; ++j) {
-              dst[i + j].val =
-                  std::bit_cast<uint16_t>(static_cast<__bf16>(src[i + j]));
-            }
-          }
-          i += count;
-        }
-      }(src, dst, size);
-      return;
-    }
-#endif
-#if !defined(__aarch64__)
-    if (has_avx512) {
+    if (fbgemmHasAvx512Support()) {
       FloatToBfloat16_avx512(src, dst, size);
     } else if (fbgemmHasAvx2Support()) {
       FloatToBfloat16_avx2(src, dst, size);

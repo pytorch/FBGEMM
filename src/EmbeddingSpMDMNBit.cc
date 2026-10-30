@@ -370,8 +370,8 @@ GenEmbeddingSpMDMNBitLookup<
           --unroll_factor;
           bf16_bias_vreg = vec_reg_t(unroll_factor);
           a->mov(scratchReg2_, 0x7FFF);
-          a->vpinsrd(bf16_bias_vreg.xmm(), bf16_bias_vreg.xmm(), scratchReg2_,
-                     0);
+          a->vpinsrd(
+              bf16_bias_vreg.xmm(), bf16_bias_vreg.xmm(), scratchReg2_, 0);
           a->vpbroadcastd(bf16_bias_vreg, bf16_bias_vreg.xmm());
           --unroll_factor;
           bf16_tmp_vreg = vec_reg_t(unroll_factor);
