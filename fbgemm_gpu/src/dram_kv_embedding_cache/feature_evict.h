@@ -1201,6 +1201,8 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
     thresholds_.resize(sub_table_hash_cumsum.size(), 0.0);
     evict_modes_.resize(num_tables_);
+    boundary_buckets_.resize(num_tables_, 0);
+    boundary_evict_fractions_.resize(num_tables_, 0.0);
   }
 
   void update_feature_statistics(weight_type* block) override {
@@ -1263,26 +1265,17 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       return current_time - FixedBlockPool::get_timestamp(block) >
           ttls_threshold * 60;
     }
-    double threshold = thresholds_[sub_table_id];
-
-    if (this->should_decay_) {
-      double ratio = FixedBlockPool::get_feature_score_rate(block);
-      double decay_rate = decay_rates_[sub_table_id];
-      double new_ratio = ratio * decay_rate;
-      FixedBlockPool::set_feature_score_rate(block, new_ratio);
-    }
-    double overall_ratio = FixedBlockPool::get_feature_score_rate(block);
-    constexpr double EPSILON = 1e-9;
+    // Decide on the pre-decay score: the boundary was computed from the
+    // pre-decay histogram.
+    const double ratio = FixedBlockPool::get_feature_score_rate(block);
     bool should_evict = false;
     switch (evict_modes_[sub_table_id]) {
       case EvictMode::NONE:
         should_evict = false;
         break;
       case EvictMode::ONLY_ZERO:
-        should_evict = std::abs(overall_ratio) < EPSILON;
-        break;
       case EvictMode::THRESHOLD:
-        should_evict = overall_ratio <= threshold;
+        should_evict = below_eviction_boundary(block, ratio, sub_table_id);
         break;
       default:
         LOG(ERROR) << "Invalid evict mode";
@@ -1290,6 +1283,10 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         break;
     }
 
+    if (!should_evict && this->should_decay_) {
+      FixedBlockPool::set_feature_score_rate(
+          block, ratio * decay_rates_[sub_table_id]);
+    }
     return should_evict;
   }
 
@@ -1341,7 +1338,42 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
     return idx;
   }
 
+  static uint64_t mix64(uint64_t x) {
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+  }
+
+  // Scores are discrete (many rows share one exact value), so evicting the
+  // whole boundary bucket can overshoot the keep count several times over.
+  // Instead, a per-round key hash evicts just the needed fraction of it.
+  bool
+  below_eviction_boundary(weight_type* block, double ratio, int sub_table_id) {
+    const int64_t idx = get_bucket_id_from_ratio(ratio);
+    const int64_t boundary = boundary_buckets_[sub_table_id];
+    if (idx != boundary) {
+      return idx < boundary;
+    }
+    const uint64_t h = mix64(
+        static_cast<uint64_t>(FixedBlockPool::get_key(block)) ^ round_salt_);
+    return static_cast<double>(h >> 11) * 0x1.0p-53 <
+        boundary_evict_fractions_[sub_table_id];
+  }
+
+  void set_eviction_boundary(
+      size_t table_id,
+      int64_t bucket,
+      int64_t below_count,
+      int64_t bucket_count,
+      int64_t evict_count) {
+    boundary_buckets_[table_id] = bucket;
+    boundary_evict_fractions_[table_id] = bucket_count > 0
+        ? static_cast<double>(evict_count - below_count) / bucket_count
+        : 0.0;
+  }
+
   void compute_thresholds_from_buckets() {
+    round_salt_ = mix64(++round_count_);
     for (size_t table_id = 0; table_id < num_tables_; ++table_id) {
       int8_t enable_eviction =
           enable_eviction_for_feature_score_eviction_policy_[table_id];
@@ -1385,25 +1417,46 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         // Case 2: If bucket 0 alone contains sufficient blocks to satisfy
         // the eviction demand, restrict eviction only to bucket 0 (blocks
         // with score == 0).
+        threshold_bucket = 0;
+        acc_count = evict_count;
+        set_eviction_boundary(table_id, 0, 0, bucket0_count, evict_count);
         thresholds_[table_id] = 0.0;
         evict_modes_[table_id] = EvictMode::ONLY_ZERO;
       } else {
         // Case 3: Need to evict across multiple buckets.
         // Accumulate candidate blocks from bucket 0 and higher until the
         // eviction quota is met.
-        acc_count = bucket0_count;
+        int64_t below_count = bucket0_count;
+        int64_t boundary_count = 0;
         bool found_threshold_bucket = false;
         for (int bucket_id = 1; bucket_id < num_buckets_; ++bucket_id) {
+          boundary_count = 0;
           for (int shard_id = 0; shard_id < this->num_shards_; ++shard_id) {
-            acc_count += local_buckets_per_shard_per_table_[table_id][shard_id]
-                                                           [bucket_id];
-            if (acc_count >= evict_count && !found_threshold_bucket) {
-              threshold_bucket = bucket_id;
-              found_threshold_bucket = true;
-            }
+            boundary_count +=
+                local_buckets_per_shard_per_table_[table_id][shard_id]
+                                                  [bucket_id];
           }
-          if (found_threshold_bucket)
+          if (below_count + boundary_count >= evict_count) {
+            threshold_bucket = bucket_id;
+            found_threshold_bucket = true;
             break;
+          }
+          below_count += boundary_count;
+        }
+        if (found_threshold_bucket) {
+          acc_count = evict_count;
+          set_eviction_boundary(
+              table_id,
+              threshold_bucket,
+              below_count,
+              boundary_count,
+              evict_count);
+        } else {
+          // The histogram can't cover the demand (it is rebuilt concurrently
+          // with training updates); keep the top bucket rather than evicting
+          // everything.
+          acc_count = below_count - boundary_count;
+          set_eviction_boundary(table_id, num_buckets_ - 1, 0, 0, 0);
         }
 
         double threshold =
@@ -1414,7 +1467,9 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       LOG(INFO) << "[Dry Run Result]table " << table_id
                 << " threshold: " << thresholds_[table_id]
                 << " threshold bucket: " << threshold_bucket
-                << " actual evict count: " << acc_count
+                << " boundary evict fraction: "
+                << boundary_evict_fractions_[table_id]
+                << " planned evict count: " << acc_count
                 << " target evict count: " << evict_count
                 << " total count: " << total
                 << " evict mode: " << to_string(evict_modes_[table_id]);
@@ -1449,6 +1504,12 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
   const int num_tables_ = static_cast<int>(this->sub_table_hash_cumsum_.size());
   const std::vector<double>& decay_rates_; // Decay rate for the block count.
   std::vector<double> thresholds_; // Threshold for eviction.
+  // Rows in buckets below boundary_buckets_ are evicted; rows inside it are
+  // evicted with probability boundary_evict_fractions_.
+  std::vector<int64_t> boundary_buckets_;
+  std::vector<double> boundary_evict_fractions_;
+  uint64_t round_count_{0};
+  uint64_t round_salt_{0};
 
   const std::vector<int64_t>&
       training_id_eviction_trigger_count_; // training id num for trigger
