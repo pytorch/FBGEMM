@@ -6,6 +6,7 @@
 
 import math
 import unittest
+from unittest import mock
 
 import fbgemm_gpu
 import torch
@@ -64,6 +65,42 @@ def _pack_fp4_test_kernel(X, Y, N, BLOCK: tl.constexpr):
 class TestFp4Quantize(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
+
+    def test_quantize_fp4_padded_scales(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        original_empty = torch.empty
+
+        def poison_scale_allocation(*args, **kwargs):
+            result = original_empty(*args, **kwargs)
+            if result.dtype == torch.int8 and result.ndim == 2:
+                result.fill_(90)
+            return result
+
+        for rows, columns in [(3, 32), (3, 128), (129, 96)]:
+            with self.subTest(rows=rows, columns=columns):
+                values = torch.full(
+                    (rows, columns), 6.0, dtype=torch.bfloat16, device=device
+                )
+                with mock.patch(
+                    "fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize.torch.empty",
+                    side_effect=poison_scale_allocation,
+                ):
+                    packed, scales = triton_quantize_mx4_unpack(
+                        values, group_size=32, rounding_mode=RoundingMode.even
+                    )
+                # Every group has exponent zero and E2M1 code7 for value6.
+                expected_packed = torch.full(
+                    (rows, columns // 2), 0x77, dtype=torch.uint8, device=device
+                )
+                expected_scales = to_blocked(
+                    torch.full(
+                        (rows, columns // 32), 127, dtype=torch.uint8, device=device
+                    )
+                )
+                torch.testing.assert_close(packed, expected_packed, atol=0, rtol=0)
+                torch.testing.assert_close(
+                    scales.view(torch.uint8), expected_scales, atol=0, rtol=0
+                )
 
     def test_quantize_fp4(self) -> None:
         def _test_quantize_fp4(
@@ -577,6 +614,41 @@ def to_blocked(input_matrix) -> Tensor:
 class TestNVFp4Quantize(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
+
+    def test_quantize_nvfp4_padded_scales(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        original_empty = torch.empty
+
+        def poison_scale_allocation(*args, **kwargs):
+            result = original_empty(*args, **kwargs)
+            if result.dtype == torch.uint8 and result.ndim == 2:
+                result.fill_(90)
+            return result
+
+        for rows, columns in [(3, 16), (3, 64), (129, 48)]:
+            with self.subTest(rows=rows, columns=columns):
+                values = torch.full(
+                    (rows, columns), 6.0, dtype=torch.bfloat16, device=device
+                )
+                global_scale = torch.tensor(1.0, device=device)
+                with mock.patch(
+                    "fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize.torch.empty",
+                    side_effect=poison_scale_allocation,
+                ):
+                    packed, scales = triton_scale_nvfp4_quant(
+                        values, global_scale, group_size=16
+                    )
+                # Value6 has E2M1 code7; its local scale1 has E4M3 code0x38.
+                expected_packed = torch.full(
+                    (rows, columns // 2), 0x77, dtype=torch.uint8, device=device
+                )
+                expected_scales = to_blocked(
+                    torch.full(
+                        (rows, columns // 16), 0x38, dtype=torch.uint8, device=device
+                    )
+                )
+                torch.testing.assert_close(packed, expected_packed, atol=0, rtol=0)
+                torch.testing.assert_close(scales, expected_scales, atol=0, rtol=0)
 
     def test_quantize_nvfp4(self) -> None:
 
