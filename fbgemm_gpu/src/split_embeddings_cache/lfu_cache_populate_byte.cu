@@ -13,6 +13,8 @@ using namespace fbgemm_gpu;
 
 namespace {
 
+constexpr int64_t kUint4Bytes = sizeof(uint4);
+
 // In `lfu_cache_insert_kernel`, we use `emb_t` and `cache_t` for the
 // high-precision cache implementation, where we can have {FP32, FP16, INT8}
 // for embedding precision (data types), and {FP32, FP16} for cache precision
@@ -54,7 +56,8 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
         lfu_state,
     const int64_t row_alignment) {
   const int32_t C = lxu_cache_state.size(0);
-  for (uint32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (int64_t n = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
     const bool segment_start =
@@ -68,7 +71,7 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
       continue;
     }
     const uint32_t cache_set = (sorted_cache_sets[n] >> kLFUCounterBits);
-    if (cache_set == C) {
+    if (static_cast<int64_t>(cache_set) == C) {
       // ignore the already-existing elements
       continue;
     }
@@ -126,7 +129,7 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
           &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0]);
       auto cache_row = reinterpret_cast<uint4*>(
           &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0]);
-      for (uint32_t d = threadIdx.x; d * sizeof(uint4) < D_insert_bytes;
+      for (int64_t d = threadIdx.x; d * kUint4Bytes < D_insert_bytes;
            d += blockDim.x) {
         cache_row[d] = row[d];
       }

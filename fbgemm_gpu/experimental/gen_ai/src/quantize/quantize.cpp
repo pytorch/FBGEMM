@@ -965,8 +965,9 @@ std::vector<at::Tensor> quantize_fp8_per_col_meta(
 std::vector<at::Tensor> bf16bf16bf16_grouped_meta(
     at::TensorList X,
     at::TensorList W) {
+  TORCH_CHECK(X.size() == W.size(), "X and W must have the same length");
   std::vector<at::Tensor> Y;
-  for (int i = 0; i < X.size(); i++) {
+  for (const auto i : c10::irange(X.size())) {
     const at::SymInt M = X[i].sym_size(0);
     const at::SymInt N = W[i].sym_size(0);
     Y.push_back(at::empty_symint({M, N}, X[i].options().dtype(at::kBFloat16)));

@@ -57,6 +57,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
 
     __constants__ = [
         "use_packed_int4_rows",
+        "use_grouped_int4_rows",
         "kv_int4_logical_row_alignment",
         "kv_storage_row_alignment",
     ]
@@ -93,6 +94,11 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         feature_names_per_table: list[list[str]] | None = None,
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
         embedding_cache_mode: bool = False,  # True for zero initialization, False for randomized initialization
+        # 0: INT4 rows are rowwise (fp16 scale and bias). Otherwise every table is
+        # INT4 stored as group-wise INT4 with one float8_e4m3fn scale per this many
+        # dims (fbgemm.FloatOrHalfToGroupedInt4E4M3); lookups decode the rows to
+        # FP16, which the kernel then reads as FP16 tables.
+        grouped_int4_group_size: int = 0,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super().__init__(
             # pyre-fixme[6]: Type-identity mismatch on EmbeddingLocation between shell
@@ -137,6 +143,28 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             "weights_ids",
             torch.tensor(0, device=self.current_device, dtype=torch.int64),
         )
+        # A constant, so modules without grouped rows script without the decode op
+        # and load on serving packages that predate it.
+        self.use_grouped_int4_rows: bool = grouped_int4_group_size > 0
+        # Plain attributes, which serving loaders read to size and check rows.
+        self.grouped_int4_group_size: int = grouped_int4_group_size
+        self.grouped_int4_dim: int = 0
+        self.grouped_int4_row_bytes: int = 0
+        if grouped_int4_group_size:
+            # Forward serves decoded rows as an FP16 table; the quantized output
+            # kernels would size their output for the INT4 table instead.
+            assert output_dtype in (
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.BF16,
+            ), f"grouped_int4_group_size needs a float output_dtype, got {output_dtype}"
+            self.grouped_int4_dim = self._grouped_int4_dim(grouped_int4_group_size)
+            self.grouped_int4_row_bytes = (
+                self.grouped_int4_dim // 2
+                + self.grouped_int4_dim // grouped_int4_group_size
+            )
+        self.decoded_weight_ty: int = SparseType.FP16.as_int()
+        self.embedding_cache_mode: bool = embedding_cache_mode
 
         num_shards = 32
         uniform_init_lower: float = -0.01
@@ -150,8 +178,18 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             embedding_cache_mode,  # in embedding_cache_mode, we disable random init
         )
 
+        # The KV store sizes rows from these specs. Grouped rows are opaque bytes,
+        # declared as dim / 2 + dim / group_size one-byte (FP8-sized) columns.
         self.specs: list[tuple[int, int, int]] = [
-            (rows, dims, sparse_type.as_int())
+            (
+                (
+                    rows,
+                    dims // 2 + dims // grouped_int4_group_size,
+                    SparseType.FP8.as_int(),
+                )
+                if grouped_int4_group_size
+                else (rows, dims, sparse_type.as_int())
+            )
             for (_, rows, dims, sparse_type, _) in self.embedding_specs
         ]
         first_logical_row_bytes = (
@@ -167,6 +205,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         self.use_packed_int4_rows: bool = (
             _supports_packed_int4_rows(self.kv_embedding_cache)
             and KV_INT4_PACKED_ROWS_ROLLOUT_ENABLED
+            and not grouped_int4_group_size
             and bool(self.embedding_specs)
             and all(
                 [
@@ -198,6 +237,41 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             dtype=torch.int64,
         )
 
+    def _grouped_int4_dim(self, group_size: int) -> int:
+        """The shared table dim, validated for group-wise INT4 storage."""
+        dims = [dims for (_, _, dims, _, _) in self.embedding_specs]
+        assert dims, "grouped_int4_group_size needs at least one table"
+        assert all(
+            sparse_type == SparseType.INT4
+            for (_, _, _, sparse_type, _) in self.embedding_specs
+        ), "grouped_int4_group_size needs every table to be INT4"
+        assert all(d == dims[0] for d in dims), (
+            f"grouped_int4_group_size needs every table to have the same dim, "
+            f"got {dims}"
+        )
+        dim = dims[0]
+        # Publish only writes group size 8 (INT4_G8). Other sizes can match a
+        # padded rowwise INT4 row: group size 16 at dim 128 gives 72 bytes, a
+        # rowwise row padded to 8 bytes.
+        assert group_size == 8, f"grouped_int4_group_size must be 8, got {group_size}"
+        assert (
+            dim % group_size == 0
+        ), f"grouped_int4_group_size {group_size} must divide dim {dim}"
+        # grouped_int4_group_size, not the row width, identifies the format;
+        # loaders and embedding_inplace_update_per_table check widths only to
+        # catch rows of the other format. Keep grouped rows from matching
+        # unpadded rowwise INT4 rows (dim / 2 + 4 bytes) so that check holds.
+        assert dim // group_size != 4, (
+            f"grouped_int4_group_size {group_size} with dim {dim} gives rows as wide "
+            f"as rowwise INT4 rows"
+        )
+        # Decoded FP16 rows are read with the KV storage row alignment.
+        assert (2 * dim) % KV_STORAGE_ROW_ALIGNMENT == 0, (
+            f"grouped INT4 dim {dim} must give FP16 rows aligned to "
+            f"{KV_STORAGE_ROW_ALIGNMENT} bytes"
+        )
+        return dim
+
     def construct_hash_size_cumsum(self) -> list[int]:
         hash_size_cumsum = [0]
         for spec in self.embedding_specs:
@@ -227,9 +301,12 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             index_size = end - start
             new_indices[start:end] = torch.arange(index_size)
             table_id = self.feature_table_map[t]
+            weight_ty = self.embedding_specs[table_id][3]
+            if self.use_grouped_int4_rows:
+                weight_ty = SparseType.FP16
             total_bytes_added += index_size * rounded_row_size_in_bytes(
                 self.embedding_specs[table_id][2],  # dim
-                self.embedding_specs[table_id][3],  # weight_ty
+                weight_ty,
                 self.row_alignment,
                 self.scale_bias_size_in_bytes,
             )
@@ -278,6 +355,9 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
 
         weights_offsets = self.weights_offsets
         weights = self.weights_host if self.host_size > 0 else self.weights_dev
+        weights_tys = self.weights_tys
+        max_int4_D = self.max_int4_D
+        max_float16_D = self.max_float16_D
 
         if self.kv_embedding_cache_initialized:
             indices = self.linearize_cache_indices(
@@ -286,6 +366,18 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             )
 
             weights = self.kv_embedding_cache.get_embeddings(indices)
+            if self.use_grouped_int4_rows:
+                weights = torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                    weights,
+                    self.grouped_int4_group_size,
+                    self.grouped_int4_dim,
+                    as_bytes=True,
+                )
+                # Derived from weights_tys, which serving rebuilds on the target
+                # device (recompute_module_buffers); a buffer would stay on meta.
+                weights_tys = torch.full_like(weights_tys, self.decoded_weight_ty)
+                max_int4_D = 0
+                max_float16_D = self.grouped_int4_dim
 
             indices, weights_offsets = self.calculate_indices_and_weights_offsets(
                 indices, offsets
@@ -296,13 +388,13 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
             uvm_weights=self.weights_uvm,
             weights_placements=self.weights_placements,
             weights_offsets=weights_offsets,
-            weights_tys=self.weights_tys,
+            weights_tys=weights_tys,
             D_offsets=self.D_offsets,
             total_D=self.total_D,
             max_int2_D=self.max_int2_D,
-            max_int4_D=self.max_int4_D,
+            max_int4_D=max_int4_D,
             max_int8_D=self.max_int8_D,
-            max_float16_D=self.max_float16_D,
+            max_float16_D=max_float16_D,
             max_float32_D=self.max_float32_D,
             indices=indices,
             offsets=offsets,
@@ -325,14 +417,26 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         for i, (_, num_embeddings, embedding_dim, weight_ty, _) in enumerate(
             self.embedding_specs
         ):
-            embedding_dim = rounded_row_size_in_bytes(
-                embedding_dim, weight_ty, self.row_alignment
-            )
             indices = torch.arange(num_embeddings, dtype=torch.int64)
-            weights = random_quant_scaled_tensor(
-                shape=torch.Size([num_embeddings, embedding_dim]),
-                device=self.current_device,
-            )
+            if self.use_grouped_int4_rows:
+                weights = torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(
+                    torch.empty(
+                        num_embeddings, embedding_dim, dtype=torch.float16
+                    ).uniform_(-0.01, 0.01),
+                    self.grouped_int4_group_size,
+                )
+            else:
+                weights = random_quant_scaled_tensor(
+                    shape=torch.Size(
+                        [
+                            num_embeddings,
+                            rounded_row_size_in_bytes(
+                                embedding_dim, weight_ty, self.row_alignment
+                            ),
+                        ]
+                    ),
+                    device=self.current_device,
+                )
             self.embedding_inplace_update_per_table(
                 i,
                 indices,
@@ -384,6 +488,17 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         row_size = update_row_indices.numel()
         if row_size == 0:
             return
+        if self.use_grouped_int4_rows and not (
+            update_weights.dtype == torch.uint8
+            and update_weights.dim() == 2
+            and update_weights.size(1) == self.grouped_int4_row_bytes
+        ):
+            # The store zero-pads narrower rows, so a rowwise INT4 row written
+            # here would be silently misdecoded instead of rejected.
+            raise ValueError(
+                f"grouped INT4 rows must be uint8 with {self.grouped_int4_row_bytes} "
+                f"bytes, got {update_weights.dtype} {list(update_weights.shape)}"
+            )
 
         # convert global weight index to fused local weight index
         row_indices = update_row_indices + table_offset - sharding_offset

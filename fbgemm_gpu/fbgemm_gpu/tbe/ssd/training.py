@@ -56,7 +56,13 @@ from fbgemm_gpu.tbe.monitoring import (
     TBEStatsReporterConfig,
 )
 
-from .ssd_config import BackendType, EvictionPolicy, KVZCHParams  # usort:skip
+from .ssd_config import (  # usort:skip
+    BackendType,
+    EnrichmentPolicy,
+    EnrichmentType,
+    EvictionPolicy,
+    KVZCHParams,
+)
 from torch import distributed as dist, nn, Tensor  # usort:skip
 import sys
 from dataclasses import dataclass
@@ -815,6 +821,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._owner_cache_gather_reserved_sms = (
                     enrichment_policy.owner_cache_gather_reserved_sms
                 )
+                if (
+                    enrichment_policy.serving_qdq_bit_rate
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("serving_qdq_bit_rate requires the DRAM backend")
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -1440,6 +1451,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.laser_batch_size,
                     ep.laser_key_suffix,
                     list(ep.laser_key_suffixes),
+                    self._serving_qdq_bit_rate(ep),
+                    ep.serving_qdq_group_size,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -4957,12 +4970,78 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     False,
                 )
 
+    def _serving_qdq_bit_rate(self, ep: EnrichmentPolicy) -> int:
+        """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE, also
+        validating serving_qdq_group_size, which depends on it."""
+        bit_rate, group_size = ep.serving_qdq_bit_rate, ep.serving_qdq_group_size
+        if bit_rate == 0:
+            if group_size != 0:
+                raise ValueError("serving_qdq_group_size needs serving_qdq_bit_rate 4")
+            return 0
+        if group_size != 0 and (
+            bit_rate != 4
+            or group_size < 0
+            or group_size % 2 != 0
+            or ep.enrichment_dim % group_size != 0
+        ):
+            raise ValueError(
+                f"serving_qdq_group_size {group_size} needs serving_qdq_bit_rate 4 "
+                f"and an even group size dividing enrichment_dim ({ep.enrichment_dim})"
+            )
+        if bit_rate not in (2, 4):
+            raise ValueError(f"serving_qdq_bit_rate must be 0, 2 or 4, got {bit_rate}")
+        if ep.enrichment_type not in (
+            EnrichmentType.IGR_LASER_EMBEDDING,
+            EnrichmentType.IN_MEMORY_TEST_ONLY,
+        ):
+            raise ValueError(
+                f"serving_qdq_bit_rate needs an embedding payload, got {ep.enrichment_type}"
+            )
+        if self.weights_precision != SparseType.FP16:
+            raise ValueError(
+                f"serving_qdq_bit_rate needs FP16 weights, got {self.weights_precision}"
+            )
+        if ep.enrichment_dim != self.max_D:
+            raise ValueError(
+                f"serving_qdq_bit_rate needs enrichment_dim ({ep.enrichment_dim}) "
+                f"== table dim ({self.max_D})"
+            )
+        codes_per_byte = 8 // bit_rate
+        if ep.enrichment_dim <= 0 or ep.enrichment_dim % codes_per_byte != 0:
+            raise ValueError(
+                f"serving_qdq_bit_rate={bit_rate} needs a positive enrichment_dim "
+                f"divisible by {codes_per_byte}, got {ep.enrichment_dim}"
+            )
+        return bit_rate
+
+    @torch.jit.ignore
+    def _serving_qdq_restored_rows(self) -> None:
+        """Rewrites rows restored from a checkpoint as their serving values;
+        rows written while serving_qdq_bit_rate was set are left unchanged."""
+        if not self._enrichment_enabled or self.backend_type != BackendType.DRAM:
+            return
+        kv_zch_params = self.kv_zch_params
+        if (
+            kv_zch_params is None
+            or kv_zch_params.enrichment_policy is None
+            or kv_zch_params.enrichment_policy.serving_qdq_bit_rate == 0
+        ):
+            return
+        # Restore writes issued through set_cuda run as stream host callbacks.
+        torch.cuda.synchronize(self.current_device)
+        changed = self.ssd_db.serving_qdq_existing_rows()
+        logging.info(
+            f"serving_qdq_existing_rows rewrote {changed} rows, tbe {self.tbe_unique_id}"
+        )
+
     @torch.jit.ignore
     def apply_state_dict(self) -> None:
         if self.backend_return_whole_row:
             logging.info(
                 "backend_return_whole_row is enabled, no need to apply_state_dict"
             )
+            # Whole rows were written straight into the backend while loading.
+            self._serving_qdq_restored_rows()
             return
         # After checkpoint loading, the _cached_kvzch_data will be loaded from checkpoint.
         # Caller should call this function to apply the cached states to backend.
@@ -4987,6 +5066,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self._apply_state_dict_w_offloading()
         else:
             self._apply_state_dict_no_offloading()
+        self._serving_qdq_restored_rows()
 
         self.clear_cache()
 

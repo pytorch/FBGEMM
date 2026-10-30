@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/quantize_ops_utils.h"
 #include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/utils/grouped_int4_e4m3.h"
 
 using Tensor = at::Tensor;
 
@@ -98,9 +99,67 @@ Tensor fusednbitrowwise_to_float_or_half_meta(
   }
 }
 
+/// @ingroup quantize-data-meta
+///
+Tensor float_or_half_to_grouped_int4_e4m3_meta(
+    const Tensor& input,
+    const int64_t group_size) {
+  TORCH_CHECK(input.dim() == 2, "input must be 2D, got ", input.dim(), "D");
+  TORCH_CHECK(
+      group_size > 0 && group_size % 2 == 0,
+      "group_size must be a positive even number, got ",
+      group_size);
+  const at::SymInt& nrows = input.sym_size(0);
+  const at::SymInt& dim = input.sym_size(1);
+  TORCH_SYM_CHECK(
+      dim.sym_gt(0) & (dim % group_size).sym_eq(0),
+      "dim must be a positive multiple of group_size ",
+      group_size,
+      ", got ",
+      dim);
+  return at::empty_symint(
+      {nrows, dim / 2 + dim / group_size}, input.options().dtype(at::kByte));
+}
+
+/// @ingroup quantize-data-meta
+///
+Tensor grouped_int4_e4m3_to_half_meta(
+    const Tensor& input,
+    const int64_t group_size,
+    const int64_t dim,
+    const bool as_bytes) {
+  TORCH_CHECK(input.dim() == 2, "input must be 2D, got ", input.dim(), "D");
+  TORCH_CHECK(
+      input.scalar_type() == at::kByte,
+      "input must be uint8, got ",
+      input.scalar_type());
+  grouped_int4_e4m3::check_dims(dim, group_size);
+  TORCH_SYM_CHECK(
+      input.sym_size(1).sym_ge(
+          grouped_int4_e4m3::packed_row_bytes(dim, group_size)),
+      "rows of ",
+      input.sym_size(1),
+      " bytes are too short for dim ",
+      dim,
+      " and group_size ",
+      group_size);
+  if (as_bytes) {
+    return at::empty_symint(
+        {input.sym_size(0), 2 * dim}, input.options().dtype(at::kByte));
+  }
+  return at::empty_symint(
+      {input.sym_size(0), dim}, input.options().dtype(at::kHalf));
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl(
+      "FloatOrHalfToGroupedInt4E4M3",
+      TORCH_FN(fbgemm_gpu::float_or_half_to_grouped_int4_e4m3_meta));
+  m.impl(
+      "GroupedInt4E4M3ToHalf",
+      TORCH_FN(fbgemm_gpu::grouped_int4_e4m3_to_half_meta));
   m.impl(
       "FP8RowwiseQuantizedToFloat",
       TORCH_FN(fbgemm_gpu::FP8rowwise_to_float_meta));

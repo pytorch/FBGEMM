@@ -887,14 +887,14 @@ __global__ void gqa_attn_splitk_qk_kernel(
   // Each block handles a single batch and head
   auto b = blockIdx.x;
   auto h = blockIdx.y;
-  auto split_k = gridDim.z;
-  auto z = blockIdx.z;
+  const int64_t split_k = gridDim.z;
+  const int64_t z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   auto* q_ = &(XQ[b][0][h][0]);
@@ -916,12 +916,12 @@ __global__ void gqa_attn_splitk_qk_kernel(
   bfx4 k_loads[kTimeUnroll];
   float qk_accs[kTimeUnroll];
 
-  const int32_t t_total = round_up(max_t, split_k);
-  const int32_t t_per_block = t_total / split_k;
-  const int32_t t_per_block_start = t_per_block * z;
-  const int32_t t_per_block_end = min(t_per_block * (z + 1), max_t);
+  const int64_t t_total = round_up(max_t, split_k);
+  const int64_t t_per_block = t_total / split_k;
+  const int64_t t_per_block_start = t_per_block * z;
+  const int64_t t_per_block_end = min(t_per_block * (z + 1), max_t);
 
-  int32_t t_per_block_unroll = t_per_block_start +
+  const int64_t t_per_block_unroll = t_per_block_start +
       ((t_per_block_end - t_per_block_start) / (kWarpsPerBlock * kTimeUnroll)) *
           (kWarpsPerBlock * kTimeUnroll);
   for (auto tt = t_per_block_start + warp_idx * kTimeUnroll;
@@ -929,7 +929,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -944,7 +944,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
       qk_accs[ttt] = qk_acc;
     }
 
-    if (threadIdx.x < kTimeUnroll) {
+    if (static_cast<int64_t>(threadIdx.x) < kTimeUnroll) {
       auto t = tt + threadIdx.x;
       QK_out[b][h][t] = qk_accs[threadIdx.x];
     }
@@ -955,7 +955,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -964,7 +964,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       qk_acc += bfx4_dot(q_thread, k_loads[ttt]);
 
       qk_acc = warpReduceSum<float>(qk_acc);
@@ -991,14 +991,14 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
   // Each block handles a single batch and head
   auto b = blockIdx.x;
   auto h = blockIdx.y;
-  auto split_k = gridDim.z;
-  auto z = blockIdx.z;
+  const int64_t split_k = gridDim.z;
+  const int64_t z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   auto* q_ = &(XQ[b][0][h][0]);
@@ -1030,12 +1030,12 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
   __half2 k_scales[kTimeUnroll];
   float qk_accs[kTimeUnroll];
 
-  const int32_t t_total = round_up(max_t, split_k);
-  const int32_t t_per_block = t_total / split_k;
-  const int32_t t_per_block_start = t_per_block * z;
-  const int32_t t_per_block_end = min(t_per_block * (z + 1), max_t);
+  const int64_t t_total = round_up(max_t, split_k);
+  const int64_t t_per_block = t_total / split_k;
+  const int64_t t_per_block_start = t_per_block * z;
+  const int64_t t_per_block_end = min(t_per_block * (z + 1), max_t);
 
-  int32_t t_per_block_unroll = t_per_block_start +
+  const int64_t t_per_block_unroll = t_per_block_start +
       ((t_per_block_end - t_per_block_start) / (kWarpsPerBlock * kTimeUnroll)) *
           (kWarpsPerBlock * kTimeUnroll);
   for (auto tt = t_per_block_start + warp_idx * kTimeUnroll;
@@ -1043,7 +1043,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
@@ -1062,7 +1062,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
       qk_accs[ttt] = qk_acc;
     }
 
-    if (threadIdx.x < kTimeUnroll) {
+    if (static_cast<int64_t>(threadIdx.x) < kTimeUnroll) {
       auto t = tt + threadIdx.x;
       QK_out[b][h][t] = qk_accs[threadIdx.x];
     }
@@ -1073,7 +1073,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * D_H_bytes; // &(cache_K[b][t][0][0]);
       // bfx4 k_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
@@ -1085,7 +1085,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       qk_acc += bfx4_dot(
           q_thread, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt]));
 
@@ -1116,9 +1116,9 @@ __global__ void gqa_attn_splitk_attn_kernel(
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
 
   // Each block handles single batch and head
   // Accumulate over split-k inputs and write into smem
@@ -1142,7 +1142,7 @@ __global__ void gqa_attn_splitk_attn_kernel(
     smem[MAX_T + warp_idx] = max_qk_acc;
   }
   __syncthreads();
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     max_qk_acc = max(max_qk_acc, smem[MAX_T + threadIdx.x]);
   }
 
@@ -1163,7 +1163,7 @@ __global__ void gqa_attn_splitk_attn_kernel(
   __syncthreads();
   // now, compute sum of exp(x - max(x)) over all intermediate results.
   softmax_denominator = 0.0;
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     softmax_denominator = smem[MAX_T + threadIdx.x];
   }
   softmax_denominator = warpReduceSum(softmax_denominator);
@@ -1187,14 +1187,14 @@ __global__ void gqa_attn_splitk_v_kernel(
   // Each block handles a single batch and head
   auto b = blockIdx.x;
   auto h = blockIdx.y;
-  auto split_k = gridDim.z;
-  auto z = blockIdx.z;
+  const int64_t split_k = gridDim.z;
+  const int64_t z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
 
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
@@ -1213,13 +1213,13 @@ __global__ void gqa_attn_splitk_v_kernel(
   float ps[kTimeUnroll];
   bfx4 k_loads[kTimeUnroll];
 
-  const int32_t t_total = round_up(max_t, split_k);
-  const int32_t t_per_block = t_total / split_k;
-  const int32_t t_per_block_start = t_per_block * z;
-  const int32_t t_per_block_end = min(t_per_block * (z + 1), max_t);
+  const int64_t t_total = round_up(max_t, split_k);
+  const int64_t t_per_block = t_total / split_k;
+  const int64_t t_per_block_start = t_per_block * z;
+  const int64_t t_per_block_end = min(t_per_block * (z + 1), max_t);
 
   fx4 o_acc;
-  int32_t t_per_block_unroll = t_per_block_start +
+  const int64_t t_per_block_unroll = t_per_block_start +
       ((t_per_block_end - t_per_block_start) / (kWarpsPerBlock * kTimeUnroll)) *
           (kWarpsPerBlock * kTimeUnroll);
   for (auto tt = t_per_block_start + warp_idx * kTimeUnroll;
@@ -1227,7 +1227,7 @@ __global__ void gqa_attn_splitk_v_kernel(
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -1246,7 +1246,7 @@ __global__ void gqa_attn_splitk_v_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -1292,14 +1292,14 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
   // Each block handles a single batch and head
   auto b = blockIdx.x;
   auto h = blockIdx.y;
-  auto split_k = gridDim.z;
-  auto z = blockIdx.z;
+  const int64_t split_k = gridDim.z;
+  const int64_t z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
 
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
@@ -1327,13 +1327,13 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
   uint16_t k_qvals[kTimeUnroll];
   __half2 k_scales[kTimeUnroll];
 
-  const int32_t t_total = round_up(max_t, split_k);
-  const int32_t t_per_block = t_total / split_k;
-  const int32_t t_per_block_start = t_per_block * z;
-  const int32_t t_per_block_end = min(t_per_block * (z + 1), max_t);
+  const int64_t t_total = round_up(max_t, split_k);
+  const int64_t t_per_block = t_total / split_k;
+  const int64_t t_per_block_start = t_per_block * z;
+  const int64_t t_per_block_end = min(t_per_block * (z + 1), max_t);
 
   fx4 o_acc;
-  int32_t t_per_block_unroll = t_per_block_start +
+  const int64_t t_per_block_unroll = t_per_block_start +
       ((t_per_block_end - t_per_block_start) / (kWarpsPerBlock * kTimeUnroll)) *
           (kWarpsPerBlock * kTimeUnroll);
   for (auto tt = t_per_block_start + warp_idx * kTimeUnroll;
@@ -1341,7 +1341,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H_bytes; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
@@ -1364,7 +1364,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * D_H_bytes; // &(cache_V[b][t][0][0]);
       //   bfx4 v_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
@@ -1826,9 +1826,9 @@ __global__ void mqa_attn_kernel(
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   auto* q_ = &(XQ[b][0][h][0]);
@@ -1853,13 +1853,13 @@ __global__ void mqa_attn_kernel(
   constexpr int32_t kTimeUnroll = 4;
   bfx4 k_loads[kTimeUnroll];
 
-  int32_t max_t_unroll =
+  const int64_t max_t_unroll =
       (max_t / (kWarpsPerBlock * kTimeUnroll)) * (kWarpsPerBlock * kTimeUnroll);
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -1869,7 +1869,7 @@ __global__ void mqa_attn_kernel(
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
       float qk_acc = 0;
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       qk_acc += bfx4_dot(q_thread, k_loads[ttt]) * qk_scale;
 
       qk_acc = warpReduceSum<float>(qk_acc);
@@ -1887,7 +1887,7 @@ __global__ void mqa_attn_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -1896,7 +1896,7 @@ __global__ void mqa_attn_kernel(
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       qk_acc += bfx4_dot(q_thread, k_loads[ttt]) * qk_scale;
 
       qk_acc = warpReduceSum<float>(qk_acc);
@@ -1915,7 +1915,7 @@ __global__ void mqa_attn_kernel(
     smem[MAX_T + warp_idx] = max_qk_acc;
   }
   __syncthreads();
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     max_qk_acc = max(max_qk_acc, smem[MAX_T + threadIdx.x]);
   }
   // shared across all threads in block
@@ -1935,7 +1935,7 @@ __global__ void mqa_attn_kernel(
   __syncthreads();
   // now, compute sum of exp(x - max(x)) over all intermediate results.
   softmax_denominator = 0.0;
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     softmax_denominator = smem[MAX_T + threadIdx.x];
   }
   softmax_denominator = warpReduceSum(softmax_denominator);
@@ -1959,7 +1959,7 @@ __global__ void mqa_attn_kernel(
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -1977,7 +1977,7 @@ __global__ void mqa_attn_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
       *reinterpret_cast<uint2*>(&k_loads[ttt]) =
@@ -2032,9 +2032,9 @@ __global__ void mqa_attn_fp8_kernel(
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   int32_t qparam_offset = 4; // 4 bytes
@@ -2064,13 +2064,13 @@ __global__ void mqa_attn_fp8_kernel(
   // such that the memory address is aligned.
   __half2 k_scales[kTimeUnroll];
 
-  int32_t max_t_unroll =
+  const int64_t max_t_unroll =
       (max_t / (kWarpsPerBlock * kTimeUnroll)) * (kWarpsPerBlock * kTimeUnroll);
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       CUDA_KERNEL_ASSERT(
           uintptr_t(
@@ -2087,7 +2087,7 @@ __global__ void mqa_attn_fp8_kernel(
 
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       float qk_acc = 0;
       qk_acc +=
           bfx4_dot(
@@ -2109,7 +2109,7 @@ __global__ void mqa_attn_fp8_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
       *reinterpret_cast<uint32_t*>(&k_loads[ttt]) =
@@ -2121,7 +2121,7 @@ __global__ void mqa_attn_fp8_kernel(
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       qk_acc +=
           bfx4_dot(
               q_thread, dequantize_packed_fp8(k_loads[ttt], k_scales[ttt])) *
@@ -2142,7 +2142,7 @@ __global__ void mqa_attn_fp8_kernel(
     smem[MAX_T + warp_idx] = max_qk_acc;
   }
   __syncthreads();
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     max_qk_acc = max(max_qk_acc, smem[MAX_T + threadIdx.x]);
   }
   // shared across all threads in block
@@ -2162,7 +2162,7 @@ __global__ void mqa_attn_fp8_kernel(
   __syncthreads();
   // now, compute sum of exp(x - max(x)) over all intermediate results.
   softmax_denominator = 0.0;
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     softmax_denominator = smem[MAX_T + threadIdx.x];
   }
   softmax_denominator = warpReduceSum(softmax_denominator);
@@ -2186,7 +2186,7 @@ __global__ void mqa_attn_fp8_kernel(
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
       *reinterpret_cast<uint32_t*>(&k_loads[ttt]) =
@@ -2208,7 +2208,7 @@ __global__ void mqa_attn_fp8_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
       *reinterpret_cast<uint32_t*>(&k_loads[ttt]) =
@@ -2268,9 +2268,9 @@ __global__ void mqa_attn_int4_kernel(
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
-  int32_t max_t = seq_positions[b] + 1;
+  const int64_t max_t = static_cast<int64_t>(seq_positions[b]) + 1;
 
-  auto warp_idx = threadIdx.y;
+  const int64_t warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   int32_t int4_qparam_offset = 4;
@@ -2304,13 +2304,13 @@ __global__ void mqa_attn_int4_kernel(
   uint16_t k_qvals[kTimeUnroll];
   __half2 k_scales[kTimeUnroll];
 
-  int32_t max_t_unroll =
+  const int64_t max_t_unroll =
       (max_t / (kWarpsPerBlock * kTimeUnroll)) * (kWarpsPerBlock * kTimeUnroll);
   for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
@@ -2323,7 +2323,7 @@ __global__ void mqa_attn_int4_kernel(
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       float qk_acc =
           bfx4_dot(
               q_thread, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt])) *
@@ -2342,7 +2342,7 @@ __global__ void mqa_attn_int4_kernel(
     // This slows down H100 (maybe due to register pressure?)
 #pragma unroll
     for (auto ttt = 0; ttt < kTimeUnroll; ttt += 2) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto k_dq = dequantize_packed_int4(
           k_qvals[ttt] | (static_cast<uint32_t>(k_qvals[ttt + 1]) << 16),
           k_scales[ttt],
@@ -2372,7 +2372,7 @@ __global__ void mqa_attn_int4_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* k_ = cache_K_base + t * cache_K.stride(1);
       // bfx4 k_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
@@ -2384,7 +2384,7 @@ __global__ void mqa_attn_int4_kernel(
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
       float qk_acc = 0;
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       qk_acc +=
           bfx4_dot(
               q_thread, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt])) *
@@ -2406,7 +2406,7 @@ __global__ void mqa_attn_int4_kernel(
     smem[MAX_T + warp_idx] = max_qk_acc;
   }
   __syncthreads();
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     max_qk_acc = max(max_qk_acc, smem[MAX_T + threadIdx.x]);
   }
   // shared across all threads in block
@@ -2426,7 +2426,7 @@ __global__ void mqa_attn_int4_kernel(
   __syncthreads();
   // now, compute sum of exp(x - max(x)) over all intermediate results.
   softmax_denominator = 0.0;
-  if (threadIdx.x < kWarpsPerBlock) {
+  if (static_cast<int64_t>(threadIdx.x) < kWarpsPerBlock) {
     softmax_denominator = smem[MAX_T + threadIdx.x];
   }
   softmax_denominator = warpReduceSum(softmax_denominator);
@@ -2450,7 +2450,7 @@ __global__ void mqa_attn_int4_kernel(
        tt += kWarpsPerBlock * kTimeUnroll) {
 #pragma unroll kTimeUnroll
     for (const auto ttt : c10::irange(kTimeUnroll)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
@@ -2487,7 +2487,7 @@ __global__ void mqa_attn_int4_kernel(
        tt += kWarpsPerBlock * kTimeUnroll1) {
 #pragma unroll kTimeUnroll1
     for (const auto ttt : c10::irange(kTimeUnroll1)) {
-      int32_t t = tt + ttt;
+      const auto t = tt + ttt;
       auto* v_ = cache_V_base + t * cache_V.stride(1);
       //   bfx4 v_thread;
       *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =

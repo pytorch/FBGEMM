@@ -20,6 +20,66 @@ except ImportError:
     except ImportError:
         from triton.language.math import rsqrt as tl_rsqrt
 
+_IS_HIP = tl.constexpr(torch.version.hip is not None)
+
+
+@triton.jit
+def _fp32_to_fp4_bits(value):
+    # E2M1 levels are 0, 0.5, 1, 1.5, 2, 3, 4 and 6. At each midpoint,
+    # ties select the level whose encoded mantissa is even.
+    magnitude = tl.abs(value)
+    encoded = (
+        (magnitude > 0.25).to(tl.uint32)
+        + (magnitude >= 0.75).to(tl.uint32)
+        + (magnitude > 1.25).to(tl.uint32)
+        + (magnitude >= 1.75).to(tl.uint32)
+        + (magnitude > 2.5).to(tl.uint32)
+        + (magnitude >= 3.5).to(tl.uint32)
+        + (magnitude > 5.0).to(tl.uint32)
+    )
+    # Preserve negative zero and saturate infinities with their sign.
+    sign = (value.to(tl.uint32, bitcast=True) >> 28) & 8
+    # PTX satfinite maps NaN inputs to positive MAX_NORM.
+    return tl.where(magnitude == magnitude, encoded | sign, 7).to(tl.uint32)
+
+
+@triton.jit
+def _pack_fp4x8(v0, v1, v2, v3, v4, v5, v6, v7):
+    if _IS_HIP:
+        packed = (
+            _fp32_to_fp4_bits(v0)
+            | (_fp32_to_fp4_bits(v1) << 4)
+            | (_fp32_to_fp4_bits(v2) << 8)
+            | (_fp32_to_fp4_bits(v3) << 12)
+            | (_fp32_to_fp4_bits(v4) << 16)
+            | (_fp32_to_fp4_bits(v5) << 20)
+            | (_fp32_to_fp4_bits(v6) << 24)
+            | (_fp32_to_fp4_bits(v7) << 28)
+        )
+        return packed.to(tl.int32, bitcast=True)
+    else:
+        return tl.inline_asm_elementwise(
+            asm="""
+            {
+                .reg .b8 byte0;
+                .reg .b8 byte1;
+                .reg .b8 byte2;
+                .reg .b8 byte3;
+                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
+                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
+                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
+                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
+                mov.b32 $0, {byte0, byte1, byte2, byte3};
+
+            }
+            """,
+            constraints="=r," "f, f, f, f, f, f, f, f",
+            args=[v0, v1, v2, v3, v4, v5, v6, v7],
+            dtype=tl.int32,
+            is_pure=True,
+            pack=1,
+        )
+
 
 @triton.jit
 def _kernel_quantize_mx4_unpack(
@@ -170,26 +230,8 @@ def _kernel_quantize_mx4_unpack(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         n_col_blocks = SCALE_K // 4
@@ -1438,26 +1480,8 @@ def _kernel_nvfp4_quantize(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         n_col_blocks = SCALE_K // 4
@@ -1790,26 +1814,8 @@ def _kernel_nvfp4_quantize_silu(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         # We're done with group_exp now so we can write it out.
@@ -2152,26 +2158,8 @@ def _kernel_nvfp4_quantize_rms(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         # We're done with group_exp now so we can write it out.
@@ -2514,26 +2502,8 @@ def _kernel_nvfp4_quantize_stacked(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         n_col_blocks = SCALE_K // 4
@@ -3192,26 +3162,8 @@ def _kernel_nvfp4_quantize_stacked_silu(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         n_col_blocks = SCALE_K // 4
@@ -3485,26 +3437,8 @@ def _mega_fp4_quantize_kernel(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         n_col_blocks = SCALE_K // 4
@@ -3756,26 +3690,8 @@ def _mega_fp4_quantize_kernel_with_tensor_idx(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         n_col_blocks = SCALE_K // 4
@@ -4341,26 +4257,8 @@ def _kernel_nvfp4_quantize_stacked_rms(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         n_col_blocks = SCALE_K // 4
@@ -4684,26 +4582,8 @@ def _mega_fp4_pack_kernel(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         tl.store(
@@ -4897,26 +4777,8 @@ def _mega_fp4_pack_kernel_per_tensor(
         f_seven, f_eight = tl.split(
             tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
         )  # 3, 11 || 7, 15
-        packed_result = tl.inline_asm_elementwise(
-            asm="""
-            {
-                .reg .b8 byte0;
-                .reg .b8 byte1;
-                .reg .b8 byte2;
-                .reg .b8 byte3;
-                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
-                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
-                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
-                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
-                mov.b32 $0, {byte0, byte1, byte2, byte3};
-
-            }
-            """,
-            constraints="=r," "f, f, f, f, f, f, f, f",
-            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
-            dtype=tl.int32,
-            is_pure=True,
-            pack=1,
+        packed_result = _pack_fp4x8(
+            f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
         tl.store(

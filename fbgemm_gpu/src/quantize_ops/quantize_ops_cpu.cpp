@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/quantize_ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/grouped_int4_e4m3.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
@@ -521,6 +522,76 @@ static Tensor float_or_half_to_fusednbitrowwise_cpu_with_rowwise_min_max(
 
 /// @ingroup quantize-data-cpu
 ///
+/// Packs each row as group-wise symmetric INT4 with float8_e4m3fn scales; see
+/// fbgemm_gpu/utils/grouped_int4_e4m3.h for the format.
+static Tensor float_or_half_to_grouped_int4_e4m3_cpu(
+    const Tensor& input,
+    const int64_t group_size) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+  const int64_t nrows = input.size(0);
+  const int64_t dim = input.size(1);
+  grouped_int4_e4m3::check_dims(dim, group_size);
+  const int64_t row_bytes =
+      grouped_int4_e4m3::packed_row_bytes(dim, group_size);
+  const auto input_contig = input.expect_contiguous();
+  auto output = at::empty({nrows, row_bytes}, input.options().dtype(at::kByte));
+  auto* output_data = output.mutable_data_ptr<uint8_t>();
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+      input.scalar_type(), "float_or_half_to_grouped_int4_e4m3_cpu", [&] {
+        const auto* input_data = input_contig->const_data_ptr<scalar_t>();
+        for (const auto row : c10::irange(nrows)) {
+          grouped_int4_e4m3::quantize_row(
+              input_data + row * dim,
+              dim,
+              group_size,
+              output_data + row * row_bytes);
+        }
+      });
+  return output;
+}
+
+/// @ingroup quantize-data-cpu
+///
+/// Decodes the first `dim` values of each packed row; trailing row bytes past
+/// the packed size (storage padding) are ignored. With `as_bytes`, returns the
+/// FP16 values as their bytes ([nrows, 2 * dim] uint8), the layout a TBE reads
+/// FP16 rows from; TorchScript cannot reinterpret the dtype itself.
+static Tensor grouped_int4_e4m3_to_half_cpu(
+    const Tensor& input,
+    const int64_t group_size,
+    const int64_t dim,
+    const bool as_bytes) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+  TORCH_CHECK(
+      input.scalar_type() == at::kByte,
+      "input must be uint8, got ",
+      input.scalar_type());
+  grouped_int4_e4m3::check_dims(dim, group_size);
+  const int64_t nrows = input.size(0);
+  const int64_t row_bytes = input.size(1);
+  TORCH_CHECK(
+      row_bytes >= grouped_int4_e4m3::packed_row_bytes(dim, group_size),
+      "rows of ",
+      row_bytes,
+      " bytes are too short for dim ",
+      dim,
+      " and group_size ",
+      group_size);
+  const auto input_contig = input.expect_contiguous();
+  auto output = at::empty({nrows, dim}, input.options().dtype(at::kHalf));
+  const auto* input_data = input_contig->const_data_ptr<uint8_t>();
+  auto* output_data = output.mutable_data_ptr<at::Half>();
+  for (const auto row : c10::irange(nrows)) {
+    grouped_int4_e4m3::dequantize_row(
+        input_data + row * row_bytes, dim, group_size, output_data + row * dim);
+  }
+  return as_bytes ? output.view(at::kByte) : output;
+}
+
+/// @ingroup quantize-data-cpu
+///
 void FloatToFP8Quantized_ref(
     const float* const input,
     const size_t nrows,
@@ -660,6 +731,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0, bool scale_bias_last=True) -> Tensor");
+  m.def("FloatOrHalfToGroupedInt4E4M3(Tensor input, int group_size) -> Tensor");
+  m.def(
+      "GroupedInt4E4M3ToHalf(Tensor input, int group_size, int dim, bool as_bytes=False) -> Tensor");
   m.def(
       "FloatToHFP8Quantized(Tensor input, int ebits, int exponent_bias, float max_pos) -> Tensor");
   m.def(
@@ -735,6 +809,11 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
       fbgemm_gpu::fusednbitrowwise_to_float_or_half_cpu);
+  DISPATCH_TO_CPU(
+      "FloatOrHalfToGroupedInt4E4M3",
+      fbgemm_gpu::float_or_half_to_grouped_int4_e4m3_cpu);
+  DISPATCH_TO_CPU(
+      "GroupedInt4E4M3ToHalf", fbgemm_gpu::grouped_int4_e4m3_to_half_cpu);
   DISPATCH_TO_CPU("FloatToHFP8Quantized", fbgemm_gpu::_float_to_hfp8_cpu);
   DISPATCH_TO_CPU("HFP8QuantizedToFloat", fbgemm_gpu::_hfp8_to_float_cpu);
 }

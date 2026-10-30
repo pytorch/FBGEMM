@@ -1306,7 +1306,9 @@ auto enrichment_config =
                 std::string,
                 int64_t,
                 std::string,
-                std::vector<std::string>>(),
+                std::vector<std::string>,
+                int64_t,
+                int64_t>(),
             "",
             {
                 torch::arg("enrichment_type"),
@@ -1331,6 +1333,8 @@ auto enrichment_config =
                 torch::arg("laser_batch_size") = 0,
                 torch::arg("laser_key_suffix") = "",
                 torch::arg("laser_key_suffixes") = std::vector<std::string>{},
+                torch::arg("serving_qdq_bit_rate") = 0,
+                torch::arg("serving_qdq_group_size") = 0,
             });
 
 static auto dram_kv_embedding_cache_wrapper =
@@ -1472,6 +1476,9 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("unhashed_indices"),
                 torch::arg("count"),
             })
+        .def(
+            "serving_qdq_existing_rows",
+            &DramKVEmbeddingCacheWrapper::serving_qdq_existing_rows)
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",

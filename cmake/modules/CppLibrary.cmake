@@ -205,6 +205,10 @@ function(fbgemm_get_warning_flags)
   # are preserved exactly as before this refactor.
   set(_cc_suppressions ${_cc_suppressions_common})
 
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    list(APPEND _cc_suppressions -Wno-error=array-bounds)
+  endif()
+
   if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
     list(APPEND _cc_suppressions ${_cc_suppressions_clang_base})
 

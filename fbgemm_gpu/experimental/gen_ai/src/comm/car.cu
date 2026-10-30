@@ -14,6 +14,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
+#include <utility>
 #include "c10/core/ScalarType.h"
 #include "c10/util/BFloat16.h"
 
@@ -110,12 +111,14 @@ __launch_bounds__(512)
     at::BFloat16* acc,
     at::BFloat16* output,
 #endif
-        int32_t N) {
+        int64_t N) {
   // It is expensive to launch hipMemcpyAsync on ROCm
   // Move data copy here. Each block copies part of input data
   at::BFloat16* input = inputs[rank];
-  for (size_t i = blockDim.x * blockIdx.x * 8 + threadIdx.x * 8; i < N;
-       i += (size_t)blockDim.x * gridDim.x * 8) {
+  for (int64_t i = static_cast<int64_t>(blockDim.x) * blockIdx.x * 8 +
+           static_cast<int64_t>(threadIdx.x) * 8;
+       i < N;
+       i += static_cast<int64_t>(blockDim.x) * gridDim.x * 8) {
 #if defined(USE_ROCM)
     __builtin_nontemporal_store(
         reinterpret_cast<uint64_t*>(&ar_input[i])[0], (uint64_t*)(&input[i]));
@@ -152,7 +155,9 @@ __launch_bounds__(512)
 
   // Each block accumulates the values from the different GPUs on the same
   // node.
-  for (size_t i = blockDim.x * blockIdx.x * 8 + threadIdx.x * 8; i < N;
+  for (int64_t i = static_cast<int64_t>(blockDim.x) * blockIdx.x * 8 +
+           static_cast<int64_t>(threadIdx.x) * 8;
+       i < N;
        i += blockDim.x * gridDim.x * 8) {
     // Iterate over the different ranks/devices on the node to load the
     // values.
@@ -223,12 +228,14 @@ __launch_bounds__(512)
     at::BFloat16* acc,
     at::BFloat16* output,
 #endif
-        int32_t N) {
+        int64_t N) {
   // It is expensive to launch hipMemcpyAsync on ROCm
   // Move data copy here. Each block copies part of input data
   at::BFloat16* input = inputs[rank];
-  for (size_t i = blockDim.x * blockIdx.x * 8 + threadIdx.x * 8; i < N;
-       i += (size_t)blockDim.x * gridDim.x * 8) {
+  for (int64_t i = static_cast<int64_t>(blockDim.x) * blockIdx.x * 8 +
+           static_cast<int64_t>(threadIdx.x) * 8;
+       i < N;
+       i += static_cast<int64_t>(blockDim.x) * gridDim.x * 8) {
 #if defined(USE_ROCM)
     __builtin_nontemporal_store(
         reinterpret_cast<uint64_t*>(&ar_input[i])[0], (uint64_t*)(&input[i]));
@@ -265,7 +272,9 @@ __launch_bounds__(512)
 
   // Each block accumulates the values from the different GPUs on the same
   // node.
-  for (size_t i = blockDim.x * blockIdx.x * 8 + threadIdx.x * 8; i < N;
+  for (int64_t i = static_cast<int64_t>(blockDim.x) * blockIdx.x * 8 +
+           static_cast<int64_t>(threadIdx.x) * 8;
+       i < N;
        i += blockDim.x * gridDim.x * 8) {
     // Sum the values from the different ranks.
     bf16x8 sums;
@@ -356,8 +365,8 @@ void car_init(
   state->flag_ = 0;
   state->buffers_.resize(world_size);
   state->barriers_.resize(world_size);
-  TORCH_CHECK(world_size == all_buffer_handles.size());
-  TORCH_CHECK(world_size == all_barrier_handles.size());
+  TORCH_CHECK(std::cmp_equal(world_size, all_buffer_handles.size()));
+  TORCH_CHECK(std::cmp_equal(world_size, all_barrier_handles.size()));
 
   for (auto ii = 0; ii < world_size; ++ii) {
     void* ptr = nullptr;
@@ -455,11 +464,11 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
 #else
     at::BFloat16* output,
 #endif
-    int32_t last_dim,
-    int32_t N) {
-  int32_t N_per_rank = N / kWorldSize;
-  int32_t N_start = N_per_rank * rank;
-  int32_t N_last_dim = last_dim / kWorldSize;
+    int64_t last_dim,
+    int64_t N) {
+  const int64_t N_per_rank = N / kWorldSize;
+  int64_t N_start = N_per_rank * rank;
+  const int64_t N_last_dim = last_dim / kWorldSize;
 
   if constexpr (split_last_dim) {
     N_start = last_dim / kWorldSize * rank;
@@ -499,10 +508,12 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
 
   // Each block accumulates the values from the different GPUs on the same
   // node.
-  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+  for (int64_t i = static_cast<int64_t>(threadIdx.x) * 8 +
+           static_cast<int64_t>(blockIdx.x) * blockDim.x * 8;
+       i < N_per_rank;
        i += gridDim.x * blockDim.x * 8) {
     bf16x8 vals[kWorldSize];
-    size_t idx = i;
+    int64_t idx = i;
     if constexpr (split_last_dim) {
       idx = i / N_last_dim * last_dim + i % N_last_dim;
     }
@@ -561,9 +572,9 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
     at::BFloat16* acc,
     at::BFloat16* output,
 #endif
-    int32_t N) {
-  int32_t N_per_rank = N / kWorldSize;
-  int32_t N_start = N_per_rank * rank;
+    int64_t N) {
+  const int64_t N_per_rank = N / kWorldSize;
+  const int64_t N_start = N_per_rank * rank;
 
   // Synchronize the ranks.
   if (threadIdx.x < kWorldSize) {
@@ -591,7 +602,9 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
 
   // Each block accumulates the values from the different GPUs on the same
   // node.
-  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+  for (int64_t i = static_cast<int64_t>(threadIdx.x) * 8 +
+           static_cast<int64_t>(blockIdx.x) * blockDim.x * 8;
+       i < N_per_rank;
        i += gridDim.x * blockDim.x * 8) {
     bf16x8 vals[kWorldSize];
 #pragma unroll kWorldSize
@@ -638,20 +651,22 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   __syncthreads();
 
   // Gather all needed elts from other intra-node ranks
-  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+  for (int64_t i = static_cast<int64_t>(threadIdx.x) * 8 +
+           static_cast<int64_t>(blockIdx.x) * blockDim.x * 8;
+       i < N_per_rank;
        i += gridDim.x * blockDim.x * 8) {
     uint4 temp[kWorldSize];
 #pragma unroll kWorldSize
     for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
-      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      const int64_t i_r = N_start + i + (d_rank - rank) * N_per_rank;
       temp[ii] = reinterpret_cast<const uint4*>(&src_d[ii][i_r])[0];
     }
 
 #pragma unroll kWorldSize
     for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
-      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      const int64_t i_r = N_start + i + (d_rank - rank) * N_per_rank;
       *reinterpret_cast<uint4*>(&output[i_r]) = temp[ii];
     }
   }
@@ -675,9 +690,9 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
     at::BFloat16* acc,
     at::BFloat16* output,
 #endif
-    int32_t N) {
-  int32_t N_per_rank = N / kWorldSize;
-  int32_t N_start = N_per_rank * rank;
+    int64_t N) {
+  const int64_t N_per_rank = N / kWorldSize;
+  const int64_t N_start = N_per_rank * rank;
 
   // Synchronize the ranks.
   if (threadIdx.x < kWorldSize) {
@@ -705,7 +720,9 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
 
   // Each block accumulates the values from the different GPUs on the same
   // node.
-  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+  for (int64_t i = static_cast<int64_t>(threadIdx.x) * 8 +
+           static_cast<int64_t>(blockIdx.x) * blockDim.x * 8;
+       i < N_per_rank;
        i += gridDim.x * blockDim.x * 8) {
     bf16x8 sums;
 
@@ -757,20 +774,22 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
   __syncthreads();
 
   // Gather all needed elts from other intra-node ranks
-  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+  for (int64_t i = static_cast<int64_t>(threadIdx.x) * 8 +
+           static_cast<int64_t>(blockIdx.x) * blockDim.x * 8;
+       i < N_per_rank;
        i += gridDim.x * blockDim.x * 8) {
     uint4 temp[kWorldSize];
 #pragma unroll kWorldSize
     for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
-      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      const int64_t i_r = N_start + i + (d_rank - rank) * N_per_rank;
       temp[ii] = reinterpret_cast<const uint4*>(&src_d[ii][i_r])[0];
     }
 
 #pragma unroll kWorldSize
     for (const auto ii : c10::irange(kWorldSize)) {
       int d_rank = (rank + ii) % kWorldSize;
-      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      const int64_t i_r = N_start + i + (d_rank - rank) * N_per_rank;
       *reinterpret_cast<uint4*>(&output[i_r]) = temp[ii];
     }
   }

@@ -246,6 +246,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
         std::move(count));
   }
 
+  int64_t serving_qdq_existing_rows() {
+    return impl_->serving_qdq_existing_rows();
+  }
+
  private:
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;
