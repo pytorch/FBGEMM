@@ -7,6 +7,7 @@
  */
 
 #include <cstring>
+#include <numeric>
 #include <random>
 
 #include <gtest/gtest.h>
@@ -19,6 +20,104 @@
 
 using namespace std;
 using namespace fbgemm;
+
+TEST(EmbeddingSpMDMNBitAutovecTest, WeightSpecialization) {
+  auto check = []<typename IndexType, typename OffsetType, typename OutType>() {
+    for (int bit_rate : {2, 4}) {
+      for (int block_size : {7, 32}) {
+        const int packed_size =
+            (block_size + 8 / bit_rate - 1) / (8 / bit_rate);
+        const int input_stride = packed_size + 2 * sizeof(float16) + 4;
+        const int output_stride = block_size + 4;
+        for (bool scale_bias_last : {false, true}) {
+          vector<uint8_t> table(3 * input_stride, 0);
+          for (int row = 0; row < 3; ++row) {
+            auto* data = table.data() + row * input_stride;
+            const int data_offset = scale_bias_last ? 0 : 2 * sizeof(float16);
+            for (int col = 0; col < packed_size; ++col) {
+              data[data_offset + col] = (row * 31 + col * 17) & 255;
+            }
+            float params[] = {0.25f, 0.5f * row};
+            float16 half_params[2];
+            FloatToFloat16_ref(params, half_params, 2, true);
+            memcpy(data + (scale_bias_last ? packed_size : 0), half_params,
+                   sizeof(half_params));
+          }
+          const vector<IndexType> indices{
+              0, scale_bias_last ? IndexType{1} : IndexType{-1}, 2, 1, 0};
+          const vector<OffsetType> offsets{0, 3, 3, 5};
+          const vector<OffsetType> lengths{3, 0, 2};
+          const vector<float> weights{0.5f, 2.0f, -1.0f, 3.0f, 0.25f};
+          for (bool use_offsets : {false, true}) {
+            const auto* bags = use_offsets ? offsets.data() : lengths.data();
+            for (bool positional : {false, true}) {
+              for (bool normalize : {false, true}) {
+                for (bool has_weight : {false, true}) {
+                  auto kernel = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+                      IndexType, OffsetType, OutType>(
+                      bit_rate, block_size, has_weight, normalize, 0,
+                      positional, use_offsets, output_stride, input_stride,
+                      scale_bias_last, false, -1);
+                  for (bool supply_weights : {false, true}) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "bits=" << bit_rate
+                                 << " block_size=" << block_size
+                                 << " scale_bias_last=" << scale_bias_last
+                                 << " use_offsets=" << use_offsets
+                                 << " positional=" << positional
+                                 << " normalize=" << normalize
+                                 << " has_weight=" << has_weight
+                                 << " supply_weights=" << supply_weights);
+                    const float* provided =
+                        supply_weights ? weights.data() : nullptr;
+                    vector<OutType> expected(3 * output_stride);
+                    vector<OutType> actual(3 * output_stride);
+                    ASSERT_TRUE(
+                        (EmbeddingSpMDMNBit_ref<IndexType, OffsetType, OutType>(
+                            bit_rate, block_size, 3, indices.size(), 3,
+                            table.data(), indices.data(), bags,
+                            has_weight ? provided : nullptr, normalize,
+                            expected.data(), positional, use_offsets,
+                            output_stride, input_stride, scale_bias_last)));
+                    ASSERT_TRUE(kernel(3, indices.size(), 3, table.data(),
+                                       indices.data(), bags, provided,
+                                       actual.data()));
+                    auto as_float = [](OutType value) {
+                      if constexpr (std::is_same_v<OutType, float>) {
+                        return value;
+                      } else if constexpr (std::is_same_v<OutType, float16>) {
+                        return cpu_half2float(value);
+                      } else {
+                        return cpu_bf162float(value);
+                      }
+                    };
+                    for (size_t i = 0; i < actual.size(); ++i) {
+                      const float ref = as_float(expected[i]);
+                      const float tolerance =
+                          std::is_same_v<OutType, bfloat16>
+                              ? 0.016f
+                              : (std::is_same_v<OutType, float16> ? 0.001f
+                                                                  : 1e-5f);
+                      EXPECT_NEAR(as_float(actual[i]), ref,
+                                  tolerance * std::max(1.0f, std::abs(ref)));
+                    }
+                    // The empty call must not access weights or table entries.
+                    EXPECT_TRUE(kernel(0, 0, 3, table.data(), indices.data(),
+                                       bags, provided, actual.data()));
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+  check.template operator()<int32_t, int32_t, float>();
+  check.template operator()<int64_t, int64_t, float>();
+  check.template operator()<int32_t, int64_t, float16>();
+  check.template operator()<int64_t, int32_t, bfloat16>();
+}
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {

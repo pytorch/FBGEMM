@@ -409,6 +409,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 
 template <
     int InputBitRate,
+    bool HasWeight,
     typename IndexType,
     typename OffsetType,
     typename OutType>
@@ -560,16 +561,21 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         len);
     fillZero(buf, rounded_block_size);
 
-    const float* weights_addr = weights != nullptr
-        ? (is_weight_positional ? weights : weights + current)
-        : nullptr;
+    const float* weights_addr = nullptr;
+    if constexpr (HasWeight) {
+      weights_addr = weights != nullptr
+          ? (is_weight_positional ? weights : weights + current)
+          : nullptr;
+    }
     for (; current < end; ++current) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         // Skip pruned rows.
         if (idx == -1 && !scale_bias_last) {
-          if (weights_addr != nullptr) {
-            weights_addr++;
+          if constexpr (HasWeight) {
+            if (weights_addr != nullptr) {
+              weights_addr++;
+            }
           }
           continue;
         }
@@ -586,10 +592,13 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
 
       float scale = to_float(scale16);
       float bias = to_float(bias16);
-      if (weights != nullptr) {
-        float weight = *weights_addr++;
-        scale *= weight;
-        bias *= weight;
+      if constexpr (HasWeight) {
+        // Preserve the existing null-weight behavior of weighted kernels.
+        if (weights != nullptr) {
+          float weight = *weights_addr++;
+          scale *= weight;
+          bias *= weight;
+        }
       }
 
       if constexpr (InputBitRate == 4) {
@@ -1553,9 +1562,8 @@ static constexpr int64_t stride_SpMDMNBitWith(
 
 namespace {
 
-// Builds the NBit catch-all kernel: only input_bit_rate is baked in as a
-// compile-time constant (the old catch-all always specialized on it); every
-// other parameter stays a runtime value.
+// Specialize the NBit catch-all kernel on bit rate and weight presence at
+// creation time, so unweighted kernels contain no weight handling.
 template <
     int InputBitRate,
     typename IndexType,
@@ -1572,36 +1580,39 @@ EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> make_nbit_generic(
     bool scale_bias_last,
     bool no_bag,
     int output_bit_rate) {
-  return [=](int64_t output_size,
-             int64_t index_size,
-             int64_t data_size,
-             const uint8_t* input,
-             const IndexType* indices,
-             const OffsetType* offsets_or_lengths,
-             const float* weights,
-             OutType* out) {
-    if (!has_weight) {
-      weights = nullptr;
-    }
-    return EmbeddingSpMDMNBit_autovec<InputBitRate>(
-        block_size,
-        output_size,
-        index_size,
-        data_size,
-        input,
-        indices,
-        offsets_or_lengths,
-        weights,
-        normalize_by_lengths,
-        out,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        output_bit_rate);
+  using Kernel = typename EmbeddingSpMDMKernelSignature<
+      uint8_t, IndexType, OffsetType, OutType>::Type;
+  auto specialize = [&]<bool HasWeight>() -> Kernel {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const uint8_t* input,
+               const IndexType* indices,
+               const OffsetType* offsets_or_lengths,
+               const float* weights,
+               OutType* out) {
+      return EmbeddingSpMDMNBit_autovec<InputBitRate, HasWeight>(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          output_bit_rate);
+    };
   };
+  return has_weight ? specialize.template operator()<true>()
+                    : specialize.template operator()<false>();
 }
 
 // Builds an NBit kernel with input_bit_rate, block size and the pinned booleans
@@ -1633,10 +1644,7 @@ make_nbit_fixed_block_size(int64_t output_stride) {
              const OffsetType* offsets_or_lengths,
              const float* weights,
              OutType* out) {
-    if constexpr (!HasWeight) {
-      weights = nullptr;
-    }
-    return EmbeddingSpMDMNBit_autovec<InputBitRate>(
+    return EmbeddingSpMDMNBit_autovec<InputBitRate, HasWeight>(
         BlockSize,
         output_size,
         index_size,
@@ -1799,7 +1807,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       output_bit_rate);
 #endif
 
-  // Catch-all: specialize only on input_bit_rate (2 or 4).
+  // Catch-all: specialize on input_bit_rate (2 or 4) and has_weight.
   if (input_bit_rate == 2) {
     return make_nbit_generic<2, IndexType, OffsetType, OutType>(
         block_size,
