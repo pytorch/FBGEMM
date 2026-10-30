@@ -308,6 +308,13 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return -1;
   }
 
+  /// Writes rows into an embedding cache through its enrichment write path.
+  /// Only the DRAM KV cache implements it; elsewhere it logs and returns.
+  virtual void set_embedding_cache_rows_async(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count);
+
   /// Sync fetch SIDs for publish. Cache-first: reads SIDs from kv_store if
   /// available, only calls remote (FeatureStore/OpenTab) for cache misses.
   /// Default no-op for non-DRAM backends.
@@ -362,6 +369,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   void set_embedding_cache_enrich_query_id_cuda(
       const at::Tensor& hashed_indices,
       const at::Tensor& unhashed_indices,
+      const at::Tensor& count);
+
+  void set_embedding_cache_rows_cuda(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
       const at::Tensor& count);
 
   void stream_cuda(
