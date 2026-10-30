@@ -598,6 +598,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     const index_t* offset_ptr = offsets_begin_ptr;
                 {% endif %}
                 const auto kernel = fbgemm::{{ kernel_name }}<
+                    {% if use_nbit %}
+                    has_weight,
+                    {% endif %}
                     {% if use_base %}
                     {{ weight_type }},
                     {% endif %}
@@ -614,7 +617,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     /*input_bit_rate=*/bit_rate,
                     {% endif %}
                     D,
-                    {% if has_asmjit %}
+                    {% if use_base %}
                     has_weight,
                     {% endif %}
                     normalize_by_lengths,
@@ -646,8 +649,16 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     reinterpret_cast<const {{ weight_type }}*>(weights),
                     {{ "indices_acc + chunk_first_row" if nobag else "indices_acc + *offsets_begin_ptr" }},
                     offset_ptr,
+                    {% if use_nbit %}
+                    reinterpret_cast<fbgemm_out_t*>(chunk_out)
+                    {% if weighted %}
+                    ,indice_weights_ptr
+                    {% endif %}
+                    );
+                    {% else %}
                     indice_weights_ptr,
                     reinterpret_cast<fbgemm_out_t*>(chunk_out));
+                    {% endif %}
                 {% endmacro %}
 
                 if (weight_ty == SparseType::FP32) {
