@@ -1404,49 +1404,16 @@ try_spmdm_fixed_block_size(
     int64_t block_size,
     int64_t input_stride,
     int64_t output_stride) {
-  // Block sizes that get a compile-time-specialized kernel. Listing them as
-  // data lets the fold below enumerate them instead of a macro per value.
-  static constexpr std::array<int64_t, 18> kBlockSizes{
-      {4,
-       24,
-       32,
-       36,
-       64,
-       72,
-       96,
-       124,
-       128,
-       252,
-       256,
-       320,
-       384,
-       508,
-       512,
-       576,
-       768,
-       1024}};
-  using KernelType =
-      EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>;
-  KernelType kernel = nullptr;
-  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    (
-        [&] {
-          constexpr int64_t kBlockSize = kBlockSizes[Is];
-          if (!kernel && block_size == kBlockSize &&
-              input_stride ==
-                  stride_SpMDMWithStrides<InType>(kBlockSize, false)) {
-            kernel = make_spmdm_fixed_block_size<
-                kBlockSize,
-                HasWeight,
-                ScaleBiasLast,
-                InType,
-                IndexType,
-                OffsetType,
-                OutType>(output_stride);
-          }
-        }(),
-        ...);
-  }(std::make_index_sequence<kBlockSizes.size()>{});
+  EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType> kernel;
+  [&]<int64_t... BlockSizes>(std::integer_sequence<int64_t, BlockSizes...>) {
+    ((block_size == BlockSizes &&
+      input_stride == stride_SpMDMWithStrides<InType>(BlockSizes, false) &&
+      (kernel = make_spmdm_fixed_block_size<
+           BlockSizes, HasWeight, ScaleBiasLast, InType,
+           IndexType, OffsetType, OutType>(output_stride), true)) || ...);
+  }(std::integer_sequence<int64_t,
+      4, 24, 32, 36, 64, 72, 96, 124, 128, 252, 256, 320, 384, 508, 512,
+      576, 768, 1024>{});
   return kernel;
 }
 
@@ -1484,41 +1451,17 @@ GenerateEmbeddingSpMDMWithStrides_autovec(
   // fold over the candidate block sizes.
   if (!normalize_by_lengths && !is_weight_positional && use_offsets &&
       !no_bag) {
-    EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType> kernel =
-        nullptr;
-    if (has_weight && !scale_bias_last) {
-      kernel = try_spmdm_fixed_block_size<
-          true,
-          false,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    } else if (!has_weight && !scale_bias_last) {
-      kernel = try_spmdm_fixed_block_size<
-          false,
-          false,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    } else if (has_weight && scale_bias_last) {
-      kernel = try_spmdm_fixed_block_size<
-          true,
-          true,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    } else {
-      kernel = try_spmdm_fixed_block_size<
-          false,
-          true,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    }
+    auto make_fixed = [&]<bool HasWeight>() {
+      auto make_layout = [&]<bool ScaleBiasLast>() {
+        return try_spmdm_fixed_block_size<
+            HasWeight, ScaleBiasLast, InType, IndexType, OffsetType, OutType>(
+            block_size, input_stride, output_stride);
+      };
+      return scale_bias_last ? make_layout.template operator()<true>()
+                             : make_layout.template operator()<false>();
+    };
+    auto kernel = has_weight ? make_fixed.template operator()<true>()
+                             : make_fixed.template operator()<false>();
     if (kernel) {
       return kernel;
     }
