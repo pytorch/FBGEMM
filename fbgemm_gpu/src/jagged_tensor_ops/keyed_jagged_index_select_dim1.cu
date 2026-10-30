@@ -487,44 +487,6 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const auto output_offsets_contig = output_offsets.expect_contiguous();
 
     if (grid_size != 0) {
-#define LAUNCH_KERNEL_WITH_ENTRY_T(                          \
-    WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS, ENTRY_T) \
-  {                                                          \
-    FBGEMM_LAUNCH_KERNEL(                                    \
-        (keyed_jagged_index_select_dim1_kernel<              \
-            value_t,                                         \
-            index_t,                                         \
-            offset_t,                                        \
-            WEIGHT_TYPE,                                     \
-            WEIGHTED,                                        \
-            ENTRY_T>),                                       \
-        grid_size,                                           \
-        kMaxThreads,                                         \
-        0,                                                   \
-        at::cuda::getCurrentCUDAStream(),                    \
-        PTA_B(output, value_t, 1, 64),                       \
-        PTA_B(OUTPUT_WEIGHTS, WEIGHT_TYPE, 1, 64),           \
-        PTA_B(values, value_t, 1, 64),                       \
-        PTA_B(WEIGHTS, WEIGHT_TYPE, 1, 64),                  \
-        PTA_B(offsets, offset_t, 1, 32),                     \
-        PTA_B(indices, index_t, 1, 32),                      \
-        PTA_B(*output_offsets_contig, offset_t, 1, 64),      \
-        num_batches,                                         \
-        batch_size);                                         \
-  }
-
-#define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS) \
-  {                                                                   \
-    if (num_output_lengths >                                          \
-        static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {  \
-      LAUNCH_KERNEL_WITH_ENTRY_T(                                     \
-          WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS, int64_t)    \
-    } else {                                                          \
-      LAUNCH_KERNEL_WITH_ENTRY_T(                                     \
-          WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS, int)        \
-    }                                                                 \
-  }
-
       AT_DISPATCH_ALL_TYPES_AND2(
           at::ScalarType::Half,
           at::ScalarType::BFloat16,
@@ -541,30 +503,52 @@ class KeyedJaggedIndexSelectDim1GPUOp
                       indices.scalar_type(),
                       "keyed_jagged_index_select_dim1_wrapper_3",
                       [&] {
+                        auto launch = [&]<bool Weighted, typename weight_t>(
+                                          const Tensor& output_weights_arg,
+                                          const Tensor& weights_arg) {
+                          auto launch_entry = [&]<typename entry_t>() {
+                            FBGEMM_LAUNCH_KERNEL(
+                                (keyed_jagged_index_select_dim1_kernel<
+                                    value_t, index_t, offset_t, weight_t,
+                                    Weighted, entry_t>),
+                                grid_size, kMaxThreads, 0,
+                                at::cuda::getCurrentCUDAStream(),
+                                PTA_B(output, value_t, 1, 64),
+                                PTA_B(output_weights_arg, weight_t, 1, 64),
+                                PTA_B(values, value_t, 1, 64),
+                                PTA_B(weights_arg, weight_t, 1, 64),
+                                PTA_B(offsets, offset_t, 1, 32),
+                                PTA_B(indices, index_t, 1, 32),
+                                PTA_B(*output_offsets_contig, offset_t, 1, 64),
+                                num_batches, batch_size);
+                          };
+                          if (num_output_lengths >
+                              static_cast<int64_t>(
+                                  std::numeric_limits<int32_t>::max())) {
+                            launch_entry.template operator()<int64_t>();
+                          } else {
+                            launch_entry.template operator()<int>();
+                          }
+                        };
                         if (weights.has_value()) {
                           FBGEMM_DISPATCH_FLOAT_AND_HALF(
                               weights.value().scalar_type(),
                               "keyed_jagged_index_select_dim1_wrapper_4",
                               [&] {
                                 using weight_t = scalar_t;
-                                LAUNCH_KERNEL(
-                                    true,
-                                    weight_t,
-                                    output_weights,
-                                    weights.value())
+                                launch.template operator()<true, weight_t>(
+                                    output_weights, weights.value());
                               });
                         } else {
                           // has_weights = false, passing output and input
                           // as dummy tensors for weights
-                          LAUNCH_KERNEL(false, scalar_t, output, values)
+                          launch.template operator()<false, scalar_t>(output,
+                                                                      values);
                         }
                       });
                 });
           });
     }
-
-#undef LAUNCH_KERNEL
-#undef LAUNCH_KERNEL_WITH_ENTRY_T
 
     int64_t saved_data[] = {
         num_outputs,
@@ -688,25 +672,6 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const bool use_int64_bwd = num_input_lengths >
           static_cast<int64_t>(std::numeric_limits<int32_t>::max());
 
-#define LAUNCH_BWD_KERNEL(ENTRY_T)                  \
-  FBGEMM_LAUNCH_KERNEL(                             \
-      (keyed_jagged_index_add_dim1_kernel<          \
-          scalar_t,                                 \
-          index_t,                                  \
-          offset_t,                                 \
-          ENTRY_T>),                                \
-      grid_size,                                    \
-      kMaxThreads,                                  \
-      0,                                            \
-      at::cuda::getCurrentCUDAStream(),             \
-      PTA_B(grad_input, scalar_t, 1, 64),           \
-      PTA_B(grad, scalar_t, 1, 64),                 \
-      PTA_B(*grad_offsets_contig, offset_t, 1, 64), \
-      PTA_B(indices, index_t, 1, 32),               \
-      PTA_B(output_offsets, offset_t, 1, 64),       \
-      num_batches,                                  \
-      output_batch_size);
-
       AT_DISPATCH_ALL_TYPES_AND2(
           at::ScalarType::Half,
           at::ScalarType::BFloat16,
@@ -722,15 +687,27 @@ class KeyedJaggedIndexSelectDim1GPUOp
                       indices.scalar_type(),
                       "keyed_jagged_index_add_dim1_wrapper_3",
                       [&] {
+                        auto launch = [&]<typename entry_t>() {
+                          FBGEMM_LAUNCH_KERNEL(
+                              (keyed_jagged_index_add_dim1_kernel<
+                                  scalar_t, index_t, offset_t, entry_t>),
+                              grid_size, kMaxThreads, 0,
+                              at::cuda::getCurrentCUDAStream(),
+                              PTA_B(grad_input, scalar_t, 1, 64),
+                              PTA_B(grad, scalar_t, 1, 64),
+                              PTA_B(*grad_offsets_contig, offset_t, 1, 64),
+                              PTA_B(indices, index_t, 1, 32),
+                              PTA_B(output_offsets, offset_t, 1, 64),
+                              num_batches, output_batch_size);
+                        };
                         if (use_int64_bwd) {
-                          LAUNCH_BWD_KERNEL(int64_t)
+                          launch.template operator()<int64_t>();
                         } else {
-                          LAUNCH_BWD_KERNEL(int)
+                          launch.template operator()<int>();
                         }
                       });
                 });
           });
-#undef LAUNCH_BWD_KERNEL
     }
     return grad_input;
   }

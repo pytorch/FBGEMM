@@ -283,46 +283,39 @@ at::Tensor batch_auc(
   auto max_smem_size =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
 
-#define LAUNCH_AUC_KERNEL(pad)                                    \
-  typedef cub::BlockScan<acc_t, NUM_THREADS_PER_BLOCK> BlockScan; \
-  TORCH_CHECK(                                                    \
-      sizeof(BlockScan::TempStorage) +                            \
-          ((MAX_ENTRIES_PER_BLOCK * 2 + 3) * sizeof(acc_t)) <=    \
-      max_smem_size)                                              \
-                                                                  \
-  FBGEMM_LAUNCH_KERNEL(                                           \
-      (auc_kernel<index_t, label_t, scalar_t, acc_t, pad>),       \
-      dim3(grid_size),                                            \
-      dim3(NUM_THREADS_PER_BLOCK),                                \
-      0,                                                          \
-      at::cuda::getCurrentCUDAStream(),                           \
-      output.mutable_data_ptr<acc_t>(),                           \
-      indices.data_ptr<index_t>(),                                \
-      labels.data_ptr<label_t>(),                                 \
-      weights.data_ptr<scalar_t>(),                               \
-      num_blocks > 1 ? block_flags.data_ptr<int>() : nullptr,     \
-      num_blocks > 1 ? block_sums.data_ptr<acc_t>() : nullptr,    \
-      num_entries,                                                \
-      last_block_num_entries,                                     \
-      padded_num_entries_per_block,                               \
-      num_blocks);
-
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "auc_wrapper_1", [&] {
     dispatch_all_types_and_double(
         labels.scalar_type(), "auc_wrapper_2", [&]<typename label_t>() {
           FBGEMM_DISPATCH_FLOAT_HALF_AND_DOUBLE(
               weights.scalar_type(), "auc_wrapper_3", [&] {
                 using acc_t = at::acc_type<scalar_t, true>;
+                using BlockScan = cub::BlockScan<acc_t, NUM_THREADS_PER_BLOCK>;
+                TORCH_CHECK(
+                    sizeof(BlockScan::TempStorage) +
+                        ((MAX_ENTRIES_PER_BLOCK * 2 + 3) * sizeof(acc_t)) <=
+                    max_smem_size);
+
+                auto launch = [&]<int Pad>() {
+                  FBGEMM_LAUNCH_KERNEL(
+                      (auc_kernel<index_t, label_t, scalar_t, acc_t, Pad>),
+                      dim3(grid_size), dim3(NUM_THREADS_PER_BLOCK), 0,
+                      at::cuda::getCurrentCUDAStream(),
+                      output.mutable_data_ptr<acc_t>(),
+                      indices.data_ptr<index_t>(), labels.data_ptr<label_t>(),
+                      weights.data_ptr<scalar_t>(),
+                      num_blocks > 1 ? block_flags.data_ptr<int>() : nullptr,
+                      num_blocks > 1 ? block_sums.data_ptr<acc_t>() : nullptr,
+                      num_entries, last_block_num_entries,
+                      padded_num_entries_per_block, num_blocks);
+                };
                 if (padded_section_size == 1) {
-                  LAUNCH_AUC_KERNEL(1)
+                  launch.template operator()<1>();
                 } else {
-                  LAUNCH_AUC_KERNEL(2)
+                  launch.template operator()<2>();
                 }
               });
         });
   });
-
-#undef LAUNCH_AUC_KERNEL
 
   return output;
 }
