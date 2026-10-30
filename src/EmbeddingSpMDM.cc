@@ -18,6 +18,7 @@
 #include <mutex>
 #include <tuple>
 #include "./CodeCache.h" // @manual
+#include "./CodeGenHelpers.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h"
 #include "./EmbeddingStatsTracker.h"
@@ -405,7 +406,8 @@ GenEmbeddingSpMDMLookup<
         vec_reg_t src_vreg; // for holding embedding value temporarily
         Ymm mask_vreg; // mask for avx2
         Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
-        vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
+        vec_reg_t bf16_bias_vreg;
+        vec_reg_t bf16_tmp_vreg;
 
         if constexpr (is_8bit_in) {
           // We need 2 vec registers for 1. scale 2. bias
@@ -417,10 +419,13 @@ GenEmbeddingSpMDMLookup<
 
         if constexpr (is_bf16_out) {
           --unroll_factor;
-          ones_vreg = vec_reg_t(unroll_factor);
-          a->mov(scratchReg2_, 1 << 15);
-          a->vpinsrd(ones_vreg.xmm(), ones_vreg.xmm(), scratchReg2_, 0);
-          a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
+          bf16_bias_vreg = vec_reg_t(unroll_factor);
+          a->mov(scratchReg2_, 0x7FFF);
+          a->vpinsrd(
+              bf16_bias_vreg.xmm(), bf16_bias_vreg.xmm(), scratchReg2_, 0);
+          a->vpbroadcastd(bf16_bias_vreg, bf16_bias_vreg.xmm());
+          --unroll_factor;
+          bf16_tmp_vreg = vec_reg_t(unroll_factor);
         }
 
         if (is_8bit_in || is_16bit_in ||
@@ -866,8 +871,7 @@ GenEmbeddingSpMDMLookup<
                 if constexpr (is_fp16_out) {
                   a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
                 } else if constexpr (is_bf16_out) {
-                  a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                  a->vpsrld(out_vreg, out_vreg, 16);
+                  genBfloat16Rounding(a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
                 }
@@ -896,18 +900,14 @@ GenEmbeddingSpMDMLookup<
                   if constexpr (is_fp16_out) {
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
                   } else if constexpr (is_bf16_out) {
-                    // bf16
-                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
+                    genBfloat16Rounding(a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg);
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   }
                 } else {
                   if constexpr (is_fp16_out) {
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
                   } else if constexpr (is_bf16_out) {
-                    // bf16
-                    a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->vpsrld(out_vreg, out_vreg, 16);
+                    genBfloat16Rounding(a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg);
                     a->vpmovdw(dst_addr, out_vreg);
                   }
                 }
