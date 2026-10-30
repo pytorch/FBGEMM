@@ -305,7 +305,8 @@ inline float16 cpu_float2half(const float f) {
 }
 
 constexpr float cpu_bf162float(bfloat16 src) {
-  return std::bit_cast<float>(static_cast<uint32_t>(src.val) << 16);
+  uint32_t val_fp32 = static_cast<uint32_t>(src.val) << 16;
+  return std::bit_cast<float>(val_fp32);
 }
 
 constexpr bfloat16 cpu_float2bfloat16(float src) {

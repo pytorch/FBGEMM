@@ -27,6 +27,18 @@ template <inst_set_t instSet>
 inline constexpr bool is_avx512_vnni_v = instSet == inst_set_t::avx512_vnni ||
     instSet == inst_set_t::avx512_vnni_ymm;
 
+// Bias is 0x7fff in every 32-bit lane. Only stores need a tail mask:
+// these integer operations act independently on each lane.
+template <typename Vec>
+void genBfloat16Rounding(
+    x86::Emitter* a, Vec value, Vec scratch, Vec bias) {
+  a->vpslld(scratch, value, 15);
+  a->vpsrld(scratch, scratch, 31);
+  a->vpaddd(scratch, scratch, bias);
+  a->vpaddd(value, value, scratch);
+  a->vpsrld(value, value, 16);
+}
+
 /**
  * @brief Create instruction sequence to generate 16-bit 1s
  * @tparam T Register type of destination, e.g., Ymm or Zmm

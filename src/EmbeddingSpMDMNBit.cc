@@ -16,6 +16,7 @@
 #include <mutex>
 #include <tuple>
 #include "./CodeCache.h" // @manual
+#include "./CodeGenHelpers.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h" // @manual
 #include "./JitPerfMap.h" // @manual
@@ -845,12 +846,7 @@ GenEmbeddingSpMDMNBitLookup<
               // 16-bit output
               if constexpr (instSet == inst_set_t::avx2) {
                 if constexpr (is_bf16_out) {
-                  a->vpsrld(bf16_tmp_vreg, out_vreg, 16);
-                  a->vpslld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
-                  a->vpsrld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
-                  a->vpaddd(bf16_tmp_vreg, bf16_tmp_vreg, bf16_bias_vreg);
-                  a->vpaddd(out_vreg, out_vreg, bf16_tmp_vreg);
-                  a->vpsrld(out_vreg, out_vreg, 16);
+                  genBfloat16Rounding(a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
                 } else {
@@ -880,25 +876,14 @@ GenEmbeddingSpMDMNBitLookup<
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if constexpr (is_bf16_out) {
-                    a->k(x86::k(1)).vpsrld(bf16_tmp_vreg, out_vreg, 16);
-                    a->k(x86::k(1)).vpslld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
-                    a->k(x86::k(1)).vpsrld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
-                    a->k(x86::k(1)).vpaddd(bf16_tmp_vreg, bf16_tmp_vreg,
-                                           bf16_bias_vreg);
-                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, bf16_tmp_vreg);
-                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
+                    genBfloat16Rounding(a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg);
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
                   }
                 } else {
                   if constexpr (is_bf16_out) {
-                    a->vpsrld(bf16_tmp_vreg, out_vreg, 16);
-                    a->vpslld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
-                    a->vpsrld(bf16_tmp_vreg, bf16_tmp_vreg, 31);
-                    a->vpaddd(bf16_tmp_vreg, bf16_tmp_vreg, bf16_bias_vreg);
-                    a->vpaddd(out_vreg, out_vreg, bf16_tmp_vreg);
-                    a->vpsrld(out_vreg, out_vreg, 16);
+                    genBfloat16Rounding(a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg);
                     a->vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
