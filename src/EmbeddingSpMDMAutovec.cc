@@ -409,6 +409,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 
 template <
     int InputBitRate,
+    bool HasWeight,
     typename IndexType,
     typename OffsetType,
     typename OutType>
@@ -560,16 +561,21 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         len);
     fillZero(buf, rounded_block_size);
 
-    const float* weights_addr = weights != nullptr
+    const float* weights_addr = nullptr;
+    if constexpr (HasWeight) {
+      weights_addr = weights != nullptr
         ? (is_weight_positional ? weights : weights + current)
         : nullptr;
+    }
     for (; current < end; ++current) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         // Skip pruned rows.
         if (idx == -1 && !scale_bias_last) {
-          if (weights_addr != nullptr) {
+          if constexpr (HasWeight) {
+            if (weights_addr != nullptr) {
             weights_addr++;
+            }
           }
           continue;
         }
@@ -586,10 +592,13 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
 
       float scale = to_float(scale16);
       float bias = to_float(bias16);
-      if (weights != nullptr) {
+      if constexpr (HasWeight) {
+        // Preserve the existing null-weight behavior of weighted kernels.
+        if (weights != nullptr) {
         float weight = *weights_addr++;
         scale *= weight;
         bias *= weight;
+        }
       }
 
       if constexpr (InputBitRate == 4) {
@@ -1395,49 +1404,16 @@ try_spmdm_fixed_block_size(
     int64_t block_size,
     int64_t input_stride,
     int64_t output_stride) {
-  // Block sizes that get a compile-time-specialized kernel. Listing them as
-  // data lets the fold below enumerate them instead of a macro per value.
-  static constexpr std::array<int64_t, 18> kBlockSizes{
-      {4,
-       24,
-       32,
-       36,
-       64,
-       72,
-       96,
-       124,
-       128,
-       252,
-       256,
-       320,
-       384,
-       508,
-       512,
-       576,
-       768,
-       1024}};
-  using KernelType =
-      EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType>;
-  KernelType kernel = nullptr;
-  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    (
-        [&] {
-          constexpr int64_t kBlockSize = kBlockSizes[Is];
-          if (!kernel && block_size == kBlockSize &&
-              input_stride ==
-                  stride_SpMDMWithStrides<InType>(kBlockSize, false)) {
-            kernel = make_spmdm_fixed_block_size<
-                kBlockSize,
-                HasWeight,
-                ScaleBiasLast,
-                InType,
-                IndexType,
-                OffsetType,
-                OutType>(output_stride);
-          }
-        }(),
-        ...);
-  }(std::make_index_sequence<kBlockSizes.size()>{});
+  EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType> kernel;
+  [&]<int64_t... BlockSizes>(std::integer_sequence<int64_t, BlockSizes...>) {
+    ((block_size == BlockSizes &&
+      input_stride == stride_SpMDMWithStrides<InType>(BlockSizes, false) &&
+      (kernel = make_spmdm_fixed_block_size<
+           BlockSizes, HasWeight, ScaleBiasLast, InType,
+           IndexType, OffsetType, OutType>(output_stride), true)) || ...);
+  }(std::integer_sequence<int64_t,
+      4, 24, 32, 36, 64, 72, 96, 124, 128, 252, 256, 320, 384, 508, 512,
+      576, 768, 1024>{});
   return kernel;
 }
 
@@ -1475,41 +1451,17 @@ GenerateEmbeddingSpMDMWithStrides_autovec(
   // fold over the candidate block sizes.
   if (!normalize_by_lengths && !is_weight_positional && use_offsets &&
       !no_bag) {
-    EmbeddingSpMDMKernel<InType, IndexType, OffsetType, OutType> kernel =
-        nullptr;
-    if (has_weight && !scale_bias_last) {
-      kernel = try_spmdm_fixed_block_size<
-          true,
-          false,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    } else if (!has_weight && !scale_bias_last) {
-      kernel = try_spmdm_fixed_block_size<
-          false,
-          false,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    } else if (has_weight && scale_bias_last) {
-      kernel = try_spmdm_fixed_block_size<
-          true,
-          true,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    } else {
-      kernel = try_spmdm_fixed_block_size<
-          false,
-          true,
-          InType,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride);
-    }
+    auto make_fixed = [&]<bool HasWeight>() {
+      auto make_layout = [&]<bool ScaleBiasLast>() {
+        return try_spmdm_fixed_block_size<
+            HasWeight, ScaleBiasLast, InType, IndexType, OffsetType, OutType>(
+            block_size, input_stride, output_stride);
+      };
+      return scale_bias_last ? make_layout.template operator()<true>()
+                             : make_layout.template operator()<false>();
+    };
+    auto kernel = has_weight ? make_fixed.template operator()<true>()
+                             : make_fixed.template operator()<false>();
     if (kernel) {
       return kernel;
     }
@@ -1553,57 +1505,6 @@ static constexpr int64_t stride_SpMDMNBitWith(
 
 namespace {
 
-// Builds the NBit catch-all kernel: only input_bit_rate is baked in as a
-// compile-time constant (the old catch-all always specialized on it); every
-// other parameter stays a runtime value.
-template <
-    int InputBitRate,
-    typename IndexType,
-    typename OffsetType,
-    typename OutType>
-EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> make_nbit_generic(
-    int64_t block_size,
-    bool has_weight,
-    bool normalize_by_lengths,
-    bool is_weight_positional,
-    bool use_offsets,
-    int64_t output_stride,
-    int64_t input_stride,
-    bool scale_bias_last,
-    bool no_bag,
-    int output_bit_rate) {
-  return [=](int64_t output_size,
-             int64_t index_size,
-             int64_t data_size,
-             const uint8_t* input,
-             const IndexType* indices,
-             const OffsetType* offsets_or_lengths,
-             const float* weights,
-             OutType* out) {
-    if (!has_weight) {
-      weights = nullptr;
-    }
-    return EmbeddingSpMDMNBit_autovec<InputBitRate>(
-        block_size,
-        output_size,
-        index_size,
-        data_size,
-        input,
-        indices,
-        offsets_or_lengths,
-        weights,
-        normalize_by_lengths,
-        out,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        output_bit_rate);
-  };
-}
-
 // Builds an NBit kernel with input_bit_rate, block size and the pinned booleans
 // baked in as compile-time constants (the old FBGEMM_MORE_SPECIALIZATION
 // variants, which exist for input_bit_rate == 4 only).
@@ -1615,7 +1516,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
+EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 make_nbit_fixed_block_size(int64_t output_stride) {
   // Pinned by every FBGEMM_MORE_SPECIALIZATION variant.
   constexpr bool kNormalizeByLengths = false;
@@ -1631,12 +1532,11 @@ make_nbit_fixed_block_size(int64_t output_stride) {
              const uint8_t* input,
              const IndexType* indices,
              const OffsetType* offsets_or_lengths,
-             const float* weights,
-             OutType* out) {
-    if constexpr (!HasWeight) {
-      weights = nullptr;
-    }
-    return EmbeddingSpMDMNBit_autovec<InputBitRate>(
+             OutType* out,
+             auto... weight_args) {
+    const float* weights = nullptr;
+    ((weights = weight_args), ...);
+    return EmbeddingSpMDMNBit_autovec<InputBitRate, HasWeight>(
         BlockSize,
         output_size,
         index_size,
@@ -1667,49 +1567,38 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
+EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 try_nbit_fixed_block_size(
     int64_t block_size,
     int64_t input_stride,
     int64_t output_stride,
     int output_bit_rate) {
-  static constexpr std::array<int64_t, 14> kBlockSizes{
-      {32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024}};
-  using KernelType =
-      EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>;
-  KernelType kernel = nullptr;
   if (output_bit_rate != 8 * static_cast<int>(sizeof(OutType))) {
-    return kernel;
+    return {};
   }
-  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    (
-        [&] {
-          constexpr int64_t kBlockSize = kBlockSizes[Is];
-          if (!kernel && block_size == kBlockSize &&
-              input_stride == stride_SpMDMNBitWith(InputBitRate, kBlockSize)) {
-            kernel = make_nbit_fixed_block_size<
-                InputBitRate,
-                kBlockSize,
-                HasWeight,
-                ScaleBiasLast,
-                IndexType,
-                OffsetType,
-                OutType>(output_stride);
-          }
-        }(),
-        ...);
-  }(std::make_index_sequence<kBlockSizes.size()>{});
+  EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType> kernel;
+  [&]<int64_t... BlockSizes>(std::integer_sequence<int64_t, BlockSizes...>) {
+    ((block_size == BlockSizes &&
+      input_stride == stride_SpMDMNBitWith(InputBitRate, BlockSizes) &&
+      (kernel = make_nbit_fixed_block_size<
+           InputBitRate, BlockSizes, HasWeight, ScaleBiasLast,
+           IndexType, OffsetType, OutType>(output_stride), true)) || ...);
+  }(std::integer_sequence<int64_t,
+      32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024>{});
   return kernel;
 }
 
 } // namespace
 
-template <typename IndexType, typename OffsetType, typename OutType>
-FBGEMM_API EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
+template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType>
+FBGEMM_API EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int input_bit_rate,
     int64_t block_size,
-    bool has_weight,
     bool normalize_by_lengths,
     int prefetch [[maybe_unused]],
     bool is_weight_positional,
@@ -1724,8 +1613,8 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
   }
   if (output_stride == -1) {
     output_stride = no_bag && output_bit_rate == 4
-        ? nbit_embedding_int4_row_size_in_bytes(block_size)
-        : block_size;
+                        ? nbit_embedding_int4_row_size_in_bytes(block_size)
+                        : block_size;
   }
 
   if (input_stride == -1) {
@@ -1736,45 +1625,17 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
   // Block-size-specialized fast paths, which exist for input_bit_rate == 4
   // only. Every variant pins normalize_by_lengths=false,
   // is_weight_positional=false, use_offsets=true, no_bag=false and
-  // output_bit_rate=8*sizeof(OutType), and varies only (has_weight,
+  // output_bit_rate=8*sizeof(OutType), and varies only (HasWeight,
   // scale_bias_last) on top of the block size.
   if (input_bit_rate == 4 && !normalize_by_lengths && !is_weight_positional &&
       use_offsets && !no_bag) {
-    EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> kernel =
-        nullptr;
-    if (has_weight && !scale_bias_last) {
-      kernel = try_nbit_fixed_block_size<
-          4,
-          true,
-          false,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride, output_bit_rate);
-    } else if (!has_weight && !scale_bias_last) {
-      kernel = try_nbit_fixed_block_size<
-          4,
-          false,
-          false,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride, output_bit_rate);
-    } else if (has_weight && scale_bias_last) {
-      kernel = try_nbit_fixed_block_size<
-          4,
-          true,
-          true,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride, output_bit_rate);
-    } else {
-      kernel = try_nbit_fixed_block_size<
-          4,
-          false,
-          true,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride, output_bit_rate);
-    }
+    auto make_fixed = [&]<bool ScaleBiasLast>() {
+      return try_nbit_fixed_block_size<
+          4, HasWeight, ScaleBiasLast, IndexType, OffsetType, OutType>(
+          block_size, input_stride, output_stride, output_bit_rate);
+    };
+    auto kernel = scale_bias_last ? make_fixed.template operator()<true>()
+                                 : make_fixed.template operator()<false>();
     if (kernel) {
       return kernel;
     }
@@ -1788,7 +1649,7 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       "output_bit_rate: %d\n",
       input_bit_rate,
       static_cast<long>(block_size),
-      static_cast<int>(has_weight),
+      static_cast<int>(HasWeight),
       static_cast<int>(normalize_by_lengths),
       static_cast<int>(is_weight_positional),
       static_cast<int>(use_offsets),
@@ -1799,32 +1660,42 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       output_bit_rate);
 #endif
 
-  // Catch-all: specialize only on input_bit_rate (2 or 4).
+  auto make_generic = [&]<int InputBitRate>() {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const uint8_t* input,
+               const IndexType* indices,
+               const OffsetType* offsets_or_lengths,
+               OutType* out,
+               auto... weight_args) {
+      const float* weights = nullptr;
+      ((weights = weight_args), ...);
+      return EmbeddingSpMDMNBit_autovec<InputBitRate, HasWeight>(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          output_bit_rate);
+    };
+  };
   if (input_bit_rate == 2) {
-    return make_nbit_generic<2, IndexType, OffsetType, OutType>(
-        block_size,
-        has_weight,
-        normalize_by_lengths,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        output_bit_rate);
+    return make_generic.template operator()<2>();
   }
   if (input_bit_rate == 4) {
-    return make_nbit_generic<4, IndexType, OffsetType, OutType>(
-        block_size,
-        has_weight,
-        normalize_by_lengths,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        output_bit_rate);
+    return make_generic.template operator()<4>();
   }
   abort(); // should not get here
 }
@@ -1929,24 +1800,10 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
   };
 }
 
-#define INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template EmbeddingSpMDMKernel<uint8_t, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>    \
-      FBGEMM_API GenerateEmbeddingSpMDMNBitWithStrides_autovec<                \
-          INDEX_TYPE,                                                          \
-          OFFSET_TYPE,                                                         \
-          OUT_TYPE>(                                                           \
-          int input_bit_rate,                                                  \
-          int64_t block_size,                                                  \
-          bool has_weight,                                                     \
-          bool normalize_by_lengths,                                           \
-          int prefetch,                                                        \
-          bool is_weight_positional,                                           \
-          bool use_offsets,                                                    \
-          int64_t output_stride,                                               \
-          int64_t input_stride,                                                \
-          bool scale_bias_last,                                                \
-          bool no_bag,                                                         \
-          int output_bit_rate);
+#define INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(I, O, T, W) \
+  template FBGEMM_API EmbeddingSpMDMNBitKernel<W, I, O, T> \
+  GenerateEmbeddingSpMDMNBitWithStrides_autovec<W, I, O, T>( \
+      int, int64_t, bool, int, bool, bool, int64_t, int64_t, bool, bool, int);
 
 #define INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)            \
   template EmbeddingSpMDMKernel<uint8_t, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE> \
@@ -1963,15 +1820,17 @@ GenerateEmbeddingSpMDMRowWiseSparse_autovec(
       int exponent_bits,                                                    \
       int exponent_bias);
 
-#define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)        \
-  INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
+#define INSTANTIATE_SPMDM_BASE(I, O, T) \
+  INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(I, O, T, false) \
+  INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(I, O, T, true) \
+  INSTANTIATE_SPMDM_FP8(I, O, T)
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)    \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)    \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16)  \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, bfloat16) \
-  INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, uint8_t)
+#define INSTANTIATE_SPMDM_OUT_T(I, O) \
+  INSTANTIATE_SPMDM_BASE(I, O, float) \
+  INSTANTIATE_SPMDM_BASE(I, O, float16) \
+  INSTANTIATE_SPMDM_BASE(I, O, bfloat16) \
+  INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(I, O, uint8_t, false) \
+  INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(I, O, uint8_t, true)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
   INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int32_t) \

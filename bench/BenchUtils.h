@@ -49,6 +49,25 @@
 
 namespace fbgemm {
 
+// Keep runtime benchmark setup outside the measured invocation.
+template <bool HasWeight, typename F, typename I, typename O, typename T>
+bool invokeNBitKernel(
+    const F& fn,
+    int64_t n,
+    int64_t size,
+    int64_t rows,
+    const uint8_t* input,
+    const I* indices,
+    const O* offsets,
+    const float* weights,
+    T* out) {
+  if constexpr (HasWeight) {
+    return fn(n, size, rows, input, indices, offsets, out, weights);
+  } else {
+    return fn(n, size, rows, input, indices, offsets, out);
+  }
+}
+
 template <typename T>
 void randFill(aligned_vector<T>& vec, T low, T high);
 

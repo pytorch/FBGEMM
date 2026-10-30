@@ -36,12 +36,15 @@ GenerateEmbeddingSpMDMWithStrides_autovec(
     bool scale_bias_last,
     bool no_bag);
 
-template <typename IndexType, typename OffsetType, typename OutType>
-EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
+template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType>
+EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int input_bit_rate,
     int64_t block_size,
-    bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
     bool is_weight_positional,
