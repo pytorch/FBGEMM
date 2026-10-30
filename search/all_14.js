@@ -6,7 +6,8 @@ var searchData=
   ['quantization_20utilities_20generic_3',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]],
   ['quantize_4',['Quantize',['../namespacefbgemm.html#a25c40fb5a5070ea7ea71c695b1614d38',1,'fbgemm']]],
   ['quantize_20data_20cpu_20operators_5',['Quantize Data CPU Operators',['../group__quantize-data-cpu.html',1,'']]],
-  ['quantized_20fc_20operators_6',['/INT8 quantized FC Operators',['../group___f_p8.html',1,'']]],
-  ['quantizegroupwise_7',['QuantizeGroupwise',['../group__fbgemm-quant-utils-generic.html#ga7a5705b5705425abc8f72fe339c2ae91',1,'fbgemm']]],
-  ['queueitem_8',['QueueItem',['../structkv__db_1_1_queue_item.html',1,'kv_db']]]
+  ['quantize_5fdequantize_6',['quantize_dequantize',['../namespacekv__mem_1_1serving__qdq.html#ad66047ffc90dcf7b3e12f1e0452ea16c',1,'kv_mem::serving_qdq']]],
+  ['quantized_20fc_20operators_7',['/INT8 quantized FC Operators',['../group___f_p8.html',1,'']]],
+  ['quantizegroupwise_8',['QuantizeGroupwise',['../group__fbgemm-quant-utils-generic.html#ga7a5705b5705425abc8f72fe339c2ae91',1,'fbgemm']]],
+  ['queueitem_9',['QueueItem',['../structkv__db_1_1_queue_item.html',1,'kv_db']]]
 ];

@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['options_0',['Options',['../struct_options.html',1,'']]]
+  ['memcopy_0',['memCopy',['../classfbgemm_1_1mem_copy.html',1,'fbgemm']]]
 ];

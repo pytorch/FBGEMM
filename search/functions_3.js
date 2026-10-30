@@ -3,7 +3,7 @@ var searchData=
   ['cache_5fslot_0',['cache_slot',['../namespacefbgemm__gpu.html#afa75c79d99879bba6659db37c1732eba',1,'fbgemm_gpu']]],
   ['cblas_5fsgemm_5fref_1',['cblas_sgemm_ref',['../namespacefbgemm.html#a88e97a715133ac27ca83ae5ab05010ed',1,'fbgemm']]],
   ['check_5ffeature_5fgate_5fkey_2',['check_feature_gate_key',['../group__fbgemm-gpu-config.html#ga13ba2a931bdb7f335fcddd88e9c44115',1,'fbgemm_gpu::config']]],
-  ['check_5fround_5ftrip_5fargs_3',['check_round_trip_args',['../namespacekv__mem_1_1serving__qdq.html#aa670aa2631a56783fb25ac49bd056eb3',1,'kv_mem::serving_qdq']]],
+  ['check_5fround_5ftrip_5fargs_3',['check_round_trip_args',['../namespacekv__mem_1_1serving__qdq.html#a72076c16c1b81677788a91aca2193d82',1,'kv_mem::serving_qdq']]],
   ['checked_5fmemcpy_4',['checked_memcpy',['../namespacefbgemm__gpu.html#aa918bd02809bf42ba7d396c18add690f',1,'fbgemm_gpu']]],
   ['codegenbase_5',['CodeGenBase',['../classfbgemm_1_1_code_gen_base.html#a843f4289cb9de379bac477ed0dcba1cf',1,'fbgemm::CodeGenBase']]],
   ['col_5foffsets_5fwith_5fzero_5fpt_5fs8acc32_5fref_6',['col_offsets_with_zero_pt_s8acc32_ref',['../namespacefbgemm.html#a0f66af5e8e787dc1ff6893ac75ae161f',1,'fbgemm']]],

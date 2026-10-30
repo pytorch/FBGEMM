@@ -106,18 +106,20 @@ document.addEventListener('DOMContentLoaded', codefold.init);
 <tr class="heading"><td colspan="2"><h2 id="header-nested-classes" class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
 <tr class="memitem:Scratch" id="r_Scratch"><td class="memItemLeft">struct &#160;</td><td class="memItemRight"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a></td></tr>
+<tr class="memitem:Format" id="r_Format"><td class="memItemLeft">struct &#160;</td><td class="memItemRight"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:aa670aa2631a56783fb25ac49bd056eb3" id="r_aa670aa2631a56783fb25ac49bd056eb3"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aa670aa2631a56783fb25ac49bd056eb3">check_round_trip_args</a> (int64_t dim, int bit_rate)</td></tr>
-<tr class="memitem:a80de8bf9090c79d68cba685e28e45277" id="r_a80de8bf9090c79d68cba685e28e45277"><td class="memItemLeft">RowResult&#160;</td><td class="memItemRight"><a class="el" href="#a80de8bf9090c79d68cba685e28e45277">round_trip_row</a> (c10::Half *row, int64_t dim, int bit_rate, <a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a> &amp;scratch, int max_passes=4)</td></tr>
-<tr class="memitem:a9d9e99433b158d4b4c5ca5423b9c8ae6" id="r_a9d9e99433b158d4b4c5ca5423b9c8ae6"><td class="memItemLeft">Stats&#160;</td><td class="memItemRight"><a class="el" href="#a9d9e99433b158d4b4c5ca5423b9c8ae6">round_trip_rows</a> (c10::Half *rows, int64_t num_rows, int64_t stride, int64_t dim, int bit_rate)</td></tr>
+<tr class="memitem:a72076c16c1b81677788a91aca2193d82" id="r_a72076c16c1b81677788a91aca2193d82"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a72076c16c1b81677788a91aca2193d82">check_round_trip_args</a> (int64_t dim, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;format)</td></tr>
+<tr class="memitem:ad66047ffc90dcf7b3e12f1e0452ea16c" id="r_ad66047ffc90dcf7b3e12f1e0452ea16c"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ad66047ffc90dcf7b3e12f1e0452ea16c">quantize_dequantize</a> (const fbgemm::float16 *values, int64_t dim, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;format, <a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a> &amp;scratch)</td></tr>
+<tr class="memitem:af19b421ec615bd887aa8084cac03d5a6" id="r_af19b421ec615bd887aa8084cac03d5a6"><td class="memItemLeft">RowResult&#160;</td><td class="memItemRight"><a class="el" href="#af19b421ec615bd887aa8084cac03d5a6">round_trip_row</a> (c10::Half *row, int64_t dim, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;format, <a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a> &amp;scratch, int max_passes=4)</td></tr>
+<tr class="memitem:a070099c67b1ad5f3c734ae40f3ba22e2" id="r_a070099c67b1ad5f3c734ae40f3ba22e2"><td class="memItemLeft">Stats&#160;</td><td class="memItemRight"><a class="el" href="#a070099c67b1ad5f3c734ae40f3ba22e2">round_trip_rows</a> (c10::Half *rows, int64_t num_rows, int64_t stride, int64_t dim, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;format)</td></tr>
 </table>
 <a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>Rewrites embedding rows as the values serving decodes after a rowwise N-bit publish (fbgemm FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf, fp16 scale and bias), so training reads exactly what the published table serves. </p>
+<div class="textblock"><p>Rewrites embedding rows as the values serving decodes after the table's publish encoding (rowwise N-bit with an fp16 scale and bias, or group-wise INT4 with float8_e4m3fn scales), so training reads exactly what the published table serves. </p>
 </div><a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Function Documentation</h2>
-<a id="aa670aa2631a56783fb25ac49bd056eb3" name="aa670aa2631a56783fb25ac49bd056eb3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa670aa2631a56783fb25ac49bd056eb3">&#9670;&#160;</a></span>check_round_trip_args()</h2>
+<a id="a72076c16c1b81677788a91aca2193d82" name="a72076c16c1b81677788a91aca2193d82"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a72076c16c1b81677788a91aca2193d82">&#9670;&#160;</a></span>check_round_trip_args()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -133,7 +135,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>&#160;)</td>
+          <td class="paramtype">const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>format</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -142,12 +144,52 @@ Functions</h2></td></tr>
   </tr>
 </table>
 </div><div class="memdoc">
-<p>The scratch buffers hold exactly <span class="tt">dim</span> values, so <span class="tt">dim</span> must fill whole packed bytes. </p>
+<p>The scratch buffers hold exactly <span class="tt">dim</span> values, so <span class="tt">dim</span> must fill whole packed bytes (and whole groups). </p>
 
 </div>
 </div>
-<a id="a80de8bf9090c79d68cba685e28e45277" name="a80de8bf9090c79d68cba685e28e45277"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a80de8bf9090c79d68cba685e28e45277">&#9670;&#160;</a></span>round_trip_row()</h2>
+<a id="ad66047ffc90dcf7b3e12f1e0452ea16c" name="ad66047ffc90dcf7b3e12f1e0452ea16c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad66047ffc90dcf7b3e12f1e0452ea16c">&#9670;&#160;</a></span>quantize_dequantize()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void quantize_dequantize </td>
+          <td>(</td>
+          <td class="paramtype">const fbgemm::float16 *</td>          <td class="paramname"><span class="paramname"><em>values</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>dim</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>format</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>scratch</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Encodes <span class="tt">values</span> into scratch.packed and decodes it into scratch.dequantized. </p>
+
+</div>
+</div>
+<a id="af19b421ec615bd887aa8084cac03d5a6" name="af19b421ec615bd887aa8084cac03d5a6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af19b421ec615bd887aa8084cac03d5a6">&#9670;&#160;</a></span>round_trip_row()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -168,7 +210,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>, </td>
+          <td class="paramtype">const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>format</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -187,12 +229,12 @@ Functions</h2></td></tr>
   </tr>
 </table>
 </div><div class="memdoc">
-<p>Replaces row[0, dim) with a fixed point y of dequantize(quantize(.)): publishing y re-derives the same codes, scale and bias, so serving decodes y bit-for-bit. One pass is usually a fixed point; a row whose fp16 scale re-rounds needs a second. Rows with inf/nan, and rows whose decode would overflow fp16 (magnitudes near 65504), are left as they are. </p>
+<p>Replaces row[0, dim) with a fixed point y of dequantize(quantize(.)): publishing y re-derives the same codes and scales, so serving decodes y bit-for-bit. One pass is usually a fixed point; a row whose scale re-rounds needs a second. Rows with inf/nan, and rows whose decode would overflow fp16 (magnitudes near 65504), are left as they are. </p>
 
 </div>
 </div>
-<a id="a9d9e99433b158d4b4c5ca5423b9c8ae6" name="a9d9e99433b158d4b4c5ca5423b9c8ae6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9d9e99433b158d4b4c5ca5423b9c8ae6">&#9670;&#160;</a></span>round_trip_rows()</h2>
+<a id="a070099c67b1ad5f3c734ae40f3ba22e2" name="a070099c67b1ad5f3c734ae40f3ba22e2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a070099c67b1ad5f3c734ae40f3ba22e2">&#9670;&#160;</a></span>round_trip_rows()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -223,7 +265,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>&#160;)</td>
+          <td class="paramtype">const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>format</em></span>&#160;)</td>
         </tr>
       </table>
   </td>

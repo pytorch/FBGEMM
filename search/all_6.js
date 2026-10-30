@@ -5,7 +5,7 @@ var searchData=
   ['cachelibcache_2',['CacheLibCache',['../classl2__cache_1_1_cache_lib_cache.html',1,'l2_cache']]],
   ['cblas_5fsgemm_5fref_3',['cblas_sgemm_ref',['../namespacefbgemm.html#a88e97a715133ac27ca83ae5ab05010ed',1,'fbgemm']]],
   ['check_5ffeature_5fgate_5fkey_4',['check_feature_gate_key',['../group__fbgemm-gpu-config.html#ga13ba2a931bdb7f335fcddd88e9c44115',1,'fbgemm_gpu::config']]],
-  ['check_5fround_5ftrip_5fargs_5',['check_round_trip_args',['../namespacekv__mem_1_1serving__qdq.html#aa670aa2631a56783fb25ac49bd056eb3',1,'kv_mem::serving_qdq']]],
+  ['check_5fround_5ftrip_5fargs_5',['check_round_trip_args',['../namespacekv__mem_1_1serving__qdq.html#a72076c16c1b81677788a91aca2193d82',1,'kv_mem::serving_qdq']]],
   ['checked_5fmemcpy_6',['checked_memcpy',['../namespacefbgemm__gpu.html#aa918bd02809bf42ba7d396c18add690f',1,'fbgemm_gpu']]],
   ['codecache_7',['CodeCache',['../classfbgemm_1_1_code_cache.html',1,'fbgemm']]],
   ['codecache_3c_20kernel_5fsig_5ft_2c_20jit_5fconv_5fkernel_5ffp_20_3e_8',['CodeCache&lt; kernel_sig_t, jit_conv_kernel_fp &gt;',['../classfbgemm_1_1_code_cache.html',1,'fbgemm']]],
