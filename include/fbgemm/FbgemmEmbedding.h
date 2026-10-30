@@ -9,6 +9,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <type_traits>
 #include <utility>
 
 #include "fbgemm/FbgemmBuild.h"
@@ -73,23 +74,21 @@ class EmbeddingSpMDMNBitKernel {
       EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> kernel)
       : kernel_(std::move(kernel)) {}
 
-  bool operator()(int64_t output_size, int64_t index_size, int64_t data_size,
-                  const uint8_t* input, const IndexType* indices,
-                  const OffsetType* offsets_or_lengths, OutType* out) const
-    requires(!HasWeight)
-  {
-    return kernel_(output_size, index_size, data_size, input, indices,
-                   offsets_or_lengths, nullptr, out);
-  }
+  using OutputArgs = std::conditional_t<
+      HasWeight, bool(const float*, OutType*), bool(OutType*)>;
 
+  template <typename... Args>
+    requires std::is_invocable_r_v<bool, OutputArgs*, Args...>
   bool operator()(int64_t output_size, int64_t index_size, int64_t data_size,
                   const uint8_t* input, const IndexType* indices,
-                  const OffsetType* offsets_or_lengths, const float* weights,
-                  OutType* out) const
-    requires HasWeight
-  {
-    return kernel_(output_size, index_size, data_size, input, indices,
-                   offsets_or_lengths, weights, out);
+                  const OffsetType* offsets_or_lengths, Args&&... args) const {
+    if constexpr (HasWeight) {
+      return kernel_(output_size, index_size, data_size, input, indices,
+                     offsets_or_lengths, std::forward<Args>(args)...);
+    } else {
+      return kernel_(output_size, index_size, data_size, input, indices,
+                     offsets_or_lengths, nullptr, std::forward<Args>(args)...);
+    }
   }
 
  private:
