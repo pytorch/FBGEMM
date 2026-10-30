@@ -48,10 +48,18 @@ void genBfloat16Rounding(
   }
   // Remove discarded NaN payload bits before rounding, and set the quiet bit.
   a->vpsrld(scratch, scratch, 16);
-  a->vpandn(value, scratch, value);
+  if constexpr (std::is_same_v<Vec, x86::Zmm>) {
+    a->vpandnd(value, scratch, value);
+  } else {
+    a->vpandn(value, scratch, value);
+  }
   a->vpslld(scratch, scratch, 31);
   a->vpsrld(scratch, scratch, 9);
-  a->vpor(value, value, scratch);
+  if constexpr (std::is_same_v<Vec, x86::Zmm>) {
+    a->vpord(value, value, scratch);
+  } else {
+    a->vpor(value, value, scratch);
+  }
   a->bind(no_nan);
   a->vpslld(scratch, value, 15);
   a->vpsrld(scratch, scratch, 31);
