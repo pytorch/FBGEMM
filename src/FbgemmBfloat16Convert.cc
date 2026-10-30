@@ -42,7 +42,7 @@ void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
     const bool native_bf16 = has_avx512 && fbgemmHasAvx512Bf16Support();
 #endif
     if (native_bf16) {
-      [](const float* src, bfloat16* dst, size_t size)
+      [](const float* input, bfloat16* output, size_t length)
 #if defined(__aarch64__)
           __attribute__((target("+bf16")))
 #else
@@ -54,25 +54,25 @@ void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
         asm volatile("mrs %0, fpcr" : "=r"(fpcr));
         // Fall back for nondefault rounding/denormal handling or FP traps.
         if (fpcr & ((3ull << 22) | (1ull << 24) | 0x9f03ull)) {
-          FloatToBfloat16_ref(src, dst, size);
+          FloatToBfloat16_ref(input, output, length);
           return;
         }
 #endif
-        for (size_t i = 0; i < size;) {
-          const size_t count = std::min(size - i, size_t{32});
+        for (size_t i = 0; i < length;) {
+          const size_t count = std::min(length - i, size_t{32});
           bool needs_reference = false;
           for (size_t j = 0; j < count; ++j) {
-            const uint32_t bits = std::bit_cast<uint32_t>(src[i + j]) & 0x7fffffffu;
+            const uint32_t bits = std::bit_cast<uint32_t>(input[i + j]) & 0x7fffffffu;
             needs_reference |= bits > 0x7f800000u ||
                 (bits != 0 && bits < 0x00800000u);
           }
           // Preserve NaN behavior and subnormals, which x86 BF16 flushes.
           if (needs_reference) {
-            FloatToBfloat16_ref(src + i, dst + i, count);
+            FloatToBfloat16_ref(input + i, output + i, count);
           } else {
             for (size_t j = 0; j < count; ++j) {
-              dst[i + j].val =
-                  std::bit_cast<uint16_t>(static_cast<__bf16>(src[i + j]));
+              output[i + j].val =
+                  std::bit_cast<uint16_t>(static_cast<__bf16>(input[i + j]));
             }
           }
           i += count;
