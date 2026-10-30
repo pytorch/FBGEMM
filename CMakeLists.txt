@@ -232,27 +232,27 @@ if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
 endif()
 
-# Keep BF16 instructions confined to this source file.
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
-  include(CheckCXXSourceCompiles)
-  include(CMakePushCheckState)
-  cmake_push_check_state(RESET)
-  set(CMAKE_REQUIRED_FLAGS "-march=armv8-a+bf16")
-  check_cxx_source_compiles("
-    #include <bit>
-    #include <cstdint>
-    uint16_t convert(float x) {
-      return std::bit_cast<uint16_t>(static_cast<__bf16>(x));
-    }
-    int main() { return convert(1.0f) == 0; }
-  " FBGEMM_COMPILER_HAS_NATIVE_BF16)
-  cmake_pop_check_state()
-  if(FBGEMM_COMPILER_HAS_NATIVE_BF16)
-    list(APPEND FBGEMM_GENERIC_SRCS src/FbgemmBfloat16ConvertBfcvt.cc)
-    set_source_files_properties(src/FbgemmBfloat16ConvertBfcvt.cc
-      PROPERTIES COMPILE_OPTIONS "-march=armv8-a+bf16")
-    list(APPEND fbgemm_generic_defs FBGEMM_HAVE_BF16_BFCVT)
-  endif()
+# Probe the compiler's native type and function-target support on every target.
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles([=[
+  #include <bit>
+  #include <cstdint>
+  #if !__has_attribute(target)
+  #error Function targets are required
+  #endif
+  int main() {
+    auto convert = [](float x)
+  #if defined(__aarch64__)
+      __attribute__((target("+bf16")))
+  #elif defined(__x86_64__) || defined(_M_X64)
+      __attribute__((target("avx512bf16,avx512vl")))
+  #endif
+    { return std::bit_cast<uint16_t>(static_cast<__bf16>(x)); };
+    return convert(1.0f) == 0;
+  }
+]=] FBGEMM_COMPILER_HAS_TARGETED_BF16)
+if(FBGEMM_COMPILER_HAS_TARGETED_BF16)
+  list(APPEND fbgemm_generic_defs FBGEMM_HAVE_NATIVE_BF16)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
