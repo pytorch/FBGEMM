@@ -4590,6 +4590,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"or {CacheAlgorithm.LFU}"
             )
 
+    @torch.jit.ignore
+    def register_post_fused_update_hook(
+        self,
+        callback: Callable[[], None],
+    ) -> torch.utils.hooks.RemovableHandle:
+        """Register work after this TBE's fused backward update is enqueued.
+
+        The callback runs from the autograd hook on the TBE's placeholder
+        tensor. At that point the generated backward operator has enqueued its
+        embedding-weight and fused-optimizer-state updates on the current
+        stream. Work launched by the callback can therefore depend on those
+        updates without globally synchronizing the device.
+        """
+
+        def post_fused_update(_grad: Tensor) -> None:
+            callback()
+
+        return self.placeholder_autograd_tensor.register_hook(post_fused_update)
+
     # pyre-ignore
     def _recording_to_timer(self, timer: AsyncSeriesTimer | None, **kwargs: Any) -> Any:
         if self.stats_reporter is not None and self.stats_reporter.should_report(
