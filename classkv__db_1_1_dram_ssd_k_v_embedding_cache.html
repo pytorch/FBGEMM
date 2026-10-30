@@ -607,7 +607,7 @@ template&lt;typename weight_type&gt; </div>
   </tr>
 </table>
 </div><div class="memdoc">
-<p>Checkpoint restore writes directly to SSD, bypassing DRAM allocation. For KVZCH (backend_return_whole_row), the correct linearized IDs are already embedded in the first 8 bytes of each weight row by KVTensorWrapper::set_range() via replace_weights_id(). We extract them here rather than using the <span class="tt">start</span> parameter, which is PMT_offset + row_offset_ and can be very negative for later shards. </p>
+<p>Checkpoint restore updates SSD and already-resident DRAM rows. For KVZCH (backend_return_whole_row), the correct linearized IDs are already embedded in the first 8 bytes of each weight row by KVTensorWrapper::set_range() via replace_weights_id(). We extract them here rather than using the <span class="tt">start</span> parameter, which is PMT_offset + row_offset_ and can be very negative for later shards. </p>
 
 <p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
 
