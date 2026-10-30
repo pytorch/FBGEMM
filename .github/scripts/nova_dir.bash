@@ -42,26 +42,10 @@ elif [[ "$CU_VERSION" == "cu"* ]]; then
     echo ""
     echo "[NOVA] Will default to the TORCH_CUDA_ARCH_LIST supplied by the environment!!!"
     echo "################################################################################"
-
-
-elif [[ "$CU_VERSION" == "rocm7.0"* ]]; then
-    export PYTORCH_ROCM_ARCH="gfx908,gfx90a,gfx942,gfx950"
-    echo "[NOVA] Set PYTORCH_ROCM_ARCH to: ${PYTORCH_ROCM_ARCH}"
-
-elif [[ "$CU_VERSION" == "rocm6.4"* ]] ||
-     [[ "$CU_VERSION" == "rocm6.3"* ]] ||
-     [[ "$CU_VERSION" == "rocm6.2"* ]]; then
-    export PYTORCH_ROCM_ARCH="gfx908,gfx90a,gfx942"
-    echo "[NOVA] Set PYTORCH_ROCM_ARCH to: ${PYTORCH_ROCM_ARCH}"
-
-elif [[ "$CU_VERSION" == "rocm"* ]]; then
-    echo "################################################################################"
-    echo "[NOVA] Currently building the ROCm variant, but the supplied CU_VERSION is"
-    echo "[NOVA] unknown or not supported in FBGEMM_GPU: ${CU_VERSION}"
-    echo ""
-    echo "[NOVA] Will default to the PYTORCH_ROCM_ARCH supplied by the environment!!!"
-    echo "################################################################################"
 fi
+
+# The ROCm target architectures are set in __configure_fbgemm_gpu_build_rocm
+# (fbgemm_gpu_build.bash), which ignores PYTORCH_ROCM_ARCH.
 
 ## Cap CUDA build parallelism by container memory, not just cores.
 # nvcc peaks at several GiB per translation unit, so the core count alone

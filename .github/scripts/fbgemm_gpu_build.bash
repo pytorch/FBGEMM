@@ -213,9 +213,9 @@ __configure_fbgemm_gpu_build_rocm () {
   local rocm_dir
   rocm_dir=$(rocm_install_dir) || return 1
 
-  # By default, we build for a limited number of target architectures to save on
-  # build time.  This list needs to be updated if the CI ROCm machines have
-  # different hardware.
+  # By default, both the CI and the release (Nova) builds target MI300 (gfx942)
+  # and MI350 (gfx950); any PYTORCH_ROCM_ARCH set by the build environment is
+  # ignored.  gfx950 requires ROCm 7.0 or later.
   #
   # Target architecture, card model, and ROCm compatibility tables can be found
   # in the following links:
@@ -228,22 +228,11 @@ __configure_fbgemm_gpu_build_rocm () {
     echo "[BUILD] Using the user-supplied ROCm targets ..."
     local arch_list="${fbgemm_variant_targets}"
 
-  elif [ -n "${BUILD_FROM_NOVA+x}" ]; then
-    # If BUILD_FROM_NOVA is set (regardless of 0 or 1 - some steps in Nova have
-    # the value set to 0), we are building in Nova.  Nova machines take much
-    # longer time to build FBGEMM_GPU for ROCm, so we have to limit to just the
-    # latest model.
-    echo "[BUILD] Building in Nova environment, which is resource-constrained - will be ignoring the provided PYTORCH_ROCM_ARCH list and limiting ROCm targets ..."
-    local arch_list="gfx942"
+  elif [[ ${rocm_version_arr[0]} -ge 7 ]]; then
+    local arch_list="gfx942,gfx950"
 
   else
-    # If BUILD_FROM_NOVA is unset, then we are building from a compute host with
-    # sufficient resources, so we can build for more AMD Instinct architectures.
-    if [[ ${rocm_version_arr[0]} -ge 7 ]]; then
-      local arch_list="gfx908,gfx90a,gfx942,gfx950"
-    else
-      local arch_list="gfx908,gfx90a,gfx942"
-    fi
+    local arch_list="gfx942"
   fi
 
   echo "[BUILD] Setting the following ROCm targets: ${arch_list}"
@@ -727,7 +716,7 @@ build_fbgemm_gpu_package () {
     echo "    ${FUNCNAME[0]} build_env nightly genai/cuda                     # GenAI build target, CUDA build variant, default variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'                    # Default build target, CUDA build variant, custom variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test rocm                              # Default build target, ROCm build variant, default variant target(s)"
-    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx906;gfx908;gfx90a' # GenAI build target, ROCm build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx942;gfx950'        # GenAI build target, ROCm build variant, custom variant target(s)"
     return 1
   fi
 
@@ -801,7 +790,7 @@ build_fbgemm_gpu_install () {
     echo "    ${FUNCNAME[0]} build_env nightly genai/cuda                     # GenAI build target, CUDA build variant, default variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'                    # Default build target, CUDA build variant, custom variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test rocm                              # Default build target, ROCm build variant, default variant target(s)"
-    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx906;gfx908;gfx90a' # GenAI build target, ROCm build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx942;gfx950'        # GenAI build target, ROCm build variant, custom variant target(s)"
     return 1
   fi
 
