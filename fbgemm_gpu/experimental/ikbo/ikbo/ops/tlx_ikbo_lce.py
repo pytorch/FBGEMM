@@ -34,8 +34,8 @@ from triton.tools.tensor_descriptor import TensorDescriptor
 # Ping-pong barrier pair: each consumer replica waits on one and signals the other.
 PINGPONG_BARRIER_0 = tl.constexpr(9)
 PINGPONG_BARRIER_1 = tl.constexpr(10)
-# Syncs warp group after single-thread flag polling completes.
-POLL_SYNC_BARRIER = tl.constexpr(12)
+# Each consumer replica owns a barrier for stores and single-thread flag polling.
+WARP_GROUP_SYNC_BARRIER = tl.constexpr(12)
 
 # Thread counts for named barrier participation.
 NUM_CONSUMER_THREADS = tl.constexpr(256)  # 2 warp groups × 4 warps × 32 threads/warp
@@ -120,7 +120,6 @@ def tlx_ikbo_lce_kernel(
     user_res_stride_c: tl.constexpr,
     NUM_USERS,
     B,
-    NUM_SMS: tl.constexpr,
     M: tl.constexpr,
     N: tl.constexpr,
     K_USER: tl.constexpr,
@@ -136,14 +135,16 @@ def tlx_ikbo_lce_kernel(
 
     Fuses user GEMM (Stage 1) and candidate GEMM + broadcast (Stage 2) into
     a single persistent launch with 1 producer + 2 consumer warp groups.
+    Dispatch uses the launched CTA count, including grids smaller than the
+    GPU's SM count, so every candidate tile has an active producer/consumer.
     """
     # Allocate SMEM buffers: circular buffer for A/B tiles
     a = tlx.local_alloc((BM, BK), tlx.dtype_of(cand_a_desc), NUM_STAGES)
     b = tlx.local_alloc((BK, BN), tlx.dtype_of(cand_b_desc), NUM_STAGES)
 
     # Producer-consumer mbarriers for the circular buffer
-    mainloop_empty_bar = tlx.alloc_barriers(num_barriers=NUM_STAGES, arrive_count=1)
-    mainloop_full_bar = tlx.alloc_barriers(num_barriers=NUM_STAGES, arrive_count=1)
+    mainloop_empty_bar = tlx.alloc_barriers(num_barriers=NUM_STAGES)
+    mainloop_full_bar = tlx.alloc_barriers(num_barriers=NUM_STAGES)
 
     with tlx.async_tasks():
 
@@ -152,6 +153,7 @@ def tlx_ikbo_lce_kernel(
         ###########################
         with tlx.async_task("default"):
             pid = tl.program_id(axis=0)
+            num_programs = tl.num_programs(axis=0)
             num_pid_m_per_batch = tl.cdiv(M, BM)
             num_pid_n = tl.cdiv(N, BN)
             num_pids_per_batch = num_pid_m_per_batch * num_pid_n
@@ -166,7 +168,7 @@ def tlx_ikbo_lce_kernel(
             ###########################
             # Ascending tile dispatch (start at pid)
             user_start_pid = pid
-            for tile_id in range(user_start_pid, num_user_pids, NUM_SMS):
+            for tile_id in range(user_start_pid, num_user_pids, num_programs):
                 pid_batch, pid_m, pid_n = swizzle_tile(
                     tile_id,
                     num_pids_per_batch,
@@ -178,9 +180,10 @@ def tlx_ikbo_lce_kernel(
                 offset_am = pid_m * BM
                 offset_bn = pid_n * BN
                 offset_k_base = pid_batch * K_USER
-                for offset_k in range(0, K_USER, BK):
+                for offset_k in tl.range(0, K_USER, BK):
                     empty = tlx.local_view(mainloop_empty_bar, buf)
                     full = tlx.local_view(mainloop_full_bar, buf)
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.barrier_wait(bar=empty, phase=p)
                     tlx.barrier_expect_bytes(full, BM * BK * 2 + BK * BN * 2)
                     data_a = tlx.local_view(a, buf)
@@ -195,14 +198,15 @@ def tlx_ikbo_lce_kernel(
                         full,
                     )
                     p = p ^ (buf == (NUM_STAGES - 1))
-                    buf = (buf + 1) % NUM_STAGES
+                    # int(NUM_STAGES) is compile-time; buf is the runtime stage index.
+                    buf = (buf + 1) % int(NUM_STAGES)
 
             ###########################
             # Producer: Candidate Phase
             ###########################
-            # Descending tile dispatch (start at NUM_SMS-1-pid)
+            # Descending tile dispatch (start at num_programs-1-pid)
             # to balance per-SM workload across partial waves
-            for tile_id in range(NUM_SMS - 1 - pid, num_cand_pids, NUM_SMS):
+            for tile_id in range(num_programs - 1 - pid, num_cand_pids, num_programs):
                 pid_batch, pid_m, pid_n = swizzle_tile(
                     tile_id,
                     num_pids_per_batch,
@@ -214,9 +218,10 @@ def tlx_ikbo_lce_kernel(
                 offset_am = pid_m * BM
                 offset_bn = pid_n * BN
                 offset_k_base = pid_batch * K_CAND
-                for offset_k in range(0, K_CAND, BK):
+                for offset_k in tl.range(0, K_CAND, BK):
                     empty = tlx.local_view(mainloop_empty_bar, buf)
                     full = tlx.local_view(mainloop_full_bar, buf)
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.barrier_wait(bar=empty, phase=p)
                     tlx.barrier_expect_bytes(full, BM * BK * 2 + BK * BN * 2)
                     data_a = tlx.local_view(a, buf)
@@ -232,7 +237,7 @@ def tlx_ikbo_lce_kernel(
                     )
 
                     p = p ^ (buf == (NUM_STAGES - 1))
-                    buf = (buf + 1) % NUM_STAGES
+                    buf = (buf + 1) % int(NUM_STAGES)
 
         ###########################
         # Consumer
@@ -240,6 +245,7 @@ def tlx_ikbo_lce_kernel(
         # Two replicas ping-pong tiles: one's epilogue overlaps the other's GEMM.
         with tlx.async_task(num_warps=4, replicate=2, registers=232):
             pid = tl.program_id(axis=0)
+            num_programs = tl.num_programs(axis=0)
             cid: tl.constexpr = tlx.async_task_replica_id()
             num_pid_m_per_batch = tl.cdiv(M, BM)
             num_pid_n = tl.cdiv(N, BN)
@@ -257,8 +263,8 @@ def tlx_ikbo_lce_kernel(
             if cid == 1:
                 tlx.named_barrier_arrive(PINGPONG_BARRIER_0, NUM_CONSUMER_THREADS)
             total_k_offset = cid * k_user_tiles
-            user_start_pid = pid + cid * NUM_SMS
-            for tile_id in range(user_start_pid, num_user_pids, NUM_SMS * 2):
+            user_start_pid = pid + cid * num_programs
+            for tile_id in range(user_start_pid, num_user_pids, num_programs * 2):
                 buf = total_k_offset % NUM_STAGES
                 p = (total_k_offset // NUM_STAGES) % 2
                 total_k_offset += 2 * k_user_tiles
@@ -276,12 +282,15 @@ def tlx_ikbo_lce_kernel(
 
                 # Wait for the other replica's GEMM to finish
                 if cid == 0:
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.named_barrier_wait(PINGPONG_BARRIER_0, NUM_CONSUMER_THREADS)
                 else:
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.named_barrier_wait(PINGPONG_BARRIER_1, NUM_CONSUMER_THREADS)
 
                 # K-loop round 0
                 full = tlx.local_view(mainloop_full_bar, buf)
+                # pyrefly: ignore[bad-argument-type]
                 tlx.barrier_wait(bar=full, phase=p)
                 data_a = tlx.local_view(a, buf)
                 data_b = tlx.local_view(b, buf)
@@ -291,12 +300,14 @@ def tlx_ikbo_lce_kernel(
                 # K-loop body
                 for _ in range(1, k_user_tiles):
                     full = tlx.local_view(mainloop_full_bar, buf)
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.barrier_wait(bar=full, phase=p)
                     data_a = tlx.local_view(a, buf)
                     data_b = tlx.local_view(b, buf)
                     acc = tlx.async_dot(data_a, data_b, acc)
-                    acc = tlx.async_dot_wait(1, acc)
+                    acc = tlx.async_dot_wait(tl.constexpr(1), acc)
                     empty = tlx.local_view(mainloop_empty_bar, last_buf)
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.barrier_arrive(empty)
 
                     last_buf = buf
@@ -309,10 +320,11 @@ def tlx_ikbo_lce_kernel(
                 else:
                     tlx.named_barrier_arrive(PINGPONG_BARRIER_0, NUM_CONSUMER_THREADS)
 
-                acc = tlx.async_dot_wait(0, acc)
+                acc = tlx.async_dot_wait(tl.constexpr(0), acc)
                 empty = tlx.local_view(mainloop_empty_bar, last_buf)
+                # pyrefly: ignore[bad-argument-type]
                 tlx.barrier_arrive(empty)
-                acc = acc.to(tl.float16)
+                acc = acc.to(user_res_ptr.dtype.element_ty)
 
                 # Store user result to global memory
                 offs_m = pid_m * BM + tl.arange(0, BM)
@@ -327,6 +339,12 @@ def tlx_ikbo_lce_kernel(
                     + idx_n * user_res_stride_c
                 )
                 tl.store(user_res_ptrs, acc, mask)
+                # Publish readiness only after every warp has stored its partial.
+                tlx.named_barrier_wait(
+                    WARP_GROUP_SYNC_BARRIER + cid,
+                    # pyrefly: ignore[bad-argument-type]
+                    NUM_WARPGROUP_THREADS,
+                )
 
                 # Signal tile readiness for cross-CTA candidate consumers
                 uf_off = (
@@ -343,19 +361,19 @@ def tlx_ikbo_lce_kernel(
             # finished last in the user phase arrives second, so the OTHER
             # replica enters the candidate phase first.  Swap tile/buffer
             # assignment so the first-to-enter replica gets producer tile 0.
-            user_tiles_for_sm = (num_user_pids + NUM_SMS - 1 - pid) // NUM_SMS
+            user_tiles_for_sm = (num_user_pids + num_programs - 1 - pid) // num_programs
             swap = user_tiles_for_sm % 2
 
             if cid == 0:
                 cand_cid_offset = swap * k_cand_tiles
-                cand_start_pid = NUM_SMS - 1 - pid + swap * NUM_SMS
+                cand_start_pid = num_programs - 1 - pid + swap * num_programs
             else:
                 cand_cid_offset = (1 - swap) * k_cand_tiles
-                cand_start_pid = NUM_SMS - 1 - pid + (1 - swap) * NUM_SMS
+                cand_start_pid = num_programs - 1 - pid + (1 - swap) * num_programs
 
             total_k_offset = user_tiles_for_sm * k_user_tiles + cand_cid_offset
             k_cand_stride = 2 * k_cand_tiles
-            for tile_id in range(cand_start_pid, num_cand_pids, NUM_SMS * 2):
+            for tile_id in range(cand_start_pid, num_cand_pids, num_programs * 2):
                 buf = total_k_offset % NUM_STAGES
                 p = (total_k_offset // NUM_STAGES) % 2
                 total_k_offset += k_cand_stride
@@ -374,11 +392,14 @@ def tlx_ikbo_lce_kernel(
 
                 # Wait for the other replica's GEMM to finish
                 if cid == 0:
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.named_barrier_wait(PINGPONG_BARRIER_0, NUM_CONSUMER_THREADS)
                 else:
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.named_barrier_wait(PINGPONG_BARRIER_1, NUM_CONSUMER_THREADS)
                 # K-loop round 0
                 full = tlx.local_view(mainloop_full_bar, buf)
+                # pyrefly: ignore[bad-argument-type]
                 tlx.barrier_wait(bar=full, phase=p)
                 data_a = tlx.local_view(a, buf)
                 data_b = tlx.local_view(b, buf)
@@ -388,12 +409,14 @@ def tlx_ikbo_lce_kernel(
                 # K-loop body
                 for _ in range(1, k_cand_tiles):
                     full = tlx.local_view(mainloop_full_bar, buf)
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.barrier_wait(bar=full, phase=p)
                     data_a = tlx.local_view(a, buf)
                     data_b = tlx.local_view(b, buf)
                     acc = tlx.async_dot(data_a, data_b, acc)
-                    acc = tlx.async_dot_wait(1, acc)
+                    acc = tlx.async_dot_wait(tl.constexpr(1), acc)
                     empty = tlx.local_view(mainloop_empty_bar, last_buf)
+                    # pyrefly: ignore[bad-argument-type]
                     tlx.barrier_arrive(empty)
 
                     last_buf = buf
@@ -406,8 +429,9 @@ def tlx_ikbo_lce_kernel(
                 else:
                     tlx.named_barrier_arrive(PINGPONG_BARRIER_0, NUM_CONSUMER_THREADS)
 
-                acc = tlx.async_dot_wait(0, acc)
+                acc = tlx.async_dot_wait(tl.constexpr(0), acc)
                 empty = tlx.local_view(mainloop_empty_bar, last_buf)
+                # pyrefly: ignore[bad-argument-type]
                 tlx.barrier_arrive(empty)
 
                 # Cross-CTA sync: wait for user result readiness.
@@ -451,7 +475,11 @@ def tlx_ikbo_lce_kernel(
                         is_pure=False,
                         pack=1,
                     )
-                tlx.named_barrier_wait(POLL_SYNC_BARRIER, NUM_WARPGROUP_THREADS)
+                tlx.named_barrier_wait(
+                    WARP_GROUP_SYNC_BARRIER + cid,
+                    # pyrefly: ignore[bad-argument-type]
+                    NUM_WARPGROUP_THREADS,
+                )
 
                 # Epilogue: load user result and combine with candidate GEMM output
                 offs_m = (pid_m * BM + tl.arange(0, BM)) % M
@@ -464,7 +492,7 @@ def tlx_ikbo_lce_kernel(
                 )
                 # Boundary is handled by TMA store; skip mask for speed
                 user_res_rmem = tl.load(user_res_ptrs, eviction_policy="evict_last")
-                acc = acc.to(tl.float16) + user_res_rmem
+                acc = acc.to(user_res_ptr.dtype.element_ty) + user_res_rmem
 
                 # TMA store: split into two BN/2 subtiles to spare SMEM to allow more circular buffers
                 offset_cm = pid_m * BM + pid_batch * M_PADDED
@@ -607,7 +635,6 @@ def tlx_ikbo_lce(
         user_res.stride(2),
         NUM_USERS,
         B,
-        NUM_SMS,
         M,
         N,
         K_USER,
