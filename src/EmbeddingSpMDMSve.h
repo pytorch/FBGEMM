@@ -45,6 +45,9 @@ static inline svuint32_t rne_fp32_to_bf16_sve(svbool_t pg, svfloat32_t val) {
   svuint32_t bits = svreinterpret_u32_f32(val);
   svuint32_t lsb = svand_n_u32_x(pg, svlsr_n_u32_x(pg, bits, 16), 1);
   svuint32_t rounded = svadd_u32_x(pg, bits, svadd_n_u32_x(pg, lsb, 0x7FFF));
+  const svbool_t is_nan = svcmpgt_n_u32(
+      pg, svand_n_u32_x(pg, bits, 0x7fffffff), 0x7f800000);
+  rounded = svsel_u32(is_nan, svorr_n_u32_x(pg, bits, 0x00400000), rounded);
   return svlsr_n_u32_x(pg, rounded, 16);
 }
 
