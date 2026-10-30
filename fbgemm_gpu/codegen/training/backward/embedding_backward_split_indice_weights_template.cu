@@ -13,6 +13,7 @@
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
+{%- set supports_chunked = not dense and not ssd %}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
@@ -218,7 +219,11 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
+        {%- if supports_chunked %}
+        weights = tbe_weights_table_ptr(&dev_weights[0], weights_offset);
+        {%- else %}
         weights = &dev_weights[weights_offset];
+        {%- endif %}
         {%- if not ssd %}
         weights_numel = dev_weights.size(0) - weights_offset;
         {%- endif %}
@@ -265,9 +270,22 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 
         for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
             auto l = l_start + threadIdx.x;
+            {%- if supports_chunked %}
+            const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
+            if (weights_offset < 0) {
+                // Chunked tables check the row before reading its chunk offset
+                FBGEMM_KERNEL_ERROR_CHECK(
+                    3, idx >= 0 && idx < tbe_chunked_table_rows(weights_offset), idx
+                )
+            }
+            const auto offset_idx = l < L
+                ? tbe_weights_row_rel_offset(weights_offset, idx, D_emb)
+                : 0;
+            {%- else %}
             const auto offset_idx = l < L
                 ? (static_cast<overflow_safe_int_t>(indices[indices_start + l]) * D_emb)
                 : 0;
+            {%- endif %}
             {%- if not dense %}
             const auto {{ locs_or_addrs_idx }} =
                 (placement == PlacementType::MANAGED_CACHING && l < L)
@@ -275,12 +293,18 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
             {%- endif %}
 
             {%- if not ssd %}
+            {%- if supports_chunked %}
+            if (weights_offset >= 0) {
+            {%- endif %}
             FBGEMM_KERNEL_ERROR_CHECK(
                 1, offset_idx >= 0 && offset_idx < weights_numel, offset_idx
             )
             FBGEMM_KERNEL_ERROR_CHECK(
                 2, offset_idx + D_emb <= weights_numel, offset_idx
             )
+            {%- if supports_chunked %}
+            }
+            {%- endif %}
             {%- endif %}
             int32_t j = 0;
             {%- if is_rocm and not ssd and not dense and not use_vec_blocking and not vbe %}
@@ -492,6 +516,15 @@ kernel_error_handler:
         D_emb,
         weights_numel
     )
+    {%- if supports_chunked %}
+    FBGEMM_KERNEL_ERROR_THROW(
+        3,
+        idx >= 0 && idx < num_rows,
+        (idx=%lld, num_rows=%lld),
+        error_value,
+        tbe_chunked_table_rows(weights_offset)
+    )
+    {%- endif %}
 {%- endif %}
 #ifdef USE_ROCM
     } // for b_t (grid-stride loop, ROCm only)

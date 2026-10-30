@@ -19,6 +19,7 @@
 
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
+{%- set supports_chunked = not dense and not ssd and not is_index_select %}
 
 {%- if not dense and not nobag and not vbe %}
 #include "fbgemm_gpu/utils/dispatch_macros.h"
@@ -54,6 +55,9 @@ template <
     typename output_t,
     typename index_t,
     size_t kThreadGroupSize
+    {%- if supports_chunked %},
+    bool kChunked = false
+    {%- endif %}
     >
 __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
@@ -148,8 +152,15 @@ template <
     size_t kMaxVecsPerThread,
     {%- endif %}
     size_t kSubwarpDivisor
+    {%- if supports_chunked %},
+    bool kChunked = false
+    {%- endif %}
     >
+{%- if supports_chunked and not nobag %}
+__launch_bounds__(kForwardMaxThreads, kChunked && kMaxVecsPerThread == 1 ? 4 : 0) __global__ void
+{%- else %}
 __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- endif %}
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
 {%- else %}
@@ -366,7 +377,24 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endfor %}
     return;                                                                    \
     {%- endif %}
+  }(){%- if supports_chunked %}
+
+
+// Picks the kChunked kernel instantiations for TBEs with chunked weights. Those
+// only exist for FP32/FP16 weights.
+#define DISPATCH_CHUNKED_WEIGHTS(CHUNKED_, ...)                                \
+  [&] {                                                                        \
+    if constexpr (                                                             \
+        std::is_same_v<emb_t, float> || std::is_same_v<emb_t, at::Half>) {     \
+      if (CHUNKED_) {                                                          \
+        constexpr bool kChunked = true;                                        \
+        return __VA_ARGS__();                                                  \
+      }                                                                        \
+    }                                                                          \
+    constexpr bool kChunked = false;                                           \
+    return __VA_ARGS__();                                                      \
   }()
+{%- endif %}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -664,6 +692,9 @@ batch_index_select_dim0_codegen_forward_cuda(
         // Check if LXU cache is used
         bool use_lxu_cache = lxu_cache_weights.numel() > 0;
         {%- endif %}
+        {%- if supports_chunked %}
+        [[maybe_unused]] const bool chunked_weights = tbe_may_have_chunked_weights(dev_weights);
+        {%- endif %}
         {%- if nobag %}
         const auto nobag_warp_size = kWarpSizeHost();
         const auto nobag_warps_per_block =
@@ -689,13 +720,20 @@ batch_index_select_dim0_codegen_forward_cuda(
               "{}_embedding_nobag_codegen_forward_unweighted_small_kernel".format(mdesc)
           %}
 
+          {%- if supports_chunked %}
+          DISPATCH_CHUNKED_WEIGHTS(chunked_weights, [&] {
+          {%- endif %}
+
           FBGEMM_LAUNCH_KERNEL(
             ({{ nobag_small_kernel }}<
               emb_t,
               cache_t,
               output_t,
               index_t,
-              kEmbeddingSize / 4>),
+              kEmbeddingSize / 4
+              {%- if supports_chunked %},
+              kChunked
+              {%- endif %}>),
             {%- if is_index_select %}
             div_round_up(total_B, nobag_warps_per_block),
             {%- else %}
@@ -735,6 +773,9 @@ batch_index_select_dim0_codegen_forward_cuda(
             {%- endif %}
             PTA_B(output, output_t, {{ "1" if is_index_select else "2" }}, 64)
           );
+          {%- if supports_chunked %}
+          });
+          {%- endif %}
 
           return;
         });
@@ -745,12 +786,15 @@ batch_index_select_dim0_codegen_forward_cuda(
               if is_index_select else
               "{}_embedding_nobag_codegen_forward_unweighted_kernel".format(mdesc)
           %}
+          {%- if supports_chunked %}
+          DISPATCH_CHUNKED_WEIGHTS(chunked_weights, [&] {
+          {%- endif %}
           FBGEMM_LAUNCH_KERNEL(
             ({{ nobag_kernel }}
               {%- if dense or is_index_select %}
               <emb_t, cache_t, output_t, index_t, /*kSubwarpDivisor=*/1>
               {%- else %}
-              <emb_t, cache_t, output_t, use_cache_t, index_t, /*kSubwarpDivisor=*/1>
+              <emb_t, cache_t, output_t, use_cache_t, index_t, /*kSubwarpDivisor=*/1{{ ", kChunked" if supports_chunked else "" }}>
               {%- endif %}
             ),
             {%- if is_index_select %}
@@ -795,6 +839,9 @@ batch_index_select_dim0_codegen_forward_cuda(
             {%- endif %}
             PTA_B(output, output_t, {{ "1" if is_index_select else "2" }}, 64)
           );
+          {%- if supports_chunked %}
+          });
+          {%- endif %}
           return;
         });
 
@@ -822,6 +869,10 @@ batch_index_select_dim0_codegen_forward_cuda(
               at::cuda::getCurrentCUDAStream(),
               utils::cuda::BlockCapPolicy::Always);
 
+            {%- if supports_chunked %}
+            DISPATCH_CHUNKED_WEIGHTS(chunked_weights, [&] {
+            {%- endif %}
+
             FBGEMM_LAUNCH_KERNEL(
               ({{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
                 <emb_t,
@@ -832,7 +883,10 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- endif %}
                 index_t,
                 kMaxVecsPerThread,
-                kSubwarpDivisor>),
+                kSubwarpDivisor
+                {%- if supports_chunked %},
+                kChunked
+                {%- endif %}>),
               grid,
               dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
               0,
@@ -875,6 +929,9 @@ batch_index_select_dim0_codegen_forward_cuda(
               {%- endif %} // if not dense
               PTA_B(output, output_t, 2, 64)
             );
+            {%- if supports_chunked %}
+            });
+            {%- endif %}
 
             {%- if vbe %}
             output = output.reshape({-1});

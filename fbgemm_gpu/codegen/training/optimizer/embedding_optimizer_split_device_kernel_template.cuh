@@ -61,6 +61,7 @@ DEVICE_INLINE __device__ T subwarp_reduce_add(T value) {
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
+{%- set supports_chunked = not ssd and not dense %}
 
 template <
     typename emb_t,
@@ -115,7 +116,12 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     }
     const auto weights_placement = static_cast<PlacementType>(weights_placements[t]);
     if (weights_placement == PlacementType::DEVICE) {
+        {%- if supports_chunked %}
+        weights = tbe_weights_table_ptr(&dev_weights[0], weights_offset) +
+            tbe_weights_row_rel_offset(weights_offset, idx, D_emb);
+        {%- else %}
         weights = &dev_weights[weights_offset + idx * D_emb];
+        {%- endif %}
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset + idx * D_emb]" }};
     }
@@ -276,7 +282,12 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
         D_emb += kINT8QparamsBytes;
     }
     if (static_cast<PlacementType>(weights_placement) == PlacementType::DEVICE) {
+        {%- if supports_chunked %}
+        weights = tbe_weights_table_ptr(&dev_weights[0], weights_offset) +
+            tbe_weights_row_rel_offset(weights_offset, idx, D_emb);
+        {%- else %}
         weights = &dev_weights[weights_offset + idx * D_emb];
+        {%- endif %}
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset + idx * D_emb]" }};
     }
