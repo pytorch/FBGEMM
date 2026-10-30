@@ -163,7 +163,8 @@ struct Vec4T<float> : public Vec4BaseT<float> {
     Half4 out;
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
-        : "l"(p));
+        : "l"(p)
+        : "memory");
 
     float2 a = __half22float2(out.a);
     float2 b = __half22float2(out.b);
@@ -327,7 +328,8 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     Half4 out;
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
-        : "l"(p));
+        : "l"(p)
+        : "memory");
 
     float2 a = __half22float2(out.a);
     float2 b = __half22float2(out.b);
@@ -389,10 +391,12 @@ struct Vec4T<at::Half> : public Vec4BaseT<at::Half> {
     Half4 out;
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
-        : "l"(src));
+        : "l"(src)
+        : "memory");
     asm("st.v2.u32 [%0], {%1, %2};"
         :
-        : "l"(dst), "r"(__HALF2_TO_UI(out.a)), "r"(__HALF2_TO_UI(out.b)));
+        : "l"(dst), "r"(__HALF2_TO_UI(out.a)), "r"(__HALF2_TO_UI(out.b))
+        : "memory");
 #endif
   }
 
@@ -514,7 +518,8 @@ struct Vec4T<at::BFloat16> : public Vec4BaseT<at::BFloat16> {
     Half4 out;
     asm("ld.global.v2.u32 {%0, %1}, [%2];"
         : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
-        : "l"(p));
+        : "l"(p)
+        : "memory");
 
     float2 a = __half22float2(out.a);
     float2 b = __half22float2(out.b);
