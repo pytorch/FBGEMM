@@ -1307,6 +1307,7 @@ auto enrichment_config =
                 int64_t,
                 std::string,
                 std::vector<std::string>,
+                int64_t,
                 int64_t>(),
             "",
             {
@@ -1333,6 +1334,7 @@ auto enrichment_config =
                 torch::arg("laser_key_suffix") = "",
                 torch::arg("laser_key_suffixes") = std::vector<std::string>{},
                 torch::arg("serving_qdq_bit_rate") = 0,
+                torch::arg("serving_qdq_group_size") = 0,
             });
 
 static auto dram_kv_embedding_cache_wrapper =

@@ -62,6 +62,9 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
   /// @param serving_qdq_bit_rate Rowwise bit rate the table is published at
   /// (0 = off). When set, embedding rows are stored as the values serving
   /// decodes at that rate.
+  /// @param serving_qdq_group_size 0 for the rowwise publish (fp16 scale and
+  /// bias); else the group size of a group-wise INT4 publish with
+  /// float8_e4m3fn scales (requires serving_qdq_bit_rate 4).
   explicit EnrichmentConfig(
       int64_t enrichment_type,
       std::string provider_name,
@@ -85,7 +88,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
       int64_t laser_batch_size = 0,
       std::string laser_key_suffix = "",
       std::vector<std::string> laser_key_suffixes = {},
-      int64_t serving_qdq_bit_rate = 0)
+      int64_t serving_qdq_bit_rate = 0,
+      int64_t serving_qdq_group_size = 0)
       : enrichment_type_(static_cast<EnrichmentType>(enrichment_type)),
         provider_name_(std::move(provider_name)),
         client_id_(std::move(client_id)),
@@ -112,7 +116,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
             laser_key_suffixes.empty() && !laser_key_suffix_.empty()
                 ? std::vector<std::string>{laser_key_suffix_}
                 : std::move(laser_key_suffixes)),
-        serving_qdq_bit_rate_(serving_qdq_bit_rate) {}
+        serving_qdq_bit_rate_(serving_qdq_bit_rate),
+        serving_qdq_group_size_(serving_qdq_group_size) {}
 
   EnrichmentType enrichment_type_;
   std::string provider_name_;
@@ -156,6 +161,9 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
 
   // Rowwise publish bit rate for embedding payloads (0 = store rows as is)
   int64_t serving_qdq_bit_rate_;
+
+  // Group size of a group-wise INT4 (e4m3 scales) publish; 0 = rowwise
+  int64_t serving_qdq_group_size_;
 };
 
 } // namespace kv_mem
