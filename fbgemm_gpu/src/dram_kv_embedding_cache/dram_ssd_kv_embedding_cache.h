@@ -9,11 +9,12 @@
 #pragma once
 
 #include <folly/MPMCQueue.h>
-#include <folly/coro/BlockingWait.h>
+#include <folly/Synchronized.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/logging/xlog.h>
 #include <functional>
+#include <mutex>
 #include <thread>
 
 #include "dram_kv_embedding_cache.h"
@@ -75,7 +76,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     if (feature_evict) {
       feature_evict->set_writeback_callback(
           [this](std::vector<std::pair<int64_t, std::string>> batch) {
-            enqueue_writeback(WriteBatchItem{std::move(batch)});
+            enqueue_writeback(std::move(batch));
           });
     }
 
@@ -126,6 +127,9 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
+    const auto storage_generation =
+        storage_generation_.load(std::memory_order_acquire);
+
     // Phase 1: DRAM lookup
     dram_cache_->get_kv_db_async(indices, weights, count).wait();
 
@@ -252,22 +256,26 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
       auto bf_count_tensor = at::tensor({bf_count_val}, at::ScalarType::Long);
 
       // Fire-and-forget: backfill DRAM on dedicated backfill executor
-      auto dram_cache = dram_cache_;
+      auto submission_lock = restore_guard_.rlock();
+      if (storage_generation !=
+              storage_generation_.load(std::memory_order_acquire) ||
+          storage_generation % 2 != 0) {
+        return folly::makeSemiFuture(std::vector<folly::Unit>());
+      }
       folly::via(
           backfill_executor_.get(),
-          [dram_cache,
+          [dram_cache = dram_cache_,
            bf_idx = std::move(bf_idx_tensor),
            bf_wts = std::move(bf_weights),
            bf_cnt = std::move(bf_count_tensor)]() {
             dram_cache->set_kv_db_async(bf_idx, bf_wts, bf_cnt).wait();
-            ;
           });
     }
 
     return folly::makeSemiFuture(std::vector<folly::Unit>());
   }
 
-  /// Checkpoint restore writes directly to SSD, bypassing DRAM allocation.
+  /// Checkpoint restore updates SSD and already-resident DRAM rows.
   /// For KVZCH (backend_return_whole_row), the correct linearized IDs are
   /// already embedded in the first 8 bytes of each weight row by
   /// KVTensorWrapper::set_range() via replace_weights_id(). We extract
@@ -287,10 +295,13 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     }
     auto indices =
         torch::from_blob(keys.data(), {int64_t(keys.size())}, torch::kInt64);
-    const auto count =
-        at::tensor({weights_with_metaheader.size(0)}, at::ScalarType::Long);
-    folly::coro::blockingWait(rocksdb_backend_->set_kv_db_async(
-        indices, weights_with_metaheader, count));
+    restore_to_storage(indices, weights_with_metaheader);
+  }
+
+  void set_kv_to_storage(
+      const at::Tensor& ids,
+      const at::Tensor& weights_with_metaheader) override {
+    restore_to_storage(ids, weights_with_metaheader);
   }
 
   folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async(
@@ -344,10 +355,16 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
   // --- Eviction delegation ---
 
   void maybe_evict() override {
+    if (restore_active_.load(std::memory_order_acquire)) {
+      return;
+    }
     dram_cache_->maybe_evict();
   }
 
   void trigger_feature_evict() override {
+    if (restore_active_.load(std::memory_order_acquire)) {
+      return;
+    }
     dram_cache_->trigger_feature_evict();
   }
 
@@ -648,12 +665,16 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
   // --- Writeback thread management ---
 
   void start_writeback_thread() {
-    if (writeback_running_.load()) {
+    if (writeback_running_.exchange(true)) {
       return;
     }
-    writeback_running_.store(true);
-    writeback_thread_ =
-        std::make_unique<std::thread>([this]() { writeback_loop(); });
+    try {
+      writeback_thread_ =
+          std::make_unique<std::thread>([this]() { writeback_loop(); });
+    } catch (...) {
+      writeback_running_.store(false);
+      throw;
+    }
   }
 
   void stop_writeback_thread() {
@@ -690,10 +711,109 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     // No-op; flush is explicit via flush() method
   }
 
+  void begin_restore_locked() {
+    TORCH_CHECK(
+        !restore_active_.load(std::memory_order_acquire),
+        "restore is already active");
+    bool generation_advanced = false;
+    bool writeback_stopped = false;
+    try {
+      dram_cache_->pause_ongoing_eviction(/*force_pause=*/true);
+      dram_cache_->wait_until_eviction_done();
+      dram_cache_->pause_ongoing_eviction(/*force_pause=*/true);
+      auto replacement_executor =
+          std::make_unique<folly::CPUThreadPoolExecutor>(2);
+      stop_writeback_thread();
+      writeback_stopped = true;
+      drain_writeback_queue();
+      storage_generation_.fetch_add(1, std::memory_order_acq_rel);
+      generation_advanced = true;
+      auto old_backfill_executor = std::move(backfill_executor_);
+      backfill_executor_ = std::move(replacement_executor);
+      old_backfill_executor->join();
+      restore_active_.store(true, std::memory_order_release);
+    } catch (...) {
+      const auto restore_error = std::current_exception();
+      if (generation_advanced) {
+        storage_generation_.fetch_add(1, std::memory_order_release);
+      }
+      if (writeback_stopped) {
+        try {
+          start_writeback_thread();
+        } catch (const std::exception& cleanup_error) {
+          XLOG(ERR) << "Failed to restart DRAM_SSD writeback after restore "
+                       "setup failure: "
+                    << cleanup_error.what();
+        }
+      }
+      try {
+        dram_cache_->resume_ongoing_eviction(/*force_resume=*/true);
+      } catch (const std::exception& cleanup_error) {
+        XLOG(ERR) << "Failed to resume DRAM eviction after restore setup "
+                     "failure: "
+                  << cleanup_error.what();
+      }
+      std::rethrow_exception(restore_error);
+    }
+  }
+
+  void end_restore_locked() {
+    TORCH_CHECK(
+        restore_active_.load(std::memory_order_acquire),
+        "restore is not active");
+    std::exception_ptr restart_error;
+    try {
+      start_writeback_thread();
+    } catch (...) {
+      restart_error = std::current_exception();
+    }
+    storage_generation_.fetch_add(1, std::memory_order_release);
+    restore_active_.store(false, std::memory_order_release);
+    dram_cache_->resume_ongoing_eviction(/*force_resume=*/true);
+    if (restart_error) {
+      std::rethrow_exception(restart_error);
+    }
+  }
+
+  void restore_to_storage(
+      const at::Tensor& ids,
+      const at::Tensor& weights_with_metaheader) {
+    TORCH_CHECK(ids.dim() == 1, "restore IDs must be a 1-D tensor");
+    TORCH_CHECK(
+        weights_with_metaheader.dim() == 2,
+        "restore weights must be a 2-D tensor");
+    TORCH_CHECK(
+        ids.size(0) == weights_with_metaheader.size(0),
+        "restore IDs and weights must contain the same number of rows");
+
+    std::scoped_lock lifecycle_lock(restore_lifecycle_mutex_);
+    auto restore_lock = restore_guard_.wlock();
+    begin_restore_locked();
+    try {
+      const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+      rocksdb_backend_->set_kv_db_async(ids, weights_with_metaheader, count)
+          .get();
+      dram_cache_->update_kv_with_metaheader_if_exists(
+          ids, weights_with_metaheader);
+    } catch (...) {
+      const auto restore_error = std::current_exception();
+      try {
+        end_restore_locked();
+      } catch (const std::exception& cleanup_error) {
+        XLOG(ERR) << "Failed to resume DRAM_SSD restore infrastructure: "
+                  << cleanup_error.what();
+      }
+      std::rethrow_exception(restore_error);
+    }
+    end_restore_locked();
+  }
+
   /// Enqueue a batch of dirty evicted blocks for async SSD writeback.
-  /// Non-blocking: if queue is full, log a warning instead of blocking
-  /// eviction.
-  void enqueue_writeback(WriteBatchItem item) {
+  /// During restore, wait until the restore critical section completes. If the
+  /// queue is full, log a warning instead of blocking on queue capacity.
+  void enqueue_writeback(std::vector<std::pair<int64_t, std::string>> blocks) {
+    auto submission_lock = restore_guard_.rlock();
+    WriteBatchItem item{std::move(blocks)};
     if (!writeback_queue_.write(std::move(item))) {
       XLOG_EVERY_MS(WARNING, 60000)
           << "[DramSsdKVEmbeddingCache] Writeback queue full, "
@@ -823,6 +943,10 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
   int64_t metaheader_dim_;
 
   std::function<void(int64_t)> after_metadata_snapshot_hook_for_testing_;
+  folly::Synchronized<folly::Unit> restore_guard_;
+  std::atomic<uint64_t> storage_generation_{0};
+  std::atomic<bool> restore_active_{false};
+  std::mutex restore_lifecycle_mutex_;
 
   // Dedicated executor for async DRAM backfill
   std::unique_ptr<folly::CPUThreadPoolExecutor> backfill_executor_;
