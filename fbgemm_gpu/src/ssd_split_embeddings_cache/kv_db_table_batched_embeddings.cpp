@@ -359,6 +359,29 @@ void EmbeddingKVDB::set_embedding_cache_enrich_query_id_cuda(
   rec->record.end();
 }
 
+void EmbeddingKVDB::set_embedding_cache_rows_cuda(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::set_embedding_cache_rows_cuda ##");
+  check_tensor_type_consistency(indices, weights);
+  std::function<void()>* functor = new std::function<void()>(
+      [=, this]() { set_embedding_cache_rows_async(indices, weights, count); });
+  AT_CUDA_CHECK(cudaLaunchHostFunc(
+      at::cuda::getCurrentCUDAStream(), kv_db_utils::cuda_host_func, functor));
+  rec->record.end();
+}
+
+void EmbeddingKVDB::set_embedding_cache_rows_async(
+    at::Tensor /*indices*/,
+    at::Tensor /*weights*/,
+    at::Tensor /*count*/) {
+  XLOG_EVERY_MS(WARN, 60000)
+      << "[TBE_ID" << unique_id_
+      << "] set_embedding_cache_rows_async is not supported by this backend";
+}
+
 void EmbeddingKVDB::stream_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,

@@ -757,11 +757,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// instead of the main executor_. This avoids competing with forward/backward
   /// for thread pool resources. Uses pause/resume to yield to fwd/bwd —
   /// removing this and reusing the main write path causes QPS regression.
+  /// With skip_nonzero_rows, a key whose row is already non-zero keeps it.
   folly::SemiFuture<std::vector<folly::Unit>>
   set_kv_db_async_on_enrichment_executor(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) {
+      const at::Tensor& count,
+      bool skip_nonzero_rows = false) {
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
@@ -773,12 +775,21 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const auto indexes = iter->second;
       futures.emplace_back(
           folly::via(enrichment_executor_.get())
-              .thenValue([this, shard_id, indexes, indices, weights](
-                             folly::Unit) {
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          indices,
+                          weights,
+                          skip_nonzero_rows](folly::Unit) {
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kv_set_laser",
-                    [this, shard_id, indexes, &indices, &weights] {
+                    [this,
+                     shard_id,
+                     indexes,
+                     &indices,
+                     &weights,
+                     skip_nonzero_rows] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -807,6 +818,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             auto it = wlmap->find(id);
                             if (it != wlmap->end()) {
                               block = it->second;
+                              if (skip_nonzero_rows &&
+                                  !FixedBlockPool::is_weights_all_zero(
+                                      block, block_size_)) {
+                                cursor++;
+                                continue;
+                              }
                             } else {
                               // Key doesn't exist, allocate new block and
                               // insert
@@ -1322,6 +1339,37 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         })
         .ensure([this] { timestamp_refresh_in_progress_.store(false); });
     reset_flag_on_error.dismiss();
+  }
+
+  /// Writes rows the trainer already has (e.g. an item embedding feature)
+  /// through the same enrichment-executor write as Laser responses, into keys
+  /// that are absent or all-zero. Like a Laser request, a write that arrives
+  /// while the previous one is still running is dropped.
+  void set_embedding_cache_rows_async(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count) override {
+    if (!enrichment_config_.has_value()) {
+      return;
+    }
+    bool expected = false;
+    if (!row_write_in_progress_.compare_exchange_strong(expected, true)) {
+      XLOG(INFO)
+          << "[EmbeddingCacheEnrich] skipping row write - previous row write in progress";
+      return;
+    }
+    folly::via(enrichment_executor_.get())
+        .thenValue([this,
+                    indices = std::move(indices),
+                    weights = std::move(weights),
+                    count = std::move(count)](folly::Unit) {
+          XLOG(INFO) << "[EmbeddingCacheEnrich] row write: "
+                     << count.item<int64_t>() << " rows";
+          return set_kv_db_async_on_enrichment_executor(
+                     indices, weights, count, /*skip_nonzero_rows=*/true)
+              .via(enrichment_executor_.get());
+        })
+        .ensure([this]() { row_write_in_progress_.store(false); });
   }
 
   void set_embedding_cache_enrich_query_id_async(
@@ -3521,6 +3569,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   // Enrichment rate limiting
   std::atomic<int64_t> pending_laser_requests_{0};
   std::atomic<bool> laser_write_in_progress_{false};
+  std::atomic<bool> row_write_in_progress_{false};
 
   // Enrichment write pause/resume mechanism (similar to eviction)
   std::atomic<bool> laser_write_interrupt_{false};

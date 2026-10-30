@@ -1468,6 +1468,15 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("count"),
             })
         .def(
+            "set_embedding_cache_rows_cuda",
+            &DramKVEmbeddingCacheWrapper::set_embedding_cache_rows_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+            })
+        .def(
             "fetch_sids_sync",
             &DramKVEmbeddingCacheWrapper::fetch_sids_sync,
             "",
