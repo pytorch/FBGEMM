@@ -149,33 +149,30 @@ static int run_benchmark(
       static_cast<int>((fused_embedding_dim + CACHE_LINE_LEN - 1) /
                        CACHE_LINE_LEN);
 
-  for (bool has_weight : {false, true}) {
+  auto run = [&]<bool has_weight>() {
     vector<OutType>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
     vector<OutType> output_autovec(output_sls_ref.size());
 
 #ifndef OUT_TYPE_FLOAT16
-    auto kernel_32 = GenerateEmbeddingSpMDMNBit<int32_t>(
+    auto kernel_32 = GenerateEmbeddingSpMDMNBit<has_weight, int32_t>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0);
-    auto kernel_64 = GenerateEmbeddingSpMDMNBit<int64_t>(
+    auto kernel_64 = GenerateEmbeddingSpMDMNBit<has_weight, int64_t>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0);
 #endif // OUT_TYPE_FLOAT16
 
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
-    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<has_weight,
         /*IndexType=*/int32_t,
         /*OffsetType=*/int32_t,
         /*OutType=*/OutType>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
@@ -185,13 +182,12 @@ static int run_benchmark(
         /*scale_bias_last=*/true,
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
-    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<has_weight,
         /*IndexType=*/int64_t,
         /*OffsetType=*/int32_t,
         /*OutType=*/OutType>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
@@ -268,7 +264,7 @@ static int run_benchmark(
       double t_autovec = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              success_autovec = kernel_32_autovec(
+              success_autovec = invokeNBitKernel<has_weight>(kernel_32_autovec,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -278,7 +274,7 @@ static int run_benchmark(
                   has_weight ? weights.data() : nullptr,
                   output_autovec.data());
             } else {
-              success_autovec = kernel_64_autovec(
+              success_autovec = invokeNBitKernel<has_weight>(kernel_64_autovec,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -309,7 +305,7 @@ static int run_benchmark(
       double t = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              success = kernel_32(
+              success = invokeNBitKernel<has_weight>(kernel_32,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -319,7 +315,7 @@ static int run_benchmark(
                   has_weight ? weights.data() : nullptr,
                   output.data());
             } else {
-              success = kernel_64(
+              success = invokeNBitKernel<has_weight>(kernel_64,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -473,7 +469,9 @@ static int run_benchmark(
       cout << '\n';
       cout.flush();
     } // flush_cache
-  } // has_weight
+  };
+  run.template operator()<false>();
+  run.template operator()<true>();
   return 0;
 }
 

@@ -64,36 +64,33 @@ using EmbeddingSpMDMKernel = typename EmbeddingSpMDMKernelSignature<
     OffsetType,
     OutType>::Type;
 
-// Weight presence is part of the callable's type. The unweighted overload
-// has no weights argument; forwarding adds no second type-erased call.
-template <bool HasWeight, typename IndexType, typename OffsetType,
-          typename OutType>
-class EmbeddingSpMDMNBitKernel {
- public:
-  explicit EmbeddingSpMDMNBitKernel(
-      EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> kernel)
-      : kernel_(std::move(kernel)) {}
+namespace detail {
+template <
+    typename IndexType,
+    typename OffsetType,
+    typename OutType,
+    typename... WeightArgs>
+using NBitCallback = std::function<bool(
+    int64_t,
+    int64_t,
+    int64_t,
+    const uint8_t*,
+    const IndexType*,
+    const OffsetType*,
+    OutType*,
+    WeightArgs...)>;
+} // namespace detail
 
-  using OutputArgs = std::conditional_t<
-      HasWeight, bool(const float*, OutType*), bool(OutType*)>;
-
-  template <typename... Args>
-    requires std::is_invocable_r_v<bool, OutputArgs*, Args...>
-  bool operator()(int64_t output_size, int64_t index_size, int64_t data_size,
-                  const uint8_t* input, const IndexType* indices,
-                  const OffsetType* offsets_or_lengths, Args&&... args) const {
-    if constexpr (HasWeight) {
-      return kernel_(output_size, index_size, data_size, input, indices,
-                     offsets_or_lengths, std::forward<Args>(args)...);
-    } else {
-      return kernel_(output_size, index_size, data_size, input, indices,
-                     offsets_or_lengths, nullptr, std::forward<Args>(args)...);
-    }
-  }
-
- private:
-  EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType> kernel_;
-};
+// Unweighted callbacks omit weights entirely.
+template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType = int32_t,
+    typename OutType = float>
+using EmbeddingSpMDMNBitKernel = std::conditional_t<
+    HasWeight,
+    detail::NBitCallback<IndexType, OffsetType, OutType, const float*>,
+    detail::NBitCallback<IndexType, OffsetType, OutType>>;
 
 /**
  * @tparam InType can be float, float16, or uint8_t
@@ -156,14 +153,14 @@ GenerateEmbeddingSpMDMWithStrides(
  * @param bit_rate can be 2 or 4
  */
 template <
+    bool HasWeight,
     typename IndexType,
     typename OffsetType = std::int32_t,
     typename OutType = float>
-FBGEMM_API EmbeddingSpMDMKernel<std::uint8_t, IndexType, OffsetType, OutType>
+FBGEMM_API EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBit(
     int bit_rate,
     const std::int64_t block_size,
-    bool has_weight,
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false,
@@ -184,15 +181,15 @@ GenerateEmbeddingSpMDMNBit(
  *        pruned embedding id mapping)
  */
 template <
+    bool HasWeight,
     typename IndexType,
     typename OffsetType = std::int32_t,
     typename OutType = float,
     bool THREAD_LOCAL = false>
-FBGEMM_API EmbeddingSpMDMKernel<std::uint8_t, IndexType, OffsetType, OutType>
+FBGEMM_API EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBitWithStrides(
     const int input_bit_rate,
     const std::int64_t block_size,
-    bool has_weight,
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false,
@@ -202,24 +199,6 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     bool scale_bias_last = true,
     const bool no_bag = false,
     int output_bit_rate = -1);
-
-// Compile-time weight selection. The runtime-bool overload remains available
-// for callers whose configuration is determined at runtime.
-template <bool HasWeight, typename IndexType, typename OffsetType = int32_t,
-          typename OutType = float, bool THREAD_LOCAL = false>
-auto GenerateEmbeddingSpMDMNBitWithStrides(
-    int input_bit_rate, int64_t block_size, bool normalize_by_lengths,
-    int prefetch = 16, bool is_weight_positional = false,
-    bool use_offsets = true, int64_t output_stride = -1,
-    int64_t input_stride = -1, bool scale_bias_last = true, bool no_bag = false,
-    int output_bit_rate = -1) {
-  return EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>(
-      GenerateEmbeddingSpMDMNBitWithStrides<IndexType, OffsetType, OutType,
-                                            THREAD_LOCAL>(
-          input_bit_rate, block_size, HasWeight, normalize_by_lengths, prefetch,
-          is_weight_positional, use_offsets, output_stride, input_stride,
-          scale_bias_last, no_bag, output_bit_rate));
-}
 
 namespace detail {
 // Byte-storage boundary for runtime-configured CPU inference. C++ callers use

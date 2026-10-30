@@ -9,7 +9,6 @@
 #include <cstring>
 #include <numeric>
 #include <random>
-#include <type_traits>
 
 #include <gtest/gtest.h>
 
@@ -22,64 +21,44 @@
 using namespace std;
 using namespace fbgemm;
 
-TEST(EmbeddingSpMDMNBitAutovecTest, WeightSpecialization) {
-  using Unweighted = EmbeddingSpMDMNBitKernel<false, int32_t, int32_t, float>;
-  using Weighted = EmbeddingSpMDMNBitKernel<true, int32_t, int32_t, float>;
-  static_assert(std::is_invocable_r_v<bool, Unweighted, int64_t, int64_t,
-                                      int64_t, const uint8_t*, const int32_t*,
-                                      const int32_t*, float*>);
-  static_assert(!std::is_invocable_v<Unweighted, int64_t, int64_t, int64_t,
-                                     const uint8_t*, const int32_t*,
-                                     const int32_t*, const float*, float*>);
-  static_assert(std::is_invocable_r_v<bool, Weighted, int64_t, int64_t, int64_t,
-                                      const uint8_t*, const int32_t*,
-                                      const int32_t*, const float*, float*>);
-  static_assert(
-      !std::is_invocable_v<Weighted, int64_t, int64_t, int64_t, const uint8_t*,
-                           const int32_t*, const int32_t*, float*>);
-
-  for (int bit_rate : {2, 4}) {
-    constexpr int block_size = 7;
-    const int packed_size = (block_size + 8 / bit_rate - 1) / (8 / bit_rate);
-    const int stride = packed_size + 2 * sizeof(float16);
-    vector<uint8_t> table(2 * stride, 0x55);
-    const float16 params[] = {cpu_float2half_rn(0.25f),
-                              cpu_float2half_rn(0.5f)};
-    for (int row = 0; row < 2; ++row) {
-      memcpy(table.data() + row * stride + packed_size, params, sizeof(params));
+namespace {
+template <bool HasWeight, typename F>
+auto uniformTestNBit(F kernel) {
+  return [kernel = std::move(kernel)](
+             auto n,
+             auto size,
+             auto rows,
+             const auto* input,
+             const auto* indices,
+             const auto* offsets,
+             const float* weights,
+             auto* out) {
+    if constexpr (HasWeight) {
+      return kernel(n, size, rows, input, indices, offsets, out, weights);
+    } else {
+      return kernel(n, size, rows, input, indices, offsets, out);
     }
-    const int32_t indices[] = {0, 1};
-    const int32_t offsets[] = {0, 2};
-    const float weights[] = {0.5f, 2.f};
-    auto check = [&]<bool HasWeight>() {
-      auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides_autovec<HasWeight, int32_t>(
-              bit_rate, block_size, false);
-      auto public_kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<HasWeight, int32_t>(
-              bit_rate, block_size, false);
-      vector<float> actual(block_size), expected(block_size),
-          public_output(block_size);
-      const float* weight_ptr = HasWeight ? weights : nullptr;
-      ASSERT_TRUE((EmbeddingSpMDMNBit_ref<int32_t, int32_t, float>(
-          bit_rate, block_size, 1, 2, 2, table.data(), indices, offsets,
-          weight_ptr, false, expected.data())));
-      auto run = [&](const auto& fn, float* out) {
-        if constexpr (HasWeight) {
-          return fn(1, 2, 2, table.data(), indices, offsets, weights, out);
-        } else {
-          return fn(1, 2, 2, table.data(), indices, offsets, out);
-        }
-      };
-      ASSERT_TRUE(run(kernel, actual.data()));
-      ASSERT_TRUE(run(public_kernel, public_output.data()));
-      EXPECT_EQ(actual, expected);
-      EXPECT_EQ(public_output, expected);
-    };
-    check.template operator()<false>();
-    check.template operator()<true>();
-  }
+  };
 }
+template <typename I, typename O = int32_t, typename T = float,
+          bool ThreadLocal = false, bool Autovec = false, typename... Args>
+EmbeddingSpMDMKernel<uint8_t, I, O, T> makeTestNBit(
+    int bits, int64_t block, bool weighted, Args... args) {
+  auto create = [&]<bool HasWeight>() -> EmbeddingSpMDMKernel<uint8_t, I, O, T> {
+    if constexpr (Autovec) {
+      return uniformTestNBit<HasWeight>(
+          GenerateEmbeddingSpMDMNBitWithStrides_autovec<HasWeight, I, O, T>(
+              bits, block, args...));
+    } else {
+      return uniformTestNBit<HasWeight>(
+          GenerateEmbeddingSpMDMNBitWithStrides<HasWeight, I, O, T, ThreadLocal>(
+              bits, block, args...));
+    }
+  };
+  return weighted ? create.template operator()<true>()
+                  : create.template operator()<false>();
+}
+} // namespace
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -165,12 +144,12 @@ void expectThreadLocalKernelsMatchGlobal(int bit_rate) {
   vector<float> global_output(kBlockSize);
   vector<float> thread_local_output(kBlockSize);
 
-  auto global_kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+  auto global_kernel = makeTestNBit<
       IndexType,
       OffsetType,
       float,
       /*THREAD_LOCAL=*/false>(bit_rate, kBlockSize, false, false);
-  auto thread_local_kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+  auto thread_local_kernel = makeTestNBit<
       IndexType,
       OffsetType,
       float,
@@ -230,6 +209,17 @@ void expectThreadLocalKernelsMatchGlobal(int bit_rate) {
 #endif
 
 void expectDirectAutovecNBitKernelsMatchReference(int bit_rate) {
+  using Unweighted = EmbeddingSpMDMNBitKernel<false, int32_t>;
+  using Weighted = EmbeddingSpMDMNBitKernel<true, int32_t>;
+  static_assert(std::is_invocable_v<Unweighted, int64_t, int64_t, int64_t,
+      const uint8_t*, const int32_t*, const int32_t*, float*>);
+  static_assert(!std::is_invocable_v<Unweighted, int64_t, int64_t, int64_t,
+      const uint8_t*, const int32_t*, const int32_t*, float*, const float*>);
+  static_assert(std::is_invocable_v<Weighted, int64_t, int64_t, int64_t,
+      const uint8_t*, const int32_t*, const int32_t*, float*, const float*>);
+  static_assert(!std::is_invocable_v<Weighted, int64_t, int64_t, int64_t,
+      const uint8_t*, const int32_t*, const int32_t*, float*>);
+
   constexpr int64_t kBlockSize = 8;
   constexpr int64_t kRows = 2;
   const int64_t packed_row_size =
@@ -266,7 +256,7 @@ void expectDirectAutovecNBitKernelsMatchReference(int bit_rate) {
       -1,
       true)));
   auto dense_kernel =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int32_t, int32_t, float>(
+      makeTestNBit<int32_t, int32_t, float, false, true>(
           bit_rate,
           kBlockSize,
           false,
@@ -521,7 +511,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       /*input_stride=*/-1,                                              \
       scale_bias_last);                                                 \
                                                                         \
-  auto kernel = GenerateEmbeddingSpMDMNBitWithStrides<                  \
+  auto kernel = makeTestNBit<                  \
       IndexType,                                                        \
       OffsetType,                                                       \
       OutType,                                                          \
@@ -824,7 +814,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           false);
 
       auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+          makeTestNBit<int64_t, int64_t, float16>(
               bit_rate,
               embedding_dim,
               use_weight,
@@ -932,7 +922,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           false);
 
       auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+          makeTestNBit<int64_t, int64_t, float16>(
               bit_rate,
               embedding_dim,
               use_weight,
@@ -1048,7 +1038,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           false);
 
       auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+          makeTestNBit<int64_t, int64_t, float16>(
               bit_rate,
               embedding_dim,
               use_weight,
@@ -1240,7 +1230,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16ScaleBiasFirstTest) {
           false);
 
       auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+          makeTestNBit<int64_t, int64_t, float16>(
               bit_rate,
               embedding_dim,
               use_weight,
@@ -1357,7 +1347,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagTest) {
       }
 
       auto kernel_nobag =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+          makeTestNBit<int64_t, int64_t, float16>(
               bit_rate,
               embedding_dim,
               use_weight,
@@ -1371,7 +1361,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagTest) {
               /*no_bag=*/true);
 
       auto kernel_bag =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+          makeTestNBit<int64_t, int64_t, float16>(
               bit_rate,
               embedding_dim,
               use_weight,
@@ -1469,7 +1459,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagNegativeIndexTest) {
   vector<float16> output(output_size * embedding_dim);
 
   auto kernel =
-      GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
+      makeTestNBit<int64_t, int64_t, float16>(
           bit_rate,
           embedding_dim,
           false,
@@ -1558,7 +1548,7 @@ TEST(
       }
 
       auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float>(
+          makeTestNBit<int64_t, int64_t, float>(
               bit_rate,
               embedding_dim,
               false /* has_weight */,
@@ -1632,7 +1622,7 @@ TEST(
   for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
     ScopedKernelOverride kernel_override(kernel_choice);
     const auto kernel =
-        GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+        makeTestNBit<int64_t, int64_t, uint8_t>(
             kBitRate,
             kEmbeddingDim,
             /*has_weight=*/false,
@@ -1708,7 +1698,7 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4DropsInputRowPadding) {
       ScopedKernelOverride kernel_override(kernel_choice);
       fill(output.begin(), output.end(), kCanary);
       const auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+          makeTestNBit<int64_t, int64_t, uint8_t>(
               kBitRate,
               kEmbeddingDim,
               /*has_weight=*/false,
@@ -1808,7 +1798,7 @@ TEST(
       "reference");
 
   const auto autovec =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, uint8_t>(
+      makeTestNBit<int64_t, int64_t, uint8_t, false, true>(
           /*input_bit_rate=*/4,
           /*block_size=*/kInt4NoBagBlockSize,
           /*has_weight=*/false,
@@ -1865,7 +1855,7 @@ TEST(
       /*output_bit_rate=*/4)));
 
   const auto autovec =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, uint8_t>(
+      makeTestNBit<int64_t, int64_t, uint8_t, false, true>(
           /*input_bit_rate=*/4,
           /*block_size=*/kInt4NoBagBlockSize,
           /*has_weight=*/false,
@@ -1919,7 +1909,7 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagRejectsNonInt4FloatOutput) {
   EXPECT_THROW(run_reference(), std::exception);
 
   const auto autovec =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, float>(
+      makeTestNBit<int64_t, int64_t, float, false, true>(
           /*input_bit_rate=*/2,
           /*block_size=*/kInt4NoBagBlockSize,
           /*has_weight=*/false,
@@ -1963,7 +1953,7 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4ZerosOutputPadding) {
     ScopedKernelOverride kernel_override(kernel_choice);
     vector<uint8_t> output(kOutputStride, kCanary);
     const auto kernel =
-        GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+        makeTestNBit<int64_t, int64_t, uint8_t>(
             kBitRate,
             kEmbeddingDim,
             /*has_weight=*/false,
@@ -2014,7 +2004,7 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4RejectsShortRowStrides) {
     for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
       ScopedKernelOverride kernel_override(kernel_choice);
       const auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
+          makeTestNBit<int64_t, int64_t, uint8_t>(
               kBitRate,
               kEmbeddingDim,
               /*has_weight=*/false,

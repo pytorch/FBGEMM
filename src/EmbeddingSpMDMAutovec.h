@@ -36,12 +36,15 @@ GenerateEmbeddingSpMDMWithStrides_autovec(
     bool scale_bias_last,
     bool no_bag);
 
-template <typename IndexType, typename OffsetType, typename OutType>
-EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
+template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType>
+EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     int input_bit_rate,
     int64_t block_size,
-    bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
     bool is_weight_positional,
@@ -51,24 +54,6 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
     bool scale_bias_last,
     bool no_bag,
     int output_bit_rate);
-
-// Compile-time weight selection. The runtime-bool overload remains available
-// for callers whose configuration is determined at runtime.
-template <bool HasWeight, typename IndexType, typename OffsetType = int32_t,
-          typename OutType = float>
-auto GenerateEmbeddingSpMDMNBitWithStrides_autovec(
-    int input_bit_rate, int64_t block_size, bool normalize_by_lengths,
-    int prefetch = 16, bool is_weight_positional = false,
-    bool use_offsets = true, int64_t output_stride = -1,
-    int64_t input_stride = -1, bool scale_bias_last = true, bool no_bag = false,
-    int output_bit_rate = -1) {
-  return EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>(
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<IndexType, OffsetType,
-                                                    OutType>(
-          input_bit_rate, block_size, HasWeight, normalize_by_lengths, prefetch,
-          is_weight_positional, use_offsets, output_stride, input_stride,
-          scale_bias_last, no_bag, output_bit_rate));
-}
 
 template <typename IndexType, typename OffsetType, typename OutType>
 EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>

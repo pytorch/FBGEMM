@@ -131,16 +131,15 @@ static int run_benchmark(
            (use_32_bit_indices ? 4 : 8)) +
       batch_size * sizeof(int);
 
-  for (bool has_weight : {false, true}) {
+  auto run = [&]<bool has_weight>() {
     // Main kernel via GenerateEmbeddingSpMDMNBitWithStrides (includes SVE FP16
     // dispatch when FBGEMM_SVE_FP16=1)
-    auto kernel_32 = GenerateEmbeddingSpMDMNBitWithStrides<
+    auto kernel_32 = GenerateEmbeddingSpMDMNBitWithStrides<has_weight,
         /*IndexType=*/int32_t,
         /*OffsetType=*/int32_t,
         /*OutType=*/OutType>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
@@ -148,13 +147,12 @@ static int run_benchmark(
         /*output_stride=*/-1,
         /*input_stride=*/-1,
         /*scale_bias_last=*/true);
-    auto kernel_64 = GenerateEmbeddingSpMDMNBitWithStrides<
+    auto kernel_64 = GenerateEmbeddingSpMDMNBitWithStrides<has_weight,
         /*IndexType=*/int64_t,
         /*OffsetType=*/int32_t,
         /*OutType=*/OutType>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
@@ -164,13 +162,12 @@ static int run_benchmark(
         /*scale_bias_last=*/true);
 
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
-    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<has_weight,
         /*IndexType=*/int32_t,
         /*OffsetType=*/int32_t,
         /*OutType=*/OutType>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
@@ -180,13 +177,12 @@ static int run_benchmark(
         /*scale_bias_last=*/true,
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
-    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<has_weight,
         /*IndexType=*/int64_t,
         /*OffsetType=*/int32_t,
         /*OutType=*/OutType>(
         bit_rate,
         embedding_dim,
-        has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
@@ -203,7 +199,7 @@ static int run_benchmark(
       double t = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              kernel_32(
+              invokeNBitKernel<has_weight>(kernel_32,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -213,7 +209,7 @@ static int run_benchmark(
                   has_weight ? weights.data() : nullptr,
                   output.data());
             } else {
-              kernel_64(
+              invokeNBitKernel<has_weight>(kernel_64,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -242,7 +238,7 @@ static int run_benchmark(
       double t_autovec = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              kernel_32_autovec(
+              invokeNBitKernel<has_weight>(kernel_32_autovec,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -252,7 +248,7 @@ static int run_benchmark(
                   has_weight ? weights.data() : nullptr,
                   output_autovec.data());
             } else {
-              kernel_64_autovec(
+              invokeNBitKernel<has_weight>(kernel_64_autovec,
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -311,7 +307,9 @@ static int run_benchmark(
       cout << '\n';
       cout.flush();
     } // flush_cache
-  } // has_weight
+  };
+  run.template operator()<false>();
+  run.template operator()<true>();
   return 0;
 }
 
