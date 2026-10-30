@@ -1630,32 +1630,18 @@ try_nbit_fixed_block_size(
     int64_t input_stride,
     int64_t output_stride,
     int output_bit_rate) {
-  static constexpr std::array<int64_t, 14> kBlockSizes{
-      {32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024}};
-  using KernelType =
-      EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>;
-  KernelType kernel = nullptr;
   if (output_bit_rate != 8 * static_cast<int>(sizeof(OutType))) {
-    return kernel;
+    return {};
   }
-  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    (
-        [&] {
-          constexpr int64_t kBlockSize = kBlockSizes[Is];
-          if (!kernel && block_size == kBlockSize &&
-              input_stride == stride_SpMDMNBitWith(InputBitRate, kBlockSize)) {
-            kernel = make_nbit_fixed_block_size<
-                InputBitRate,
-                kBlockSize,
-                HasWeight,
-                ScaleBiasLast,
-                IndexType,
-                OffsetType,
-                OutType>(output_stride);
-          }
-        }(),
-        ...);
-  }(std::make_index_sequence<kBlockSizes.size()>{});
+  EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType> kernel;
+  [&]<int64_t... BlockSizes>(std::integer_sequence<int64_t, BlockSizes...>) {
+    ((block_size == BlockSizes &&
+      input_stride == stride_SpMDMNBitWith(InputBitRate, BlockSizes) &&
+      (kernel = make_nbit_fixed_block_size<
+           InputBitRate, BlockSizes, HasWeight, ScaleBiasLast,
+           IndexType, OffsetType, OutType>(output_stride), true)) || ...);
+  }(std::integer_sequence<int64_t,
+      32, 56, 64, 96, 120, 128, 248, 256, 320, 384, 512, 576, 768, 1024>{});
   return kernel;
 }
 
