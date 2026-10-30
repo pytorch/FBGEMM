@@ -1562,56 +1562,6 @@ static constexpr int64_t stride_SpMDMNBitWith(
 
 namespace {
 
-// Specialize the NBit catch-all kernel on bit rate and weight presence at
-// creation time, so unweighted kernels contain no weight handling.
-template <
-    int InputBitRate,
-    bool HasWeight,
-    typename IndexType,
-    typename OffsetType,
-    typename OutType>
-EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
-make_nbit_generic(
-    int64_t block_size,
-    bool normalize_by_lengths,
-    bool is_weight_positional,
-    bool use_offsets,
-    int64_t output_stride,
-    int64_t input_stride,
-    bool scale_bias_last,
-    bool no_bag,
-    int output_bit_rate) {
-  return [=](int64_t output_size,
-             int64_t index_size,
-             int64_t data_size,
-             const uint8_t* input,
-             const IndexType* indices,
-             const OffsetType* offsets_or_lengths,
-             OutType* out,
-             auto... weight_args) {
-    const float* weights = nullptr;
-    ((weights = weight_args), ...);
-    return EmbeddingSpMDMNBit_autovec<InputBitRate, HasWeight>(
-        block_size,
-        output_size,
-        index_size,
-        data_size,
-        input,
-        indices,
-        offsets_or_lengths,
-        weights,
-        normalize_by_lengths,
-        out,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        output_bit_rate);
-  };
-}
-
 // Builds an NBit kernel with input_bit_rate, block size and the pinned booleans
 // baked in as compile-time constants (the old FBGEMM_MORE_SPECIALIZATION
 // variants, which exist for input_bit_rate == 4 only).
@@ -1750,25 +1700,13 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
   // scale_bias_last) on top of the block size.
   if (input_bit_rate == 4 && !normalize_by_lengths && !is_weight_positional &&
       use_offsets && !no_bag) {
-    EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType> kernel =
-        nullptr;
-    if (scale_bias_last) {
-      kernel = try_nbit_fixed_block_size<
-          4,
-          HasWeight,
-          true,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride, output_bit_rate);
-    } else {
-      kernel = try_nbit_fixed_block_size<
-          4,
-          HasWeight,
-          false,
-          IndexType,
-          OffsetType,
-          OutType>(block_size, input_stride, output_stride, output_bit_rate);
-    }
+    auto make_fixed = [&]<bool ScaleBiasLast>() {
+      return try_nbit_fixed_block_size<
+          4, HasWeight, ScaleBiasLast, IndexType, OffsetType, OutType>(
+          block_size, input_stride, output_stride, output_bit_rate);
+    };
+    auto kernel = scale_bias_last ? make_fixed.template operator()<true>()
+                                 : make_fixed.template operator()<false>();
     if (kernel) {
       return kernel;
     }
@@ -1793,30 +1731,42 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       output_bit_rate);
 #endif
 
-  // Catch-all: specialize on input_bit_rate (2 or 4) and HasWeight.
+  auto make_generic = [&]<int InputBitRate>() {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const uint8_t* input,
+               const IndexType* indices,
+               const OffsetType* offsets_or_lengths,
+               OutType* out,
+               auto... weight_args) {
+      const float* weights = nullptr;
+      ((weights = weight_args), ...);
+      return EmbeddingSpMDMNBit_autovec<InputBitRate, HasWeight>(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          output_bit_rate);
+    };
+  };
   if (input_bit_rate == 2) {
-    return make_nbit_generic<2, HasWeight, IndexType, OffsetType, OutType>(
-        block_size,
-        normalize_by_lengths,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        output_bit_rate);
+    return make_generic.template operator()<2>();
   }
   if (input_bit_rate == 4) {
-    return make_nbit_generic<4, HasWeight, IndexType, OffsetType, OutType>(
-        block_size,
-        normalize_by_lengths,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        output_bit_rate);
+    return make_generic.template operator()<4>();
   }
   abort(); // should not get here
 }
