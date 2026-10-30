@@ -8,6 +8,8 @@
 
 #pragma once
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <random>
 #include <type_traits>
 #ifdef _OPENMP
@@ -49,7 +51,28 @@ class FBGemmFPTest : public testing::TestWithParam<
     return shapes;
   }
 
+  void CheckBeta() {
+    const auto [atrans, btrans] = GetParam();
+    constexpr int n = 33, k = 5;
+    for (int m = 1; m <= 14; ++m) {
+      aligned_vector<float> A(m * k, 2.f), B(k * n, 3.f), C(m * n);
+      PackedGemmMatrixB<T> Bp(btrans, k, n, 1.f, B.data());
+      for (float beta : {0.f, -0.f, 2.f, NAN, -NAN}) {
+        std::fill(C.begin(), C.end(), beta == 0.f ? NAN : 4.f);
+        cblas_gemm_compute(atrans, m, A.data(), Bp, beta, C.data(), 0, 1);
+        for (float actual : C) {
+          if (std::isnan(beta)) {
+            EXPECT_TRUE(std::isnan(actual)) << "m=" << m;
+          } else {
+            EXPECT_EQ(actual, 6.f * k + 4.f * beta) << "m=" << m;
+          }
+        }
+      }
+    }
+  }
+
   void TestRun() {
+    CheckBeta();
     auto shapes = GenShapes();
     float alpha = 1.f, beta = 0.f;
     matrix_op_t atrans, btrans;
