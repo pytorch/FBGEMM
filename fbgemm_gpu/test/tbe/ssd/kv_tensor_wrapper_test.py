@@ -6,12 +6,14 @@
 
 # pyre-strict
 
+import copy
 import gc
 import pickle
 import tempfile
 import unittest
 from typing import Any
 from unittest import TestCase
+from unittest.mock import MagicMock
 
 import fbgemm_gpu  # noqa E402
 import torch
@@ -56,6 +58,34 @@ class KvTensorWrapperTest(TestCase):
         _, args = restored.__reduce__()
         self.assertEqual(args[1:], (True, True))
         torch.testing.assert_close(restored.wrapped, pmt.wrapped)
+
+        copied = copy.deepcopy(pmt)
+        self.assertTrue(copied.is_virtual)
+        _, copied_args = copied.__reduce__()
+        self.assertEqual(copied_args[1:], (True, True))
+        torch.testing.assert_close(copied.wrapped, pmt.wrapped)
+
+    def test_partially_materialized_tensor_dispatches_prefixed_rows(self) -> None:
+        wrapped = MagicMock()
+        pmt = PartiallyMaterializedTensor(wrapped, includes_metadata=True)
+        weights = torch.tensor([[1.0]])
+        ids = torch.tensor([11])
+
+        pmt.set_weights_and_ids(weights, ids)
+
+        wrapped.set_prefixed_weights_and_ids.assert_called_once_with(weights, ids)
+        wrapped.set_weights_and_ids.assert_not_called()
+
+    def test_partially_materialized_tensor_dispatches_payload_rows(self) -> None:
+        wrapped = MagicMock()
+        pmt = PartiallyMaterializedTensor(wrapped)
+        weights = torch.tensor([[1.0]])
+        ids = torch.tensor([11])
+
+        pmt.set_weights_and_ids(weights, ids)
+
+        wrapped.set_weights_and_ids.assert_called_once_with(weights, ids)
+        wrapped.set_prefixed_weights_and_ids.assert_not_called()
 
     def create_db(
         self,
