@@ -198,6 +198,22 @@ def _profile_paths(
     }
 
 
+def _reuse(
+    fn: Callable[[], torch.Tensor],
+) -> tuple[torch.Tensor, dict[str, bool]]:
+    """Run the op three times in one process, dropping each output, and keep the
+    last one: after a warm-up call, the final call is served from a pooled block
+    that still holds the previous call's bytes. The result must match a single
+    fresh run, i.e. the kernel overwrites every output byte. Reports whether the
+    last output reused the previous output's storage."""
+    fn()  # warm-up: the first call's output can be released late
+    prev = fn()
+    prev_ptr = prev.untyped_storage().data_ptr()
+    del prev
+    last = fn()
+    return last, {"reused": last.untyped_storage().data_ptr() == prev_ptr}
+
+
 _MODES = {
     "pooled": _pooled,
     "pooled_bags": _pooled_bags,
@@ -217,6 +233,14 @@ _MODES = {
     "nobag_fp16": lambda: _nobag_skewed(SparseType.FP16, torch.int32),
     # int64 indices/offsets hit the other generated kernel instantiation.
     "nobag_fp16_int64": lambda: _nobag_skewed(SparseType.FP16, torch.int64),
+    # Third call reuses the second call's dirty pooled block when
+    # FBGEMM_TBE_CPU_OUTPUT_POOL is on.
+    "nobag_skewed_reuse": lambda: _reuse(
+        lambda: _nobag_skewed(SparseType.INT4, torch.int32)
+    ),
+    "nobag_fp16_reuse": lambda: _reuse(
+        lambda: _nobag_skewed(SparseType.FP16, torch.int32)
+    ),
 }
 
 
