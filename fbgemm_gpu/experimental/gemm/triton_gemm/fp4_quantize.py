@@ -101,6 +101,7 @@ def _kernel_quantize_mx4_unpack(
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
     SCALE_K: tl.constexpr,
+    HAS_SCALE_COL_PADDING: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -234,12 +235,17 @@ def _kernel_quantize_mx4_unpack(
             f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
+        scale_offset = exp_offset
+        if HAS_SCALE_COL_PADDING:
+            scale_offset = (
+                exp_offset // GROUPS_PER_ROW
+            ) * SCALE_K + exp_offset % GROUPS_PER_ROW
         n_col_blocks = SCALE_K // 4
-        first_dim = exp_offset // (512 * n_col_blocks)
-        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
-        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
-        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
-        fifth_dim = exp_offset % 4
+        first_dim = scale_offset // (512 * n_col_blocks)
+        second_dim = (scale_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (scale_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (scale_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = scale_offset % 4
         actual_offset = (
             first_dim * (512 * n_col_blocks)
             + fourth_dim * (512)
@@ -367,7 +373,10 @@ def triton_quantize_mx4_unpack(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale_allocator = (
+        torch.zeros if (M, scale_K) != (rounded_M, rounded_K) else torch.empty
+    )
+    scale = scale_allocator((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -433,6 +442,7 @@ def triton_quantize_mx4_unpack(
         USE_INT64=use_int64,
         # pyre-ignore[6]
         SCALE_K=rounded_K,
+        HAS_SCALE_COL_PADDING=groups_per_row != rounded_K,
     )
 
     scale = scale.flatten()
@@ -1352,6 +1362,7 @@ def _kernel_nvfp4_quantize(
     USE_INT64: tl.constexpr,
     SCALE_K: tl.constexpr,
     USE_E8M0_SCALE: tl.constexpr,
+    HAS_SCALE_COL_PADDING: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -1484,12 +1495,17 @@ def _kernel_nvfp4_quantize(
             f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight
         )
 
+        scale_offset = exp_offset
+        if HAS_SCALE_COL_PADDING:
+            scale_offset = (
+                exp_offset // GROUPS_PER_ROW
+            ) * SCALE_K + exp_offset % GROUPS_PER_ROW
         n_col_blocks = SCALE_K // 4
-        first_dim = exp_offset // (512 * n_col_blocks)
-        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
-        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
-        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
-        fifth_dim = exp_offset % 4
+        first_dim = scale_offset // (512 * n_col_blocks)
+        second_dim = (scale_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (scale_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (scale_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = scale_offset % 4
         actual_offset = (
             first_dim * (512 * n_col_blocks)
             + fourth_dim * (512)
@@ -1581,7 +1597,10 @@ def triton_scale_nvfp4_quant(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.uint8)
+    scale_allocator = (
+        torch.zeros if (M, scale_K) != (rounded_M, rounded_K) else torch.empty
+    )
+    scale = scale_allocator((rounded_M, rounded_K), device=device, dtype=torch.uint8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -1650,6 +1669,7 @@ def triton_scale_nvfp4_quant(
         USE_INT64=use_int64,
         # pyre-ignore[6]
         SCALE_K=rounded_K,
+        HAS_SCALE_COL_PADDING=groups_per_row != rounded_K,
         # pyre-ignore[6]
         USE_E8M0_SCALE=use_e8m0_scale,
     )
@@ -1680,6 +1700,7 @@ def _kernel_nvfp4_quantize_silu(
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
     SCALE_K: tl.constexpr,
+    HAS_SCALE_COL_PADDING: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -1820,12 +1841,17 @@ def _kernel_nvfp4_quantize_silu(
 
         # We're done with group_exp now so we can write it out.
         # We readd fp16_exp_bias for compatibility with cuda dequant.
+        scale_offset = exp_offset
+        if HAS_SCALE_COL_PADDING:
+            scale_offset = (
+                exp_offset // GROUPS_PER_ROW
+            ) * SCALE_K + exp_offset % GROUPS_PER_ROW
         n_col_blocks = SCALE_K // 4
-        first_dim = exp_offset // (512 * n_col_blocks)
-        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
-        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
-        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
-        fifth_dim = exp_offset % 4
+        first_dim = scale_offset // (512 * n_col_blocks)
+        second_dim = (scale_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (scale_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (scale_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = scale_offset % 4
         actual_offset = (
             first_dim * (512 * n_col_blocks)
             + fourth_dim * (512)
@@ -1916,7 +1942,10 @@ def triton_scale_nvfp4_quant_silu(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.uint8)
+    scale_allocator = (
+        torch.zeros if (M, scale_K) != (rounded_M, rounded_K) else torch.empty
+    )
+    scale = scale_allocator((rounded_M, rounded_K), device=device, dtype=torch.uint8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -1984,6 +2013,7 @@ def triton_scale_nvfp4_quant_silu(
         USE_INT64=use_int64,
         # pyre-ignore[6]
         SCALE_K=rounded_K,
+        HAS_SCALE_COL_PADDING=groups_per_row != rounded_K,
     )
 
     scale = scale.flatten()
@@ -2013,6 +2043,7 @@ def _kernel_nvfp4_quantize_rms(
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
     SCALE_K: tl.constexpr,
+    HAS_SCALE_COL_PADDING: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -2164,12 +2195,17 @@ def _kernel_nvfp4_quantize_rms(
 
         # We're done with group_exp now so we can write it out.
         # We readd fp16_exp_bias for compatibility with cuda dequant.
+        scale_offset = exp_offset
+        if HAS_SCALE_COL_PADDING:
+            scale_offset = (
+                exp_offset // GROUPS_PER_ROW
+            ) * SCALE_K + exp_offset % GROUPS_PER_ROW
         n_col_blocks = SCALE_K // 4
-        first_dim = exp_offset // (512 * n_col_blocks)
-        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
-        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
-        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
-        fifth_dim = exp_offset % 4
+        first_dim = scale_offset // (512 * n_col_blocks)
+        second_dim = (scale_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (scale_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (scale_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = scale_offset % 4
         actual_offset = (
             first_dim * (512 * n_col_blocks)
             + fourth_dim * (512)
@@ -2261,7 +2297,10 @@ def triton_scale_nvfp4_quant_rms(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.uint8)
+    scale_allocator = (
+        torch.zeros if (M, scale_K) != (rounded_M, rounded_K) else torch.empty
+    )
+    scale = scale_allocator((rounded_M, rounded_K), device=device, dtype=torch.uint8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -2331,6 +2370,7 @@ def triton_scale_nvfp4_quant_rms(
         USE_INT64=use_int64,
         # pyre-ignore[6]
         SCALE_K=rounded_K,
+        HAS_SCALE_COL_PADDING=groups_per_row != rounded_K,
     )
 
     scale = scale.flatten()
