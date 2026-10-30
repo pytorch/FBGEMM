@@ -716,7 +716,7 @@ build_fbgemm_gpu_package () {
     echo "    ${FUNCNAME[0]} build_env nightly genai/cuda                     # GenAI build target, CUDA build variant, default variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'                    # Default build target, CUDA build variant, custom variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test rocm                              # Default build target, ROCm build variant, default variant target(s)"
-    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx942;gfx950'        # GenAI build target, ROCm build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx942;gfx950'        # GenAI build target, ROCm build variant, custom variant target(s)"
     return 1
   fi
 
@@ -790,7 +790,7 @@ build_fbgemm_gpu_install () {
     echo "    ${FUNCNAME[0]} build_env nightly genai/cuda                     # GenAI build target, CUDA build variant, default variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'                    # Default build target, CUDA build variant, custom variant target(s)"
     echo "    ${FUNCNAME[0]} build_env test rocm                              # Default build target, ROCm build variant, default variant target(s)"
-    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx942;gfx950'        # GenAI build target, ROCm build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx942;gfx950'        # GenAI build target, ROCm build variant, custom variant target(s)"
     return 1
   fi
 
