@@ -525,6 +525,10 @@
     <span class="c1"># Gate raw embedding streaming (RES) of DEVICE-placed rows</span>
     <span class="n">RES_HBM_STREAMING</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
+    <span class="c1"># Gate shipping MPZCH identities on the RES HBM lane; runtime_meta only</span>
+    <span class="c1"># ships with identities, so it shares this gate</span>
+    <span class="n">RES_HBM_ZCH_IDENTITIES</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
     <span class="c1"># Gate the bounds_check_indices offsets-adjustment assertions</span>
     <span class="n">DISABLE_OFFSETS_ADJUSTMENT</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
