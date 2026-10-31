@@ -339,6 +339,103 @@ class IndexSelectTest(unittest.TestCase):
             test_utils=["test_faketensor"],
         )
 
+    def _group_index_select_setup_inputs(
+        self, group_size: int, num_input_rows: int, num_cols: int, num_indices: int
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # CUDA specifically required: GPU-only FBGEMM sparse op.
+        device = torch.device("cuda")
+        indices_group = [
+            torch.randint(
+                num_input_rows, (num_indices,), dtype=torch.long, device=device
+            )
+            for _ in range(group_size)
+        ]
+        # Values k / 8 keep every sum exact, so results do not depend on the
+        # (atomic) accumulation order of the backward.
+        input_group = [
+            torch.randint(-8, 9, (num_input_rows, num_cols), device=device).float() / 8
+            for _ in range(group_size)
+        ]
+        return indices_group, input_group
+
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test of a helper op; the opcheck test below covers its fake kernel"
+    )
+    def test_group_index_select_dim0_gpu_setup_matches_forward_impl(self) -> None:
+        """The setup op builds the same backward arguments as the forward impl
+        (sizes, dtypes, devices, and every non-pointer saved_data field) without
+        returning outputs."""
+        group_size = 5
+        indices_group, input_group = self._group_index_select_setup_inputs(
+            group_size, num_input_rows=40, num_cols=64, num_indices=33
+        )
+        all_inputs = [*indices_group, *input_group]
+        impl = torch.ops.fbgemm.group_index_select_dim0_gpu_impl(all_inputs, group_size)
+        setup = torch.ops.fbgemm.group_index_select_dim0_gpu_setup(
+            all_inputs, group_size
+        )
+        self.assertEqual(len(setup), 2)
+        for got, want in zip(setup, impl[group_size:]):
+            self.assertEqual(got.shape, want.shape)
+            self.assertEqual(got.dtype, want.dtype)
+            self.assertEqual(got.device, want.device)
+        # saved_data: [group_size, use_var_cols, use_packed_rows, use_sorted_indices,
+        # warp_offsets ptr, num_cols ptr, total_num_warps, enable_cache_and_contig].
+        for i in (0, 1, 2, 3, 6, 7):
+            self.assertEqual(int(setup[1][i]), int(impl[group_size + 1][i]), i)
+
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @optests.dontGenerateOpCheckTests(
+        "GPU-only test of a helper op; the opcheck test below covers its fake kernel"
+    )
+    def test_group_index_select_dim0_gpu_setup_feeds_backward(self) -> None:
+        """Gradients from group_index_select_dim0_gpu_backward fed by the setup op
+        equal the gradients of group_index_select_dim0 (exact values, so equal bit
+        for bit), for an even and an odd group size and a column count that uses
+        packed rows."""
+        for group_size, num_cols in ((4, 64), (3, 16)):
+            indices_group, input_group = self._group_index_select_setup_inputs(
+                group_size, num_input_rows=50, num_cols=num_cols, num_indices=70
+            )
+            leaves = [t.clone().requires_grad_() for t in input_group]
+            outputs = torch.ops.fbgemm.group_index_select_dim0(leaves, indices_group)
+            grads = [
+                torch.randint(-8, 9, o.shape, device=o.device).float() / 8
+                for o in outputs
+            ]
+            torch.autograd.backward(outputs, grads)
+
+            args_tensor, saved_data = (
+                torch.ops.fbgemm.group_index_select_dim0_gpu_setup(
+                    [*indices_group, *input_group], group_size
+                )
+            )
+            res = torch.ops.fbgemm.group_index_select_dim0_gpu_backward(
+                [*grads, *indices_group, args_tensor, saved_data, input_group[0]],
+                [d for t in input_group for d in t.shape],
+            )
+            for leaf, got in zip(leaves, res[group_size : 2 * group_size]):
+                self.assertTrue(torch.equal(got, leaf.grad))
+
+    @unittest.skipIf(not gpu_available, "Skip when CUDA is not available")
+    @optests.dontGenerateOpCheckTests(
+        "This test IS the opcheck; the harness variants would double-run it"
+    )
+    def test_group_index_select_dim0_gpu_setup_fake_kernel_opcheck(self) -> None:
+        """The setup op's fake kernel must report the same output metadata as the
+        real op (see test_group_index_select_dim0_fake_kernel_opcheck)."""
+        group_size = 9  # odd: exercises the ceil(group_size / 2) int32 packing
+        indices_group, input_group = self._group_index_select_setup_inputs(
+            group_size, num_input_rows=16, num_cols=8, num_indices=5
+        )
+        torch.library.opcheck(
+            torch.ops.fbgemm.group_index_select_dim0_gpu_setup.default,
+            ([*indices_group, *input_group], group_size),
+            test_utils=["test_faketensor"],
+        )
+
     def execute_batch_index_select_dim0(  # noqa: C901
         self,
         num_inputs: int,
