@@ -72,6 +72,9 @@ class FeatureGateName(Enum):
     # Gate raw embedding streaming (RES) of DEVICE-placed rows
     RES_HBM_STREAMING = auto()
 
+    # Gate shipping MPZCH identities on the RES HBM lane
+    RES_HBM_ZCH_IDENTITIES = auto()
+
     # Gate the bounds_check_indices offsets-adjustment assertions
     DISABLE_OFFSETS_ADJUSTMENT = auto()
 

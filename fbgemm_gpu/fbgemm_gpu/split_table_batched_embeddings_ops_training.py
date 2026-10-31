@@ -790,6 +790,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     _res_compacted_rows: torch.Tensor | None
     _res_hbm_indices_buf: torch.Tensor | None
     _res_hbm_weights_buf: torch.Tensor | None
+    _res_hbm_identities_buf: torch.Tensor | None
+    _res_hbm_row_identities: torch.Tensor | None
     _vbe_max_B: int
 
     def __init__(  # noqa C901
@@ -886,6 +888,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             enable_raw_embedding_streaming
             and (res_params or RESParams()).enable_hbm_streaming
             and self._feature_is_enabled(FeatureGateName.RES_HBM_STREAMING)
+        )
+        self._res_hbm_ships_zch_identities: bool = (
+            self._res_hbm_streaming
+            and self._feature_is_enabled(FeatureGateName.RES_HBM_ZCH_IDENTITIES)
         )
         self._res_hbm_drain_interval: int = (
             res_params or RESParams()
@@ -2126,6 +2132,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # +1: the kernel dumps indices it cannot place -- pruned rows among
         # them -- on total_hash_size, so that slot gets written and has to exist.
         linear_size = self.total_hash_size + 1
+        res_hbm_linear_mask = self._build_res_hbm_linear_mask(linear_size)
+        if not bool(res_hbm_linear_mask.any()):
+            self._res_hbm_ships_zch_identities = False
         self.register_buffer(
             "_res_rows_seen",
             torch.zeros(linear_size, device=self.current_device, dtype=torch.bool),
@@ -2133,7 +2142,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "_res_hbm_linear_mask",
-            self._build_res_hbm_linear_mask(linear_size),
+            res_hbm_linear_mask,
             persistent=False,
         )
         self._res_drain_counter: int = 0
@@ -2158,6 +2167,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self._res_hbm_indices_buf = None
         self._res_hbm_weights_buf = None
+        self._res_hbm_identities_buf = None
+        # Latest hash_zch_identities per linear row, -1 if none.
+        self._res_hbm_row_identities = None
         # One element whatever the drain size, so it is allocated here rather
         # than grown alongside the two above.
         self.register_buffer(
@@ -2224,8 +2236,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         vbe_metadata: invokers.lookup_args.VBEMetadata | None,
+        hash_zch_identities: Tensor | None,
     ) -> None:
-        """Record every row this lookup touched, whatever its placement."""
+        """Record every row this lookup touched, with its hash_zch_identities if given."""
         if not self._res_hbm_streaming:
             return
         # hash_size_cumsum, not cache_hash_size_cumsum: the latter is a
@@ -2249,6 +2262,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # index_fill_ rather than setitem: assigning a Python scalar into a
         # CUDA tensor forces a host sync.
         self._res_rows_seen.index_fill_(0, linearize_indices, True)
+        if hash_zch_identities is None or not self._res_hbm_ships_zch_identities:
+            return
+        if self._res_hbm_row_identities is None:
+            self._res_hbm_row_identities = torch.full_like(
+                self._res_rows_seen, -1, dtype=torch.long
+            )
+        self._res_hbm_row_identities.index_copy_(
+            0, linearize_indices, hash_zch_identities.flatten().to(torch.long)
+        )
 
     @torch.jit.ignore
     def _get_enabled_feature_mask_and_indices(
@@ -3632,7 +3654,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
 
-        self._mark_res_hbm_rows(indices, offsets, vbe_metadata)
+        self._mark_res_hbm_rows(indices, offsets, vbe_metadata, hash_zch_identities)
 
         # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
         #  a function.
@@ -5286,6 +5308,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self._res_hbm_weights_buf[:num_drained_rows],
                 self.weights_dev,
             )
+            if self._res_hbm_row_identities is not None:
+                self._res_hbm_identities_buf = self._grown_res_host_buf_if_needed(
+                    self._res_hbm_identities_buf, num_drained_rows, (1,), torch.long
+                )
+                torch.index_select(
+                    self._res_hbm_row_identities,
+                    0,
+                    drained_rows,
+                    out=self._res_hbm_identities_buf[:num_drained_rows].view(-1),
+                )
 
             if self.res_params.res_use_copy_done_token:
                 self._res_hbm_copy_done_token = _next_copy_done_token(
@@ -5301,11 +5333,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self._raw_embedding_streamer.stream(
                 indices=self._res_hbm_indices_buf[:num_drained_rows],
                 weights=self._res_hbm_weights_buf[:num_drained_rows],
-                # The HBM path ships no per-row ZCH state, identity or runtime
-                # metadata. A chunk mixing rows that have one with rows that do
-                # not makes the PS discard the whole FQN, and the cache path's
-                # buffers describe other rows.
-                identities=None,
+                identities=(
+                    self._res_hbm_identities_buf[:num_drained_rows]
+                    if self._res_hbm_row_identities is not None
+                    else None
+                ),
                 runtime_meta=None,
                 count=self._res_hbm_count_buf[:1],
                 require_tensor_copy=self._res_require_copy,
