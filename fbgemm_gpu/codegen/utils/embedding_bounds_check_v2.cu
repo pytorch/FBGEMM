@@ -32,7 +32,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   int32_t B = vbe ? 0 : (total_B / T);
 
   const index_t num_indices = indices.size(0);
-  const auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const int32_t b_t_start =
+      static_cast<int32_t>(blockIdx.x) * static_cast<int32_t>(blockDim.y) +
+      static_cast<int32_t>(threadIdx.y);
   constexpr bool is_warning_mode =
       bounds_check_mode == BoundsCheckMode::WARNING ||
       bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES;
@@ -83,8 +85,12 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   // check, with nothing to catch it at compile or run time.
   const auto index_stride = static_cast<index_t>(blockDim.x);
 
-  for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B;
-       b_t += blockDim.y * gridDim.x) {
+  for (int32_t b_t =
+           static_cast<int32_t>(blockIdx.x) * static_cast<int32_t>(blockDim.y) +
+           static_cast<int32_t>(threadIdx.y);
+       b_t < total_B;
+       b_t +=
+       static_cast<int32_t>(blockDim.y) * static_cast<int32_t>(gridDim.x)) {
     // Compute b and t
     int32_t b;
     int32_t t;

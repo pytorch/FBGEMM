@@ -202,9 +202,11 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
             // Fetch cached updated row from shared mem and quantize on-the-fly
             // when saving to lowp embedding
             for (int32_t vec = 0;
-                (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                (vec * kThreadGroupSize +
+                 static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH < D;
                 ++vec) {
-                const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
+                const auto d_vec =
+                    vec * kThreadGroupSize + static_cast<int32_t>(threadIdx.x);
                 const int32_t d = d_vec * VEC_WIDTH;
                 weight_row_template.store(
                     shared_weight_update_row[d_vec],
@@ -361,9 +363,11 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
             // Fetch cached updated row from shared mem and quantize on-the-fly
             // when saving to lowp embedding
             for (int32_t vec = 0;
-                (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                (vec * kThreadGroupSize +
+                 static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH < D;
                 ++vec) {
-                const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
+                const auto d_vec =
+                    vec * kThreadGroupSize + static_cast<int32_t>(threadIdx.x);
                 const int32_t d = d_vec * VEC_WIDTH;
                 weight_row_template.store(
                     shared_weight_update_row[d_vec],

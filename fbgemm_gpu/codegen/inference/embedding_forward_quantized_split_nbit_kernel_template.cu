@@ -17,8 +17,8 @@ using Tensor = at::Tensor;
 namespace nbit {
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
-template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly, bool PackedMode>
-__launch_bounds__(WarpsPerBlock * kWarpSize)
+template<typename index_t, typename output_t, size_t OutputRowsPerThread_, size_t WarpsPerBlock_, size_t InputRowsInFlight_, size_t MinNum128BRows_, size_t MaxNum128BRows_, bool DeviceOnly, bool PackedMode>
+__launch_bounds__(WarpsPerBlock_ * kWarpSize)
 __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -50,6 +50,21 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
   const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
+  static_assert(
+      OutputRowsPerThread_ <= std::numeric_limits<int32_t>::max() &&
+      WarpsPerBlock_ <= std::numeric_limits<int32_t>::max() &&
+      InputRowsInFlight_ <= std::numeric_limits<int32_t>::max() &&
+      MinNum128BRows_ <= std::numeric_limits<int32_t>::max() &&
+      MaxNum128BRows_ <= std::numeric_limits<int32_t>::max());
+  constexpr int32_t OutputRowsPerThread =
+      static_cast<int32_t>(OutputRowsPerThread_);
+  constexpr int32_t WarpsPerBlock = static_cast<int32_t>(WarpsPerBlock_);
+  constexpr int32_t InputRowsInFlight =
+      static_cast<int32_t>(InputRowsInFlight_);
+  constexpr int32_t MinNum128BRows =
+      static_cast<int32_t>(MinNum128BRows_);
+  constexpr int32_t MaxNum128BRows =
+      static_cast<int32_t>(MaxNum128BRows_);
   const int32_t T = weights_offsets.size(0);
   {% if not nobag %}
   const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
@@ -61,11 +76,16 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   // threads-per-launch limit, so we grid-stride to cover the full workload.
   // On CUDA the grid is not capped and the loop body runs once per warp.
 #ifdef USE_ROCM
-  for (auto bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  for (int32_t bb_t =
+           static_cast<int32_t>(blockIdx.x) * static_cast<int32_t>(blockDim.y) +
+           static_cast<int32_t>(threadIdx.y);
        bb_t < fd_B.D() * T;
-       bb_t += blockDim.y * gridDim.x) {
+       bb_t +=
+       static_cast<int32_t>(blockDim.y) * static_cast<int32_t>(gridDim.x)) {
 #else
-  const auto bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const int32_t bb_t =
+      static_cast<int32_t>(blockIdx.x) * static_cast<int32_t>(blockDim.y) +
+      static_cast<int32_t>(threadIdx.y);
   if (bb_t >= fd_B.D() * T) {
     return;
   }
@@ -109,25 +129,30 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   const int32_t D_total = padded_D(D, weight_ty);
   const int32_t D_padding = D_total - D;
 
-  uint32_t warp_idx = threadIdx.y;
+  const int32_t warp_idx = static_cast<int32_t>(threadIdx.y);
   int32_t indices_starts[OutputRowsPerThread];
   int32_t Ls[OutputRowsPerThread];
   int32_t max_Ls = 0;
-  constexpr size_t kOutputsPerThread = {{ (32 // emb_weight_type.bit_width) }};
+  constexpr int32_t kOutputsPerThread = {{ (32 // emb_weight_type.bit_width) }};
 
-  constexpr uint32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4);
-  const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
+  constexpr int32_t NumUint4LoadsPerRow =
+      MaxNum128BRows * 128 / sizeof(uint4);
+  const int32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
   // Index of packed bag during load stage in current warp/wave. Should fit into NumUint4LoadsPerRow (3rd) shared
   // memory buffer's dimension w.r.t. the actual size of the row in the bag.
-  const uint32_t packed_bag_load_idx = PackedMode ? (threadIdx.x % NumUint4LoadsPerRow) / uint4_loads_per_row : 0;
+  const int32_t packed_bag_load_idx =
+      PackedMode
+      ? (static_cast<int32_t>(threadIdx.x) % NumUint4LoadsPerRow) /
+          uint4_loads_per_row
+      : 0;
   constexpr int32_t kUintsInUint4 = 4;
   const int32_t uints_per_row = kUintsInUint4 * uint4_loads_per_row;
   // Packed bag accumulation index in current warp/wave. Each thread/lane process 1 uint instead of
   // 4 uints during load stage, so the index should be recomputed accordingly.
   const int32_t packed_bag_acc_idx = PackedMode ? (threadIdx.x / uints_per_row) % num_packed_bags : 0;
 
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+  for (int32_t i = 0; i < OutputRowsPerThread; ++i) {
     // In case of PackedMode, b should be offseted with num_packed_bags and indexed with packed_bag_load_idx
     // to take into account reduced grid size in host kernel call and that the warp/wave may contain several
     // different bags.
@@ -154,7 +179,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   // and the shuffle sources themselves.  Loop-invariant, so broadcast once.
   int32_t Ls_acc[OutputRowsPerThread];
   #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+  for (int32_t i = 0; i < OutputRowsPerThread; ++i) {
     Ls_acc[i] = PackedMode ? shfl_sync(Ls[i], packed_bag_acc_idx * uint4_loads_per_row) : Ls[i];
   }
 
@@ -172,8 +197,9 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> accumulators[OutputRowsPerThread][AccumulateStoreRequests];
   {% endif %}
 
-  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
-    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+  for (int32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+    const int32_t input_rows_in_flight =
+        min(InputRowsInFlight, max_Ls - L_start);
 
     using AllBuffers = uint4[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
     __shared__ AllBuffers buffers;
@@ -185,29 +211,35 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
 
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * NumUint4LoadsPerRow; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % NumUint4LoadsPerRow;
+    for (int32_t load_idx = static_cast<int32_t>(threadIdx.x);
+         load_idx < input_rows_in_flight * NumUint4LoadsPerRow;
+         load_idx += kWarpSize) {
+      int32_t row_load_idx = load_idx % NumUint4LoadsPerRow;
       if constexpr (PackedMode) {
         // The actual row index in packed bag w.r.t. the required uint4 loads.
         row_load_idx %= uint4_loads_per_row;
       }
-      uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
+      const int32_t input_row_idx = load_idx / NumUint4LoadsPerRow;
       // In case of PackedMode, packed_bag_load_idx already takes into account uint4_loads_per_row,
       // so only the packed_bag index should be evaluated against total number of packed bags.
       bool load_idx_valid = PackedMode ? packed_bag_load_idx < num_packed_bags : row_load_idx < uint4_loads_per_row;
       {%- if is_rocm %}
-      constexpr uint32_t kMaxRowUnroll = 4;
-      constexpr uint32_t kRowUnroll = OutputRowsPerThread < kMaxRowUnroll ? OutputRowsPerThread : kMaxRowUnroll;
+      constexpr int32_t kMaxRowUnroll = 4;
+      constexpr int32_t kRowUnroll =
+          OutputRowsPerThread < kMaxRowUnroll ? OutputRowsPerThread
+                                              : kMaxRowUnroll;
 
       #pragma unroll
-      for (uint32_t outer_i = 0; outer_i < OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; outer_i += kRowUnroll) {
+      for (int32_t outer_i = 0;
+           outer_i < OutputRowsPerThread - OutputRowsPerThread % kRowUnroll;
+           outer_i += kRowUnroll) {
         const uint4* row_v[kRowUnroll];
         int32_t idx_v[kRowUnroll];
         int32_t cache_idx_v[kRowUnroll];
         bool row_valid_v[kRowUnroll];
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
-          uint32_t i = outer_i + inner_i;
+        for (int32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
+          const int32_t i = outer_i + inner_i;
           bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
           bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
           idx_v[inner_i] = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
@@ -217,7 +249,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 
 
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
+        for (int32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
           bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && row_valid_v[inner_i]);
           bool final_valid = row_valid_v[inner_i] && (idx_v[inner_i] != -1);
           if (!DeviceOnly && cache_valid && cache_idx_v[inner_i] != kCacheLocationMissing) {
@@ -231,8 +263,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         }
 #if (defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800) || (defined(USE_ROCM) && defined(__gfx950__))
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
-          uint32_t i = outer_i + inner_i;
+        for (int32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+          const int32_t i = outer_i + inner_i;
           bool final_valid = row_valid_v[inner_i];
           if constexpr (PackedMode) {
             // Store row data with uint4_loads_per_row offset
@@ -249,7 +281,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         }
         {% if weighted %}
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+        for (int32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
           uint32_t i = outer_i + inner_i;
           bool final_valid = row_valid_v[inner_i] && (idx_v[inner_i] != -1);
           if (row_load_idx == 0)  {
@@ -265,13 +297,13 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         // loads are not available.
         uint4 row_data_v[kRowUnroll];
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+        for (int32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
           row_data_v[inner_i] = row_v[inner_i][row_load_idx];
         }
         uint4 zeros = {0, 0, 0, 0};
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
-          uint32_t i = outer_i + inner_i;
+        for (int32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+          const int32_t i = outer_i + inner_i;
           bool final_valid = row_valid_v[inner_i];
           uint4 data = final_valid ? row_data_v[inner_i] : zeros;
           if constexpr (PackedMode) {
@@ -297,10 +329,12 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       if constexpr (OutputRowsPerThread % kRowUnroll)
       {
       #pragma unroll
-      for (uint32_t i = OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; i < OutputRowsPerThread; ++i) {
+      for (int32_t i = OutputRowsPerThread - OutputRowsPerThread % kRowUnroll;
+           i < OutputRowsPerThread;
+           ++i) {
       {%- else %}
       #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+      for (int32_t i = 0; i < OutputRowsPerThread; ++i) {
       {%- endif %}
         bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
         bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
@@ -339,9 +373,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     syncwarp();
 
     {% if not nobag %}
-    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+    for (int32_t input_row_idx = 0; input_row_idx < input_rows_in_flight;
+         ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+      for (int32_t i = 0; i < OutputRowsPerThread; ++i) {
         bool valid = L_start + input_row_idx < Ls_acc[i];
         if (!valid) {
           continue;
@@ -363,7 +398,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         using scalar_t = {{ emb_weight_type.cpp_type_name }};
 
         #pragma unroll AccumulateStoreRequests
-        for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+        for (int32_t j = 0; j < AccumulateStoreRequests; ++j) {
           scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
           {% if weighted %}
           accumulators[i][j].fma(v, {% if emb_weight_type.primitive_type == "INT" %} shift_scale, {% elif emb_weight_type.enum_name == "FP8" %} exponent_bits, exponent_bias, {% endif %} row_weight);
@@ -377,9 +412,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     using scalar_t = {{ emb_weight_type.cpp_type_name }};
     {% if emb_weight_type.primitive_type == "INT" and is_rocm %}
     if (D % (kWarpSize * kOutputsPerThread) == 0 && D_padding > 0) {
-      for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+      for (int32_t input_row_idx = 0; input_row_idx < input_rows_in_flight;
+           ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
-        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        for (int32_t i = 0; i < OutputRowsPerThread; ++i) {
           bool valid = L_start + input_row_idx < Ls_acc[i];
           if (!valid) {
             continue;
@@ -387,12 +423,15 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
           half2 shift_scale = reinterpret_cast<const half2*>(row)[PackedMode ? packed_bag_acc_idx * uints_per_row : 0];
           // Size of the per-row scale/bias header in scalar_t units; derived from shift_scale's type.
-          constexpr uint32_t kHeaderScalarOffset = sizeof(decltype(shift_scale)) / sizeof(scalar_t);
-          const uint32_t opt_iters = D / (kWarpSize * kOutputsPerThread);
+          constexpr int32_t kHeaderScalarOffset =
+              sizeof(decltype(shift_scale)) / sizeof(scalar_t);
+          const int32_t opt_iters = D / (kWarpSize * kOutputsPerThread);
           const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
           if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
-            for (uint32_t j = 0; j < opt_iters; ++j) {
-              const auto output_d = j * kWarpSize * kOutputsPerThread + threadIdx.x * kOutputsPerThread;
+            for (int32_t j = 0; j < opt_iters; ++j) {
+              const int32_t output_d =
+                  j * kWarpSize * kOutputsPerThread +
+                  static_cast<int32_t>(threadIdx.x) * kOutputsPerThread;
               // +kHeaderScalarOffset skips the half2 scale/bias header at row[0]
               scalar_t v = reinterpret_cast<const scalar_t*>(row)[j * kWarpSize + threadIdx.x + kHeaderScalarOffset];
               VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::INT> acc(v, shift_scale);
@@ -403,7 +442,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             auto thread_local_max = std::numeric_limits<float>::lowest();
             float2 qparams;
             // Pass 1: min/max scan
-            for (uint32_t j = 0; j < opt_iters; ++j) {
+            for (int32_t j = 0; j < opt_iters; ++j) {
               scalar_t v = reinterpret_cast<const scalar_t*>(row)[j * kWarpSize + threadIdx.x + kHeaderScalarOffset];
               VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::INT> acc(v, shift_scale);
               thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(acc.acc));
@@ -411,8 +450,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             }
             qparams = warp_find_qparams(thread_local_min, thread_local_max);
             // Pass 2: requantize and store
-            for (uint32_t j = 0; j < opt_iters; ++j) {
-              const auto output_d = j * kWarpSize * kOutputsPerThread + threadIdx.x * kOutputsPerThread;
+            for (int32_t j = 0; j < opt_iters; ++j) {
+              const int32_t output_d =
+                  j * kWarpSize * kOutputsPerThread +
+                  static_cast<int32_t>(threadIdx.x) * kOutputsPerThread;
               scalar_t v = reinterpret_cast<const scalar_t*>(row)[j * kWarpSize + threadIdx.x + kHeaderScalarOffset];
               VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::INT> acc(v, shift_scale);
               acc.store(&output[output_j][output_d], qparams, {{ (32 // emb_weight_type.bit_width) }});
@@ -428,9 +469,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     {#- For non-INT weight types or non-ROCm builds the {%- if %} above renders
         nothing; this block then becomes a bare scope holding the unmodified loop. -#}
     {
-      for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+      for (int32_t input_row_idx = 0; input_row_idx < input_rows_in_flight;
+           ++input_row_idx) {
         #pragma unroll OutputRowsPerThread
-        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        for (int32_t i = 0; i < OutputRowsPerThread; ++i) {
           bool valid = L_start + input_row_idx < Ls_acc[i];
           if (!valid) {
             continue;
@@ -452,12 +494,15 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
           if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
             #pragma unroll AccumulateStoreRequests
-            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+            for (int32_t j = 0; j < AccumulateStoreRequests; ++j) {
               // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
               // We shift back by 4/8/16 elements to remove the first 4 Bytes (which is garbage due to
               // the scale/shift handling).
               // Reason: to avoid divergence the first thread in the warp computes garbage.
-              const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+              const int32_t output_d =
+                  kWarpSize * j * kOutputsPerThread +
+                  static_cast<int32_t>(threadIdx.x) * kOutputsPerThread -
+                  D_padding;
               scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
               if (output_d < D) {
                 const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
@@ -472,8 +517,11 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             auto thread_local_max = std::numeric_limits<float>::lowest();
             float2 qparams;
             #pragma unroll AccumulateStoreRequests
-            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-              auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+            for (int32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              const int32_t output_d =
+                  kWarpSize * j * kOutputsPerThread +
+                  static_cast<int32_t>(threadIdx.x) * kOutputsPerThread -
+                  D_padding;
               scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
               VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
               if (output_d < D) {
@@ -483,8 +531,11 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             }
             qparams = warp_find_qparams(thread_local_min, thread_local_max);
             #pragma unroll AccumulateStoreRequests
-            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-              const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+            for (int32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              const int32_t output_d =
+                  kWarpSize * j * kOutputsPerThread +
+                  static_cast<int32_t>(threadIdx.x) * kOutputsPerThread -
+                  D_padding;
               scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
               if (output_d < D) {
                 const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
@@ -505,17 +556,20 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   {% if not nobag %}
   // In case of PackedMode, computes the packed bag index during store stage w.r.t.
   // the real number of uints in the rows.
-  const auto packed_bag_store_idx = PackedMode ? threadIdx.x / uints_per_row : 0;
+  const int32_t packed_bag_store_idx =
+      PackedMode ? static_cast<int32_t>(threadIdx.x) / uints_per_row : 0;
 
   #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+  for (int32_t i = 0; i < OutputRowsPerThread; ++i) {
     const uint32_t b = min(static_cast<uint32_t>(bb * num_packed_bags * OutputRowsPerThread + i * num_packed_bags + packed_bag_store_idx), static_cast<uint32_t>(B - 1));
     const float inv_L = (mean_pooling && Ls_acc[i] != 0) ? static_cast<float>(1.0) / Ls_acc[i] : static_cast<float>(1.0);
 
     if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
       #pragma unroll AccumulateStoreRequests
-      for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-        auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      for (int32_t j = 0; j < AccumulateStoreRequests; ++j) {
+        int32_t output_d =
+            kWarpSize * j * kOutputsPerThread +
+            static_cast<int32_t>(threadIdx.x) * kOutputsPerThread - D_padding;
         if constexpr (PackedMode) {
           // Offset global output_d index with the size of outputs per bag w.r.t. current
           // packed bag index
@@ -544,8 +598,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       float thread_local_max = std::numeric_limits<float>::lowest();
       float2 qparams;
       #pragma unroll AccumulateStoreRequests
-      for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-        auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      for (int32_t j = 0; j < AccumulateStoreRequests; ++j) {
+        const int32_t output_d =
+            kWarpSize * j * kOutputsPerThread +
+            static_cast<int32_t>(threadIdx.x) * kOutputsPerThread - D_padding;
         accumulators[i][j].mul(inv_L);
         if (output_d < D) {
           thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(accumulators[i][j].acc));
@@ -557,8 +613,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       const int output_D_start = D_start + t * 8;
       const int output_D_end = output_D_start + D;
       #pragma unroll AccumulateStoreRequests
-      for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-        const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+      for (int32_t j = 0; j < AccumulateStoreRequests; ++j) {
+        const int32_t output_d =
+            kWarpSize * j * kOutputsPerThread +
+            static_cast<int32_t>(threadIdx.x) * kOutputsPerThread - D_padding;
         if (output_d < D) {
           const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
           accumulators[i][j].store(&output[b][output_D_start + output_d], qparams, num_valid_outputs);

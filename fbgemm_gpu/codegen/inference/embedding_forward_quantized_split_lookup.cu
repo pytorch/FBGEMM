@@ -33,16 +33,19 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
         dense_indices) {
   // uint32_t capacity = hash_table.size(0);
 #ifdef USE_ROCM
-  for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < B * T;
-       b_t += blockDim.y * gridDim.x) {
+  for (int64_t b_t =
+           static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       b_t < static_cast<int64_t>(B) * T;
+       b_t += static_cast<int64_t>(blockDim.y) * gridDim.x) {
 #else
-  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (b_t >= B * T) {
+  const int64_t b_t =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (b_t >= static_cast<int64_t>(B) * T) {
     return;
   }
 #endif
-    const int32_t t = b_t / B;
-    const int32_t b = b_t % B;
+    const int32_t t = static_cast<int32_t>(b_t / B);
+    const int32_t b = static_cast<int32_t>(b_t % B);
     const auto indices_start = offsets[t * B + b];
     const auto indices_end = offsets[t * B + b + 1];
     const auto L = indices_end - indices_start;
@@ -53,7 +56,8 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
 
     if (capacity == 0) {
       // No pruning applied on the indices associated with this table.
-      for (auto l = threadIdx.x; l < L; l += blockDim.x) {
+      for (index_t l = static_cast<index_t>(threadIdx.x); l < L;
+           l += blockDim.x) {
         dense_indices[indices_start + l] = indices[indices_start + l];
       }
 #ifdef USE_ROCM
@@ -70,7 +74,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     using nv_hash_t =
         std::conditional_t<std::is_same_v<hash_t, int64_t>, longlong2, int2>;
 
-    const uint32_t subwarp_id = threadIdx.x / 4;
+    const int32_t subwarp_id = static_cast<int32_t>(threadIdx.x / 4);
     const uint32_t subwarp_tid = threadIdx.x % 4;
 #ifdef USE_ROCM
     // HIP __any_sync / __ballot_sync statically require a 64-bit mask type.
@@ -133,16 +137,19 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
 #ifdef USE_ROCM
-  for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < B * T;
-       b_t += blockDim.y * gridDim.x) {
+  for (int64_t b_t =
+           static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       b_t < static_cast<int64_t>(B) * T;
+       b_t += static_cast<int64_t>(blockDim.y) * gridDim.x) {
 #else
-  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (b_t >= B * T) {
+  const int64_t b_t =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (b_t >= static_cast<int64_t>(B) * T) {
     return;
   }
 #endif
-    const int32_t t = b_t / B;
-    const int32_t b = b_t % B;
+    const int32_t t = static_cast<int32_t>(b_t / B);
+    const int32_t b = static_cast<int32_t>(b_t % B);
     const auto indices_start = offsets[t * B + b];
     const auto indices_end = offsets[t * B + b + 1];
     const auto L = indices_end - indices_start;
@@ -152,13 +159,15 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     const auto capacity = index_remappings_end - index_remappings_start;
 
     if (capacity > 0) {
-      for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
+      for (index_t l = static_cast<index_t>(threadIdx.x); l < L;
+           l += blockDim.x) {
         const overflow_safe_int_t idx = indices[indices_start + l];
         dense_indices[indices_start + l] = static_cast<index_t>(
             index_remappings[index_remappings_start + idx]);
       }
     } else {
-      for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
+      for (index_t l = static_cast<index_t>(threadIdx.x); l < L;
+           l += blockDim.x) {
         dense_indices[indices_start + l] = indices[indices_start + l];
       }
     }
