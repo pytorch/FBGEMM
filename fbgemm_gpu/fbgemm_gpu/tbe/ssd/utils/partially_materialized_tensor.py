@@ -93,7 +93,10 @@ class PartiallyMaterializedTensor:
         return self._wrapped.narrow(dim, start, length)
 
     def set_weights_and_ids(self, weights: torch.Tensor, ids: torch.Tensor) -> None:
-        self._wrapped.set_weights_and_ids(weights, ids)
+        if self._includes_metadata:
+            self._wrapped.set_prefixed_weights_and_ids(weights, ids)
+        else:
+            self._wrapped.set_weights_and_ids(weights, ids)
 
     def get_weights_by_ids(self, ids: torch.Tensor) -> torch.Tensor:
         return self._wrapped.get_weights_by_ids(ids)

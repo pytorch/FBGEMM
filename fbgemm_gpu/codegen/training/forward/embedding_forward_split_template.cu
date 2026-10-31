@@ -23,6 +23,8 @@
 {%- if not dense and not nobag and not vbe %}
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 {%- endif %}
+#include <cstdlib>
+#include <cstring>
 
 {%- if is_rocm %}
 #include "fbgemm_gpu/rocm/cdna_guard.h"
@@ -248,10 +250,18 @@ batch_index_select_dim0_codegen_forward_kernel(
         std::is_same_v<emb_t, at::Half> &&      \
         std::is_same_v<cache_t, at::Half> &&    \
         std::is_same_v<output_t, float> &&      \
-        std::is_same_v<index_t, int64_t> && !use_cache_t) { \
+        (std::is_same_v<index_t, int64_t> ||    \
+         std::is_same_v<index_t, int32_t>) && !use_cache_t) { \
       /* Use two half-wave groups: at small D most full-wave lanes are idle, */ \
-      /* so a 32-lane group doubles the fraction of useful lanes. */ \
-      if (MAX_D <= 128) {                      \
+      /* so a 32-lane group doubles the fraction of useful lanes. int32 */ \
+      /* indices take it only behind TBE_ROCM_VBE_HALFWAVE_INT32. */ \
+      /* Env-only gate (no JustKnob): FBGEMM_TBE_ROCM_VBE_HALFWAVE_INT32=1. */ \
+      static const bool halfwave_int32 = [] {  \
+        const char* v = std::getenv("FBGEMM_TBE_ROCM_VBE_HALFWAVE_INT32"); \
+        return v != nullptr && std::strcmp(v, "1") == 0; \
+      }();                                     \
+      if (MAX_D <= 128 &&                      \
+          (std::is_same_v<index_t, int64_t> || halfwave_int32)) { \
         [[maybe_unused]] const int max_vecs_per_thread = 1; \
         constexpr int kFixedMaxVecsPerThread = 1; \
         [[maybe_unused]] constexpr int kSubwarpDivisor = 2; \

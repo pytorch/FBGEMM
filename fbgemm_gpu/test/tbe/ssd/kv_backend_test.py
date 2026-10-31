@@ -1582,7 +1582,7 @@ class SSDCheckpointTest(unittest.TestCase):
         dtype = weights_precision.as_dtype()
         row_offset = 0
         max_D = max(Ds)
-        N = 2
+        N = 4
 
         for E, D in zip(Es, Ds):
             # create random index tensor with size N, valued from [0, N-1] unordered
@@ -1645,20 +1645,30 @@ class SSDCheckpointTest(unittest.TestCase):
                 .view(torch.int64)
                 .reshape(-1)
             )
+            checkpoint_view_ids = checkpoint_ids - row_offset
+            checkpoint_rows = original_narrowed.clone()
+            checkpoint_rows[:, : metaheader_dim // 2] = checkpoint_view_ids.view(
+                dtype
+            ).reshape(N, -1)
+            checkpoint_rows[:, metaheader_dim:opt_offset] += 100
             tensor_wrapper.set_prefixed_weights_and_ids(
-                original_narrowed, checkpoint_ids
+                checkpoint_rows, checkpoint_view_ids
             )
             restored = tensor_wrapper.narrow(0, 0, N)
-            torch.testing.assert_close(restored, original_narrowed, equal_nan=True)
+            expected_restored = checkpoint_rows.clone()
+            expected_restored[:, : metaheader_dim // 2] = checkpoint_ids.view(
+                dtype
+            ).reshape(N, -1)
+            torch.testing.assert_close(restored, expected_restored, equal_nan=True)
 
-            zero_timestamp_rows = original_narrowed.clone()
+            zero_timestamp_rows = checkpoint_rows.clone()
             zero_timestamp_metadata = zero_timestamp_rows[
                 :, metaheader_dim // 2 : metaheader_dim
             ].view(torch.int64)
             checkpoint_count = 7
             zero_timestamp_metadata.fill_(-(1 << 63) | (checkpoint_count << 32))
             tensor_wrapper.set_prefixed_weights_and_ids(
-                zero_timestamp_rows, checkpoint_ids
+                zero_timestamp_rows, checkpoint_view_ids
             )
             restored_metadata = tensor_wrapper.narrow(0, 0, N)[
                 :, metaheader_dim // 2 : metaheader_dim
@@ -1669,10 +1679,10 @@ class SSDCheckpointTest(unittest.TestCase):
                 torch.full_like(restored_metadata, checkpoint_count),
             )
 
-            zero_payload_row = original_narrowed[:1].clone()
+            zero_payload_row = checkpoint_rows[:1].clone()
             zero_payload_row[:, metaheader_dim:] = 0
             tensor_wrapper.set_prefixed_weights_and_ids(
-                zero_payload_row, checkpoint_ids[:1]
+                zero_payload_row, checkpoint_view_ids[:1]
             )
             zero_payload_restored = tensor_wrapper.narrow(0, 0, 1)
             torch.testing.assert_close(
@@ -1681,13 +1691,164 @@ class SSDCheckpointTest(unittest.TestCase):
             )
 
             missing_row = torch.zeros_like(original_narrowed[:1])
+            before_missing_restore = tensor_wrapper.narrow(0, 0, 1)
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                missing_row, checkpoint_view_ids[:1]
+            )
+            torch.testing.assert_close(
+                tensor_wrapper.narrow(0, 0, 1), before_missing_restore
+            )
+
+            mismatched_ids = checkpoint_view_ids.clone()
+            mismatched_ids[0] += 1
             with self.assertRaisesRegex(
                 RuntimeError,
-                "set_weights_and_ids: all 1 checkpoint rows were filtered as missing",
+                "caller-provided checkpoint view IDs must match embedded row IDs",
             ):
                 tensor_wrapper.set_prefixed_weights_and_ids(
-                    missing_row, checkpoint_ids[:1]
+                    checkpoint_rows, mismatched_ids
                 )
+
+            with self.assertRaisesRegex(RuntimeError, "ids must have dtype int64"):
+                tensor_wrapper.set_prefixed_weights_and_ids(
+                    original_narrowed, checkpoint_ids.to(torch.int32)
+                )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "ids and weights must have the same number of rows",
+            ):
+                tensor_wrapper.set_prefixed_weights_and_ids(
+                    original_narrowed, checkpoint_ids[:-1]
+                )
+            with self.assertRaisesRegex(RuntimeError, "weights must be contiguous"):
+                tensor_wrapper.set_prefixed_weights_and_ids(
+                    original_narrowed[:, ::2], checkpoint_ids
+                )
+
+            sparse_ids = torch.tensor([11, 1_000_003, 42, 9_000_001], dtype=torch.int64)
+            sparse_rows = original_narrowed.clone()
+            sparse_rows[:, : metaheader_dim // 2] = sparse_ids.view(dtype).reshape(
+                N, -1
+            )
+            sparse_rows[1, metaheader_dim // 2 : metaheader_dim] = 0
+            range_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                shape=[E, sparse_rows.size(1)],
+                dtype=dtype,
+                row_offset=row_offset,
+                snapshot_handle=None,
+                only_load_weight=True,
+            )
+            range_wrapper.set_dram_db_wrapper(emb.ssd_db)
+            neighboring_ids = torch.arange(N, dtype=torch.int64)
+            neighboring_before = range_wrapper.get_weights_by_ids(neighboring_ids)
+            unoffset_before = None
+            if row_offset != 0:
+                unoffset_before = range_wrapper.get_weights_by_ids(
+                    sparse_ids - row_offset
+                )
+            malformed_rows = sparse_rows[:, :1].contiguous()
+
+            range_wrapper.set_range(0, 0, 0, sparse_rows[:0].contiguous())
+            torch.testing.assert_close(
+                range_wrapper.get_weights_by_ids(neighboring_ids), neighboring_before
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "weights row count must equal the requested range length",
+            ):
+                range_wrapper.set_range(0, 0, N, sparse_rows[:-1].contiguous())
+
+            with self.assertRaisesRegex(RuntimeError, "weights must be contiguous"):
+                range_wrapper.set_range(0, 0, N, sparse_rows[:, ::2])
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "each checkpoint row must contain the 8-byte ID header",
+            ):
+                range_wrapper.set_range(0, 0, N, malformed_rows)
+
+            absent_row = torch.zeros_like(sparse_rows[:1])
+            range_wrapper.set_range(0, 0, 1, absent_row)
+            torch.testing.assert_close(
+                range_wrapper.get_weights_by_ids(neighboring_ids), neighboring_before
+            )
+
+            range_wrapper.set_range(0, 0, N, sparse_rows)
+
+            present = torch.tensor([0, 2, 3], dtype=torch.int64)
+            restored_sparse = range_wrapper.get_weights_by_ids(
+                sparse_ids.index_select(0, present)
+            )
+            expected_sparse = sparse_rows.index_select(0, present)
+            expected_sparse[:, : metaheader_dim // 2] = (
+                (sparse_ids.index_select(0, present) + row_offset)
+                .view(dtype)
+                .reshape(present.numel(), -1)
+            )
+            torch.testing.assert_close(restored_sparse, expected_sparse, equal_nan=True)
+            neighboring_after = range_wrapper.get_weights_by_ids(neighboring_ids)
+            torch.testing.assert_close(
+                neighboring_after, neighboring_before, equal_nan=True
+            )
+            if unoffset_before is not None:
+                torch.testing.assert_close(
+                    range_wrapper.get_weights_by_ids(sparse_ids - row_offset),
+                    unoffset_before,
+                    equal_nan=True,
+                )
+
+            overwide_rows = torch.cat(
+                [sparse_rows, torch.ones(N, 3, dtype=dtype)], dim=1
+            )
+            range_wrapper.set_range(0, 0, N, overwide_rows)
+            restored_overwide = range_wrapper.get_weights_by_ids(
+                sparse_ids.index_select(0, present)
+            )
+            torch.testing.assert_close(
+                restored_overwide, expected_sparse, equal_nan=True
+            )
+
+            for missing_index in (0, N - 1):
+                with self.subTest(missing_index=missing_index):
+                    variant_ids = sparse_ids + (missing_index + 1) * 10_000_000
+                    variant_rows = original_narrowed.clone()
+                    variant_rows[:, : metaheader_dim // 2] = variant_ids.view(
+                        dtype
+                    ).reshape(N, -1)
+                    before_missing = range_wrapper.get_weights_by_ids(
+                        variant_ids[missing_index : missing_index + 1]
+                    )
+                    variant_rows[
+                        missing_index,
+                        metaheader_dim // 2 : metaheader_dim,
+                    ] = 0
+
+                    range_wrapper.set_range(0, 0, N, variant_rows)
+
+                    restored_variant = range_wrapper.get_weights_by_ids(variant_ids)
+                    torch.testing.assert_close(
+                        restored_variant[missing_index : missing_index + 1],
+                        before_missing,
+                        equal_nan=True,
+                    )
+                    present_variant = torch.tensor(
+                        [i for i in range(N) if i != missing_index],
+                        dtype=torch.int64,
+                    )
+                    expected_variant = variant_rows.index_select(
+                        0, present_variant
+                    ).clone()
+                    expected_variant[:, : metaheader_dim // 2] = (
+                        (variant_ids.index_select(0, present_variant) + row_offset)
+                        .view(dtype)
+                        .reshape(present_variant.numel(), -1)
+                    )
+                    torch.testing.assert_close(
+                        restored_variant.index_select(0, present_variant),
+                        expected_variant,
+                        equal_nan=True,
+                    )
             row_offset += E
 
     @given(

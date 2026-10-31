@@ -4863,6 +4863,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 PartiallyMaterializedTensor(
                     tensor_wrapper,
                     True if self.kv_zch_params else False,
+                    self.backend_return_whole_row,
                 )
             )
         logging.info(
@@ -7239,6 +7240,87 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                                 dedup_linear_indices
                             )
         return dedup_linear_indices
+
+    def enrichment_write_rows(
+        self,
+        indices: torch.Tensor,
+        offsets: torch.Tensor,
+        weights: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Write rows the trainer already has, one per index (e.g. an item
+        embedding feature), into the embedding cache through the enrichment
+        write path, so they land like Laser responses: on the enrichment
+        executor, yielding to forward/backward, and only into rows that are
+        absent or all-zero. Repeated indices and all-zero rows are dropped.
+
+        Returns the linearized indices that were sent.
+        """
+        assert (
+            self._enrichment_enabled
+        ), "Must be in _enrichment_enabled to support enrichment_write_rows method."
+        assert (
+            self.backend_type == BackendType.DRAM
+        ), "enrichment_write_rows needs the DRAM backend."
+        kept_indices = torch.empty(0, dtype=torch.long, device=indices.device)
+        source_stream = torch.cuda.current_stream()
+        with record_function(f"## enrichment_write_rows_{self.tbe_unique_id} ##"):
+            with torch.no_grad():
+                with torch.cuda.stream(self.enrichment_query_stream):
+                    self.enrichment_query_stream.wait_stream(source_stream)
+                    indices.record_stream(self.enrichment_query_stream)
+                    offsets.record_stream(self.enrichment_query_stream)
+                    weights.record_stream(self.enrichment_query_stream)
+
+                    # As in enrichment_query_id: the direct cache picks up the
+                    # previous write first, and its unwritten rows are retried.
+                    retry_indices = (
+                        self._populate_direct_enrichment_cache_from_pending()
+                    )
+
+                    linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+                        self.hash_size_cumsum,
+                        indices,
+                        offsets,
+                        None,
+                        -1,
+                    )
+                    rows = weights.to(self.weights_precision.as_dtype())
+                    # Laser rows are padded to the backend row width too.
+                    if rows.size(1) < self.cache_row_dim:
+                        rows = torch.nn.functional.pad(
+                            rows, (0, self.cache_row_dim - rows.size(1))
+                        )
+                    sorted_indices, order = torch.sort(linear_cache_indices)
+                    sorted_rows = rows.index_select(0, order)
+                    keep = torch.ones_like(sorted_indices, dtype=torch.bool)
+                    keep[1:] = sorted_indices[1:] != sorted_indices[:-1]
+                    keep &= sorted_rows.abs().amax(dim=1) > 0
+                    kept_indices = sorted_indices[keep]
+                    indices_cpu = self.to_pinned_cpu(kept_indices)
+                    rows_cpu = self.to_pinned_cpu(sorted_rows[keep])
+
+                    with record_function("## set_embedding_cache_rows ##"):
+                        self.record_function_via_dummy_profile(
+                            "## set_embedding_cache_rows ##",
+                            self.ssd_db.set_embedding_cache_rows_cuda,
+                            indices_cpu,
+                            rows_cpu,
+                            torch.tensor(
+                                [indices_cpu.shape[0]],
+                                device="cpu",
+                                dtype=torch.long,
+                            ),
+                        )
+                    if self._direct_enrichment_cache is not None:
+                        if retry_indices is not None and retry_indices.numel() > 0:
+                            retry_limit = max(1, kept_indices.numel())
+                            self._pending_direct_cache_fill_indices = torch.cat(
+                                (retry_indices[:retry_limit], kept_indices)
+                            )
+                        else:
+                            self._pending_direct_cache_fill_indices = kept_indices
+        return kept_indices
 
     def fetch_sids_sync(
         self,

@@ -374,6 +374,43 @@ inline at::Tensor rows_present_in_checkpoint(
   return at::nonzero(present).reshape({-1});
 }
 
+inline at::Tensor ids_in_checkpoint(const at::Tensor& weights) {
+  TORCH_CHECK(weights.is_contiguous(), "checkpoint rows must be contiguous");
+  TORCH_CHECK(
+      weights.size(1) * weights.element_size() >= sizeof(int64_t),
+      "each checkpoint row must contain the 8-byte ID header");
+  TORCH_CHECK(
+      sizeof(int64_t) % weights.element_size() == 0,
+      "checkpoint element size must divide the 8-byte ID header");
+  auto ids = at::empty(
+      {weights.size(0)}, at::TensorOptions().dtype(at::ScalarType::Long));
+  const auto* base = static_cast<const char*>(weights.const_data_ptr());
+  const auto row_stride = weights.stride(0) * weights.element_size();
+  auto* ids_data = ids.mutable_data_ptr<int64_t>();
+  for (int64_t row = 0; row < weights.size(0); ++row) {
+    ids_data[row] = FixedBlockPool::get_key(base + row * row_stride);
+  }
+  return ids;
+}
+
+inline at::Tensor storage_ids_from_view_ids(
+    const at::Tensor& view_ids,
+    const int64_t row_offset) {
+  TORCH_CHECK(
+      view_ids.device().is_cpu() && view_ids.scalar_type() == at::kLong,
+      "checkpoint view IDs must be CPU int64 values");
+  auto storage_ids = view_ids.reshape({-1}).contiguous().clone();
+  auto* storage_ids_data = storage_ids.mutable_data_ptr<int64_t>();
+  for (int64_t row = 0; row < storage_ids.numel(); ++row) {
+    int64_t storage_id;
+    TORCH_CHECK(
+        !__builtin_add_overflow(storage_ids_data[row], row_offset, &storage_id),
+        "checkpoint view ID plus row offset overflows int64");
+    storage_ids_data[row] = storage_id;
+  }
+  return storage_ids;
+}
+
 inline at::Tensor prepare_whole_row_weights(
     const at::Tensor& weights,
     const at::Tensor& linearized_ids,
@@ -772,6 +809,16 @@ void KVTensorWrapper::set_range(
   // Mutex lock for disabling concurrent writes to the same KVTensor
   std::lock_guard<std::mutex> lock(mtx);
   CHECK_EQ(weights.device(), at::kCPU);
+  TORCH_CHECK(weights.dim() == 2, "weights must be a 2D tensor");
+  TORCH_CHECK(weights.is_contiguous(), "weights must be contiguous");
+  TORCH_CHECK(start >= 0, "start must be non-negative");
+  TORCH_CHECK(length >= 0, "length must be non-negative");
+  TORCH_CHECK(
+      start <= shape_[0] && length <= shape_[0] - start,
+      "requested range must fit within the tensor");
+  TORCH_CHECK(
+      weights.size(0) == length,
+      "weights row count must equal the requested range length");
   CHECK(db_) << "EmbeddingRocksDB must be a valid pointer to call set_range";
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
@@ -779,17 +826,38 @@ void KVTensorWrapper::set_range(
     CHECK_GE(
         db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
   }
+  if (length == 0) {
+    return;
+  }
 
   if (db_->get_backend_return_whole_row()) {
-    // backend returns whole row, so we need to replace the first 8 bytes with
-    // the sliced_ids
+    const int64_t whole_row_width =
+        db_->get_metaheader_width_in_front() + db_->get_max_D();
+    auto rows_to_restore = weights;
+    if (only_load_weight_ && weights.size(1) > whole_row_width) {
+      rows_to_restore = weights.narrow(1, 0, whole_row_width).contiguous();
+    }
     TORCH_CHECK(
-        sorted_indices_.has_value(),
-        "sorted_indices_ must be valid to set range when backend returns whole row");
-    at::Tensor sliced_ids =
-        sorted_indices_.value().slice(0, start, start + length);
-    auto linearized_ids = sliced_ids + row_offset_;
-    replace_weights_id(weights, linearized_ids);
+        rows_to_restore.size(1) <= whole_row_width,
+        "checkpoint row width exceeds whole-row KV storage width");
+    auto checkpoint_view_ids = ids_in_checkpoint(rows_to_restore);
+    const auto present_rows = rows_present_in_checkpoint(
+        rows_to_restore, db_->get_metaheader_width_in_front());
+    rows_to_restore = rows_to_restore.index_select(0, present_rows);
+    checkpoint_view_ids = checkpoint_view_ids.index_select(0, present_rows);
+    if (checkpoint_view_ids.numel() == 0) {
+      return;
+    }
+    auto storage_ids =
+        storage_ids_from_view_ids(checkpoint_view_ids, row_offset_);
+    auto whole_rows = prepare_whole_row_weights(
+        rows_to_restore,
+        storage_ids,
+        db_->get_metaheader_width_in_front(),
+        db_->get_max_D(),
+        true);
+    db_->set_kv_to_storage(storage_ids, whole_rows);
+    return;
   }
 
   int pad_right =
@@ -832,36 +900,45 @@ void KVTensorWrapper::set_weights_and_ids_impl(
     return;
   }
   CHECK_EQ(weights.device(), at::kCPU);
+  TORCH_CHECK(ids.device().is_cpu(), "ids must be a CPU tensor");
+  TORCH_CHECK(weights.dim() == 2, "weights must be a 2D tensor");
+  TORCH_CHECK(weights.is_contiguous(), "weights must be contiguous");
+  TORCH_CHECK(ids.scalar_type() == at::kLong, "ids must have dtype int64");
+  TORCH_CHECK(
+      ids.dim() == 1 || (ids.dim() == 2 && ids.size(1) == 1),
+      "ids must have shape [N] or [N, 1]");
   CHECK_TRUE(db_ != nullptr);
-  CHECK_EQ(ids.size(0), weights.size(0))
-      << "ids and weights must have same # rows";
+  TORCH_CHECK(
+      ids.numel() == weights.size(0),
+      "ids and weights must have the same number of rows");
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
-  auto linearized_ids = ids.reshape({-1});
-  if (!weights_include_metadata) {
-    linearized_ids = linearized_ids + row_offset_;
-  }
+  auto checkpoint_view_ids = ids.reshape({-1}).contiguous();
   if (db_->get_backend_return_whole_row()) {
-    linearized_ids = linearized_ids.to(at::kLong);
     const int64_t metadata_width = db_->get_metaheader_width_in_front();
     auto rows_to_restore = weights;
     if (weights_include_metadata) {
+      auto embedded_view_ids = ids_in_checkpoint(weights);
       const auto present_rows =
           rows_present_in_checkpoint(weights, metadata_width);
       rows_to_restore = weights.index_select(0, present_rows);
-      linearized_ids = linearized_ids.index_select(0, present_rows);
+      checkpoint_view_ids = checkpoint_view_ids.index_select(0, present_rows);
+      embedded_view_ids = embedded_view_ids.index_select(0, present_rows);
+      if (checkpoint_view_ids.numel() == 0) {
+        return;
+      }
       TORCH_CHECK(
-          linearized_ids.numel() > 0,
-          "set_weights_and_ids: all ",
-          weights.size(0),
-          " checkpoint rows were filtered as missing (used bit not set)");
+          at::equal(checkpoint_view_ids, embedded_view_ids),
+          "caller-provided checkpoint view IDs must match embedded row IDs");
     }
+    auto storage_ids =
+        storage_ids_from_view_ids(checkpoint_view_ids, row_offset_);
     auto whole_rows = prepare_whole_row_weights(
         rows_to_restore,
-        linearized_ids,
+        storage_ids,
         metadata_width,
         db_->get_max_D(),
         weights_include_metadata);
-    db_->set_kv_to_storage(linearized_ids, whole_rows);
+    db_->set_kv_to_storage(storage_ids, whole_rows);
     return;
   }
   TORCH_CHECK(
@@ -869,15 +946,17 @@ void KVTensorWrapper::set_weights_and_ids_impl(
       "metadata-prefixed weights require a whole-row backend");
   int pad_right =
       db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
+  auto storage_ids =
+      storage_ids_from_view_ids(checkpoint_view_ids, row_offset_);
   if (pad_right == 0) {
-    db_->set_kv_to_storage(linearized_ids, weights);
+    db_->set_kv_to_storage(storage_ids, weights);
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
     CHECK_EQ(
         db_->get_max_D() + db_->get_metaheader_width_in_front(),
         padded_weights.size(1));
-    db_->set_kv_to_storage(linearized_ids, padded_weights);
+    db_->set_kv_to_storage(storage_ids, padded_weights);
   }
 }
 
@@ -1465,6 +1544,15 @@ static auto dram_kv_embedding_cache_wrapper =
             {
                 torch::arg("hashed_indices"),
                 torch::arg("unhashed_indices"),
+                torch::arg("count"),
+            })
+        .def(
+            "set_embedding_cache_rows_cuda",
+            &DramKVEmbeddingCacheWrapper::set_embedding_cache_rows_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
                 torch::arg("count"),
             })
         .def(

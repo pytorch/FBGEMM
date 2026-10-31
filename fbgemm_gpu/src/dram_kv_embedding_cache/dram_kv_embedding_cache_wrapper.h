@@ -236,6 +236,13 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
         hashed_indices, unhashed_indices, count);
   }
 
+  void set_embedding_cache_rows_cuda(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count) {
+    impl_->set_embedding_cache_rows_cuda(indices, weights, count);
+  }
+
   std::tuple<at::Tensor, at::Tensor> fetch_sids_sync(
       at::Tensor hashed_indices,
       at::Tensor unhashed_indices,
