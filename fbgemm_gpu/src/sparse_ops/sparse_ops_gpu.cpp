@@ -214,9 +214,11 @@ class IndexSelectDim0GPUOp
 
 // need to combine input_group and indices_group into one tensor list
 // to get this working with autograd.
-static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
+static torch::autograd::variable_list
+group_index_select_dim0_forward_common_gpu(
     at::TensorList all_indices_input,
-    const int64_t group_size) {
+    const int64_t group_size,
+    const bool launch_kernel) {
   // Unpack from TensorList
   auto [input_group, indices_group] =
       group_index_select_dim0_unpack(all_indices_input, group_size);
@@ -397,12 +399,16 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     }
 
     // Create output pointers
-    auto input_shape = input.sizes().vec();
-    input_shape[0] = num_output_rows_;
-    Tensor output = at::empty(input_shape, input.options());
-    // Ensure that the allocated output is contiguous
-    TORCH_CHECK(output.is_contiguous(), "output tensor must be contiguous.");
-    output_group.push_back(output);
+    // Setup-only callers (launch_kernel = false) need no outputs: the backward
+    // builds its own arguments.
+    if (launch_kernel) {
+      auto input_shape = input.sizes().vec();
+      input_shape[0] = num_output_rows_;
+      Tensor output = at::empty(input_shape, input.options());
+      // Ensure that the allocated output is contiguous
+      TORCH_CHECK(output.is_contiguous(), "output tensor must be contiguous.");
+      output_group.push_back(output);
+    }
 
     // Store input and indices contigs to keep them alive during the kernel
     // computation
@@ -412,7 +418,9 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
     // Store args
     input_ptrs[i] =
         reinterpret_cast<int64_t>(input_contigs[i]->const_data_ptr());
-    output_ptrs[i] = reinterpret_cast<int64_t>(output.mutable_data_ptr());
+    output_ptrs[i] = launch_kernel
+        ? reinterpret_cast<int64_t>(output_group[i].mutable_data_ptr())
+        : 0;
     indices_ptrs[i] =
         reinterpret_cast<int64_t>(index_contigs[i]->const_data_ptr());
     warp_offsets_group[i] = warp_offset;
@@ -498,26 +506,28 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   memcpy(
       saved_data_t.mutable_data_ptr<int64_t>(), saved_data, sizeof(saved_data));
 
-  group_index_select_or_add_cuda(
-      input_ptrs,
-      output_ptrs,
-      indices_ptrs,
-      /*sorted_indices_ptrs=*/nullptr,
-      /*reverse_indices_ptrs=*/nullptr,
-      warp_offsets_group,
-      num_cols_group,
-      first_input.scalar_type(),
-      first_input.scalar_type(),
-      first_indices.scalar_type(),
-      first_input.device().index(),
-      num_output_rows,
-      /*total_num_warps=*/warp_offset,
-      group_size,
-      /*use_index_select=*/true,
-      use_var_cols,
-      /*use_contiguous_warps=*/false,
-      /*use_cache=*/false,
-      use_packed_rows);
+  if (launch_kernel) {
+    group_index_select_or_add_cuda(
+        input_ptrs,
+        output_ptrs,
+        indices_ptrs,
+        /*sorted_indices_ptrs=*/nullptr,
+        /*reverse_indices_ptrs=*/nullptr,
+        warp_offsets_group,
+        num_cols_group,
+        first_input.scalar_type(),
+        first_input.scalar_type(),
+        first_indices.scalar_type(),
+        first_input.device().index(),
+        num_output_rows,
+        /*total_num_warps=*/warp_offset,
+        group_size,
+        /*use_index_select=*/true,
+        use_var_cols,
+        /*use_contiguous_warps=*/false,
+        /*use_cache=*/false,
+        use_packed_rows);
+  }
 
   output_group.push_back(args_tensor);
   output_group.push_back(saved_data_t);
@@ -525,6 +535,27 @@ static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
   // return format:
   // (group_size outputs, 1 args_tensor, 1 saved_data)
   return output_group;
+}
+
+static torch::autograd::variable_list group_index_select_dim0_forward_impl_gpu(
+    at::TensorList all_indices_input,
+    const int64_t group_size) {
+  return group_index_select_dim0_forward_common_gpu(
+      all_indices_input, group_size, /*launch_kernel=*/true);
+}
+
+// Builds the kernel arguments and saved_data that
+// group_index_select_dim0_gpu_backward needs, without the forward kernel or its
+// outputs: for callers that compute the selection themselves (for example a
+// fused Triton gather) and want FBGEMM's own backward, so their gradients are
+// bit-identical to group_index_select_dim0's. Returns {args_tensor,
+// saved_data}; keep args_tensor alive until the backward has run (saved_data
+// points into it).
+static torch::autograd::variable_list group_index_select_dim0_setup_impl_gpu(
+    at::TensorList all_indices_input,
+    const int64_t group_size) {
+  return group_index_select_dim0_forward_common_gpu(
+      all_indices_input, group_size, /*launch_kernel=*/false);
 }
 
 static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
@@ -1042,6 +1073,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "group_index_select_dim0_gpu_backward",
       fbgemm_gpu::group_index_select_dim0_backward_impl_gpu);
+  DISPATCH_TO_CUDA(
+      "group_index_select_dim0_gpu_setup",
+      fbgemm_gpu::group_index_select_dim0_setup_impl_gpu);
   DISPATCH_TO_CUDA(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0);
 }

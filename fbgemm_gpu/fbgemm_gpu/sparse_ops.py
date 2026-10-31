@@ -1106,6 +1106,18 @@ def group_index_select_dim0_gpu_impl_abstract(
     return ret
 
 
+def group_index_select_dim0_gpu_setup_abstract(
+    inputs: list[torch.Tensor], group_size: int
+) -> list[torch.Tensor]:
+    """
+    Calculate output shapes for group_index_select_dim0_gpu_setup (the forward
+    impl's args_tensor and saved_data without the outputs) without the actual
+    data. Must match the last two entries of
+    group_index_select_dim0_gpu_impl_abstract.
+    """
+    return group_index_select_dim0_gpu_impl_abstract(inputs, group_size)[group_size:]
+
+
 def group_index_select_dim0_gpu_backward_abstract(
     all_inputs: list[torch.Tensor], output_shape_group_ref: list[torch.SymInt]
 ) -> list[torch.Tensor]:
@@ -1648,6 +1660,10 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::group_index_select_dim0_gpu_backward",
             group_index_select_dim0_gpu_backward_abstract,
+        )
+        impl_abstract(
+            "fbgemm::group_index_select_dim0_gpu_setup",
+            group_index_select_dim0_gpu_setup_abstract,
         )
         impl_abstract(
             "fbgemm::keyed_jagged_index_select_dim1_forward",
