@@ -89,6 +89,9 @@ function(fbgemm_get_warning_flags)
   # accepts an unknown `-Wno-` form without an error, but it does not accept
   # the `-Wno-error=` form.
   set(_cc_clang_only
+    # Pin inline-assembly diagnostics explicitly; -Werror above makes them fatal.
+    -Winline-asm
+    -Wasm-operand-widths
     -Wmove
     -Winfinite-recursion
     -Wself-assign

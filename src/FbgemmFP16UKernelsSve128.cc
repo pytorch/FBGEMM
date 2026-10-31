@@ -37,8 +37,7 @@ void NOINLINE gemmkernel_1x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x7, [x0, #48]\t\n"
 
       "fcmeq p3.s, p1/z, z12.s, #0.0\t\n"
-      "fcmuo p4.s, p1/z, z12.s, z12.s\t\n"
-      "nor p4.b, p1/z, p4.b, p3.b\t\n"
+      "not p4.b, p1/z, p3.b\t\n"
 
       "mov x3, #12\t\n"
       "mov x4, #16\t\n"
@@ -302,8 +301,7 @@ void NOINLINE gemmkernel_2x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x7, [x0, #48]\t\n"
 
       "fcmeq p3.s, p1/z, z12.s, #0.0\t\n"
-      "fcmuo p4.s, p1/z, z12.s, z12.s\t\n"
-      "nor p4.b, p1/z, p4.b, p3.b\t\n"
+      "not p4.b, p1/z, p3.b\t\n"
 
       "add x8, x12, x8\t\n"
 
@@ -639,8 +637,7 @@ void NOINLINE gemmkernel_3x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x7, [x0, #48]\t\n"
 
       "fcmeq p3.s, p1/z, z12.s, #0.0\t\n"
-      "fcmuo p4.s, p1/z, z12.s, z12.s\t\n"
-      "nor p4.b, p1/z, p4.b, p3.b\t\n"
+      "not p4.b, p1/z, p3.b\t\n"
 
       "add x0, x12, x8, lsl #1\t\n"
       "add x8, x12, x8\t\n"
@@ -1024,8 +1021,7 @@ void NOINLINE gemmkernel_4x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x7, [x0, #48]\t\n"
 
       "fcmeq p3.s, p1/z, z12.s, #0.0\t\n"
-      "fcmuo p4.s, p1/z, z12.s, z12.s\t\n"
-      "nor p4.b, p1/z, p4.b, p3.b\t\n"
+      "not p4.b, p1/z, p3.b\t\n"
 
       "add x0, x12, x8, lsl #1\t\n"
       "add x16, x0, x8\t\n"
@@ -1454,8 +1450,7 @@ void NOINLINE gemmkernel_5x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x7, [x0, #48]\t\n"
 
       "fcmeq p3.s, p1/z, z12.s, #0.0\t\n"
-      "fcmuo p4.s, p1/z, z12.s, z12.s\t\n"
-      "nor p4.b, p1/z, p4.b, p3.b\t\n"
+      "not p4.b, p1/z, p3.b\t\n"
 
       "add x0, x12, x8, lsl #1\t\n"
       "add x17, x12, x8, lsl #2\t\n"
@@ -1928,8 +1923,7 @@ void NOINLINE gemmkernel_6x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x7, [x0, #48]\t\n"
 
       "fcmeq p3.s, p1/z, z12.s, #0.0\t\n"
-      "fcmuo p4.s, p1/z, z12.s, z12.s\t\n"
-      "nor p4.b, p1/z, p4.b, p3.b\t\n"
+      "not p4.b, p1/z, p3.b\t\n"
 
       "add x0, x12, x8, lsl #1\t\n"
       "add x17, x12, x8, lsl #2\t\n"

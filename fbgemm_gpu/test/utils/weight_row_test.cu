@@ -254,6 +254,39 @@ TEST(WeightRowAccessor, update_optimizer_state) {
 namespace {
 
 template <typename T>
+__global__ void half_vector_memory_order_kernel(at::Half* input, float* output) {
+  const Vec4T<T> before(input);
+  // Four FP16 encodings of 11, written as one aligned vector.
+  *reinterpret_cast<uint2*>(input) = make_uint2(0x49804980, 0x49804980);
+  const Vec4T<T> after(input);
+  *reinterpret_cast<float4*>(output) = before.acc;
+  *reinterpret_cast<float4*>(output + 4) = after.acc;
+}
+
+template <typename T>
+void checkHalfVectorMemoryOrder() {
+  at::Tensor input = at::full(
+      {4}, 3.f, at::TensorOptions().dtype(at::kHalf).device(at::kCUDA));
+  at::Tensor output = at::empty({8}, input.options().dtype(at::kFloat));
+  FBGEMM_LAUNCH_KERNEL(
+      (half_vector_memory_order_kernel<T>),
+      1,
+      1,
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      input.template data_ptr<at::Half>(),
+      output.template data_ptr<float>());
+  EXPECT_TRUE(at::all(output.slice(0, 0, 4) == 3.f).template item<bool>());
+  EXPECT_TRUE(at::all(output.slice(0, 4, 8) == 11.f).template item<bool>());
+}
+
+TEST(WeightRow, half_vector_memory_order) {
+  checkHalfVectorMemoryOrder<float>();
+  checkHalfVectorMemoryOrder<at::Half>();
+  checkHalfVectorMemoryOrder<at::BFloat16>();
+}
+
+template <typename T>
 __global__ void unaligned_optimizer_state_kernel(
     const T* input,
     const float* values,

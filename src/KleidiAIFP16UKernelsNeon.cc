@@ -33,7 +33,6 @@ void NOINLINE gemmkernel_1x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x8, [%x[gp], %[offsetof_b_block_cols]]\n"
       "fcmp s16, #0.0\n"
       "csel x9, XZR, x9, EQ\n"
-      "csel x9, XZR, x9, VS\n"
       "1:" // Height 1: Column loop
       "tbz x9, #0, 2f\n"
       "ldr q30, [x14, #0x0]\n"
@@ -198,7 +197,6 @@ void NOINLINE gemmkernel_2x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x11, [%x[gp], %[offsetof_lda]]\n"
       "fcmp s16, #0.0\n"
       "csel x8, XZR, x8, EQ\n"
-      "csel x8, XZR, x8, VS\n"
       "ldr x9, [%x[gp], %[offsetof_ldc]]\n"
       "ldr x7, [%x[gp], %[offsetof_b_block_cols]]\n"
       "1:" // Height 2: Column loop
@@ -409,7 +407,6 @@ void NOINLINE gemmkernel_3x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x12, [%x[gp], %[offsetof_lda]]\n"
       "fcmp s16, #0.0\n"
       "csel x7, XZR, x7, EQ\n"
-      "csel x7, XZR, x7, VS\n"
       "ldr x9, [%x[gp], %[offsetof_ldc]]\n"
       "ldr x6, [%x[gp], %[offsetof_b_block_cols]]\n"
       "1:" // Height 3: Column loop
@@ -661,7 +658,6 @@ void NOINLINE gemmkernel_4x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x12, [%x[gp], %[offsetof_lda]]\n"
       "fcmp s16, #0.0\n"
       "csel x8, XZR, x8, EQ\n"
-      "csel x8, XZR, x8, VS\n"
       "ldr x9, [%x[gp], %[offsetof_ldc]]\n"
       "ldr x7, [%x[gp], %[offsetof_b_block_cols]]\n"
       "1:" // Height 4: Column loop
@@ -954,7 +950,6 @@ void NOINLINE gemmkernel_5x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x11, [%x[gp], %[offsetof_lda]]\n"
       "fcmp s16, #0.0\n"
       "csel x9, XZR, x9, EQ\n"
-      "csel x9, XZR, x9, VS\n"
       "ldr x13, [%x[gp], %[offsetof_ldc]]\n"
       "ldr x8, [%x[gp], %[offsetof_b_block_cols]]\n"
       "1:" // Height 5: Column loop
@@ -1288,7 +1283,6 @@ void NOINLINE gemmkernel_6x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x12, [%x[gp], %[offsetof_lda]]\n"
       "fcmp s16, #0.0\n"
       "csel x10, XZR, x10, EQ\n"
-      "csel x10, XZR, x10, VS\n"
       "ldr x14, [%x[gp], %[offsetof_ldc]]\n"
       "ldr x9, [%x[gp], %[offsetof_b_block_cols]]\n"
       "1:" // Height 6: Column loop
@@ -1661,7 +1655,6 @@ void NOINLINE gemmkernel_7x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x13, [%x[gp], %[offsetof_lda]]\n"
       "fcmp s16, #0.0\n"
       "csel x11, XZR, x11, EQ\n"
-      "csel x11, XZR, x11, VS\n"
       "ldr x15, [%x[gp], %[offsetof_ldc]]\n"
       "ldr x10, [%x[gp], %[offsetof_b_block_cols]]\n"
       "1:" // Height 7: Column loop
@@ -2072,7 +2065,6 @@ void NOINLINE gemmkernel_8x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "ldr x14, [%x[gp], %[offsetof_lda]]\n"
       "fcmp s16, #0.0\n"
       "csel x12, XZR, x12, EQ\n"
-      "csel x12, XZR, x12, VS\n"
       "ldr x16, [%x[gp], %[offsetof_ldc]]\n"
       "ldr x11, [%x[gp], %[offsetof_b_block_cols]]\n"
       "1:" // Height 8: Column loop
