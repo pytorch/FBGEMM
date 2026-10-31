@@ -1,0 +1,3 @@
+"ciflow/binaries":
+  - .github/scripts/**
+  - .github/workflows/**
