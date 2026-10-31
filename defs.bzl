@@ -55,6 +55,7 @@ def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
         "src/FbgemmConv.cc",
         "src/FbgemmFPCommon.cc",
         "src/FbgemmFP16.cc",
+        "src/fp32/FbgemmFP32.cc",
         "src/FbgemmFloat16Convert.cc",
         "src/FbgemmI64.cc",
         "src/FbgemmSparseDense.cc",
@@ -86,17 +87,7 @@ def get_fbgemm_generic_srcs(with_base = False, msvc = False, buck = False):
         "src/TransposeUtils.cc",
     ] + (get_fbgemm_base_srcs() if with_base else [])
 
-    fp32sources = [
-        "src/fp32/FbgemmFP32.cc",
-    ]
-
-    if buck:
-        return select({
-            "DEFAULT": sources + fp32sources,
-            "ovr_config//compiler:cl": sources,
-        })
-
-    return sources + fp32sources if not msvc else sources
+    return sources
 
 def get_fbgemm_public_headers():
     return [
