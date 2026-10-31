@@ -1017,6 +1017,15 @@ batch_index_select_dim0_codegen_forward_kernel
     1,
     2)
 }}
+{{ template_instantiation(
+    "at::Half",
+    "at::Half",
+    "float",
+    "int32_t",
+    "false",
+    1,
+    2)
+}}
 {%- endif %}
 {{ instantiate_templates(use_subwarp_shuffle=False) }}
 
