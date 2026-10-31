@@ -13,20 +13,17 @@
 #include "./FbgemmFP16UKernelsAvx512.h" // @manual
 #include "./fp32/FbgemmFP32UKernelsAvx512.h" // @manual
 
-#include <type_traits>
-
 namespace fbgemm {
+
+static __m512 load_b(const float16* p) {
+  return _mm512_cvtph_ps(_mm256_load_si256(reinterpret_cast<const __m256i*>(p)));
+}
+
+static __m512 load_b(const float* p) { return _mm512_loadu_ps(p); }
 
 // Intrinsic kernel for MSVC, shared by FP16 and FP32 inputs.
 template <typename T>
 static void gemmkernel_Avx512_fA0fB0fC0(GemmParams<T>* gp, const size_t kernel_nrows) {
-  const auto load_b = [](const T* p) {
-    if constexpr (std::is_same_v<T, float>) {
-      return _mm512_loadu_ps(p);
-    } else {
-      return _mm512_cvtph_ps(_mm256_load_si256(reinterpret_cast<const __m256i*>(p)));
-    }
-  };
   // register buffer
   __m512 zmmSum[28];
   size_t idxA = 0, idxB = 0, idxC = 0;
