@@ -3947,6 +3947,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "group_index_select_dim0_gpu_impl(Tensor[] inputs, int group_size) -> Tensor[]");
   m.def(
       "group_index_select_dim0_gpu_backward(Tensor[] inputs, SymInt[] output_shape_group) -> Tensor[]");
+  // Setup only (no kernel, no outputs): {args_tensor, saved_data} for
+  // group_index_select_dim0_gpu_backward.
+  m.def(
+      "group_index_select_dim0_gpu_setup(Tensor[] inputs, int group_size) -> Tensor[]");
   // This is an one-off op to be used in split_embedding_utils.py for zipf
   // generation w/o replacement along dim=-1. If requires_unique=True, find
   // smallest unique k.  If the number of unique elements is less than k,
