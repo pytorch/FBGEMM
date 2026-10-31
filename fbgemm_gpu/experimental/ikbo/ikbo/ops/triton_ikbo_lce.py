@@ -12,8 +12,6 @@ import torch
 import triton
 import triton.language as tl
 
-from .tlx_ikbo_lce import swizzle_tile
-
 
 def _triton_autotune_configs():
     if os.environ.get("FAST_TUNE"):
@@ -78,8 +76,14 @@ def triton_ikbo_lce_kernel(
     num_pid_n = tl.cdiv(N, BN)
     num_pids_per_batch = num_pid_m * num_pid_n
 
-    pid_batch, pid_m, pid_n = swizzle_tile(
-        pid, num_pids_per_batch, num_pid_m, num_pid_n, GROUP_SIZE_M
+    pid_batch = pid // num_pids_per_batch
+    local_tile = pid % num_pids_per_batch
+    pid_m, pid_n = tl.swizzle2d(
+        local_tile // num_pid_n,
+        local_tile % num_pid_n,
+        num_pid_m,
+        num_pid_n,
+        GROUP_SIZE_M,
     )
 
     offs_m = pid_m * BM + tl.arange(0, BM)
@@ -103,7 +107,8 @@ def triton_ikbo_lce_kernel(
         a = tl.load(a_ptrs, mask=rk[None, :] < k, other=0.0)  # [BM, BK]
         b = tl.load(b_ptrs, mask=rk[:, None] < k, other=0.0)  # [BK, BN]
 
-        acc += tl.dot(a, b)
+        # Triton TR011: keep Tensor Core behavior stable across Triton upgrades.
+        acc += tl.dot(a, b, allow_tf32=True)
         a_ptrs += BK * a_stride_b
         b_ptrs += BK * b_stride_b
 
@@ -119,12 +124,16 @@ def triton_ikbo_lce_kernel(
         eviction_policy="evict_last",
     )  # [BM, BN]
 
-    # Store fused result
-    output_val = acc.to(a_ptr.dtype.element_ty) + user_res_val
+    # Preserve both partial reductions in FP32 and round only the final result.
+    output_val = acc + user_res_val
     out_ptrs = out_ptr + in_batch_offset + out_stride_a * pid_batch
     tl.store(out_ptrs, output_val, mask)
 
 
+@torch._library.triton_op(
+    "ikbo::triton_ikbo_lce",
+    mutates_args=(),
+)
 def triton_ikbo_lce(
     compression_w_cand: torch.Tensor,
     compression_w_user: torch.Tensor,
@@ -150,14 +159,21 @@ def triton_ikbo_lce(
     """
     B, K, N = embeddings_cand.shape
     M = compression_w_cand.size(0)
-    user_res = compression_w_user @ embeddings_user  # [num_users, M, N]
+    expanded_user_weight = compression_w_user.unsqueeze(0).expand(
+        embeddings_user.shape[0], -1, -1
+    )
+    user_res = torch.bmm(
+        expanded_user_weight,
+        embeddings_user,
+        out_dtype=torch.float32,
+    )  # [num_users, M, N]
     out = torch.empty(
         (B, M, N), device=embeddings_cand.device, dtype=embeddings_cand.dtype
     )
 
     grid = lambda META: (B * triton.cdiv(M, META["BM"]) * triton.cdiv(N, META["BN"]),)  # noqa: E731
 
-    triton_ikbo_lce_kernel[grid](
+    torch._library.capture_triton(triton_ikbo_lce_kernel)[grid](
         compression_w_cand,
         embeddings_cand,
         cand_to_user_index,
