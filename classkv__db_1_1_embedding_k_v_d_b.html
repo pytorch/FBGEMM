@@ -125,6 +125,7 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:af92863de35d4f1785d5843b665139eec" id="r_af92863de35d4f1785d5843b665139eec"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#af92863de35d4f1785d5843b665139eec">get_kv_db_weights_only_async</a> (const at::Tensor &amp;, const at::Tensor &amp;, const at::Tensor &amp;)</td></tr>
 <tr class="memitem:a4d3c2b2de499c727ea34cfd3348fba1a" id="r_a4d3c2b2de499c727ea34cfd3348fba1a"><td class="memItemLeft">virtual folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a4d3c2b2de499c727ea34cfd3348fba1a">get_kv_db_metadata_only_async</a> (const at::Tensor &amp;, const at::Tensor &amp;, const at::Tensor &amp;)</td></tr>
 <tr class="memitem:a4d877b043dc04eb076f3dbdf3eaf61bf" id="r_a4d877b043dc04eb076f3dbdf3eaf61bf"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a4d877b043dc04eb076f3dbdf3eaf61bf">serving_qdq_existing_rows</a> ()</td></tr>
+<tr class="memitem:a39fae6d6748d1de6ff88e9e13bd03238" id="r_a39fae6d6748d1de6ff88e9e13bd03238"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a39fae6d6748d1de6ff88e9e13bd03238">set_embedding_cache_rows_async</a> (at::Tensor indices, at::Tensor weights, at::Tensor count)</td></tr>
 <tr class="memitem:ac7915f47cef0152710d8e819974ae66e" id="r_ac7915f47cef0152710d8e819974ae66e"><td class="memItemLeft">virtual std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ac7915f47cef0152710d8e819974ae66e">fetch_sids_sync</a> (at::Tensor, at::Tensor, at::Tensor)</td></tr>
 <tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
 <tr class="memitem:aa6c61b95631616bb7a5e7ec16586a09b" id="r_aa6c61b95631616bb7a5e7ec16586a09b"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aa6c61b95631616bb7a5e7ec16586a09b">get_cuda_with_found_mask</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const at::Tensor &amp;found_mask)</td></tr>
@@ -720,6 +721,43 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
+
+</div>
+</div>
+<a id="a39fae6d6748d1de6ff88e9e13bd03238" name="a39fae6d6748d1de6ff88e9e13bd03238"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a39fae6d6748d1de6ff88e9e13bd03238">&#9670;&#160;</a></span>set_embedding_cache_rows_async()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void set_embedding_cache_rows_async </td>
+          <td>(</td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Writes rows into an embedding cache through its enrichment write path. Only the DRAM KV cache implements it; elsewhere it logs and returns. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a58eb28cfbab45e80e851ce501f8e4406">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
 
 </div>
 </div>
