@@ -490,7 +490,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward{{ desc_suffix }}_cud
     {%- endif %}
     {%- if vbe and not dense %}
     const bool is_experimental,
-    std::optional<Tensor> vbe_output = std::nullopt
+    const std::optional<Tensor>& vbe_output = std::nullopt
     {%- else %}
     const bool is_experimental
     {%- endif %}

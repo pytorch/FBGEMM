@@ -273,7 +273,9 @@ class FbgemmGpuBuild:
             return f"-D_GLIBCXX_USE_CXX11_ABI={value}"
 
         torch_root = os.path.dirname(torch.__file__)
-        os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str((os.cpu_count() or 4) // 2)
+        os.environ.setdefault(
+            "CMAKE_BUILD_PARALLEL_LEVEL", str((os.cpu_count() or 4) // 2)
+        )
 
         cmake_args = [
             f"-DCMAKE_PREFIX_PATH={torch_root}",

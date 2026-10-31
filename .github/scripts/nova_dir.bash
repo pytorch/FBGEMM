@@ -64,15 +64,17 @@ elif [[ "$CU_VERSION" == "rocm"* ]]; then
 fi
 
 ## Cap CUDA build parallelism by container memory, not just cores.
-# nvcc peaks at several GiB per translation unit, so the core count alone
-# overcommits a memory-limited container. 8GiB per TU, minus headroom for
-# everything else in the container, is empirical.
+# CUDA 13 needs more memory for generated TBE translation units than older
+# toolchains. Keep headroom for everything else in the container.
 if [[ "$CU_VERSION" == "cu"* ]] && [[ -n "${TORCH_CI_MAX_MEMORY:-}" ]]; then
+    gib_per_job=8
+    if [[ "$CU_VERSION" == "cu130" ]]; then gib_per_job=16; fi
     mem_gib=$(((TORCH_CI_MAX_MEMORY / 1073741824) - 8))
-    max_jobs=$((mem_gib / 8))
+    max_jobs=$((mem_gib / gib_per_job))
     cores=$(nproc)
     if [[ "$max_jobs" -lt 1 ]]; then max_jobs=1; fi
     if [[ "$max_jobs" -gt "$cores" ]]; then max_jobs="$cores"; fi
     export BUILD_PARALLELISM="$max_jobs"
-    echo "[NOVA] Set BUILD_PARALLELISM to ${BUILD_PARALLELISM} (${mem_gib}GiB usable / 8GiB per CUDA TU, ${cores} cores)"
+    export CMAKE_BUILD_PARALLEL_LEVEL="$max_jobs"
+    echo "[NOVA] Set build parallelism to ${BUILD_PARALLELISM} (${mem_gib}GiB usable / ${gib_per_job}GiB per CUDA TU, ${cores} cores)"
 fi
