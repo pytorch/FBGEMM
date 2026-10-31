@@ -146,9 +146,10 @@ def generate_optimized_grad_sum_loop_access(
         // max_vecs is not known at compile time
         for (int32_t vec = 0;
             vec < max_vecs &&
-            (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+            (kThreadGroupSize * vec + static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH < D;
             ++vec) {
-            const int32_t d_vec = vec * kThreadGroupSize + threadIdx.x;
+            const int32_t d_vec =
+                vec * kThreadGroupSize + static_cast<int32_t>(threadIdx.x);
             [[maybe_unused]] const int32_t d = d_vec * VEC_WIDTH;
             {smem_blob}
         }
@@ -158,9 +159,10 @@ def generate_optimized_grad_sum_loop_access(
         #pragma unroll kFixedMaxVecsPerThread
         for (int32_t vec = 0;
             vec < kFixedMaxVecsPerThread
-                && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+                && (kThreadGroupSize * vec + static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH < D;
             ++vec) {
-            const int32_t d_vec = vec * kThreadGroupSize + threadIdx.x;
+            const int32_t d_vec =
+                vec * kThreadGroupSize + static_cast<int32_t>(threadIdx.x);
             [[maybe_unused]] const int32_t d = d_vec * VEC_WIDTH;
             {reg_blob}
         }

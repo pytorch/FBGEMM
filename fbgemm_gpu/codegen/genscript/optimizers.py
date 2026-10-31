@@ -152,9 +152,11 @@ def rowwise_adagrad() -> dict[str, Any]:
         // compute weight norm
         at::acc_type<cache_t, true> weight_sum_square = 0.0;
         for (int32_t vec = 0;
-             vec < max_vecs && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+             vec < max_vecs &&
+                 (kThreadGroupSize * vec + static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH < D;
              ++vec) {
-            const int32_t d = (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH;
+            const int32_t d =
+                (kThreadGroupSize * vec + static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH;
             Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
             weight_sum_square
                 += weight_new.acc.x * weight_new.acc.x
@@ -172,9 +174,11 @@ def rowwise_adagrad() -> dict[str, Any]:
         multiplier = SHFL_SYNC(multiplier, 0);
         if (weight_norm > max_norm) {
             for (int32_t vec = 0;
-                 vec < max_vecs && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+                 vec < max_vecs &&
+                     (kThreadGroupSize * vec + static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH < D;
                  ++vec) {
-                const int32_t d = (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH;
+                const int32_t d =
+                    (kThreadGroupSize * vec + static_cast<int32_t>(threadIdx.x)) * VEC_WIDTH;
                 Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
 
                 weight_new.acc.x *= multiplier;
