@@ -159,10 +159,15 @@ class VbeHalfwaveInt32Test(unittest.TestCase):
         self.assertTrue(torch.equal(out32, ref), f"max abs {max_abs(out32, ref)}")
 
     def test_int32_takes_half_wave_kernel(self) -> None:
-        """MAX_D 128: the VBE forward kernel runs with kSubwarpDivisor 2 (two 32-lane groups per wave)."""
+        """MAX_D 128: the VBE forward kernel runs with 32-lane groups (divisor 2 on wave64, 1 on wave32)."""
         _, names, _ = vbe_forward(torch.int32, DIMS)
         self.assertTrue(names, "no VBE forward kernel ran")
-        self.assertTrue(all(divisor(n) == "2ul" for n in names), names)
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
+        self.assertIn(warp_size, (32, 64))
+        expected_divisor = f"{warp_size // 32}ul"
+        self.assertTrue(all(divisor(n) == expected_divisor for n in names), names)
 
     def test_max_d_above_128_keeps_full_wave(self) -> None:
         """MAX_D 192: the half-wave branch does not apply; kSubwarpDivisor 1, and the output is still exact."""
