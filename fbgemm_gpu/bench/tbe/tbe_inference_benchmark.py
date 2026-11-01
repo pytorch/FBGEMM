@@ -570,6 +570,7 @@ def nbit_device(  # noqa C901
         bandwidth = read_write_bytes / kernel_time / 1.0e3
 
         logging.info(
+            # pyrefly: ignore [invalid-argument]
             f"kineto profiled stats: "
             f"{weights_precision} Forward, B: {B}, "
             f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
@@ -1022,6 +1023,7 @@ def nbit_device_with_spec(  # noqa C901
             bandwidth = read_write_bytes / kernel_time / 1.0e3
 
             logging.info(
+                # pyrefly: ignore [invalid-argument]
                 f"kineto profiled stats: "
                 f"{weights_precision} Forward, B: {B}, "
                 f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "

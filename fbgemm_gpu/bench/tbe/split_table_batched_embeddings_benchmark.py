@@ -922,6 +922,7 @@ def uvm(  # noqa: C901
                 emb_uvm.lxu_cache_weights.shape,
             )
         )
+        # pyrefly: ignore [bad-index]
         num_cache_slots = emb_uvm.lxu_cache_weights.shape[0]
         for it, req in enumerate(requests_uvm):
             indices, offsets = req.unpack_2()

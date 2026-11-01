@@ -487,6 +487,7 @@ def ssd_training(  # noqa C901
 
             # Compute nparams once
             if prefix == "HBM":
+                # pyrefly: ignore [missing-attribute]
                 nparams = sum(w.numel() for w in emb.split_embedding_weights())
 
             # Delete module to make room for other modules
