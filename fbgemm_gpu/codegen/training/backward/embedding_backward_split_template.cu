@@ -1520,6 +1520,28 @@ Tensor {{ embedding_cuda_op }}(
                                   4,
                                   8,
                                   false>;
+                              // Default off: tables with max_D <= 96 take three vectors per lane (8 * 3 * 4 = 96)
+                              // in an instantiation built for at least 4 waves per SIMD. The warp kernel is
+                              // latency-bound at register-limited occupancy (152 registers, 3 waves per SIMD, for
+                              // <4, 8>); fewer vectors and the occupancy bound let more waves hide the latency.
+                              static const bool occupancy = [] {
+                                const char* v = std::getenv("TBE_ROCM_HIP_MIXED_D_OCCUPANCY");
+                                return v != nullptr && std::string(v) == "1";
+                              }();
+                              if (occupancy && max_D <= 96) {
+                                backward_warp_per_row_kernel =
+                                {{ hip_mixed_d_warp_kernel }}
+                                    <emb_t,
+                                    grad_t,
+                                    cache_t,
+                                    index_t,
+                                    {%- for ph_name in args.placeholder_tensor_names %}
+                                    {{ ph_name + "_ph_t" }},
+                                    {%- endfor %}
+                                    3,
+                                    8,
+                                    false>;
+                              }
                               num_warp_per_row_groups = (kBackwardMaxThreads / 2) / 8;
                               warp_thread_group_size = 8;
                             }

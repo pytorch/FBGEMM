@@ -359,7 +359,11 @@ template <
     int32_t kFixedMaxVecsPerThread,
     int32_t kSubwarpDivisor,
     bool kUseVecBlocking>
-__global__ __launch_bounds__(kBackwardMaxThreads) void
+__global__ __launch_bounds__(
+    kBackwardMaxThreads,
+    // TBE_ROCM_HIP_MIXED_D_OCCUPANCY: the <3, 8> instantiation must fit 4 waves per SIMD
+    // (<= 128 registers); every other instantiation keeps the default minimum of 1.
+    (kFixedMaxVecsPerThread == 3 && kSubwarpDivisor == 8) ? 4 : 1) void
 hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1(
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -941,7 +945,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 {%- endif %}
 {%- if has_hip_optimized_support  %}
 
-template __global__ __launch_bounds__(kBackwardMaxThreads) void
+template __global__ __launch_bounds__(kBackwardMaxThreads, {{ 4 if (kFixedMaxVecsPerThread == 3 and kSubwarpDivisor == 8) else 1 }}) void
 hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1
 < {{ emb_type }},
   {{ grad_type }},
@@ -1114,6 +1118,9 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
       default-off env gate TBE_ROCM_HIP_MIXED_D_EIGHTH_WAVE. 8 lanes is the smallest group the
       optimizer device kernel accepts. */ #}
 {{ bulk_template_instantiations(4, 8, 'false', hip_mixed_d_only=True) }}
+{#- /* 8-lane groups x 3 vectors (max_D <= 96) with at least 4 waves per SIMD, reached only under the default-off
+      env gate TBE_ROCM_HIP_MIXED_D_OCCUPANCY (with TBE_ROCM_HIP_MIXED_D_EIGHTH_WAVE). */ #}
+{{ bulk_template_instantiations(3, 8, 'false', hip_mixed_d_only=True) }}
 {%- endif %}
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -176,7 +176,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
                 {%- endif %}
                 {%- if vbe and not dense %}
                 const bool,
-                std::optional<Tensor> /*vbe_output*/
+                const std::optional<Tensor>& /*vbe_output*/
                 {%- else %}
                 const bool
                 {%- endif %}

@@ -10,6 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 import copy
+import gc
 import unittest
 from typing import Any
 
@@ -423,12 +424,16 @@ class BackwardAdagradGlobalWeightDecay(unittest.TestCase):
         """
         Test global weight decay with Rowwise Adagrad optimizers
         """
-        execute_global_weight_decay(
-            weights_precision=weights_precision,
-            weight_decay=weight_decay,
-            mixed_B=False,
-            **kwargs,
-        )
+        try:
+            execute_global_weight_decay(
+                weights_precision=weights_precision,
+                weight_decay=weight_decay,
+                mixed_B=False,
+                **kwargs,
+            )
+        finally:
+            gc.collect()
+            torch.cuda.empty_cache()
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -446,12 +451,16 @@ class BackwardAdagradGlobalWeightDecay(unittest.TestCase):
         """
         Test global weight decay with Rowwise Adagrad optimizers VBE
         """
-        execute_global_weight_decay(
-            weights_precision=weights_precision,
-            weight_decay=weight_decay,
-            mixed_B=True,
-            **kwargs,
-        )
+        try:
+            execute_global_weight_decay(
+                weights_precision=weights_precision,
+                weight_decay=weight_decay,
+                mixed_B=True,
+                **kwargs,
+            )
+        finally:
+            gc.collect()
+            torch.cuda.empty_cache()
 
     # 2^24 + 1 is the smallest integer float32 cannot represent; it rounds to
     # 2^24. Row 0 below is touched on the consecutive iterations 2^24 + 1 and

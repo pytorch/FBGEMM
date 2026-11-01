@@ -733,6 +733,7 @@ void KVTensorWrapper::set_dram_ssd_db_wrapper(
             << ", rocksdb_for_serialization_="
             << rocksdb_for_serialization_.get();
 }
+
 void KVTensorWrapper::logss() {
   if (snapshot_handle_) {
     XLOG(INFO) << "snapshot_handle_ is valid";
