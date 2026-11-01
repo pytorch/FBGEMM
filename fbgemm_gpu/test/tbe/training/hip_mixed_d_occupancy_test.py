@@ -181,28 +181,39 @@ class HipMixedDOccupancyTest(unittest.TestCase):
     """Occupancy and eighth-wave gates ON (this module's process): which warp-backward instantiation each table shape
     gets, and that each one updates exactly as the reference does."""
 
-    def _assert_occupancy(self, names: list[str]) -> None:
+    def _assert_route(self, names: list[str], wave64_suffix: str) -> None:
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
+        self.assertIn(warp_size, (32, 64))
+        expected = wave64_suffix if warp_size == 64 else ", 1, 1, false>"
         self.assertTrue(
-            any(OCCUPANCY in n for n in names),
-            f"expected hip_mixed_d <..., 3, 8, false>, saw {names}",
+            any("hip_mixed_d" in n and expected in n for n in names),
+            f"expected hip_mixed_d {expected}, saw {names}",
         )
-        self.assertFalse(
-            any(EIGHTH_WAVE in n for n in names),
-            f"unexpected <..., 4, 8, false> in {names}",
-        )
+        for other in (OCCUPANCY, EIGHTH_WAVE):
+            if other != expected:
+                self.assertFalse(
+                    any(other in n for n in names),
+                    f"unexpected hip_mixed_d {other} in {names}",
+                )
+
+    def _assert_occupancy(self, names: list[str]) -> None:
+        self._assert_route(names, OCCUPANCY)
 
     def test_mixed_d_max96_takes_occupancy_instantiation(self) -> None:
-        """Mixed D 96/96/64/32 (max_D 96): the backward runs <..., 3, 8, false> and matches the exact reference."""
+        """Wave64: Mixed D 96/96/64/32 (max_D 96): the backward runs <..., 3, 8, false> and matches the exact
+        reference. Wave32 retains its existing 32-lane route."""
         self._assert_occupancy(run_and_check(self, [96, 96, 64, 32]))
 
     def test_low_duplication_takes_occupancy_instantiation(self) -> None:
-        """About 1.2 ids per touched row (the low-duplication branch production inputs take): same instantiation,
-        exact update."""
+        """Wave64: About 1.2 ids per touched row (the low-duplication branch production inputs take): same
+        instantiation, exact update. Wave32 retains its existing 32-lane route."""
         self._assert_occupancy(run_and_check(self, [96, 96, 64, 32], low_dup=True))
 
     def test_vbe_takes_occupancy_instantiation(self) -> None:
-        """A VBE TBE (features with batch sizes B, B/2, B/4, B): the VBE variant of <..., 3, 8, false> runs, exact
-        update."""
+        """Wave64: A VBE TBE (features with batch sizes B, B/2, B/4, B): the VBE variant of <..., 3, 8, false>
+        runs, exact update. Wave32 retains its existing 32-lane route."""
         names = run_and_check(self, [96, 96, 64, 32], vbe=True)
         self._assert_occupancy(names)
         self.assertTrue(
@@ -211,24 +222,19 @@ class HipMixedDOccupancyTest(unittest.TestCase):
         )
 
     def test_stochastic_rounding_takes_occupancy_instantiation(self) -> None:
-        """Stochastic rounding on: same instantiation; weights within 1.25 FP16 ulp of the exact reference."""
+        """Wave64: Stochastic rounding on: same instantiation; weights within 1.25 FP16 ulp of the exact
+        reference. Wave32 retains its existing 32-lane route."""
         self._assert_occupancy(run_and_check(self, [96, 96, 64, 32], sr=True))
 
     def test_uniform_d96_takes_occupancy_instantiation(self) -> None:
-        """Uniform D=96 (not served by the specialized HIP kernel) with the uniform route on: <..., 3, 8, false>."""
+        """Wave64: Uniform D=96 (not served by the specialized HIP kernel) with the uniform route on: <..., 3,
+        8, false>. Wave32 retains its existing 32-lane route."""
         self._assert_occupancy(run_and_check(self, [96, 96, 96, 96]))
 
     def test_max_d_128_keeps_four_vectors(self) -> None:
-        """max_D 128 > 96: the occupancy instantiation cannot hold a 128-wide row, so <..., 4, 8, false> runs."""
+        """Wave64 keeps four vectors at max_D 128; wave32 keeps its existing 32-lane route."""
         names = run_and_check(self, [128, 96, 64, 32])
-        self.assertTrue(
-            any(EIGHTH_WAVE in n for n in names),
-            f"expected <..., 4, 8, false>, saw {names}",
-        )
-        self.assertFalse(
-            any(OCCUPANCY in n for n in names),
-            f"unexpected <..., 3, 8, false> in {names}",
-        )
+        self._assert_route(names, EIGHTH_WAVE)
 
     def test_max_d_above_128_keeps_its_previous_instantiation(self) -> None:
         """max_D 256: neither eighth-wave instantiation applies; the previous hip_mixed_d instantiation runs."""
