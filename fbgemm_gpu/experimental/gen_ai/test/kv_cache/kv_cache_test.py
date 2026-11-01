@@ -71,6 +71,13 @@ def _get_varseq_batch_seqpos(
 
 
 @unittest.skipIf(
+    torch.cuda.is_available()
+    and torch.cuda.device_count() > 0
+    and torch.version.hip is not None
+    and "gfx1250" in torch.cuda.get_device_properties(0).gcnArchName,
+    "xformers attention kernels are unavailable on gfx1250",
+)
+@unittest.skipIf(
     not torch.cuda.is_available() or torch.cuda.device_count() == 0,
     "CUDA is not available or no GPUs detected",
 )
