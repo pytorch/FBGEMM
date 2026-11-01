@@ -1148,6 +1148,10 @@ __global__ void gqa_attn_splitk_attn_kernel(
 
   // shared across all threads in block
   max_qk_acc = warpReduceMax(max_qk_acc);
+#ifndef USE_ROCM
+  // The down-shuffle reduction returns the full maximum in lane zero.
+  max_qk_acc = __shfl_sync(0xffffffff, max_qk_acc, 0);
+#endif
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
   for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
@@ -1920,6 +1924,10 @@ __global__ void mqa_attn_kernel(
   }
   // shared across all threads in block
   max_qk_acc = warpReduceMax(max_qk_acc);
+#ifndef USE_ROCM
+  // The down-shuffle reduction returns the full maximum in lane zero.
+  max_qk_acc = __shfl_sync(0xffffffff, max_qk_acc, 0);
+#endif
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
   for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
@@ -2147,6 +2155,10 @@ __global__ void mqa_attn_fp8_kernel(
   }
   // shared across all threads in block
   max_qk_acc = warpReduceMax(max_qk_acc);
+#ifndef USE_ROCM
+  // The down-shuffle reduction returns the full maximum in lane zero.
+  max_qk_acc = __shfl_sync(0xffffffff, max_qk_acc, 0);
+#endif
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
   for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
@@ -2411,6 +2423,10 @@ __global__ void mqa_attn_int4_kernel(
   }
   // shared across all threads in block
   max_qk_acc = warpReduceMax(max_qk_acc);
+#ifndef USE_ROCM
+  // The down-shuffle reduction returns the full maximum in lane zero.
+  max_qk_acc = __shfl_sync(0xffffffff, max_qk_acc, 0);
+#endif
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
   for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
