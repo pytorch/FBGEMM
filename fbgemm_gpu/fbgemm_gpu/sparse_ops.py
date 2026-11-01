@@ -1086,6 +1086,10 @@ def group_index_select_dim0_gpu_impl_abstract(
         size = list(input_group[i].size())
         ret.append(input_group[i].new_empty([indices_group[i].size(0)] + size[1:]))
 
+    if input_group[0].device.type == "cpu":
+        ret.extend(torch.empty(0, dtype=torch.int64, device="cpu") for _ in range(2))
+        return ret
+
     # args_tensor packs, in int64 units (must match the C++ forward layout in
     # sparse_ops_gpu.cpp, NUM_ARGS = 7): input_ptrs, output_ptrs, indices_ptrs,
     # sorted_indices_ptrs, reverse_indices_ptrs (5 * group_size) +
