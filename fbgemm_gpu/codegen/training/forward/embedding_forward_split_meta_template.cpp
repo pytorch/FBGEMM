@@ -100,7 +100,7 @@ Tensor
     {%- endif %}
     {%- if vbe and not dense %}
     const bool is_experimental [[maybe_unused]],
-    std::optional<Tensor> vbe_output [[maybe_unused]]
+    const std::optional<Tensor>& vbe_output [[maybe_unused]]
     {%- else %}
     const bool is_experimental [[maybe_unused]]
     {%- endif %}

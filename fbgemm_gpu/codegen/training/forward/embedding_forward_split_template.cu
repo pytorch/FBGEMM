@@ -463,7 +463,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     {#- /* Selects the TBE v2 forward, which exists only for the bagged,
           non-VBE, non-SSD configuration. */ #}
     {{ "" if has_experimental else "[[maybe_unused]] " }}const bool is_experimental,
-    std::optional<Tensor> vbe_output
+    const std::optional<Tensor>& vbe_output
     {%- else %}
     {{ "" if has_experimental else "[[maybe_unused]] " }}const bool is_experimental
     {%- endif %}
