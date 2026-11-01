@@ -152,10 +152,15 @@ class VbeHalfwaveInt32OffTest(unittest.TestCase):
         self.assertTrue(torch.equal(out32, ref), f"max abs {max_abs(out32, ref)}")
 
     def test_int64_keeps_half_wave_kernel(self) -> None:
-        """int64 indices: the pre-existing half-wave branch (kSubwarpDivisor 2), output exact."""
+        """int64 indices: the existing 32-lane route (divisor 2 on wave64, 1 on wave32), output exact."""
         out64, names, ref = vbe_forward(torch.int64, DIMS)
         self.assertTrue(names, "no VBE forward kernel ran")
-        self.assertTrue(all(divisor(n) == "2ul" for n in names), names)
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
+        self.assertIn(warp_size, (32, 64))
+        expected_divisor = f"{warp_size // 32}ul"
+        self.assertTrue(all(divisor(n) == expected_divisor for n in names), names)
         self.assertTrue(torch.equal(out64, ref), f"max abs {max_abs(out64, ref)}")
 
 
