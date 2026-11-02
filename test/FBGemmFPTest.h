@@ -7,7 +7,7 @@
  */
 
 #pragma once
-#include <gtest/gtest.h>
+#include <gtest/gtest.h> // @manual=fbsource//third-party/googletest:gtest_headers
 #include <random>
 #include <type_traits>
 #ifdef _OPENMP
