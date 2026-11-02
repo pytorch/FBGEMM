@@ -17,9 +17,9 @@ from .common import clone_tensor, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 
 class JaggedDenseFlashAttentionTest(unittest.TestCase):
@@ -30,7 +30,7 @@ class JaggedDenseFlashAttentionTest(unittest.TestCase):
         T=st.integers(1, 30),
         max_L=st.integers(1, 100),
         allow_tf32=st.booleans(),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)

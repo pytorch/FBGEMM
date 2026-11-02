@@ -16,9 +16,9 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 
 # pyrefly: ignore [bad-argument-type]
@@ -32,7 +32,7 @@ class JaggedJaggedBMMTest(unittest.TestCase):
         T=st.integers(1, 256),
         use_fbgemm_kernel=st.booleans(),
         allow_tf32=st.booleans(),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     @settings(deadline=None)
     def test_triton_jagged_jagged_bmm(
@@ -86,7 +86,7 @@ class JaggedJaggedBMMTest(unittest.TestCase):
         T=st.integers(1, 256),
         use_fbgemm_kernel=st.booleans(),
         allow_tf32=st.booleans(),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     @settings(deadline=None)
     def test_triton_jagged_jagged_bmm_with_grad(
