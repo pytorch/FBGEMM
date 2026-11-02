@@ -10,6 +10,93 @@
 
 namespace fbgemm {
 
+// Register roles shared by every kernel in this file.
+//   B       packed-B cursor, advanced 64 bytes per k step.
+//   C       first row of the current C tile.
+//   LDC     ldc in bytes.
+//   B_COLS  b_block_cols.
+//   B_END   b_block_size on entry. The kernels never read it after the
+//           prologue, so the prefetch code turns it into the address of the
+//           last packed-B cache line of the call.
+//   TMP     not used by the kernels at the top of loop_outter or in
+//           loop_inner.
+//   CURSOR  holds gp in the prologue and the k counter from loop_outter on;
+//           free in between.
+#define FP16_REG_B "r10"
+#define FP16_REG_C "r12"
+#define FP16_REG_LDC "r13"
+#define FP16_REG_B_COLS "rdi"
+#define FP16_REG_B_END "rsi"
+#define FP16_REG_TMP "r11"
+#define FP16_REG_CURSOR "r14"
+
+#ifdef FBGEMM_ENABLE_FP16_SOFTWARE_PREFETCH
+#define FP16_STR_(x) #x
+#define FP16_STR(x) FP16_STR_(x)
+// How far ahead of B, in bytes, the K loop prefetches packed B into L1 and L2.
+// Set per build with the fbcode.fbgemm_fp16_software_prefetch_l1_distance and
+// fbcode.fbgemm_fp16_software_prefetch_l2_distance buckconfigs.
+#ifndef FBGEMM_FP16_PREFETCH_B_L1_DIST
+#define FBGEMM_FP16_PREFETCH_B_L1_DIST 1024
+#endif
+#ifndef FBGEMM_FP16_PREFETCH_B_L2_DIST
+#define FBGEMM_FP16_PREFETCH_B_L2_DIST 8192
+#endif
+static_assert(
+    FBGEMM_FP16_PREFETCH_B_L1_DIST > 0 &&
+        FBGEMM_FP16_PREFETCH_B_L1_DIST % 64 == 0,
+    "FBGEMM_FP16_PREFETCH_B_L1_DIST must be a positive multiple of 64");
+static_assert(
+    FBGEMM_FP16_PREFETCH_B_L2_DIST > 0 &&
+        FBGEMM_FP16_PREFETCH_B_L2_DIST % 64 == 0,
+    "FBGEMM_FP16_PREFETCH_B_L2_DIST must be a positive multiple of 64");
+
+// clang-format off
+// Compute B_END, then prime the first FBGEMM_FP16_PREFETCH_B_L1_DIST bytes of
+// packed B (the lines the K loop's L1 prefetch skips) into L1 (prefetcht0).
+// TMP = last line to prime, CURSOR = prime cursor.
+#define FBGEMM_FP16_PREFETCH_PRIME_B                                         \
+  "imul " FP16_REG_B_END ", " FP16_REG_B_COLS "\t\n"                         \
+  "lea " FP16_REG_B_END ", [" FP16_REG_B " + " FP16_REG_B_END " - 64]\t\n"   \
+  "lea " FP16_REG_TMP ", [" FP16_REG_B " + "                                 \
+      FP16_STR(FBGEMM_FP16_PREFETCH_B_L1_DIST) " - 64]\t\n"                  \
+  "cmp " FP16_REG_TMP ", " FP16_REG_B_END "\t\n"                             \
+  "cmova " FP16_REG_TMP ", " FP16_REG_B_END "\t\n"                           \
+  "mov " FP16_REG_CURSOR ", " FP16_REG_B "\t\n"                              \
+  "prime_b%=:\t\n"                                                           \
+  "prefetcht0 [" FP16_REG_CURSOR "]\t\n"                                     \
+  "add " FP16_REG_CURSOR ", 64\t\n"                                          \
+  "cmp " FP16_REG_CURSOR ", " FP16_REG_TMP "\t\n"                            \
+  "jbe prime_b%=\t\n"
+// Prefetch the C tile for write (prefetchw): `rows` rows of 128 B each.
+// TMP = current row.
+#define FBGEMM_FP16_PREFETCH_C(rows)                                         \
+  "mov " FP16_REG_TMP ", " FP16_REG_C "\t\n"                                 \
+  "prefetchw [" FP16_REG_TMP "]\t\n"                                         \
+  "prefetchw [" FP16_REG_TMP " + 64]\t\n"                                    \
+  ".rept " #rows " - 1\t\n"                                                  \
+  "add " FP16_REG_TMP ", " FP16_REG_LDC "\t\n"                               \
+  "prefetchw [" FP16_REG_TMP "]\t\n"                                         \
+  "prefetchw [" FP16_REG_TMP " + 64]\t\n"                                    \
+  ".endr\t\n"
+// Prefetch packed B `dist` bytes ahead with `insn`, clamped to B_END.
+// TMP = clamped address.
+#define FP16_PREFETCH_B_AHEAD(insn, dist)                                    \
+  "lea " FP16_REG_TMP ", [" FP16_REG_B " + " FP16_STR(dist) "]\t\n"          \
+  "cmp " FP16_REG_TMP ", " FP16_REG_B_END "\t\n"                             \
+  "cmova " FP16_REG_TMP ", " FP16_REG_B_END "\t\n"                           \
+  insn " [" FP16_REG_TMP "]\t\n"
+// clang-format on
+// Prefetch packed B into L2 (prefetcht1) and L1 (prefetcht0).
+#define FBGEMM_FP16_PREFETCH_B                                        \
+  FP16_PREFETCH_B_AHEAD("prefetcht1", FBGEMM_FP16_PREFETCH_B_L2_DIST) \
+  FP16_PREFETCH_B_AHEAD("prefetcht0", FBGEMM_FP16_PREFETCH_B_L1_DIST)
+#else
+#define FBGEMM_FP16_PREFETCH_PRIME_B ""
+#define FBGEMM_FP16_PREFETCH_C(rows) ""
+#define FBGEMM_FP16_PREFETCH_B ""
+#endif /* FBGEMM_ENABLE_FP16_SOFTWARE_PREFETCH */
+
 void NOINLINE gemmkernel_1x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
   asm volatile(
       "mov r14, %[gp]\t\n"
@@ -32,6 +119,7 @@ void NOINLINE gemmkernel_1x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -40,6 +128,7 @@ void NOINLINE gemmkernel_1x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(1)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm3,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm4,YMMWORD PTR [r10 + 32]\t\n"
@@ -78,6 +167,7 @@ void NOINLINE gemmkernel_1x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm3,zmm31\t\n"
       "vcvtph2ps zmm4,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -149,6 +239,7 @@ void NOINLINE gemmkernel_2x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -157,6 +248,7 @@ void NOINLINE gemmkernel_2x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(2)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm5,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm6,YMMWORD PTR [r10 + 32]\t\n"
@@ -207,6 +299,7 @@ void NOINLINE gemmkernel_2x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm5,zmm31\t\n"
       "vcvtph2ps zmm6,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -287,6 +380,7 @@ void NOINLINE gemmkernel_3x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -295,6 +389,7 @@ void NOINLINE gemmkernel_3x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(3)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm7,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm8,YMMWORD PTR [r10 + 32]\t\n"
@@ -355,6 +450,7 @@ void NOINLINE gemmkernel_3x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm7,zmm31\t\n"
       "vcvtph2ps zmm8,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -444,6 +540,7 @@ void NOINLINE gemmkernel_4x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -452,6 +549,7 @@ void NOINLINE gemmkernel_4x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(4)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm9,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm10,YMMWORD PTR [r10 + 32]\t\n"
@@ -522,6 +620,7 @@ void NOINLINE gemmkernel_4x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm9,zmm31\t\n"
       "vcvtph2ps zmm10,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -620,6 +719,7 @@ void NOINLINE gemmkernel_5x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -628,6 +728,7 @@ void NOINLINE gemmkernel_5x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(5)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm11,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm12,YMMWORD PTR [r10 + 32]\t\n"
@@ -708,6 +809,7 @@ void NOINLINE gemmkernel_5x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm11,zmm31\t\n"
       "vcvtph2ps zmm12,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -815,6 +917,7 @@ void NOINLINE gemmkernel_6x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -823,6 +926,7 @@ void NOINLINE gemmkernel_6x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(6)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm13,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm14,YMMWORD PTR [r10 + 32]\t\n"
@@ -913,6 +1017,7 @@ void NOINLINE gemmkernel_6x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm13,zmm31\t\n"
       "vcvtph2ps zmm14,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -1029,6 +1134,7 @@ void NOINLINE gemmkernel_7x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -1037,6 +1143,7 @@ void NOINLINE gemmkernel_7x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(7)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm15,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm16,YMMWORD PTR [r10 + 32]\t\n"
@@ -1137,6 +1244,7 @@ void NOINLINE gemmkernel_7x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm15,zmm31\t\n"
       "vcvtph2ps zmm16,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -1262,6 +1370,7 @@ void NOINLINE gemmkernel_8x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -1270,6 +1379,7 @@ void NOINLINE gemmkernel_8x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(8)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm17,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm18,YMMWORD PTR [r10 + 32]\t\n"
@@ -1380,6 +1490,7 @@ void NOINLINE gemmkernel_8x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm17,zmm31\t\n"
       "vcvtph2ps zmm18,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -1514,6 +1625,7 @@ void NOINLINE gemmkernel_9x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -1522,6 +1634,7 @@ void NOINLINE gemmkernel_9x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(9)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm19,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm20,YMMWORD PTR [r10 + 32]\t\n"
@@ -1642,6 +1755,7 @@ void NOINLINE gemmkernel_9x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm19,zmm31\t\n"
       "vcvtph2ps zmm20,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -1785,6 +1899,7 @@ void NOINLINE gemmkernel_10x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -1793,6 +1908,7 @@ void NOINLINE gemmkernel_10x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(10)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm21,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm22,YMMWORD PTR [r10 + 32]\t\n"
@@ -1923,6 +2039,7 @@ void NOINLINE gemmkernel_10x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm21,zmm31\t\n"
       "vcvtph2ps zmm22,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -2075,6 +2192,7 @@ void NOINLINE gemmkernel_11x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -2083,6 +2201,7 @@ void NOINLINE gemmkernel_11x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(11)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm23,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm24,YMMWORD PTR [r10 + 32]\t\n"
@@ -2223,6 +2342,7 @@ void NOINLINE gemmkernel_11x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm23,zmm31\t\n"
       "vcvtph2ps zmm24,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -2384,6 +2504,7 @@ void NOINLINE gemmkernel_12x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -2392,6 +2513,7 @@ void NOINLINE gemmkernel_12x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(12)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm25,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm26,YMMWORD PTR [r10 + 32]\t\n"
@@ -2542,6 +2664,7 @@ void NOINLINE gemmkernel_12x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm25,zmm31\t\n"
       "vcvtph2ps zmm26,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -2712,6 +2835,7 @@ void NOINLINE gemmkernel_13x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -2720,6 +2844,7 @@ void NOINLINE gemmkernel_13x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(13)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm27,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm28,YMMWORD PTR [r10 + 32]\t\n"
@@ -2880,6 +3005,7 @@ void NOINLINE gemmkernel_13x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm27,zmm31\t\n"
       "vcvtph2ps zmm28,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
@@ -3059,6 +3185,7 @@ void NOINLINE gemmkernel_14x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "mov rdi, [r14 + 48]\t\n"
       // b_block_size
       "mov rsi, [r14 + 56]\t\n"
+      FBGEMM_FP16_PREFETCH_PRIME_B
 
       // Make copies of A and C
       "mov rax, r9\t\n"
@@ -3067,6 +3194,7 @@ void NOINLINE gemmkernel_14x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "xor ebx, ebx\t\n"
       "loop_outter%=:\t\n"
       "mov r14, r8\t\n"
+      FBGEMM_FP16_PREFETCH_C(14)
       "vbroadcastss zmm31,DWORD PTR [r15]\t\n"
       "vcvtph2ps zmm29,YMMWORD PTR [r10 + 0]\t\n"
       "vcvtph2ps zmm30,YMMWORD PTR [r10 + 32]\t\n"
@@ -3237,6 +3365,7 @@ void NOINLINE gemmkernel_14x2_Avx512_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 
       "loop_inner%=:\t\n"
 
+      FBGEMM_FP16_PREFETCH_B
       "vmovaps zmm29,zmm31\t\n"
       "vcvtph2ps zmm30,YMMWORD PTR [r10 + 32]\t\n"
       "vcvtph2ps zmm31,YMMWORD PTR [r10 + 64]\t\n"
