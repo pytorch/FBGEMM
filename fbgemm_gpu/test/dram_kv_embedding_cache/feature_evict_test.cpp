@@ -9,7 +9,9 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/feature_evict.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <set>
@@ -1376,6 +1378,85 @@ TEST(FeatureEvictTest, WritebackCallbackDirtyBlocks) {
     expected_writeback_keys.insert(i);
   }
   EXPECT_EQ(writeback_keys, expected_writeback_keys);
+}
+
+TEST(FeatureEvictTest, SuspendTriggersWaitsForWritebackCallbacks) {
+  static constexpr int NUM_SHARDS = 1;
+  auto kv_store = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS,
+      BLOCK_SIZE,
+      BLOCK_ALIGNMENT,
+      /*blocks_per_chunk=*/8192,
+      /*enable_dirty_tracking=*/true);
+  for (int i = 0; i < 100; ++i) {
+    auto wlock = kv_store->by(0).wlock();
+    auto* pool = kv_store->pool_by(0);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_count(block, 1);
+    FixedBlockPool::set_used(block, true);
+    pool->set_dirty(block, true);
+    wlock->insert({i, block});
+  }
+
+  auto config = c10::make_intrusive<FeatureEvictConfig>(
+      2,
+      1,
+      std::nullopt,
+      2,
+      std::nullopt,
+      std::vector<int64_t>{1},
+      std::vector<double>{0.5},
+      std::nullopt,
+      std::nullopt,
+      std::nullopt,
+      std::nullopt,
+      std::nullopt,
+      std::nullopt,
+      std::nullopt,
+      std::nullopt,
+      0,
+      0,
+      0,
+      true);
+  std::vector<int64_t> sub_table_hash_cumsum = {100};
+  auto feature_evict = create_feature_evict(
+      config, *kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+
+  std::mutex callback_mutex;
+  std::condition_variable callback_cv;
+  bool callback_started = false;
+  bool release_callback = false;
+  feature_evict->set_writeback_callback(
+      [&](std::vector<std::pair<int64_t, std::string>>) {
+        std::unique_lock lock(callback_mutex);
+        callback_started = true;
+        callback_cv.notify_all();
+        callback_cv.wait(lock, [&] { return release_callback; });
+      });
+
+  feature_evict->trigger_evict();
+  feature_evict->resume();
+  {
+    std::unique_lock lock(callback_mutex);
+    ASSERT_TRUE(callback_cv.wait_for(
+        lock, std::chrono::seconds(5), [&] { return callback_started; }));
+  }
+
+  auto suspension = std::async(
+      std::launch::async, [&] { feature_evict->suspend_triggers(); });
+  EXPECT_EQ(
+      suspension.wait_for(std::chrono::milliseconds(100)),
+      std::future_status::timeout);
+  {
+    std::scoped_lock lock(callback_mutex);
+    release_callback = true;
+  }
+  callback_cv.notify_all();
+  EXPECT_EQ(
+      suspension.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  feature_evict->resume_triggers();
+  feature_evict->wait_until_eviction_done();
 }
 
 // Test that non-dirty blocks do NOT trigger writeback callback

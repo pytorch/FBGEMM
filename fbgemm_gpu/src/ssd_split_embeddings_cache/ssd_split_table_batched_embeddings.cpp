@@ -320,9 +320,6 @@ inline void replace_weights_id(
   TORCH_CHECK(weights.device().is_cpu(), "weights must be a CPU tensor");
   TORCH_CHECK(
       linearized_ids.device().is_cpu(), "linearized_ids must be a CPU tensor");
-  TORCH_CHECK(
-      linearized_ids.scalar_type() == at::kLong,
-      "linearized_ids must have dtype int64");
   TORCH_CHECK(weights.dim() == 2, "weights must be a 2D tensor");
   TORCH_CHECK(
       linearized_ids.dim() == 1 ||
@@ -337,8 +334,13 @@ inline void replace_weights_id(
   TORCH_CHECK(
       sizeof(int64_t) % weights.element_size() == 0,
       "weights element size must divide the 8-byte ID header");
+  TORCH_CHECK(
+      linearized_ids.scalar_type() == at::kInt ||
+          linearized_ids.scalar_type() == at::kLong,
+      "linearized_ids must have dtype int32 or int64");
+  const auto int64_ids = linearized_ids.to(at::ScalarType::Long).contiguous();
   auto weights_dtype_id_2d =
-      linearized_ids.reshape({-1, 1}).view(weights.dtype().toScalarType());
+      int64_ids.reshape({-1, 1}).view(weights.dtype().toScalarType());
   auto weights_first_cols = weights.slice(1, 0, weights_dtype_id_2d.size(1));
   weights_first_cols.copy_(weights_dtype_id_2d);
 }
@@ -459,7 +461,7 @@ SnapshotHandle::SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
     CHECK(snapshot != nullptr)
         << "ERROR: create_snapshot fails to create a snapshot "
         << "for db shard " << shard << ". Please make sure that "
-        << "inplace_update_support is set to false" << std::endl;
+        << "inplace_update_support is set to false" << '\n';
     shard_snapshots_.push_back(snapshot);
   }
 }
@@ -506,12 +508,14 @@ CheckpointHandle::CheckpointHandle(
     rocksdb::Status s =
         rocksdb::Checkpoint::Create(db->dbs_[shard].get(), &checkpoint);
     CHECK(s.ok()) << "ERROR: Checkpoint init for tbe_uuid " << tbe_uuid
-                  << ", db shard " << shard << " failed, " << s.code() << ", "
+                  << ", db shard " << shard << " failed, "
+                  << static_cast<unsigned int>(s.code()) << ", "
                   << s.ToString();
     std::string checkpoint_shard_path = checkpoint_shard_dir + "/" + ckpt_uuid_;
     s = checkpoint->CreateCheckpoint(checkpoint_shard_path);
     CHECK(s.ok()) << "ERROR: Checkpoint creation for tbe_uuid " << tbe_uuid
-                  << ", db shard " << shard << " failed, " << s.code() << ", "
+                  << ", db shard " << shard << " failed, "
+                  << static_cast<unsigned int>(s.code()) << ", "
                   << s.ToString();
     shard_checkpoints_.push_back(checkpoint_shard_path);
   }
@@ -569,7 +573,7 @@ KVTensorWrapper::KVTensorWrapper(
                  .device(at::kCPU)
                  .layout(at::kStrided);
   if (snapshot_handle.has_value()) {
-    snapshot_handle_ = std::move(snapshot_handle.value());
+    snapshot_handle_ = snapshot_handle.value();
   }
 
   // derive strides details assuming contiguous tensor
@@ -593,7 +597,7 @@ std::string KVTensorWrapper::serialize() const {
 }
 
 void KVTensorWrapper::delete_rocksdb_checkpoint_dir() const {
-  std::lock_guard<std::mutex> lock(mtx);
+  std::scoped_lock lock(mtx);
   if (readonly_db_ != nullptr) {
     LOG(INFO) << "deleting checkpoint dir for " << checkpoint_uuid;
     readonly_db_->delete_rocksdb_checkpoint_dir();
@@ -667,41 +671,41 @@ std::string KVTensorWrapper::logs() const {
   std::stringstream ss;
   if (db_) {
     CHECK(readonly_db_ == nullptr) << "rdb logs, ro_rdb must be nullptr";
-    ss << "from ckpt paths: " << std::endl;
+    ss << "from ckpt paths: " << '\n';
     // Required to cast as the KVTensorWrapper.db_ is a pointer for the
     // EmbeddingKVDB class which is inherited by the EmbeddingRocksDB class
     auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
     auto ckpts = db->get_checkpoints(checkpoint_handle_->uuid);
     for (int i = 0; i < ckpts.size(); i++) {
-      ss << "  shard:" << i << ", ckpt_path:" << ckpts[i] << std::endl;
+      ss << "  shard:" << i << ", ckpt_path:" << ckpts[i] << '\n';
     }
-    ss << "  tbe_uuid: " << db->get_tbe_uuid() << std::endl;
-    ss << "  num_shards: " << db->num_shards() << std::endl;
-    ss << "  num_threads: " << db->num_threads() << std::endl;
-    ss << "  max_D: " << db->get_max_D() << std::endl;
-    ss << "  row_offset: " << row_offset_ << std::endl;
-    ss << "  shape: " << shape_ << std::endl;
+    ss << "  tbe_uuid: " << db->get_tbe_uuid() << '\n';
+    ss << "  num_shards: " << db->num_shards() << '\n';
+    ss << "  num_threads: " << db->num_threads() << '\n';
+    ss << "  max_D: " << db->get_max_D() << '\n';
+    ss << "  row_offset: " << row_offset_ << '\n';
+    ss << "  shape: " << shape_ << '\n';
     ss << "  dtype: " << static_cast<int64_t>(options_.dtype().toScalarType())
-       << std::endl;
-    ss << "  checkpoint_uuid: " << checkpoint_handle_->uuid << std::endl;
+       << '\n';
+    ss << "  checkpoint_uuid: " << checkpoint_handle_->uuid << '\n';
   } else {
     CHECK(readonly_db_) << "ro_rdb logs, ro_rdb must be valid";
-    ss << "from ckpt paths: " << std::endl;
+    ss << "from ckpt paths: " << '\n';
     auto* db = dynamic_cast<ReadOnlyEmbeddingKVDB*>(readonly_db_.get());
     auto rdb_shard_checkpoint_paths = db->get_rdb_shard_checkpoint_paths();
     for (int i = 0; i < rdb_shard_checkpoint_paths.size(); i++) {
       ss << "  shard:" << i << ", ckpt_path:" << rdb_shard_checkpoint_paths[i]
-         << std::endl;
+         << '\n';
     }
-    ss << "  tbe_uuid: " << db->get_tbe_uuid() << std::endl;
-    ss << "  num_shards: " << db->num_shards() << std::endl;
-    ss << "  num_threads: " << db->num_threads() << std::endl;
-    ss << "  max_D: " << db->get_max_D() << std::endl;
-    ss << "  row_offset: " << row_offset_ << std::endl;
-    ss << "  shape: " << shape_ << std::endl;
+    ss << "  tbe_uuid: " << db->get_tbe_uuid() << '\n';
+    ss << "  num_shards: " << db->num_shards() << '\n';
+    ss << "  num_threads: " << db->num_threads() << '\n';
+    ss << "  max_D: " << db->get_max_D() << '\n';
+    ss << "  row_offset: " << row_offset_ << '\n';
+    ss << "  shape: " << shape_ << '\n';
     ss << "  dtype: " << static_cast<int64_t>(options_.dtype().toScalarType())
-       << std::endl;
-    ss << "  checkpoint_uuid: " << checkpoint_uuid << std::endl;
+       << '\n';
+    ss << "  checkpoint_uuid: " << checkpoint_uuid << '\n';
   }
   return ss.str();
 }
@@ -772,8 +776,10 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
       CHECK(t.is_contiguous());
       return t;
     } else {
-      at::Tensor sliced_ids =
-          sorted_indices_.value().slice(0, start, start + length);
+      at::Tensor sliced_ids = sorted_indices_.value()
+                                  .slice(0, start, start + length)
+                                  .to(at::ScalarType::Long)
+                                  .reshape({-1});
       auto weights = get_weights_by_ids(sliced_ids);
 
       if (db_->get_backend_return_whole_row() && width_offset_ == 0) {
@@ -808,7 +814,7 @@ void KVTensorWrapper::set_range(
     return;
   }
   // Mutex lock for disabling concurrent writes to the same KVTensor
-  std::lock_guard<std::mutex> lock(mtx);
+  std::scoped_lock lock(mtx);
   CHECK_EQ(weights.device(), at::kCPU);
   TORCH_CHECK(weights.dim() == 2, "weights must be a 2D tensor");
   TORCH_CHECK(weights.is_contiguous(), "weights must be contiguous");
@@ -892,7 +898,7 @@ void KVTensorWrapper::set_prefixed_weights_and_ids(
 }
 
 void KVTensorWrapper::set_weights_and_ids_impl(
-    const at::Tensor& weights,
+    const at::Tensor& input_weights,
     const at::Tensor& ids,
     const bool weights_include_metadata) {
   if (read_only_) {
@@ -900,22 +906,41 @@ void KVTensorWrapper::set_weights_and_ids_impl(
         << "KVTensorWrapper is read only, set_weights_and_ids() is no-op";
     return;
   }
-  CHECK_EQ(weights.device(), at::kCPU);
+  CHECK_EQ(input_weights.device(), at::kCPU);
+  const auto weights = input_weights.contiguous();
   TORCH_CHECK(ids.device().is_cpu(), "ids must be a CPU tensor");
   TORCH_CHECK(weights.dim() == 2, "weights must be a 2D tensor");
   TORCH_CHECK(weights.is_contiguous(), "weights must be contiguous");
-  TORCH_CHECK(ids.scalar_type() == at::kLong, "ids must have dtype int64");
+  TORCH_CHECK(
+      ids.scalar_type() == at::kInt || ids.scalar_type() == at::kLong,
+      "ids must have dtype int32 or int64");
   TORCH_CHECK(
       ids.dim() == 1 || (ids.dim() == 2 && ids.size(1) == 1),
       "ids must have shape [N] or [N, 1]");
   CHECK_TRUE(db_ != nullptr);
+  std::scoped_lock lock(mtx);
   TORCH_CHECK(
       ids.numel() == weights.size(0),
       "ids and weights must have the same number of rows");
   CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
-  auto checkpoint_view_ids = ids.reshape({-1}).contiguous();
+  auto checkpoint_view_ids =
+      ids.to(at::ScalarType::Long).reshape({-1}).contiguous();
   if (db_->get_backend_return_whole_row()) {
     const int64_t metadata_width = db_->get_metaheader_width_in_front();
+    if (!weights_include_metadata) {
+      TORCH_CHECK(
+          weights.size(1) <= db_->get_max_D(),
+          "payload row width exceeds the supported embedding width");
+      auto payload = torch::constant_pad_nd(
+          weights, {0, db_->get_max_D() - weights.size(1), 0, 0}, 0);
+      auto storage_ids =
+          storage_ids_from_view_ids(checkpoint_view_ids, row_offset_);
+      auto count = at::tensor({storage_ids.numel()}, at::ScalarType::Long);
+      db_->set_kv_db_async(
+             storage_ids, payload, count, kv_db::RocksdbWriteMode::STREAM)
+          .get();
+      return;
+    }
     auto rows_to_restore = weights;
     if (weights_include_metadata) {
       auto embedded_view_ids = ids_in_checkpoint(weights);
@@ -1060,7 +1085,8 @@ at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
       "snapshot handler must be valid for rocksdb (incl. DRAM_SSD) and nullptr for emb kvdb");
   auto weights =
       at::empty(c10::IntArrayRef({ids.size(0), shape_[1]}), options_);
-  auto linearized_ids = ids + row_offset_;
+  auto linearized_ids =
+      ids.to(at::ScalarType::Long).reshape({-1}) + row_offset_;
   db_->get_kv_from_storage_by_snapshot(
       linearized_ids,
       weights,
@@ -1110,7 +1136,7 @@ create_kv_tensor_wrapper_from_serialized(const std::string& serialized) {
 
 namespace {
 
-static auto feature_evict_config =
+auto feature_evict_config =
     torch::class_<kv_mem::FeatureEvictConfig>("fbgemm", "FeatureEvictConfig")
         .def(
             torch::init<
@@ -1159,17 +1185,17 @@ static auto feature_evict_config =
                 torch::arg("enable_ssd_writeback") = false,
             });
 
-static auto embedding_snapshot_handle_wrapper =
+auto embedding_snapshot_handle_wrapper =
     torch::class_<EmbeddingSnapshotHandleWrapper>(
         "fbgemm",
         "EmbeddingSnapshotHandleWrapper");
 
-static auto rocksdb_checkpoint_handle_wrapper =
+auto rocksdb_checkpoint_handle_wrapper =
     torch::class_<RocksdbCheckpointHandleWrapper>(
         "fbgemm",
         "RocksdbCheckpointHandleWrapper");
 
-static auto embedding_rocks_db_wrapper =
+auto embedding_rocks_db_wrapper =
     torch::class_<EmbeddingRocksDBWrapper>("fbgemm", "EmbeddingRocksDBWrapper")
         .def(
             torch::init<
@@ -1417,7 +1443,7 @@ auto enrichment_config =
                 torch::arg("serving_qdq_group_size") = 0,
             });
 
-static auto dram_kv_embedding_cache_wrapper =
+auto dram_kv_embedding_cache_wrapper =
     torch::class_<DramKVEmbeddingCacheWrapper>(
         "fbgemm",
         "DramKVEmbeddingCacheWrapper")
@@ -1775,7 +1801,7 @@ auto dram_ssd_kv_embedding_cache_wrapper =
         .def(
             "delete_rocksdb_checkpoint_dir",
             &DramSsdKVEmbeddingCacheWrapper::delete_rocksdb_checkpoint_dir);
-static auto embedding_rocks_db_read_only_wrapper =
+auto embedding_rocks_db_read_only_wrapper =
     torch::class_<ReadOnlyEmbeddingKVDB>("fbgemm", "ReadOnlyEmbeddingKVDB")
         .def(
             torch::init<
@@ -1799,7 +1825,7 @@ static auto embedding_rocks_db_read_only_wrapper =
             "delete_rocksdb_checkpoint_dir",
             &ReadOnlyEmbeddingKVDB::delete_rocksdb_checkpoint_dir);
 
-static auto kv_tensor_wrapper =
+auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
         .def(
             torch::init<
