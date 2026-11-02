@@ -577,6 +577,15 @@ class Int4GQATest(unittest.TestCase):
             if not int4_kv
             else []
         ):
+            # Keep the native attention checks above and every supported
+            # reference; some reference operators stop at Hopper.
+            max_capability = op.CUDA_MAXIMUM_COMPUTE_CAPABILITY
+            if (
+                torch.version.hip is None
+                and max_capability is not None
+                and torch.cuda.get_device_capability(q.device) > max_capability
+            ):
+                continue
             if int4_kv:
                 op = type(
                     f"{op.__name__}_{num_groups}",

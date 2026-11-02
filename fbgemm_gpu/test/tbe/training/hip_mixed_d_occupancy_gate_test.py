@@ -168,12 +168,17 @@ class HipMixedDOccupancyGateTest(unittest.TestCase):
     """Occupancy set, eighth wave unset (this module's process): the warp backward keeps its previous kernel."""
 
     def test_occupancy_without_eighth_wave_keeps_32_lane_kernel(self) -> None:
-        """Mixed D 96/96/64/32: hip_mixed_d <..., 1, 2, false> runs, neither eighth-wave instantiation does, and the
+        """Mixed D 96/96/64/32: the existing 32-lane hip_mixed_d route runs, neither eighth-wave instantiation does, and the
         update matches the exact reference."""
         names = run_and_check(self, [96, 96, 64, 32])
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
+        self.assertIn(warp_size, (32, 64))
+        expected = f", 1, {warp_size // 32}, false>"
         self.assertTrue(
-            any("hip_mixed_d" in n and ", 1, 2, false>" in n for n in names),
-            f"expected hip_mixed_d <..., 1, 2, false>, saw {names}",
+            any("hip_mixed_d" in n and expected in n for n in names),
+            f"expected hip_mixed_d {expected}, saw {names}",
         )
         self.assertFalse(
             any(OCCUPANCY in n or EIGHTH_WAVE in n for n in names),

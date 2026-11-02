@@ -825,9 +825,11 @@ def _hstu_attention_maybe_from_cache(
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available()
+    torch.version.hip is not None
+    or not torch.cuda.is_available()
+    or torch.cuda.get_device_capability()[0] not in (8, 9)
     or (torch.version.hip is None and torch.version.cuda < "12.4"),
-    "Skip when no GPU is available or CUDA version is older than `12.4`.",
+    "Requires CUDA 12.4 or newer and an SM8x or SM90 GPU.",
 )
 class HSTU16Test(unittest.TestCase):
     """Test HSTU attention with float16 inputs."""
@@ -2663,8 +2665,10 @@ def _bwd_reference_fp8(
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available() or torch.cuda.get_device_capability() < (9, 0),
-    "Skip when no Hopper GPU is available. This test is only for Hopper GPU.",
+    torch.version.hip is not None
+    or not torch.cuda.is_available()
+    or torch.cuda.get_device_capability()[0] != 9,
+    "Requires CUDA and a Hopper SM90 GPU.",
 )
 class HSTU8Test(unittest.TestCase):
     """Test HSTU attention with float8_e4m3 inputs."""

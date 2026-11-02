@@ -811,7 +811,9 @@ class IndexSelectTest(unittest.TestCase):
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
 additional_decorators: dict[str, list[Callable[..., Any]]] = {
-    "test_faketensor__test_group_index_select_dim0": [unittest.skip("hangs")],
+    "test_faketensor__test_group_index_select_dim0": [
+        unittest.skipIf(not gpu_available, "GPU required for mixed opcheck coverage"),
+    ],
 }
 
 extend_test_class(IndexSelectTest, additional_decorators)

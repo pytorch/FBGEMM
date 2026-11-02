@@ -10,7 +10,7 @@
 
 The gate is read once per process, so this case cannot share a process with bounds_check_adaptive_all_test.py
 (which turns it on); this separate module makes sure it is unset before the first bounds check. With the gate off, a
-non-VBE WARNING-mode bounds check must keep its stock launch (blockDim.x == 64, one wave64 per bag), and its results
+non-VBE WARNING-mode bounds check must keep its stock launch (one full hardware wave per bag), and its results
 must equal the CPU bounds check, exactly as before the change.
 """
 
@@ -115,7 +115,7 @@ def _launch_blocks(fn) -> list[list[int]]:
 @unittest.skipUnless(_rocm(), "ROCm only")
 class BoundsCheckAdaptiveAllOffTest(unittest.TestCase):
     def test_gate_off_keeps_stock_launch_and_results(self) -> None:
-        """Gate unset, WARNING mode, out-of-range ids: blockDim.x == 64 on every launch, and indices / offsets equal
+        """Gate unset, WARNING mode, out-of-range ids: blockDim.x equal to the hardware wave width on every launch, and indices / offsets equal
         to the CPU bounds check."""
         idx, off, rows = _inputs()
         idx_cpu, off_cpu = idx.clone(), off.clone()
@@ -123,9 +123,12 @@ class BoundsCheckAdaptiveAllOffTest(unittest.TestCase):
         idx_gpu, off_gpu, rows_gpu = idx.cuda(), off.cuda(), rows.cuda()
         blocks = _launch_blocks(lambda: _check(rows_gpu, idx_gpu, off_gpu, 2))
         self.assertTrue(blocks, "bounds_check_indices_kernel_v2 not seen")
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
         self.assertTrue(
-            all(b[0] == 64 for b in blocks),
-            f"launch blocks {blocks}: gate off must keep blockDim.x == 64",
+            all(b[0] == warp_size for b in blocks),
+            f"launch blocks {blocks}: gate off must keep blockDim.x == {warp_size}",
         )
         self.assertTrue(
             torch.equal(idx_gpu.cpu(), idx_cpu),

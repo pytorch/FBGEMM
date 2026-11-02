@@ -9,7 +9,7 @@
 """Tests for TBE_ROCM_BOUNDS_CHECK_ADAPTIVE_ALL=1: the ROCm adaptive bounds-check launch for non-VBE TBEs.
 
 In WARNING / IGNORE mode, bounds_check_indices_kernel_v2 on ROCm already picks a narrow thread group per bag (1-32
-lanes by mean bag length) for VBE TBEs; non-VBE TBEs use one wave64 per bag. The gate lets non-VBE TBEs take the
+lanes by mean bag length) for VBE TBEs; non-VBE TBEs use one hardware wave per bag. The gate lets non-VBE TBEs take the
 adaptive launch too. FATAL mode is not affected.
 
 The gate is read once per process, so this module sets it before the first bounds check and every test here runs
@@ -147,9 +147,9 @@ class BoundsCheckAdaptiveAllTest(unittest.TestCase):
         self.assertTrue(torch.equal(off_cpu, off), _diff("offsets (CPU)", off_cpu, off))
 
     def test_launch_uses_narrow_groups(self) -> None:
-        """WARNING mode: every bounds_check_indices_kernel_v2 launch must use blockDim.x < 64, the adaptive narrow
-        group. This proves the gated path ran: without the gate (or on libraries without this change) a non-VBE launch
-        is [64, 4, 1] and this fails."""
+        """WARNING mode: every bounds_check_indices_kernel_v2 launch must use blockDim.x smaller than the hardware
+        wave width for this input. This proves the gated path ran: without the gate, a non-VBE launch uses
+        one full wave per bag and this fails."""
         idx, off, rows = _inputs()
         idx_gpu, off_gpu, rows_gpu = idx.cuda(), off.cuda(), rows.cuda()
         _check(rows_gpu, idx_gpu.clone(), off_gpu.clone(), 2)
@@ -157,14 +157,17 @@ class BoundsCheckAdaptiveAllTest(unittest.TestCase):
             lambda: _check(rows_gpu, idx_gpu.clone(), off_gpu.clone(), 2)
         )
         self.assertTrue(blocks, "bounds_check_indices_kernel_v2 not seen")
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
         self.assertTrue(
-            all(b[0] < 64 for b in blocks),
-            f"launch blocks {blocks}: expected blockDim.x < 64",
+            all(b[0] < warp_size for b in blocks),
+            f"launch blocks {blocks}: expected blockDim.x < {warp_size}",
         )
 
     def test_fatal_mode_is_untouched(self) -> None:
-        """FATAL mode with the gate ON and an all-valid input: the launch must stay one wave64 per bag
-        (blockDim.x == 64), because the gate only covers WARNING / IGNORE, and the indices must be unchanged.
+        """FATAL mode with the gate ON and an all-valid input: the launch must stay one full hardware wave per bag,
+        because the gate only covers WARNING / IGNORE, and the indices must be unchanged.
         """
         idx, off, rows = _inputs(valid_only=True)
         idx_gpu, off_gpu, rows_gpu = idx.cuda(), off.cuda(), rows.cuda()
@@ -172,9 +175,12 @@ class BoundsCheckAdaptiveAllTest(unittest.TestCase):
             lambda: _check(rows_gpu, idx_gpu, off_gpu, 2, BoundsCheckMode.FATAL)
         )
         self.assertTrue(blocks, "bounds_check_indices_kernel_v2 not seen")
+        warp_size = torch.cuda.get_device_properties(
+            torch.cuda.current_device()
+        ).warp_size
         self.assertTrue(
-            all(b[0] == 64 for b in blocks),
-            f"launch blocks {blocks}: FATAL must keep blockDim.x == 64",
+            all(b[0] == warp_size for b in blocks),
+            f"launch blocks {blocks}: FATAL must keep blockDim.x == {warp_size}",
         )
         self.assertTrue(
             torch.equal(idx_gpu.cpu(), idx),
