@@ -8,7 +8,7 @@
 
 #pragma once
 #include <cpuinfo.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest.h> // @manual=fbsource//third-party/googletest:gtest_headers
 #include <cmath>
 #include <vector>
 
