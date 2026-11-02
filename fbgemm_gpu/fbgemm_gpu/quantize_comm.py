@@ -75,6 +75,7 @@ def _quantize_tensor(
     comm_precision: SparseType,
     ctx: QuantizationContext | None = None,
     is_fwd: bool = True,
+    out: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
         return input_tensor
@@ -112,7 +113,7 @@ def _quantize_tensor(
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
         rounding_mode = ctx.rounding_mode if ctx is not None else RoundingMode.even
         return fp32_to_mx4(
-            input_tensor, mx_group_size, rounding_mode=rounding_mode
+            input_tensor, mx_group_size, rounding_mode=rounding_mode, out=out
         ).view(-1)
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
@@ -124,6 +125,7 @@ def _dequantize_tensor(
     ctx: QuantizationContext | None = None,
     is_fwd: bool = True,
     output_dtype: SparseType | None = None,
+    divisor: int | None = None,
 ) -> torch.Tensor:
     if comm_precision == SparseType.FP32:
         assert quantized_tensor.dtype == torch.float
@@ -159,7 +161,9 @@ def _dequantize_tensor(
         return dequant_tensor.view(-1)
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
-        return mx4_to_float(quantized_tensor, mx_group_size, output_dtype=output_dtype)
+        return mx4_to_float(
+            quantized_tensor, mx_group_size, output_dtype=output_dtype, divisor=divisor
+        )
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -230,6 +234,141 @@ class QuantizedCommCodec:
                 output_dtype=self._output_dtype,
             )
         return dequantized_tensor
+
+    def encode_into(
+        self,
+        input_tensor: torch.Tensor,
+        out: torch.Tensor,
+        ctx: QuantizationContext | None = None,
+    ) -> torch.Tensor:
+        """
+        encode(input_tensor, ctx), written into ``out``: a flat tensor of quantized_dtype
+        with calc_quantized_size(input_tensor.numel(), ctx) elements, e.g. a registered
+        communication buffer. MX4 quantizes directly into it; other precisions copy.
+        """
+        if self._comm_precision != SparseType.MX4:
+            encoded = self.encode(input_tensor, ctx).view(-1)
+            assert (
+                encoded.dtype == out.dtype and encoded.numel() == out.numel()
+            ), f"out is {out.dtype}[{out.numel()}], encoded is {encoded.dtype}[{encoded.numel()}]"
+            return out.copy_(encoded)
+        with record_function(
+            f"## encoder {self._comm_precision} {self._loss_scale} ##"
+        ):
+            return _quantize_tensor(
+                input_tensor, self._comm_precision, ctx, self._is_fwd, out=out
+            )
+
+    def decode_and_divide(
+        self,
+        input_tensor: torch.Tensor,
+        divisor: int,
+        ctx: QuantizationContext | None = None,
+    ) -> torch.Tensor:
+        """
+        Bitwise identical to decode(input_tensor, ctx).div_(divisor). MX4 fuses the
+        division into the dequantize kernel; other precisions decode, then divide.
+        """
+        if self._comm_precision != SparseType.MX4:
+            return self.decode(input_tensor, ctx).div_(divisor)
+        with record_function(
+            f"## decoder {self._comm_precision} {self._loss_scale} ##"
+        ):
+            return _dequantize_tensor(
+                input_tensor,
+                self._comm_precision,
+                ctx,
+                self._is_fwd,
+                output_dtype=self._output_dtype,
+                divisor=divisor,
+            )
+
+    def decode_to_columns(
+        self,
+        input_tensor: torch.Tensor,
+        num_rows: int,
+        dim_sum_per_rank: list[int],
+        ctx: QuantizationContext | None = None,
+    ) -> torch.Tensor:
+        """
+        decode(input_tensor, ctx) holds one [num_rows, padded_dim_sum_per_rank[r]] block per
+        rank (from ctx, else dim_sum_per_rank). Returns the blocks side by side as
+        [num_rows, sum(dim_sum_per_rank)], each without its padding columns. MX4 dequantizes
+        straight into that layout.
+        """
+        padded = (
+            ctx.padded_dim_sum_per_rank
+            if ctx is not None and ctx.padded_dim_sum_per_rank is not None
+            else dim_sum_per_rank
+        )
+        if (
+            self._comm_precision == SparseType.MX4
+            and input_tensor.is_cuda
+            and self._output_dtype in (None, SparseType.FP32, SparseType.BF16)
+        ):
+            from fbgemm_gpu.triton.quantize import triton_dequantize_mx4_to_columns
+
+            with record_function(
+                f"## decoder {self._comm_precision} {self._loss_scale} ##"
+            ):
+                return triton_dequantize_mx4_to_columns(
+                    input_tensor,
+                    ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT,
+                    num_rows,
+                    padded,
+                    dim_sum_per_rank,
+                    output_dtype=(
+                        self._output_dtype.as_dtype()
+                        if self._output_dtype is not None
+                        else torch.float32
+                    ),
+                )
+        blocks = self.decode(input_tensor, ctx).split([num_rows * p for p in padded])
+        return torch.cat(
+            [
+                block.view(num_rows, p)[:, :d]
+                for block, p, d in zip(blocks, padded, dim_sum_per_rank)
+            ],
+            dim=1,
+        )
+
+    def encode_from_columns(
+        self,
+        input_tensor: torch.Tensor,
+        dim_sum_per_rank: list[int],
+        ctx: QuantizationContext | None = None,
+    ) -> torch.Tensor:
+        """
+        encode() of the column blocks of a [num_rows, sum(dim_sum_per_rank)] tensor laid out
+        one after another, block r being its dim_sum_per_rank[r] columns taken row-major. MX4
+        reads the columns directly instead of materializing the regrouped tensor.
+        """
+        rounding_mode = (
+            ctx.rounding_mode
+            if ctx is not None and ctx.rounding_mode is not None
+            else RoundingMode.even
+        )
+        if (
+            self._comm_precision == SparseType.MX4
+            and input_tensor.is_cuda
+            and input_tensor.is_contiguous()
+            and rounding_mode != RoundingMode.stochastic
+        ):
+            from fbgemm_gpu.triton.quantize import triton_quantize_mx4_from_columns
+
+            with record_function(
+                f"## encoder {self._comm_precision} {self._loss_scale} ##"
+            ):
+                return triton_quantize_mx4_from_columns(
+                    input_tensor,
+                    ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT,
+                    dim_sum_per_rank,
+                    rounding_mode=rounding_mode,
+                )
+        regrouped = torch.cat(
+            [c.contiguous().view(-1) for c in input_tensor.split(dim_sum_per_rank, 1)]
+        )
+        return self.encode(regrouped, ctx)
 
     def calc_quantized_size(
         self, input_len: int, ctx: QuantizationContext | None = None
