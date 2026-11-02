@@ -48,6 +48,37 @@ permissions:
   contents: read
 
 jobs:
+  detect-sll-changes:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    runs-on: ubuntu-latest
+    outputs:
+      run-sll-tests: ${{ steps.changes.outputs.run-sll-tests }}
+    steps:
+    - name: Checkout the Repository
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.ref }}
+        fetch-depth: 0
+
+    - name: Detect SLL Changes
+      id: changes
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+      run: |
+        if [[ "$EVENT_NAME" != "pull_request" ]]; then
+          run_sll_tests=true
+        else
+          git diff --quiet HEAD^1 HEAD^2 -- fbgemm_gpu/sll fbgemm_gpu/test/sll && diff_status=0 || diff_status=$?
+          if [[ "$diff_status" == 0 ]]; then
+            run_sll_tests=false
+          elif [[ "$diff_status" == 1 ]]; then
+            run_sll_tests=true
+          else
+            exit "$diff_status"
+          fi
+        fi
+        echo "run-sll-tests=${run_sll_tests}" >> "$GITHUB_OUTPUT"
+
   generate-build-matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
@@ -77,12 +108,13 @@ jobs:
       jobtype: test
 
   test:
-    needs: generate-test-matrix
+    needs: [detect-sll-changes, generate-test-matrix]
     uses: ./.github/workflows/_fbgemm_gpu_rocm_test.yml
     with:
       matrix: ${{ needs.generate-test-matrix.outputs.matrix }}
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
+      run-sll-tests: ${{ needs.detect-sll-changes.outputs.run-sll-tests != 'false' }}
       extra-env: >-
         {
           "ENFORCE_ROCM_DEVICE": 1
