@@ -22,7 +22,7 @@ import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
-from fbgemm_gpu.tbe.ssd.common import pad4
+from fbgemm_gpu.tbe.ssd.common import get_cache_assoc, pad4
 from fbgemm_gpu.tbe.ssd.ssd_config import EvictionPolicy
 from fbgemm_gpu.tbe.ssd.training import BackendType, KVZCHParams
 from fbgemm_gpu.tbe.utils import round_up
@@ -564,9 +564,10 @@ class SSDCheckpointTest(unittest.TestCase):
         ssd_directory: str,
         prefetch_pipeline: bool = False,
         cache_sets: int = 4,
+        num_embeddings: int = 64,
     ) -> SSDTableBatchedEmbeddingBags:
         return SSDTableBatchedEmbeddingBags(
-            embedding_specs=[(64, 16)],
+            embedding_specs=[(num_embeddings, 16)],
             feature_table_map=[0],
             ssd_storage_directory=ssd_directory,
             cache_sets=cache_sets,
@@ -654,15 +655,20 @@ class SSDCheckpointTest(unittest.TestCase):
         pre-load row from the pad.
         """
         with tempfile.TemporaryDirectory() as ssd_directory:
-            # One cache set (32 slots) and 40 ids: 8 conflict misses stay in
-            # the pad, which is what the hand-off would copy forward.
+            # Keep eight conflict-missed rows for the next prefetch hand-off.
+            num_ids = get_cache_assoc() + 8
             emb = self._build_tbe_for_read_snapshot_switch(
-                ssd_directory, prefetch_pipeline=True, cache_sets=1
+                ssd_directory,
+                prefetch_pipeline=True,
+                cache_sets=1,
+                num_embeddings=max(64, num_ids),
             )
             emb.eval()
-            ids = torch.arange(0, 40, dtype=torch.int64)
-            offsets = torch.arange(0, 41, dtype=torch.int64)
-            emb.ssd_db.set_kv_to_storage(ids, torch.full((40, emb.cache_row_dim), 1.0))
+            ids = torch.arange(0, num_ids, dtype=torch.int64)
+            offsets = torch.arange(0, num_ids + 1, dtype=torch.int64)
+            emb.ssd_db.set_kv_to_storage(
+                ids, torch.full((num_ids, emb.cache_row_dim), 1.0)
+            )
             pre_load = emb.ssd_db.create_snapshot()
             emb.switch_read_snapshot(pre_load)
             with torch.no_grad():
@@ -672,7 +678,9 @@ class SSDCheckpointTest(unittest.TestCase):
             conflict_missed = emb.ssd_scratch_pads[0][1]
             self.assertGreater(int((conflict_missed >= 0).sum()), 0)
 
-            emb.ssd_db.set_kv_to_storage(ids, torch.full((40, emb.cache_row_dim), 2.0))
+            emb.ssd_db.set_kv_to_storage(
+                ids, torch.full((num_ids, emb.cache_row_dim), 2.0)
+            )
             post_load = emb.ssd_db.create_snapshot()
             emb.switch_read_snapshot(post_load, backend_rewritten=True)
             self.assertEqual(len(emb.ssd_scratch_pads), 0)
