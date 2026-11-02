@@ -199,6 +199,7 @@ class BackwardDeterminismTest(unittest.TestCase):
         dense: bool = False,
         num_runs: int = 5,
         optimizer_kwargs: dict[str, Any] | None = None,
+        compare_nondeterministic: bool = False,
     ) -> None:
         """Run backward pass num_runs times and assert bit-identical results.
 
@@ -218,6 +219,9 @@ class BackwardDeterminismTest(unittest.TestCase):
             num_runs: Number of repeated backward passes to compare.
             optimizer_kwargs: Extra kwargs passed to the TBE constructor
                 (e.g., eps, beta1, beta2, ensemble_mode).
+            compare_nondeterministic: If True, also run once without
+                deterministic mode and check the results match within
+                floating-point tolerance.
         """
         assume(pooling_mode == PoolingMode.SUM or not weighted)
         assume(not mixed or pooling_mode != PoolingMode.NONE)
@@ -362,6 +366,37 @@ class BackwardDeterminismTest(unittest.TestCase):
             torch.use_deterministic_algorithms(False)
 
         self._assert_results_deterministic(results, T, dense, optimizer)
+
+        if compare_nondeterministic:
+            assert not dense and isinstance(
+                ref_cc, SplitTableBatchedEmbeddingBagsCodegen
+            )
+            nondeterministic = self._run_split_backward(
+                T,
+                Es,
+                Ds,
+                managed,
+                optimizer,
+                weights_precision,
+                output_dtype,
+                pooling_mode,
+                extra_kwargs,
+                ref_cc,
+                indices,
+                offsets,
+                per_sample_weights,
+                total_unique_indices,
+                grad_output,
+            )
+            for t in range(T):
+                torch.testing.assert_close(
+                    results[0][t],
+                    nondeterministic[t],
+                    atol=1e-3,
+                    rtol=1e-3,
+                    msg=f"Deterministic result differs from the default "
+                    f"result for table {t}",
+                )
 
     @given(
         T=st.integers(min_value=1, max_value=3),
@@ -841,6 +876,38 @@ class BackwardDeterminismTest(unittest.TestCase):
             weights_precision=SparseType.FP32,
             optimizer_kwargs=extra_kwargs,
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_determinism_multi_cta_segments(self) -> None:
+        """Test determinism when one row's segment is longer than
+        max_segment_length_per_cta (1024 on CUDA, 4096 on ROCm), so several
+        thread blocks each reduce part of it and the last one combines their
+        partial gradients."""
+        for optimizer in (
+            OptimType.EXACT_SGD,
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            OptimType.ADAM,
+        ):
+            extra_kwargs: dict[str, Any] = {}
+            if optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+                extra_kwargs = {"eps": 1e-4}
+            elif optimizer == OptimType.ADAM:
+                extra_kwargs = {"eps": 1e-4, "beta1": 0.9, "beta2": 0.99}
+            self._run_backward_determinism(
+                T=2,
+                D=16,
+                B=9000,
+                log_E=2,
+                L=2,
+                weighted=False,
+                mixed=False,
+                optimizer=optimizer,
+                pooling_mode=PoolingMode.SUM,
+                weights_precision=SparseType.FP32,
+                num_runs=3,
+                optimizer_kwargs=extra_kwargs,
+                compare_nondeterministic=True,
+            )
 
 
 if __name__ == "__main__":

@@ -213,7 +213,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
         // This computation must agree with how we compute num_ctas_for_run in
         // find_long_segments kernel!
         const int32_t num_ctas_on_current_run =
-            use_deterministic_algorithms ? 1 : div_round_up(run_length, max_segment_length_per_cta);
+            div_round_up(run_length, max_segment_length_per_cta);
 
 
         const int64_t linear_index = sorted_linear_indices_run[current_run_id];
@@ -221,7 +221,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
             sorted_linear_indices_cumulative_run_lengths[current_run_id] +
             cta_rank_on_current_run * max_segment_length_per_cta;
         const int32_t segment_end = std::min(
-            use_deterministic_algorithms ? INT_MAX : segment_start + max_segment_length_per_cta,
+            segment_start + max_segment_length_per_cta,
             sorted_linear_indices_cumulative_run_lengths[current_run_id + 1]);
         const int32_t SL = segment_end - segment_start;
 
@@ -325,18 +325,34 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
 
         if (num_ctas_on_current_run > 1) {
             int really_long_run_id = long_run_id_to_really_long_run_ids[long_run_id];
-            Vec4TAcc<cache_t> *temp_grad_accum_ptr =
-                reinterpret_cast<Vec4TAcc<cache_t>*>(&temp_grad_accum[really_long_run_id][0]);
-            {{
-                generate_optimized_grad_sum_loop_access(
-                    """
-                    gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.x, {grad_vec}.acc.x);
-                    gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.y, {grad_vec}.acc.y);
-                    gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.z, {grad_vec}.acc.z);
-                    gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.w, {grad_vec}.acc.w);
-                    """
-                )
-            }}
+            if (use_deterministic_algorithms) {
+                // Each CTA stores its partial into its own slot; the last CTA
+                // sums the slots in CTA-rank order, so the result is
+                // independent of scheduling.
+                Vec4TAcc<cache_t> *partial_ptr = reinterpret_cast<Vec4TAcc<cache_t>*>(
+                    &temp_grad_accum[really_long_run_id + cta_rank_on_current_run][0]);
+                {{
+                    generate_optimized_grad_sum_loop_access(
+                        """
+                        partial_ptr[d_vec] = {grad_vec};
+                        """
+                    )
+                }}
+                __threadfence();
+            } else {
+                Vec4TAcc<cache_t> *temp_grad_accum_ptr =
+                    reinterpret_cast<Vec4TAcc<cache_t>*>(&temp_grad_accum[really_long_run_id][0]);
+                {{
+                    generate_optimized_grad_sum_loop_access(
+                        """
+                        gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.x, {grad_vec}.acc.x);
+                        gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.y, {grad_vec}.acc.y);
+                        gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.z, {grad_vec}.acc.z);
+                        gpuAtomicAdd(&temp_grad_accum_ptr[d_vec].acc.w, {grad_vec}.acc.w);
+                        """
+                    )
+                }}
+            }
 
             int counter = 0;
             if (threadIdx.x == 0) {
@@ -349,13 +365,32 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
                 continue;
             }
             CUDA_KERNEL_ASSERT(counter == 1 && "Invalid grad_accum_counter. Race condition?");
-            {{
-                generate_optimized_grad_sum_loop_access(
-                    """
-                    {grad_vec} = temp_grad_accum_ptr[d_vec];
-                    """
-                )
-            }}
+            if (use_deterministic_algorithms) {
+                __threadfence();
+                const Vec4TAcc<cache_t> *partial_base = reinterpret_cast<const Vec4TAcc<cache_t>*>(
+                    &temp_grad_accum[really_long_run_id][0]);
+                const int64_t slot_stride = temp_grad_accum.size(1) / VEC_WIDTH;
+                {{
+                    generate_optimized_grad_sum_loop_access(
+                        """
+                        {grad_vec} = partial_base[d_vec];
+                        for (int32_t r = 1; r < num_ctas_on_current_run; ++r) {
+                            {grad_vec} = vec4_acc({grad_vec}, partial_base[r * slot_stride + d_vec]);
+                        }
+                        """
+                    )
+                }}
+            } else {
+                Vec4TAcc<cache_t> *temp_grad_accum_ptr =
+                    reinterpret_cast<Vec4TAcc<cache_t>*>(&temp_grad_accum[really_long_run_id][0]);
+                {{
+                    generate_optimized_grad_sum_loop_access(
+                        """
+                        {grad_vec} = temp_grad_accum_ptr[d_vec];
+                        """
+                    )
+                }}
+            }
         }
 
         {{ compute_global_weight_decay(is_gwd_kernel) }}

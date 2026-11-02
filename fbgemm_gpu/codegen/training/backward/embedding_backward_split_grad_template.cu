@@ -46,7 +46,7 @@ split_embedding_backward_codegen_find_long_segments(
     if (sorted_linear_indices_run_lengths[run_id] >= max_segment_length_per_warp) {
         // A segment with length > max_segment_length_per_cta is handled by more than 1 thread block.
         const int num_ctas_for_run =
-            use_deterministic_algorithms ? 1 : div_round_up(sorted_linear_indices_run_lengths[run_id], max_segment_length_per_cta);
+            div_round_up(sorted_linear_indices_run_lengths[run_id], max_segment_length_per_cta);
         const auto long_run_idx = gpuAtomicAdd(&num_long_run_ids[0], num_ctas_for_run);
         // The first thread block in the really long run gets run_id in long_run_ids
         // and the rest get the negative of its offset.
@@ -55,7 +55,11 @@ split_embedding_backward_codegen_find_long_segments(
             long_run_ids[long_run_idx + i] = -i;
         }
         if (num_ctas_for_run > 1) {
-            const auto really_long_run_idx = gpuAtomicAdd(&num_really_long_run_ids[0], 1);
+            // Deterministic mode reserves one partial-gradient slot per CTA:
+            // CTA i of this run writes slot really_long_run_idx + i.
+            const auto really_long_run_idx = gpuAtomicAdd(
+                &num_really_long_run_ids[0],
+                use_deterministic_algorithms ? num_ctas_for_run : 1);
             grad_accum_counter[really_long_run_idx] = num_ctas_for_run;
             for (int i = 0; i < num_ctas_for_run; ++i) {
                 long_run_id_to_really_long_run_ids[long_run_idx + i] = really_long_run_idx;
