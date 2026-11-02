@@ -682,7 +682,7 @@ presuming the toolchains have been properly installed.
   # [OPTIONAL] Enable verbose HIPCC logs
   export HIPCC_VERBOSE=1
 
-  # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx908,gfx90a,gfx942')
+  # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx942,gfx950')
   # See https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html for list
   export PYTORCH_ROCM_ARCH=$(${ROCM_PATH}/bin/rocminfo | grep -o -m 1 'gfx.*')
 

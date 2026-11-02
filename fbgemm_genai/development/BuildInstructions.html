@@ -677,7 +677,7 @@ toolchains have been properly installed.</p>
 <span class="c1"># [OPTIONAL] Enable verbose HIPCC logs</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">HIPCC_VERBOSE</span><span class="o">=</span><span class="m">1</span>
 
-<span class="c1"># Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx908,gfx90a,gfx942')</span>
+<span class="c1"># Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx942,gfx950')</span>
 <span class="c1"># See https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html for list</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">PYTORCH_ROCM_ARCH</span><span class="o">=</span><span class="k">$(</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span>/bin/rocminfo<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-o<span class="w"> </span>-m<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="s1">'gfx.*'</span><span class="k">)</span>
 
