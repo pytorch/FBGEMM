@@ -73,6 +73,7 @@ class LearningRateMode(enum.IntEnum):
     TAIL_ID_LR_INCREASE = 0
     TAIL_ID_LR_DECREASE = 1
     COUNTER_SGD = 2
+    PER_ROW_WARMUP = 3
 
 
 class GradSumDecay(enum.IntEnum):
@@ -94,8 +95,11 @@ class CounterBasedRegularizationDefinition:
     adjustment_ub: float = 1.0
     learning_rate_mode: LearningRateMode = LearningRateMode.EQUAL
     grad_sum_decay: GradSumDecay = GradSumDecay.NO_DECAY
+    # PER_ROW_WARMUP is applied outside the tail-ID guard, so this is ignored there.
     tail_id_threshold: TailIdThreshold = field(default_factory=TailIdThreshold)
     max_counter_update_freq: int = 1000
+    warmup_steps: int = 0
+    warmup_start_value: float = 0.0
 
 
 @dataclass(frozen=True)

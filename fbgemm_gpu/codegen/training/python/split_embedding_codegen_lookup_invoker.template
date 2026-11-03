@@ -323,6 +323,12 @@ def invoke(
     {%- if "falr_floor" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     dict_optim_float["falr_floor"] = optimizer_args.falr_floor
     {%- endif %}
+    {%- if "warmup_steps" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_int["warmup_steps"] = optimizer_args.warmup_steps
+    {%- endif %}
+    {%- if "warmup_start_value" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    dict_optim_float["warmup_start_value"] = optimizer_args.warmup_start_value
+    {%- endif %}
 
     {%- if "momentum1" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     {{ pack_tensors("momentum1") }}

@@ -121,6 +121,10 @@ class OptimizerArgs(NamedTuple):
     # `falr_ref_gap` of 0 disables falr.
     falr_ref_gap: float = 0.0   # rows accessed this often keep full lr
     falr_floor: float = 0.1     # min lr scale for rare rows
+    # PER_ROW_WARMUP knobs (ignored by other optimizers; defaults are
+    # backwards-compatible with existing OptimizerArgs(...) call sites).
+    warmup_steps: int = 0
+    warmup_start_value: float = 0.0
 
 
 class Momentum(NamedTuple):
