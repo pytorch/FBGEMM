@@ -2654,7 +2654,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights)
       override {
     if (int8_ && weights.scalar_type() == at::kByte) {
-      set_int8_rows_with_metaheader(weights);
+      set_int8_rows_with_metaheader(weights, ids);
       return;
     }
     if (backend_return_whole_row_) {
@@ -2749,8 +2749,20 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   /// Writes raw INT8 rows (as read by get_int8_rows_with_metaheader, the key
   /// in each row's first 8 bytes) without re-quantizing them.
-  void set_int8_rows_with_metaheader(const at::Tensor& rows) {
-    check_int8_rows(rows);
+  void set_int8_rows_with_metaheader(
+      const at::Tensor& rows,
+      std::optional<at::Tensor> ids = std::nullopt) {
+    TORCH_CHECK(int8_, "uint8 rows need int8_storage");
+    TORCH_CHECK(
+        rows.dim() == 2 && rows.scalar_type() == at::kByte &&
+            rows.is_contiguous() && rows.device().is_cpu(),
+        "INT8 rows must be a contiguous 2D uint8 CPU tensor");
+    const int64_t required_bytes =
+        sizeof(FixedBlockPool::MetaHeader) + int8_->row_bytes();
+    TORCH_CHECK(
+        rows.size(1) >= required_bytes &&
+            (rows.size(1) - required_bytes) % sizeof(weight_type) == 0,
+        "INT8 rows need a MetaHeader, codes, fp32 qparams and an fp16 tail");
     // A complete-row restore, like set_kv_with_metaheader_to_storage.
     auto pause_state = pause_for_stream_write();
     SCOPE_EXIT {
@@ -2760,8 +2772,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     const int64_t row_bytes = rows.size(1);
     const auto* src = rows.const_data_ptr<uint8_t>();
     std::vector<int64_t> keys(n);
-    for (int64_t i = 0; i < n; ++i) {
-      std::memcpy(&keys[i], src + i * row_bytes, sizeof(int64_t));
+    if (ids.has_value()) {
+      const auto local_ids = ids->to(at::kLong).contiguous();
+      TORCH_CHECK(local_ids.device().is_cpu() && local_ids.numel() == n);
+      std::copy(
+          local_ids.const_data_ptr<int64_t>(),
+          local_ids.const_data_ptr<int64_t>() + n,
+          keys.begin());
+    } else {
+      for (int64_t i = 0; i < n; ++i) {
+        std::memcpy(&keys[i], src + i * row_bytes, sizeof(int64_t));
+      }
     }
     const auto indices = torch::from_blob(keys.data(), {n}, torch::kInt64);
     const auto count = at::tensor({n}, at::ScalarType::Long);
@@ -2774,7 +2795,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                 set_int8_rows_of_shard(shard_id, indexes, keys, src, row_bytes);
               }));
     }
-    folly::collect(futures).wait();
+    folly::collect(std::move(futures)).get();
   }
 
   void compact() override {}
@@ -3016,6 +3037,98 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return int8_ ? static_cast<int64_t>(payload_end_bytes()) : 0;
   }
 
+  /// Raw payloads for HBM promotion. Missing rows are zero-filled. All tensors
+  /// must be CPU views, including host-mapped workspaces used by CUDA callers.
+  void get_int8_payloads(
+      const at::Tensor& indices,
+      const at::Tensor& rows,
+      const at::Tensor& count) {
+    TORCH_CHECK(int8_, "INT8 DRAM storage is disabled");
+    check_int8_payload_args(indices, rows, count);
+    const int64_t n = count.item<int64_t>();
+    TORCH_CHECK(n >= 0 && n <= indices.numel());
+    if (n == 0) {
+      return;
+    }
+    const auto ids = indices.to(at::kLong);
+    const auto* keys = ids.const_data_ptr<int64_t>();
+    auto* dst = rows.data_ptr<uint8_t>();
+    const int64_t row_bytes = int8_->row_bytes();
+    std::memset(dst, 0, n * row_bytes);
+    auto by_shard = shard_input(ids, count);
+    std::vector<folly::Future<folly::Unit>> futures;
+    for (auto& [shard_id, positions] : by_shard) {
+      futures.push_back(
+          folly::via(
+              executor_.get(), [&, shard_id, positions = std::move(positions)] {
+                const auto lock = kv_store_.by(shard_id).rlock();
+                for (const auto pos : positions) {
+                  const auto it = lock->find(keys[pos]);
+                  if (it != lock->end()) {
+                    std::memcpy(
+                        dst + pos * row_bytes,
+                        FixedBlockPool::data_ptr<weight_type>(it->second),
+                        row_bytes);
+                  }
+                }
+              }));
+    }
+    folly::collect(std::move(futures)).get();
+  }
+
+  void get_int8_payloads_cuda(
+      at::Tensor indices_cpu,
+      at::Tensor rows_cpu,
+      at::Tensor count_cpu) {
+    TORCH_CHECK(int8_, "INT8 DRAM storage is disabled");
+    hbm_rethrow_async_error();
+    // Checked here: the host callback cannot raise.
+    check_int8_payload_args(indices_cpu, rows_cpu, count_cpu);
+    auto functor = std::make_unique<std::function<void()>>(
+        [self =
+             std::static_pointer_cast<DramKVEmbeddingCache>(shared_from_this()),
+         indices = std::move(indices_cpu),
+         rows = std::move(rows_cpu),
+         count = std::move(count_cpu)]() mutable {
+          self->hbm_run_async([&] {
+            try {
+              self->get_int8_payloads(indices, rows, count);
+            } catch (...) {
+              // Zero rows are skipped by the exclusive insert.
+              rows.zero_();
+              throw;
+            }
+          });
+        });
+    AT_CUDA_CHECK(cudaLaunchHostFunc(
+        at::cuda::getCurrentCUDAStream(),
+        kv_db_utils::cuda_host_func,
+        functor.get()));
+    // The callback owns it once launched.
+    functor.release();
+  }
+
+  void check_int8_payload_args(
+      const at::Tensor& indices,
+      const at::Tensor& rows,
+      const at::Tensor& count) const {
+    TORCH_CHECK(
+        indices.device().is_cpu() && indices.is_contiguous() &&
+            indices.dim() == 1,
+        "INT8 payload indices must be a contiguous 1D CPU tensor");
+    TORCH_CHECK(
+        rows.device().is_cpu() && rows.is_contiguous() &&
+            rows.scalar_type() == at::kByte && rows.dim() == 2 &&
+            rows.size(0) == indices.numel() &&
+            rows.size(1) == int8_->row_bytes(),
+        "INT8 payload rows must be a contiguous CPU uint8 [n, ",
+        int8_->row_bytes(),
+        "] tensor matching the indices");
+    TORCH_CHECK(
+        count.device().is_cpu() && count.numel() == 1,
+        "INT8 payload count must be a one-element CPU tensor");
+  }
+
   /// Exclusive HBM tier: the owner-local cache's INT8 copy is the only copy of
   /// a promoted row. The backend keeps the row's MetaHeader word (timestamp,
   /// count) as a tombstone in hbm_rows_ instead of a block, so lookups through
@@ -3069,6 +3182,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         cache_weights.dim() == 2 && cache_weights.scalar_type() == at::kByte &&
         cache_weights.size(0) == cache_state.size(0));
     const int64_t hbm_dim = cache_weights.size(1) - kHbmQparamsBytes;
+    TORCH_CHECK(
+        !int8_ || hbm_dim == int8_->dim,
+        "INT8 DRAM and exclusive HBM must hold the same embedding dimension");
     TORCH_CHECK(
         hbm_dim > 0 && hbm_dim <= max_D_ &&
             (!enrichment_config_.has_value() ||
@@ -4036,17 +4152,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       for (auto i = begin; i < end; ++i) {
         slots.push_back(hbm_slot(keys[i]));
       }
-      const auto held = hbm_read_slots(slots, /*rows=*/false);
-      std::vector<std::vector<int64_t>> by_shard(num_shards_);
+      const bool raw_int8 = hbm_rows_are_int8_rows();
+      const auto held = hbm_read_slots(slots, /*rows=*/raw_int8);
+      std::vector<std::vector<size_t>> by_shard(num_shards_);
       for (auto i = begin; i < end; ++i) {
         if (held.tags[i - begin] == keys[i]) {
           by_shard[kv_db_utils::hash_shard(keys[i], num_shards_)].push_back(
-              keys[i]);
+              i - begin);
         } else {
           hbm_promote_skipped_++;
         }
       }
       const auto now = FixedBlockPool::current_timestamp();
+      std::vector<int64_t> stale_slots;
       for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
         if (by_shard[shard_id].empty()) {
           continue;
@@ -4054,8 +4172,20 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         auto wlmap = kv_store_.by(shard_id).wlock();
         auto* pool = kv_store_.pool_by(shard_id);
         auto& tombstones = hbm_rows_[shard_id];
-        for (const auto key : by_shard[shard_id]) {
+        for (const auto j : by_shard[shard_id]) {
+          const auto key = keys[begin + j];
           const auto it = wlmap->find(key);
+          // A write after the raw read supersedes the inserted HBM bytes.
+          if (raw_int8 && it != wlmap->end() &&
+              std::memcmp(
+                  FixedBlockPool::data_ptr<weight_type>(it->second),
+                  held.rows.template const_data_ptr<uint8_t>() +
+                      j * int8_->row_bytes(),
+                  int8_->row_bytes()) != 0) {
+            stale_slots.push_back(slots[j]);
+            hbm_promote_skipped_++;
+            continue;
+          }
           if (it != wlmap->end()) {
             weight_type* block = it->second;
             tombstones[key] = FixedBlockPool::get_metaheader_raw(block);
@@ -4071,6 +4201,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           hbm_promoted_++;
         }
       }
+      hbm_clear_slots(stale_slots);
     }
     XLOG_EVERY_MS(INFO, 60000)
         << "[ExclusiveHBM] promoted=" << hbm_promoted_.load()
@@ -4403,7 +4534,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       } else {
         block = it->second;
       }
-      std::memcpy(block, src + i * row_bytes, row_bytes);
+      const int64_t copied_bytes =
+          std::min<int64_t>(row_bytes, payload_end_bytes());
+      std::memcpy(block, src + i * row_bytes, copied_bytes);
+      std::memset(
+          reinterpret_cast<uint8_t*>(block) + copied_bytes,
+          0,
+          payload_end_bytes() - copied_bytes);
+      FixedBlockPool::set_key(block, key);
       FixedBlockPool::set_used(block, true);
       if (restamp) {
         FixedBlockPool::set_timestamp(block, restore_ts);

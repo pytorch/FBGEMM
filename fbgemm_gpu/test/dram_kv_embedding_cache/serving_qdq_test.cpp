@@ -1858,6 +1858,50 @@ TEST(Int8StorageTest, HbmPromotionAndDemotionMoveBytesWithoutLoss) {
   EXPECT_EQ(cache->exclusive_hbm_stats()[6], 0);
 }
 
+TEST(Int8StorageTest, RawPromotionReadsPayloadBytesAndSkipsMissingRows) {
+  auto cache = make_int8_cache();
+  const auto ids = at::arange(32, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(32, /*seed=*/65));
+  const auto saved = read_int8_rows(*cache, ids);
+  const auto query = at::tensor({7, -1, 99, 0, 31}, at::kLong);
+  auto payload = at::full({query.numel(), kInt8RowBytes}, 0xAB, at::kByte);
+  const auto count = at::tensor({query.numel() - 1}, at::kLong);
+
+  cache->get_int8_payloads(query, payload, count);
+
+  EXPECT_TRUE(payload[1].eq(0).all().item<bool>());
+  EXPECT_TRUE(payload[2].eq(0).all().item<bool>());
+  EXPECT_TRUE(payload[4].eq(0xAB).all().item<bool>());
+  EXPECT_TRUE(payload[0].equal(saved[7].slice(0, 16, 16 + kInt8RowBytes)));
+  EXPECT_TRUE(payload[3].equal(saved[0].slice(0, 16, 16 + kInt8RowBytes)));
+  EXPECT_THROW(
+      cache->get_int8_payloads(query, payload, at::tensor({6}, at::kLong)),
+      c10::Error);
+}
+
+TEST(Int8StorageTest, AWriteBeforePromotionKeepsTheNewDramRow) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(
+      hbm, 0, 0, {.max_D = kPackedMaxD, .int8_storage = true});
+  const auto ids = at::arange(100, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(100, /*seed=*/66));
+  const auto old_rows = read_rows(*cache, ids, kDim, 0);
+  const auto claimed = hbm.insert(
+      ids, old_rows, static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_GT(claimed.size(), 80);
+  write_rows(*cache, ids, rows_with_tail(100, /*seed=*/67));
+  const auto latest = read_int8_rows(*cache, ids);
+
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[2], claimed.size());
+  EXPECT_EQ(cache->get_num_rows(), ids.numel());
+  EXPECT_TRUE(read_int8_rows(*cache, ids).equal(latest));
+  EXPECT_TRUE(hbm.cache_state.eq(-1).all().item<bool>());
+}
+
 TEST(Int8StorageTest, Int8RowsUseFewerBytes) {
   auto fp16 = make_cache(0, 0, {.max_D = kPackedMaxD});
   auto int8 = make_int8_cache();
@@ -1877,12 +1921,29 @@ TEST(Int8StorageTest, Int8RowsUseFewerBytes) {
   };
   const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
   const auto fp16_ckpt_row_bytes = (meta_dim + kPackedMaxD) * 2;
+  kv_mem::SynchronizedShardedMap<int64_t, at::Half*> index(
+      kNumShards, int8->get_block_size(), alignof(at::Half));
+  size_t index_bytes = 0;
+  for (int shard = 0; shard < kNumShards; ++shard) {
+    auto map = index.by(shard).wlock();
+    for (int64_t key = 0; key < kRows; ++key) {
+      if (kv_db_utils::hash_shard(key, kNumShards) == shard) {
+        map->emplace(key, nullptr);
+      }
+    }
+    index_bytes += map->getAllocatedMemorySize();
+  }
   std::cout << "bytes/row in pool chunks: fp16="
             << per_row(fp16->get_map_actual_used_chunk_in_bytes())
             << " int8=" << per_row(int8->get_map_actual_used_chunk_in_bytes())
             << "; blocks + map entries: fp16="
             << per_row(fp16->get_map_used_memsize_in_bytes())
             << " int8=" << per_row(int8->get_map_used_memsize_in_bytes())
+            << "; allocated F14 index=" << per_row(index_bytes)
+            << "; pool chunks + allocated index: fp16="
+            << per_row(fp16->get_map_actual_used_chunk_in_bytes() + index_bytes)
+            << " int8="
+            << per_row(int8->get_map_actual_used_chunk_in_bytes() + index_bytes)
             << "; checkpoint bytes/row: fp16=" << fp16_ckpt_row_bytes
             << " int8=" << int8->get_int8_row_bytes() << '\n';
   EXPECT_LT(

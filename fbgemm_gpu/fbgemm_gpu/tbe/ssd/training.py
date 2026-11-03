@@ -706,6 +706,7 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
         fused_float_gather: bool = False,
         output_dtype: torch.dtype | None = None,
         gather_reserved_sms: int = 0,
+        int8_storage: bool = False,
     ) -> None:
         # Codes and qparams, the int64 tag and the int32 last-access time.
         slot_bytes = embedding_dim + _INT8_ROWWISE_QPARAMS_BYTES + 8 + 4
@@ -739,6 +740,10 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
         self._promoted_keys_cpu: torch.Tensor | None = None
         self._promoted_count: torch.Tensor | None = None
         self._promoted_count_cpu: torch.Tensor | None = None
+        self._int8_storage = int8_storage
+        self._int8_rows: torch.Tensor | None = None
+        self._int8_rows_cpu: torch.Tensor | None = None
+        self._int8_keys_cpu: torch.Tensor | None = None
         backend.exclusive_hbm_register(
             self.cache_state, self.cache_weights, self.last_access
         )
@@ -768,6 +773,18 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
             is_host_mapped=True,
         )
         self._promoted_keys_cpu = torch.ops.fbgemm.uvm_to_cpu(self._promoted_keys)
+        if self._int8_storage:
+            self._int8_rows = torch.ops.fbgemm.new_unified_tensor(
+                torch.empty(1, dtype=torch.uint8, device=device),
+                (required_capacity, self._embedding_dim + _INT8_ROWWISE_QPARAMS_BYTES),
+                is_host_mapped=True,
+            )
+            self._int8_rows_cpu = torch.ops.fbgemm.uvm_to_cpu(self._int8_rows)
+            # CUDA host callbacks must not free pinned allocations that record
+            # stream events; write-side keys live with the workspace.
+            self._int8_keys_cpu = torch.empty(
+                required_capacity, dtype=torch.int64, device="cpu", pin_memory=True
+            )
         if self._promoted_count is None:
             self._promoted_count = torch.ops.fbgemm.new_unified_tensor(
                 torch.zeros(1, dtype=torch.int32, device=device),
@@ -782,10 +799,25 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
         rows: torch.Tensor,
         count: torch.Tensor | None,
         now: int,
+        keys_cpu: torch.Tensor | None = None,
+        count_cpu: torch.Tensor | None = None,
     ) -> None:
         self._grow_promoted(max(1, keys.numel()))
         assert self._promoted_keys is not None
         assert self._promoted_count is not None
+        if self._int8_storage:
+            assert self._int8_rows is not None
+            assert self._int8_rows_cpu is not None
+            if keys_cpu is None:
+                assert self._int8_keys_cpu is not None
+                keys_cpu = self._int8_keys_cpu[: keys.numel()]
+                keys_cpu.copy_(keys, non_blocking=True)
+                count_cpu = torch.tensor([keys.numel()], dtype=torch.int64)
+            assert count_cpu is not None
+            self._backend.get_int8_payloads_cuda(
+                keys_cpu, self._int8_rows_cpu[: keys.numel()], count_cpu
+            )
+            rows = self._int8_rows[: keys.numel()]
         torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
             self.cache_state,
             self.cache_weights,
@@ -796,6 +828,7 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
             self._promoted_keys,
             self._promoted_count,
             now,
+            self._int8_storage,
         )
         self._backend.exclusive_hbm_promote_cuda(
             self._promoted_keys_cpu, self._promoted_count_cpu
@@ -814,6 +847,8 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
         assert self._action_indices is not None
         assert self._inserted_rows is not None
         assert self._actions_count is not None
+        assert self._action_indices_cpu is not None
+        assert self._actions_count_cpu is not None
         now = int(time.time())
         torch.ops.fbgemm.kvzch_exclusive_cache_touch(
             self._row_addresses[:num_indices],
@@ -831,6 +866,8 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
                 self._inserted_rows[:num_indices],
                 count,
                 now,
+                self._action_indices_cpu[:num_indices],
+                self._actions_count_cpu,
             )
         return output
 
@@ -1152,6 +1189,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # set_int8_checkpoint_rows: whole-row checkpoint tensors carry the raw
         # INT8 rows instead of fp16 rows.
         self._int8_checkpoint_rows: bool = False
+        self._int8_checkpoint_row_bytes: int = 0
         self._direct_backend_gather: bool = False
         self._owner_cache_size_mb: int = 0
         self._owner_cache_read_populate: bool = False
@@ -1243,6 +1281,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     and self.backend_type != BackendType.DRAM
                 ):
                     raise ValueError("owner_cache_exclusive requires the DRAM backend")
+                if (
+                    enrichment_policy.int8_storage
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("int8_storage requires the DRAM backend")
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -2117,6 +2160,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 backend=self._ssd_db,
                 promote_max_rows=self._owner_cache_exclusive_promote_max_rows,
                 promote_every_n=self._owner_cache_exclusive_promote_every_n,
+                int8_storage=self._int8_row_bytes > 0,
                 fused_float_gather=self._owner_cache_int8_fused_float,
                 output_dtype=self._direct_enrichment_output_dtype,
                 gather_reserved_sms=self._owner_cache_gather_reserved_sms,
@@ -5255,7 +5299,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         else emb_height
                     ),
                     (
-                        self._int8_row_bytes
+                        self._int8_checkpoint_row_bytes
                         if int8_rows
                         else self.get_embedding_dim_for_kvt(
                             metaheader_dim, emb_dim, is_loading_checkpoint
@@ -5422,6 +5466,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             raise ValueError(
                 f"int8_storage needs FP16 weights, got {self.weights_precision}"
             )
+        if ep.enrichment_dim != self.max_D:
+            raise ValueError(
+                "int8_storage needs enrichment_dim to match the table dimension"
+            )
         if ep.enrichment_type not in (
             EnrichmentType.IGR_LASER_EMBEDDING,
             EnrichmentType.IN_MEMORY_TEST_ONLY,
@@ -5432,16 +5480,30 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return True
 
     @torch.jit.ignore
-    def set_int8_checkpoint_rows(self, enabled: bool) -> bool:
+    def set_int8_checkpoint_rows(
+        self, enabled: bool, checkpoint_row_bytes: int | None = None
+    ) -> bool:
         """With `enabled`, split_embedding_weights() returns the whole-row
         weight tensors of an int8_storage table as its raw INT8 rows (uint8:
         MetaHeader, codes, fp32 scale and bias, fp16 tail) instead of fp16
         rows, both for saving and for loading a checkpoint. Only the checkpoint
         path turns this on; publish keeps reading fp16 rows. Returns whether
-        this TBE stores INT8 rows (otherwise this is a no-op)."""
+        this TBE stores INT8 rows (otherwise this is a no-op). A saved row width
+        can override the load view when unused fp16 tail columns differ."""
         if self._int8_row_bytes == 0:
             return False
+        row_bytes = (
+            self._int8_row_bytes
+            if checkpoint_row_bytes is None
+            else checkpoint_row_bytes
+        )
+        required_bytes = 16 + self.max_D + _INT8_ROWWISE_QPARAMS_BYTES
+        if enabled and (
+            row_bytes < required_bytes or (row_bytes - required_bytes) % 2 != 0
+        ):
+            raise ValueError(f"invalid INT8 checkpoint row width {row_bytes}")
         self._int8_checkpoint_rows = enabled
+        self._int8_checkpoint_row_bytes = row_bytes if enabled else 0
         return True
 
     def _int8_checkpoint_rows_active(self, is_loading_checkpoint: bool) -> bool:
@@ -5449,7 +5511,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self._int8_checkpoint_rows
             and self._int8_row_bytes > 0
             and self.backend_return_whole_row
-            and not (self.load_ckpt_without_opt and is_loading_checkpoint)
         )
 
     def _serving_qdq_bit_rate(self, ep: EnrichmentPolicy) -> int:
