@@ -15,9 +15,10 @@ Tests cover:
 - JIT integration (TBE with various optimizer configs must still JIT-script)
 """
 
+import dataclasses
 import enum
 import unittest
-from typing import Final
+from typing import Any, Final
 
 import torch
 
@@ -50,13 +51,237 @@ class OptimizerConfigImportTest(unittest.TestCase):
         self.assertTrue(issubclass(LearningRateMode, enum.IntEnum))
         self.assertTrue(issubclass(GradSumDecay, enum.IntEnum))
         self.assertTrue(issubclass(DoesNotHavePrefix, Exception))
+        self.assertEqual(LearningRateMode.PER_ROW_WARMUP, 3)
         self.assertEqual(CounterBasedRegularizationDefinition().counter_halflife, -1)
+        self.assertEqual(CounterBasedRegularizationDefinition().warmup_steps, 0)
+        self.assertEqual(CounterBasedRegularizationDefinition().warmup_start_value, 0.0)
         self.assertEqual(CowClipDefinition().weight_norm_coefficient, 0.0)
         self.assertEqual(GlobalWeightDecayDefinition().start_iter, 0)
         self.assertFalse(UserEnabledConfigDefinition().use_rowwise_bias_correction)
         self.assertEqual(EnsembleModeDefinition().step_ema, 10000)
         self.assertEqual(EmainplaceModeDefinition().step_ema, 10)
         self.assertEqual(TailIdThreshold().val, 0)
+
+
+class OptimizerConfigValidationTest(unittest.TestCase):
+    def test_per_row_warmup_rejects_incompatible_counter_settings(self) -> None:
+        from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+            ComputeDevice,
+            CounterBasedRegularizationDefinition,
+            CounterWeightDecayMode,
+            EmbeddingLocation,
+            LearningRateMode,
+            OptimType,
+            SplitTableBatchedEmbeddingBagsCodegen,
+            WeightDecayMode,
+        )
+
+        invalid_settings = (
+            (CounterWeightDecayMode.L2, -1, "counter_weight_decay_mode=L2"),
+            (CounterWeightDecayMode.DECOUPLE, -1, "counter_weight_decay_mode=DECOUPLE"),
+            (CounterWeightDecayMode.L2, 100, "counter_weight_decay_mode=L2"),
+            (
+                CounterWeightDecayMode.DECOUPLE,
+                100,
+                "counter_weight_decay_mode=DECOUPLE",
+            ),
+            (CounterWeightDecayMode.NONE, 0, "requires counter_halflife < 0"),
+            (CounterWeightDecayMode.NONE, 100, "requires counter_halflife < 0"),
+            (CounterWeightDecayMode.ADAGRADW, 0, "requires counter_halflife < 0"),
+            (CounterWeightDecayMode.ADAGRADW, 100, "requires counter_halflife < 0"),
+            (CounterWeightDecayMode.ADAGRADW, -2, "ADAGRADW at counter_halflife=-2"),
+        )
+        for counter_weight_decay_mode, counter_halflife, error in invalid_settings:
+            with self.subTest(
+                counter_weight_decay_mode=counter_weight_decay_mode,
+                counter_halflife=counter_halflife,
+            ):
+                with self.assertRaisesRegex(ValueError, f"PER_ROW_WARMUP.*{error}"):
+                    SplitTableBatchedEmbeddingBagsCodegen(
+                        embedding_specs=[
+                            (4, 4, EmbeddingLocation.HOST, ComputeDevice.CPU),
+                        ],
+                        optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                        weight_decay_mode=WeightDecayMode.COUNTER,
+                        counter_based_regularization=CounterBasedRegularizationDefinition(
+                            counter_weight_decay_mode=counter_weight_decay_mode,
+                            counter_halflife=counter_halflife,
+                            learning_rate_mode=LearningRateMode.PER_ROW_WARMUP,
+                            warmup_steps=10,
+                        ),
+                    )
+
+    def test_per_row_warmup_accepts_negative_counter_halflife(self) -> None:
+        from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+            ComputeDevice,
+            CounterBasedRegularizationDefinition,
+            CounterWeightDecayMode,
+            EmbeddingLocation,
+            LearningRateMode,
+            OptimType,
+            SplitTableBatchedEmbeddingBagsCodegen,
+            WeightDecayMode,
+        )
+
+        valid_settings = (
+            (CounterWeightDecayMode.NONE, -1, 10, 0.0),
+            (CounterWeightDecayMode.NONE, -2, 10, 1.0),
+            (CounterWeightDecayMode.ADAGRADW, -1, 0, 0.5),
+        )
+        for (
+            counter_weight_decay_mode,
+            counter_halflife,
+            warmup_steps,
+            warmup_start_value,
+        ) in valid_settings:
+            with self.subTest(
+                counter_weight_decay_mode=counter_weight_decay_mode,
+                counter_halflife=counter_halflife,
+            ):
+                tbe = SplitTableBatchedEmbeddingBagsCodegen(
+                    embedding_specs=[
+                        (4, 4, EmbeddingLocation.HOST, ComputeDevice.CPU),
+                    ],
+                    optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                    weight_decay=0.1,
+                    weight_decay_mode=WeightDecayMode.COUNTER,
+                    counter_based_regularization=CounterBasedRegularizationDefinition(
+                        counter_weight_decay_mode=counter_weight_decay_mode,
+                        counter_halflife=counter_halflife,
+                        learning_rate_mode=LearningRateMode.PER_ROW_WARMUP,
+                        warmup_steps=warmup_steps,
+                        warmup_start_value=warmup_start_value,
+                    ),
+                )
+                self.assertEqual(tbe.optimizer_args.warmup_steps, warmup_steps)
+                self.assertEqual(
+                    tbe.optimizer_args.warmup_start_value, warmup_start_value
+                )
+
+    def test_per_row_warmup_rejects_invalid_warmup_values(self) -> None:
+        from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+            ComputeDevice,
+            CounterBasedRegularizationDefinition,
+            EmbeddingLocation,
+            LearningRateMode,
+            OptimType,
+            SplitTableBatchedEmbeddingBagsCodegen,
+            WeightDecayMode,
+        )
+
+        invalid_values = (
+            (-1, 0.0, "warmup_steps >= 0"),
+            (10, -0.1, "0 <= warmup_start_value <= 1"),
+            (10, 1.5, "0 <= warmup_start_value <= 1"),
+        )
+        for warmup_steps, warmup_start_value, error in invalid_values:
+            with self.subTest(
+                warmup_steps=warmup_steps, warmup_start_value=warmup_start_value
+            ):
+                with self.assertRaisesRegex(ValueError, f"PER_ROW_WARMUP.*{error}"):
+                    SplitTableBatchedEmbeddingBagsCodegen(
+                        embedding_specs=[
+                            (4, 4, EmbeddingLocation.HOST, ComputeDevice.CPU),
+                        ],
+                        optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                        weight_decay_mode=WeightDecayMode.COUNTER,
+                        counter_based_regularization=CounterBasedRegularizationDefinition(
+                            learning_rate_mode=LearningRateMode.PER_ROW_WARMUP,
+                            warmup_steps=warmup_steps,
+                            warmup_start_value=warmup_start_value,
+                        ),
+                    )
+
+    def test_per_row_warmup_rejects_mtia(self) -> None:
+        from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+            ComputeDevice,
+            CounterBasedRegularizationDefinition,
+            EmbeddingLocation,
+            LearningRateMode,
+            OptimType,
+            SplitTableBatchedEmbeddingBagsCodegen,
+            WeightDecayMode,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "PER_ROW_WARMUP is not supported on MTIA"
+        ):
+            SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (4, 4, EmbeddingLocation.HOST, ComputeDevice.MTIA),
+                ],
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+                weight_decay_mode=WeightDecayMode.COUNTER,
+                counter_based_regularization=CounterBasedRegularizationDefinition(
+                    learning_rate_mode=LearningRateMode.PER_ROW_WARMUP,
+                    warmup_steps=10,
+                ),
+            )
+
+    def test_per_row_warmup_rejects_other_optimizers(self) -> None:
+        from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+            ComputeDevice,
+            CounterBasedRegularizationDefinition,
+            EmbeddingLocation,
+            LearningRateMode,
+            OptimType,
+            SplitTableBatchedEmbeddingBagsCodegen,
+            WeightDecayMode,
+        )
+
+        for optimizer in (OptimType.EXACT_ADAGRAD, OptimType.EXACT_SGD):
+            with self.subTest(optimizer=optimizer):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "PER_ROW_WARMUP requires optimizer=EXACT_ROWWISE_ADAGRAD, got "
+                    f"{optimizer.name}",
+                ):
+                    SplitTableBatchedEmbeddingBagsCodegen(
+                        embedding_specs=[
+                            (4, 4, EmbeddingLocation.HOST, ComputeDevice.CPU),
+                        ],
+                        optimizer=optimizer,
+                        weight_decay_mode=WeightDecayMode.COUNTER,
+                        counter_based_regularization=CounterBasedRegularizationDefinition(
+                            learning_rate_mode=LearningRateMode.PER_ROW_WARMUP,
+                            warmup_steps=10,
+                        ),
+                    )
+
+    def test_counter_config_without_warmup_fields(self) -> None:
+        from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+            ComputeDevice,
+            CounterBasedRegularizationDefinition,
+            EmbeddingLocation,
+            OptimType,
+            SplitTableBatchedEmbeddingBagsCodegen,
+            WeightDecayMode,
+        )
+
+        # A model packaged before the warmup fields existed unpickles its config
+        # with the packaged class, which has no warmup attributes.
+        packaged_fields: list[tuple[str, Any, Any]] = []
+        for f in dataclasses.fields(CounterBasedRegularizationDefinition):
+            if f.name in ("warmup_steps", "warmup_start_value"):
+                continue
+            if f.default_factory is not dataclasses.MISSING:
+                default = dataclasses.field(default_factory=f.default_factory)
+            else:
+                default = f.default
+            packaged_fields.append((f.name, f.type, default))
+        packaged_definition = dataclasses.make_dataclass(
+            "CounterBasedRegularizationDefinition", packaged_fields, frozen=True
+        )
+        tbe = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (4, 4, EmbeddingLocation.HOST, ComputeDevice.CPU),
+            ],
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            weight_decay_mode=WeightDecayMode.COUNTER,
+            counter_based_regularization=packaged_definition(),
+        )
+        self.assertEqual(tbe.optimizer_args.warmup_steps, 0)
+        self.assertEqual(tbe.optimizer_args.warmup_start_value, 0.0)
 
 
 class OptimizerConfigJITTest(unittest.TestCase):
@@ -109,6 +334,39 @@ class OptimizerConfigJITTest(unittest.TestCase):
             weight_decay_mode=WeightDecayMode.COUNTER,
             counter_based_regularization=CounterBasedRegularizationDefinition(
                 counter_halflife=100,
+            ),
+        )
+        cc_scripted = torch.jit.script(cc)
+        device = torch.accelerator.current_accelerator()
+        indices = torch.randint(0, 100, (10,), device=device)
+        offsets = torch.tensor([0, 5, 10], device=device, dtype=torch.long)
+        output = cc_scripted(indices, offsets)
+        self.assertEqual(output.shape, (2, 16))
+
+    @unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA required")
+    def test_tbe_jit_script_with_per_row_warmup(self) -> None:
+        from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+            ComputeDevice,
+            CounterBasedRegularizationDefinition,
+            EmbeddingLocation,
+            LearningRateMode,
+            OptimType,
+            SplitTableBatchedEmbeddingBagsCodegen,
+            WeightDecayMode,
+        )
+
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (100, 16, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),
+            ],
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            learning_rate=0.01,
+            weight_decay_mode=WeightDecayMode.COUNTER,
+            counter_based_regularization=CounterBasedRegularizationDefinition(
+                counter_halflife=-1,
+                learning_rate_mode=LearningRateMode.PER_ROW_WARMUP,
+                warmup_steps=100,
+                warmup_start_value=0.2,
             ),
         )
         cc_scripted = torch.jit.script(cc)
