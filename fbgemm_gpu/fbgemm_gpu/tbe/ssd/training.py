@@ -150,8 +150,212 @@ class SwitchStats:
     snapshot_count: int
 
 
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT"
+)
+_CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT = 9
+_smem_carveout_set: dict[int, int] = {}
+_kvzch_gather_int8_cast_triton_kernel: Any | None = None
+_cu_func_set_attribute_fn: Any | None = None
+
 # fp32 scale and bias after the codes of each INT8 owner-cache row.
 _INT8_ROWWISE_QPARAMS_BYTES = 8
+
+
+def _get_kvzch_gather_int8_cast_triton_kernel() -> Any:
+    """Gather tagged INT8 hits and storage-dtype misses, rounding hits through
+    the storage dtype before rounding to the output dtype, like gather + to()."""
+    global _kvzch_gather_int8_cast_triton_kernel
+    if _kvzch_gather_int8_cast_triton_kernel is not None:
+        return _kvzch_gather_int8_cast_triton_kernel
+    import triton
+    import triton.language as tl
+
+    @triton.jit
+    def _kernel(
+        OUT,
+        ADDR,
+        N,
+        D: tl.constexpr,
+        BD: tl.constexpr,
+        ROW_T: tl.constexpr,
+        BM: tl.constexpr,
+    ):
+        # The stable INT8 writer stores D code bytes then aligned fp32 qparams.
+        tl.static_assert(D % 4 == 0, "INT8 owner-cache dim must be divisible by 4")
+        d = tl.arange(0, BD)
+        for t in range(tl.program_id(0), tl.cdiv(N, BM), tl.num_programs(0)):
+            rows = t * BM + tl.arange(0, BM)
+            m = rows < N
+            addr = tl.load(ADDR + rows, mask=m, other=0)
+            hit = m & ((addr & 1) == 1)
+            miss = m & ((addr & 1) == 0)
+            base = addr & -2
+            code_ptr = base.to(tl.pointer_type(tl.uint8), bitcast=True)
+            codes = tl.load(
+                code_ptr[:, None] + d[None, :],
+                mask=hit[:, None] & (d[None, :] < D),
+                other=0,
+            ).to(tl.float32)
+            qp = (code_ptr + D).to(tl.pointer_type(tl.float32), bitcast=True)
+            scale = tl.load(qp, mask=hit, other=0.0)
+            bias = tl.load(qp + 1, mask=hit, other=0.0)
+            deq = tl.fma(codes, scale[:, None], bias[:, None])
+            deq = deq.to(ROW_T).to(tl.float32)
+            row_ptr = base.to(tl.pointer_type(ROW_T), bitcast=True)
+            row = tl.load(
+                row_ptr[:, None] + d[None, :],
+                mask=miss[:, None] & (d[None, :] < D),
+                other=0.0,
+            ).to(tl.float32)
+            val = tl.where(hit[:, None], deq, row)
+            tl.store(
+                OUT + rows.to(tl.int64)[:, None] * D + d[None, :],
+                val.to(OUT.dtype.element_ty),
+                mask=m[:, None] & (d[None, :] < D),
+            )
+
+    _kvzch_gather_int8_cast_triton_kernel = _kernel
+    return _kernel
+
+
+def _kvzch_int8_fused_cast_launch_config() -> tuple[int, int, float]:
+    bm_error = (
+        f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM_ENV} must be a positive power of two"
+    )
+    try:
+        bm = int(os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM_ENV, "16"))
+    except ValueError as error:
+        raise ValueError(bm_error) from error
+    if bm < 1 or bm & (bm - 1):
+        raise ValueError(bm_error)
+
+    warps_error = (
+        f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS_ENV} "
+        "must be a power of two in [1, 32]"
+    )
+    try:
+        num_warps = int(
+            os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS_ENV, "4")
+        )
+    except ValueError as error:
+        raise ValueError(warps_error) from error
+    if not 1 <= num_warps <= 32 or num_warps & (num_warps - 1):
+        raise ValueError(warps_error)
+
+    programs_error = (
+        f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM_ENV} "
+        "must be finite and positive"
+    )
+    try:
+        programs_per_sm = float(
+            os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM_ENV, "16")
+        )
+    except ValueError as error:
+        raise ValueError(programs_error) from error
+    if not math.isfinite(programs_per_sm) or programs_per_sm <= 0:
+        raise ValueError(programs_error)
+    return bm, num_warps, programs_per_sm
+
+
+def _kvzch_direct_cache_gather_int8_cast(
+    output: torch.Tensor,
+    row_addresses: torch.Tensor,
+    row_dtype: torch.dtype,
+    max_ctas: int = 0,
+) -> torch.Tensor:
+    """Triton fused-cast gather, bit-identical to the storage gather + to().
+
+    Shape defaults are BM=16, num_warps=4, programs_per_sm=16; fractional
+    programs_per_sm caps the grid to a fraction of the device's SM count.
+    """
+    if row_dtype not in (torch.float16, torch.bfloat16, torch.float32):
+        raise ValueError(
+            f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV} row_dtype must be "
+            f"torch.float16, torch.bfloat16, or torch.float32, got {row_dtype}"
+        )
+    # "1" prefers the C++ fused-cast op when present; "triton" or a CTA cap
+    # forces the Triton kernel.
+    if (
+        not max_ctas
+        and os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV) != "triton"
+        and hasattr(torch.ops.fbgemm, "kvzch_direct_cache_gather_int8_cast")
+    ):
+        return torch.ops.fbgemm.kvzch_direct_cache_gather_int8_cast(
+            output, row_addresses, row_dtype
+        )
+    n = row_addresses.numel()
+    if n == 0:
+        return output
+    bm, num_warps, programs_per_sm = _kvzch_int8_fused_cast_launch_config()
+    import triton
+    import triton.language as tl
+
+    row_t = {
+        torch.float16: tl.float16,
+        torch.bfloat16: tl.bfloat16,
+        torch.float32: tl.float32,
+    }[row_dtype]
+    sms = torch.cuda.get_device_properties(output.device).multi_processor_count
+    programs = min(triton.cdiv(n, bm), max(1, int(sms * programs_per_sm)))
+    if max_ctas:
+        programs = min(programs, max_ctas)
+    # Match the reference CUDA gather's device guard and per-device stream.
+    with torch.cuda.device(output.device):
+        compiled = _get_kvzch_gather_int8_cast_triton_kernel()[(programs,)](
+            output,
+            row_addresses,
+            n,
+            D=output.size(1),
+            BD=triton.next_power_of_2(output.size(1)),
+            ROW_T=row_t,
+            BM=bm,
+            num_warps=num_warps,
+        )
+        carveout = os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT_ENV)
+        if carveout:
+            _set_smem_carveout(compiled.function, int(carveout))
+    return output
+
+
+def _cu_func_set_attribute(function: int, attribute: int, value: int) -> int:
+    import ctypes
+
+    global _cu_func_set_attribute_fn
+    if _cu_func_set_attribute_fn is None:
+        fn = ctypes.CDLL("libcuda.so.1").cuFuncSetAttribute
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        fn.restype = ctypes.c_int
+        _cu_func_set_attribute_fn = fn
+    return _cu_func_set_attribute_fn(function, attribute, value)
+
+
+def _set_smem_carveout(function: int, carveout: int) -> None:
+    """Set once per compiled kernel; the carveout applies to later launches."""
+    if not 0 <= carveout <= 100:
+        raise ValueError(
+            f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT_ENV} must be 0-100"
+        )
+    if _smem_carveout_set.get(function) == carveout:
+        return
+    result = _cu_func_set_attribute(
+        function, _CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT, carveout
+    )
+    if result != 0:
+        raise RuntimeError(f"cuFuncSetAttribute(carveout={carveout}) failed: {result}")
+    _smem_carveout_set[function] = carveout
 
 
 def _owner_cache_gather_max_ctas(reserved_sms: int, device: torch.device) -> int:
@@ -201,6 +405,16 @@ class _DirectMappedEnrichmentCache(nn.Module):
         self._fused_float_gather: bool = (
             int8 and fused_float_gather and output_dtype == torch.float32
         )
+        self._fused_cast_dtype: torch.dtype | None = None
+        if (
+            int8
+            and not self._fused_float_gather
+            and output_dtype is not None
+            and output_dtype != cache_dtype
+            and os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV, "0")
+            in ("1", "triton")
+        ):
+            self._fused_cast_dtype = output_dtype
         self._gather_max_ctas: int = _owner_cache_gather_max_ctas(
             gather_reserved_sms, device
         )
@@ -337,7 +551,9 @@ class _DirectMappedEnrichmentCache(nn.Module):
             return torch.empty(
                 (0, self._embedding_dim),
                 dtype=(
-                    torch.float32 if self._fused_float_gather else self._storage_dtype
+                    torch.float32
+                    if self._fused_float_gather
+                    else self._fused_cast_dtype or self._storage_dtype
                 ),
                 device=indices.device,
             )
@@ -366,11 +582,19 @@ class _DirectMappedEnrichmentCache(nn.Module):
         read_backend_into(action_indices_cpu, inserted_rows, actions_count_cpu)
         output = torch.empty(
             (indices.numel(), self._embedding_dim),
-            dtype=torch.float32 if self._fused_float_gather else self._storage_dtype,
+            dtype=(
+                torch.float32
+                if self._fused_float_gather
+                else self._fused_cast_dtype or self._storage_dtype
+            ),
             device=indices.device,
         )
         if self._fused_float_gather:
             torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
+                output, row_addresses, self._storage_dtype, self._gather_max_ctas
+            )
+        elif self._fused_cast_dtype is not None:
+            _kvzch_direct_cache_gather_int8_cast(
                 output, row_addresses, self._storage_dtype, self._gather_max_ctas
             )
         elif self._int8:
