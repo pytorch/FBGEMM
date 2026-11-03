@@ -384,6 +384,15 @@ TEST_F(DramSsdKVEmbeddingCacheTest, RestoreDoesNotPopulateAbsentDramRows) {
 
   EXPECT_EQ(dram_cache_->get_num_rows(), 0);
   EXPECT_TRUE(at::equal(readSsd({id}), at::full({1, EMBEDDING_DIM}, value)));
+
+  constexpr int64_t range_id = id + 1;
+  create_metaheader_row(row, row_dim, range_id);
+  std::fill(row + kMetaHeaderDim, row + row_dim, value);
+  composite_->set_range_to_storage(rows, /*start=*/0, /*length=*/1);
+
+  EXPECT_EQ(dram_cache_->get_num_rows(), 0);
+  EXPECT_TRUE(
+      at::equal(readSsd({range_id}), at::full({1, EMBEDDING_DIM}, value)));
 }
 
 // Test: SSD hit backfills DRAM (subsequent DRAM read should hit)
@@ -440,6 +449,29 @@ TEST_F(DramSsdKVEmbeddingCacheTest, WritebackThreadLifecycle) {
 
   // Should be safe to start again
   composite_->start_writeback_thread();
+}
+
+TEST_F(
+    DramSsdKVEmbeddingCacheTest,
+    ConcurrentWritebackThreadStartIsIdempotent) {
+  createComposite();
+  composite_->stop_writeback_thread();
+
+  std::promise<void> ready;
+  auto start = ready.get_future().share();
+  std::vector<std::future<void>> callers;
+  callers.reserve(8);
+  for (int i = 0; i < 8; ++i) {
+    callers.emplace_back(std::async(std::launch::async, [this, start] {
+      start.wait();
+      composite_->start_writeback_thread();
+    }));
+  }
+  ready.set_value();
+  for (auto& caller : callers) {
+    EXPECT_NO_THROW(caller.get());
+  }
+  EXPECT_NO_THROW(composite_->stop_writeback_thread());
 }
 
 // Test: Destructor stops writeback thread cleanly

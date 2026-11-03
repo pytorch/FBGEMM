@@ -500,6 +500,9 @@ class FeatureEvict {
   // triggers. If there is no ongoing task, initialize the task state.
   void trigger_evict() {
     std::unique_lock<std::mutex> lock(mutex_);
+    if (trigger_suspensions_ > 0) {
+      return;
+    }
     if (!reach_interval_to_trigger_new_round()) {
       return;
     }
@@ -533,6 +536,12 @@ class FeatureEvict {
   // resume task execution
   void resume() {
     std::unique_lock<std::mutex> lock(mutex_);
+    if (trigger_suspensions_ > 0) {
+      if (evict_state_.load() != EvictState::Idle) {
+        resume_after_suspensions_ = true;
+      }
+      return;
+    }
     auto evict_state = evict_state_.load();
     if (evict_state == EvictState::Idle)
       return;
@@ -553,8 +562,52 @@ class FeatureEvict {
     auto evict_state = evict_state_.load();
     if (evict_state == EvictState::Idle)
       return false;
+    if (trigger_suspensions_ > 0) {
+      resume_after_suspensions_ = false;
+    }
     evict_interrupt_.store(true);
     return true;
+  }
+
+  void suspend_triggers() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    ++trigger_suspensions_;
+    bool interrupted_eviction = false;
+    try {
+      if (evict_state_.load() == EvictState::Idle) {
+        return;
+      }
+      if (!evict_interrupt_.exchange(true)) {
+        resume_after_suspensions_ = true;
+        interrupted_eviction = true;
+      }
+      evict_cv_.wait(lock, [this] {
+        return num_waiting_evicts_.load() + finished_evictions_.load() ==
+            num_shards_;
+      });
+    } catch (...) {
+      --trigger_suspensions_;
+      if (interrupted_eviction) {
+        resume_after_suspensions_ = false;
+        evict_interrupt_.store(false);
+        evict_cv_.notify_all();
+      }
+      throw;
+    }
+  }
+
+  void resume_triggers() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    CHECK_GT(trigger_suspensions_, 0);
+    --trigger_suspensions_;
+    if (trigger_suspensions_ == 0 && resume_after_suspensions_) {
+      resume_after_suspensions_ = false;
+      if (thresholds_need_computation_.exchange(false)) {
+        compute_thresholds();
+      }
+      evict_interrupt_.store(false);
+      evict_cv_.notify_all();
+    }
   }
 
   // Check whether a round of eviction is ongoing.
@@ -852,6 +905,7 @@ class FeatureEvict {
     }
 
     num_waiting_evicts_++;
+    evict_cv_.notify_all();
     evict_cv_.wait(lock, [this] { return !evict_interrupt_.load(); });
     num_waiting_evicts_--;
     if (shutdown_.load()) {
@@ -928,6 +982,7 @@ class FeatureEvict {
   void update_evict_finish_flags(int /*shard_id*/) {
     std::unique_lock<std::mutex> lock(mutex_);
     finished_evictions_++;
+    evict_cv_.notify_all();
     if (!has_running_evict()) {
       bool all_finished = finished_evictions_.load() == num_shards_;
       if (all_finished && evict_state_.load() == EvictState::Evict_Ongoing) {
@@ -1028,6 +1083,8 @@ class FeatureEvict {
   std::atomic<EvictState> evict_state_;
   // Indicates whether the eviction task is paused.
   std::atomic<bool> evict_interrupt_;
+  int64_t trigger_suspensions_{0};
+  bool resume_after_suspensions_{false};
   std::atomic<bool> shutdown_;
   // cv to waking up when resume long running tasks
   std::condition_variable evict_cv_;

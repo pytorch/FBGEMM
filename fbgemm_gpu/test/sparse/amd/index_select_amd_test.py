@@ -8,13 +8,23 @@
 # pyre-strict
 
 import math
+import os
 import unittest
+from unittest import mock
 
 import fbgemm_gpu.sparse_ops  # noqa: F401
 import torch
 
 # Smallest embedding-row count the filler indices below are valid for.
 MIN_EMBEDDING_ROWS = 6
+
+# Benchmarking overrides of the ROCm backward sort pre-pass, read by the
+# group_index_select setup in every forward (default off).
+GIS_BWD_SORT_ENV_VARS = (
+    "FBGEMM_GIS_BWD_SORT",
+    "FBGEMM_GIS_BWD_SORT_MIN",
+    "FBGEMM_GIS_BWD_SORT_MAX",
+)
 
 
 def _make_unsorted_indices(
@@ -455,3 +465,268 @@ class IndexSelectAmdTest(unittest.TestCase):
             expected[0] = contribution.float() * num_indices
             assert input_tensor.grad is not None
             torch.testing.assert_close(input_tensor.grad, expected, atol=0, rtol=0)
+
+    def _run_group_index_select_with_env(
+        self,
+        env: dict[str, str],
+        input_group: list[torch.Tensor],
+        indices_group: list[torch.Tensor],
+        grad_group: list[torch.Tensor],
+        profile: bool,
+    ) -> tuple[list[torch.Tensor], list[str]]:
+        """Forward + backward with exactly `env` set among GIS_BWD_SORT_ENV_VARS.
+
+        The setup reads the variables during the forward, so both passes run
+        inside the patch; patch.dict restores os.environ on exit, including the
+        variables removed here. Returns the input gradients (on CPU) and, when
+        `profile` is set, the names of all profiled events (kernels included).
+        """
+        event_names: list[str] = []
+        with mock.patch.dict(os.environ, env):
+            for name in GIS_BWD_SORT_ENV_VARS:
+                if name not in env:
+                    os.environ.pop(name, None)
+            inputs = [
+                tensor.detach().clone().requires_grad_(True) for tensor in input_group
+            ]
+            if profile:
+                with torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA,
+                    ]
+                ) as prof:
+                    outputs = torch.ops.fbgemm.group_index_select_dim0(
+                        inputs, indices_group
+                    )
+                    torch.autograd.backward(outputs, grad_group)
+                    torch.cuda.synchronize()
+                event_names = [event.name for event in prof.events()]
+            else:
+                outputs = torch.ops.fbgemm.group_index_select_dim0(
+                    inputs, indices_group
+                )
+                torch.autograd.backward(outputs, grad_group)
+        grads: list[torch.Tensor] = []
+        for tensor in inputs:
+            self.assertIsNotNone(tensor.grad)
+            assert tensor.grad is not None
+            grads.append(tensor.grad.cpu())
+        return grads, event_names
+
+    def test_group_index_select_bwd_sort_env_override(self) -> None:
+        """FBGEMM_GIS_BWD_SORT{,_MIN,_MAX} switch only the backward sort pre-pass.
+
+        The group takes the non-segment backward (duplication factors 6000/1000
+        and 6000/1500 stay below kMinSegmentReduceDupFactor = 32) with 64 columns
+        (>= cols_per_warp = 32), so the cache path is on for fp16/bf16, and for
+        fp32 once the index count reaches the lower threshold, which
+        FBGEMM_GIS_BWD_SORT_MIN=1000 brings within reach of a small test. The
+        12000 total indices sit below the default 1M (fp16/bf16) and 5M (fp32)
+        lower thresholds, so by default nothing sorts.
+
+        Gradients are multiples of 1/8 of magnitude at most 1/2, and every
+        row's positive (and negative) contributions sum to less than 256 in
+        magnitude (asserted below), so no accumulation order leaves the range
+        where FP16 still represents multiples of 1/8: every path is exact in
+        every dtype, and all settings must agree with each other and with an
+        FP64 index_add_ reference whichever path runs. Where the profiler
+        reports kernel names, the test also checks that a rocprim sort kernel
+        runs exactly in the settings that should sort. Unrecognized values (any
+        other mode; empty, non-numeric, trailing-character, negative or
+        overflowing thresholds) must behave as their fallback, which the path
+        check proves on ROCm.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        num_cols = 64
+        num_indices = 6000
+        hot_row = 7
+        num_embedding_rows_group = [1000, 1500]
+        # (label, env, expect sort for fp32, expect sort for fp16/bf16)
+        settings: list[tuple[str, dict[str, str], bool, bool]] = [
+            ("unset", {}, False, False),
+            ("auto", {"FBGEMM_GIS_BWD_SORT": "auto"}, False, False),
+            ("0", {"FBGEMM_GIS_BWD_SORT": "0"}, False, False),
+            # fp32 below 5M indices keeps the cache path off, so "1" cannot sort.
+            ("1", {"FBGEMM_GIS_BWD_SORT": "1"}, False, True),
+            ("min", {"FBGEMM_GIS_BWD_SORT_MIN": "1000"}, True, True),
+            (
+                "min+max",
+                {"FBGEMM_GIS_BWD_SORT_MIN": "1000", "FBGEMM_GIS_BWD_SORT_MAX": "1001"},
+                False,
+                False,
+            ),
+            # The thresholds are honored only in auto mode.
+            (
+                "0+min",
+                {"FBGEMM_GIS_BWD_SORT": "0", "FBGEMM_GIS_BWD_SORT_MIN": "1000"},
+                False,
+                False,
+            ),
+            # Unrecognized values: any other FBGEMM_GIS_BWD_SORT value means auto,
+            # and a threshold that is empty, non-numeric, has trailing characters,
+            # is negative or overflows falls back to its default.
+            (
+                "garbage",
+                {
+                    "FBGEMM_GIS_BWD_SORT": "yes",
+                    "FBGEMM_GIS_BWD_SORT_MIN": "1000x",
+                    "FBGEMM_GIS_BWD_SORT_MAX": "-1",
+                },
+                False,
+                False,
+            ),  # behaves as unset (the reviewer's case)
+            (
+                "other-mode+min",
+                {"FBGEMM_GIS_BWD_SORT": "yes", "FBGEMM_GIS_BWD_SORT_MIN": "1000"},
+                True,
+                True,
+            ),  # "yes" is auto, so MIN applies (unlike "0+min")
+            (
+                "min-empty",
+                {"FBGEMM_GIS_BWD_SORT_MIN": ""},
+                False,
+                False,
+            ),  # an empty MIN falls back to its default
+            (
+                "min-non-numeric",
+                {"FBGEMM_GIS_BWD_SORT_MIN": "abc"},
+                False,
+                False,
+            ),  # no digits: MIN falls back (read as 0 it would sort)
+            (
+                "min-trailing",
+                {"FBGEMM_GIS_BWD_SORT_MIN": "1000x"},
+                False,
+                False,
+            ),  # not read as "1000" (which sorts, see "min"): MIN falls back
+            (
+                "min-negative",
+                {"FBGEMM_GIS_BWD_SORT_MIN": "-1"},
+                False,
+                False,
+            ),  # a negative MIN falls back; pinned only: -1 read as SIZE_MAX would also pass here
+            (
+                "min-overflow",
+                {"FBGEMM_GIS_BWD_SORT_MIN": "99999999999999999999999"},
+                False,
+                False,
+            ),  # an overflowing MIN falls back; pinned only: a saturated LLONG_MAX would also pass here
+            (
+                "min+max-negative",
+                {"FBGEMM_GIS_BWD_SORT_MIN": "1000", "FBGEMM_GIS_BWD_SORT_MAX": "-1"},
+                True,
+                True,
+            ),  # a negative MAX falls back to 15M; pinned only: discriminating above 15M indices
+            (
+                "min+max-overflow",
+                {
+                    "FBGEMM_GIS_BWD_SORT_MIN": "1000",
+                    "FBGEMM_GIS_BWD_SORT_MAX": "99999999999999999999999",
+                },
+                True,
+                True,
+            ),  # an overflowing MAX falls back to 15M; pinned only: discriminating above 15M indices
+            (
+                "min+max-trailing",
+                {"FBGEMM_GIS_BWD_SORT_MIN": "1000", "FBGEMM_GIS_BWD_SORT_MAX": "1001x"},
+                True,
+                True,
+            ),  # a MAX read as 1001 would stop the sort: MAX falls back to 15M
+        ]
+        env_before = {name: os.environ.get(name) for name in GIS_BWD_SORT_ENV_VARS}
+        generator = torch.Generator().manual_seed(62)
+        path_checks_run = 0
+        path_checks_skipped = 0
+
+        for dtype in [torch.float, torch.float16, torch.bfloat16]:
+            input_group: list[torch.Tensor] = []
+            indices_group: list[torch.Tensor] = []
+            grad_group: list[torch.Tensor] = []
+            expected_group: list[torch.Tensor] = []
+            indices_cpu_group: list[torch.Tensor] = []
+            for num_rows in num_embedding_rows_group:
+                indices_cpu = torch.randint(
+                    0, num_rows, (num_indices,), generator=generator
+                )
+                indices_cpu[::5] = hot_row  # a hot row on top of random repeats
+                grad_fp64 = (
+                    torch.randint(
+                        -4, 5, (num_indices, num_cols), generator=generator
+                    ).double()
+                    / 8
+                )
+                zeros = torch.zeros(num_rows, num_cols, dtype=torch.float64)
+                # Bound on any partial sum, whatever order the adds arrive in.
+                partial_sum_bound = torch.maximum(
+                    zeros.index_add(0, indices_cpu, grad_fp64.clamp(min=0)),
+                    -zeros.index_add(0, indices_cpu, grad_fp64.clamp(max=0)),
+                )
+                self.assertLess(float(partial_sum_bound.max()), 256.0)
+                expected_group.append(zeros.index_add(0, indices_cpu, grad_fp64))
+                indices_cpu_group.append(indices_cpu)
+                indices_group.append(indices_cpu.to(device))
+                grad_group.append(grad_fp64.to(dtype).to(device))
+                input_group.append(
+                    torch.randn(num_rows, num_cols, device=device, dtype=dtype)
+                )
+
+            baseline: list[torch.Tensor] | None = None
+            for label, env, sorts_fp32, sorts_half in settings:
+                with self.subTest(dtype=dtype, setting=label):
+                    grads, _ = self._run_group_index_select_with_env(
+                        env, input_group, indices_group, grad_group, profile=False
+                    )
+                    for grad, expected, indices_cpu in zip(
+                        grads, expected_group, indices_cpu_group
+                    ):
+                        self._assert_grad_matches_reference(
+                            grad, expected, indices_cpu, dtype
+                        )
+                    if baseline is None:
+                        baseline = grads
+                    for grad, base in zip(grads, baseline):
+                        if dtype == torch.float:
+                            rtol, atol = 1e-5, 1e-5
+                        else:
+                            rtol = _grad_tolerance(dtype, num_indices)
+                            atol = rtol * float(base.double().abs().max())
+                        torch.testing.assert_close(
+                            grad.double(),
+                            base.double(),
+                            rtol=rtol,
+                            atol=atol,
+                            msg=f"{label} gradient differs from the unset run",
+                        )
+
+                    # Path check: does the backward launch a rocprim sort?
+                    _, event_names = self._run_group_index_select_with_env(
+                        env, input_group, indices_group, grad_group, profile=True
+                    )
+                    if not any(
+                        "group_index_select_or_add" in name for name in event_names
+                    ):
+                        # No kernel names from the profiler here: nothing to check.
+                        path_checks_skipped += 1
+                        continue
+                    path_checks_run += 1
+                    expect_sort = sorts_fp32 if dtype == torch.float else sorts_half
+                    sort_kernels = sorted(
+                        {name for name in event_names if "rocprim" in name}
+                    )
+                    self.assertEqual(
+                        bool(sort_kernels),
+                        expect_sort,
+                        msg=f"{label}: rocprim kernels {sort_kernels[:3]}",
+                    )
+
+        # patch.dict must leave the process environment as it found it.
+        self.assertEqual(
+            {name: os.environ.get(name) for name in GIS_BWD_SORT_ENV_VARS},
+            env_before,
+        )
+        print(
+            "test_group_index_select_bwd_sort_env_override: sort-path checks "
+            f"run={path_checks_run} skipped={path_checks_skipped} "
+            "(skipped = profiler reported no kernel names)"
+        )

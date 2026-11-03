@@ -68,8 +68,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
-    {{ args.split_function_args_autograd | join(", ") }},
-    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+    int64_t output_dtype,
+    {{ args.split_function_args_autograd | join(", ") }}) {
     Tensor indice_weights_value = indice_weights.value_or(Tensor());
     Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
@@ -195,8 +195,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         Variable(), // gradient_clipping
         Variable(), // max_gradient
         Variable(), // stochastic_rounding
-        {{ args.split_variables | join(", ") }},
         Variable(), // output_dtype
+        {{ args.split_variables | join(", ") }},
     };
   }
 };
@@ -248,8 +248,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
       gradient_clipping,
       max_gradient,
       stochastic_rounding,
-      {{ args.split_function_arg_names_autograd | join(", ") }},
-      output_dtype)[0];
+      output_dtype,
+      {{ args.split_function_arg_names_autograd | join(", ") }})[0];
   {% else %}
   TORCH_CHECK(false, "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail.");
   return Tensor();

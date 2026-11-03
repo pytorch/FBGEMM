@@ -1142,7 +1142,7 @@ Tensor {{ embedding_cuda_op }}(
                 const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
 
                 {% if is_rocm %}
-                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : 4096;
+                    const int max_segment_length_per_cta = 4096;
                 {% else %}
                     //optimize for B200
                     const auto device_properties = at::cuda::getCurrentDeviceProperties();
@@ -1155,22 +1155,24 @@ Tensor {{ embedding_cuda_op }}(
                     TORCH_WARN_ONCE("TBE B200 optimization: device_major=", device_properties->major,
                                     ", feature_enabled=", b200_feature_enabled,
                                     ", segment_length=", default_segment_length);
-                    const int max_segment_length_per_cta = use_deterministic_algorithms ? INT_MAX : default_segment_length;
+                    const int max_segment_length_per_cta = default_segment_length;
 
                 {%- endif %}
 
-                Tensor long_run_id_to_really_long_run_ids;
-                if (use_deterministic_algorithms) {
-                    long_run_id_to_really_long_run_ids =
-                        at::empty(0, sorted_linear_indices_run_lengths.options());
-                } else {
-                    long_run_id_to_really_long_run_ids =
-                        at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
-                }
+                auto long_run_id_to_really_long_run_ids =
+                    at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
 
+                // A run needs partial-gradient slots only when it is longer than
+                // max_segment_length_per_cta (M), so at most numel / M runs do.
+                // Non-deterministic mode uses one shared slot per such run.
+                // Deterministic mode uses one slot per CTA: a run of length s > M
+                // takes ceil(s / M) <= floor(s / M) + 1 <= 2 * floor(s / M) slots,
+                // and the floor(s / M) terms sum to at most floor(numel / M), so
+                // 2 * floor(numel / M) slots are always enough.
+                const auto max_really_long_runs = indices.numel() / max_segment_length_per_cta;
                 auto num_really_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
                 auto grad_accum_counter = at::empty(
-                    use_deterministic_algorithms ? 0 : (indices.numel() / max_segment_length_per_cta),
+                    use_deterministic_algorithms ? 2 * max_really_long_runs : max_really_long_runs,
                     indices.options().dtype(at::kInt));
 
                 constexpr auto fls_ctx = "find_long_segments";
@@ -1193,10 +1195,13 @@ Tensor {{ embedding_cuda_op }}(
                     use_deterministic_algorithms
                 );
 
-                // A temp buffer to accumulate gradients with atomics.
-                auto temp_grad_accum = at::zeros(
-                    {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
-                    aligned_grad_output.options().dtype(std::is_same_v<cache_t, double> ? at::kDouble : at::kFloat));
+                // A temp buffer to accumulate gradients with atomics, or to hold
+                // per-CTA partial gradients in deterministic mode.
+                const auto temp_grad_accum_options =
+                    aligned_grad_output.options().dtype(std::is_same_v<cache_t, double> ? at::kDouble : at::kFloat);
+                auto temp_grad_accum = use_deterministic_algorithms
+                    ? at::empty({grad_accum_counter.numel(), max_D}, temp_grad_accum_options)
+                    : at::zeros({grad_accum_counter.numel(), max_D}, temp_grad_accum_options);
 
                 {%- if has_hip_optimized_support  %}
                 const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);

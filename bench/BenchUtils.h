@@ -37,7 +37,7 @@
 #include <mkl.h>
 #else
 #include <armpl_int.h>
-#include <cblas.h> // @manual=third-party//Arm-Performance-Libraries:armpl_lp64_mp
+#include <cblas.h> // @manual
 #include <openrng.h>
 #endif
 #endif

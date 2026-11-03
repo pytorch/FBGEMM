@@ -38,6 +38,11 @@ on:
         type: string
         required: false
         default: test
+      run-sll-tests:
+        description: Run the long-running SLL test suites
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   # Add the container image that provides each row's ROCm version
@@ -75,6 +80,7 @@ jobs:
       BUILD_TARGET: ${{ matrix.build-target }}
       BUILD_VARIANT: rocm
       BUILD_ROCM_VERSION: ${{ matrix.rocm-version }}
+      FBGEMM_TEST_SLL: ${{ inputs.run-sll-tests && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.resolve_container_images.outputs.matrix) }}
@@ -168,7 +174,7 @@ jobs:
 
     - name: Test with PyTest
       if: ${{ inputs.run-target == 'test' }}
-      timeout-minutes: 180
+      timeout-minutes: ${{ inputs.run-sll-tests && 300 || 180 }}
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Set Up for FBGEMM_GPU Benchmark

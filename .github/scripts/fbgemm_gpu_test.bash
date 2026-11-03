@@ -166,6 +166,10 @@ __configure_fbgemm_gpu_test_rocm () {
     ./attention/blackwell_fmha_test.py
     ./attention/blackwell_attention_splitk_test.py
   )
+
+  if [[ "${FBGEMM_TEST_SLL:-1}" != "1" ]]; then
+    ignored_tests+=("./sll/*_test.py")
+  fi
 }
 
 __set_feature_flags () {
