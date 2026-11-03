@@ -943,6 +943,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         });
   }
 
+  /// The write epoch an enrichment write captures before it is queued.
+  uint64_t laser_write_epoch() const {
+    return laser_write_epoch_.load();
+  }
+
   /// Separate write path for enrichment that runs on enrichment_executor_
   /// instead of the main executor_. This avoids competing with forward/backward
   /// for thread pool resources. Uses pause/resume to yield to fwd/bwd —
@@ -1017,11 +1022,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               block = it->second;
                               if (skip_nonzero_rows &&
                                   !FixedBlockPool::is_weights_all_zero(
-                                      block, block_size_)) {
+                                      block, payload_end_bytes())) {
                                 cursor++;
                                 continue;
                               }
                             } else {
+                              if (skip_nonzero_rows && hbm_ &&
+                                  hbm_rows_[shard_id].contains(id)) {
+                                cursor++;
+                                continue;
+                              }
                               // Key doesn't exist, allocate new block and
                               // insert
                               block = pool->template allocate_t<weight_type>();
@@ -1589,7 +1599,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                     write_epoch,
                     indices = std::move(indices),
                     weights = std::move(weights),
-                    count = std::move(count)](folly::Unit) {
+                    count = std::move(count)](folly::Unit) mutable {
+          if (packed_ && serving_qdq_format().bit_rate != 0) {
+            weights = weights.clone();
+            apply_serving_qdq(weights, count.item<int64_t>());
+          }
           XLOG(INFO) << "[EmbeddingCacheEnrich] row write: "
                      << count.item<int64_t>() << " rows";
           return set_kv_db_async_on_enrichment_executor(

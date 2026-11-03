@@ -451,10 +451,29 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertEqual(int(state[_slot(7, slots)].item()), 10**9)
 
     def _cu_tbe(
-        self, int8_storage: bool = True, load_without_opt: bool = False
+        self,
+        int8_storage: bool = True,
+        load_without_opt: bool = False,
+        owner_cache: bool = False,
     ) -> training.SSDTableBatchedEmbeddingBags:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
+        enrichment_policy = EnrichmentPolicy(
+            enrichment_type=EnrichmentType.IN_MEMORY_TEST_ONLY,
+            enrichment_dim=128,
+            int8_storage=int8_storage,
+            direct_backend_gather=True,
+        )
+        if owner_cache:
+            enrichment_policy = enrichment_policy._replace(
+                owner_cache_size_mb=2000,
+                owner_cache_read_populate=True,
+                owner_cache_read_populate_max_lookups=8,
+                owner_cache_int8=True,
+                owner_cache_int8_fused_float=True,
+                owner_cache_gather_reserved_sms=32,
+                owner_cache_exclusive=False,
+            )
         params = KVZCHParams(
             bucket_offsets=[(0, 10)],
             bucket_sizes=[1000],
@@ -465,12 +484,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             eviction_policy=EvictionPolicy(
                 eviction_trigger_mode=0, meta_header_lens=[8]
             ),
-            enrichment_policy=EnrichmentPolicy(
-                enrichment_type=EnrichmentType.IN_MEMORY_TEST_ONLY,
-                enrichment_dim=128,
-                int8_storage=int8_storage,
-                direct_backend_gather=True,
-            ),
+            enrichment_policy=enrichment_policy,
         )
         return training.SSDTableBatchedEmbeddingBags(
             embedding_specs=[(10000, 128)],
@@ -482,6 +496,96 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             kv_zch_params=params,
             cache_sets=1,
         )
+
+    def test_int8_dram_nonexclusive_read_populate_and_fill_only_writes(self) -> None:
+        device = _cuda_device()
+        tbe = self._cu_tbe(load_without_opt=True, owner_cache=True)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertIs(type(cache), training._DirectMappedEnrichmentCache)
+        self.assertTrue(cache._int8)
+        self.assertTrue(cache._fused_float_gather)
+        self.assertTrue(cache._read_populate)
+        self.assertEqual(cache._read_populate_max_lookups, 8)
+        self.assertEqual(cache.cache_weights.dtype, torch.uint8)
+        self.assertEqual(cache.cache_weights.size(1), 136)
+        self.assertEqual(tbe.ssd_db.get_int8_row_bytes(), 152)
+
+        def read_payloads(keys: torch.Tensor) -> torch.Tensor:
+            ids = keys.cpu()
+            raw = torch.empty(ids.numel(), 136, dtype=torch.uint8)
+            tbe.ssd_db.get_int8_payloads(ids, raw, torch.tensor([ids.numel()]))
+            return raw
+
+        def decode_payloads(raw: torch.Tensor) -> torch.Tensor:
+            qparams = raw[:, 128:].contiguous().view(torch.float32)
+            return raw[:, :128].float() * qparams[:, :1] + qparams[:, 1:]
+
+        generator = torch.Generator().manual_seed(71)
+        original = (torch.randn(2, 128, generator=generator) * 0.3).half()
+        keys = torch.tensor([7, 31], device=device)
+        written = tbe.enrichment_write_rows(
+            torch.tensor([7, 31, 7, 89], device=device),
+            torch.tensor([0, 4], device=device),
+            torch.cat((original[[0, 1, 0]], torch.zeros(1, 128).half())).to(device),
+        )
+        torch.cuda.synchronize()
+        tbe.ssd_db.wait_util_filling_work_done()
+        self.assertEqual(written.cpu().tolist(), [7, 31])
+        saved = read_payloads(keys)
+        expected = decode_payloads(saved).half().float()
+        torch.testing.assert_close(expected, original.float(), rtol=5e-3, atol=5e-3)
+
+        cold = tbe._direct_enrichment_lookup(keys)
+        self.assertEqual(cache.last_hit_counts(), (0, 2))
+        torch.testing.assert_close(cold.cpu(), expected, rtol=1e-3, atol=5e-4)
+        warm = tbe._direct_enrichment_lookup(keys)
+        self.assertEqual(cache.last_hit_counts(), (2, 2))
+        torch.testing.assert_close(warm.cpu(), expected, rtol=5e-3, atol=5e-3)
+        slots = (
+            (cache.cache_state.view(1, -1) == keys.view(-1, 1))
+            .to(torch.int64)
+            .argmax(1)
+        )
+        torch.testing.assert_close(
+            warm.cpu(),
+            decode_payloads(cache.cache_weights[slots].cpu()).half().float(),
+            rtol=1e-6,
+            atol=1e-6,
+        )
+        torch.testing.assert_close(read_payloads(keys), saved, rtol=0, atol=0)
+
+        fresh = (torch.randn(1, 128, generator=generator) * 0.3).half()
+        written = tbe.enrichment_write_rows(
+            torch.tensor([7, 53, 53, 89], device=device),
+            torch.tensor([0, 4], device=device),
+            torch.cat(
+                (
+                    torch.full((1, 128), -7).half(),
+                    fresh,
+                    fresh,
+                    torch.zeros(1, 128).half(),
+                )
+            ).to(device),
+        )
+        torch.cuda.synchronize()
+        tbe.ssd_db.wait_util_filling_work_done()
+        self.assertEqual(written.cpu().tolist(), [7, 53])
+        torch.testing.assert_close(read_payloads(keys), saved, rtol=0, atol=0)
+        new_key = torch.tensor([53], device=device)
+        new_expected = decode_payloads(read_payloads(new_key)).half().float()
+        torch.testing.assert_close(new_expected, fresh.float(), rtol=5e-3, atol=5e-3)
+
+        query = torch.tensor([7, 53, 89], device=device)
+        expected = torch.cat((expected[:1], new_expected, torch.zeros(1, 128)))
+        cold = tbe._direct_enrichment_lookup(query)
+        self.assertEqual(cache.last_hit_counts(), (1, 3))
+        torch.testing.assert_close(cold.cpu(), expected, rtol=5e-3, atol=5e-3)
+        warm = tbe._direct_enrichment_lookup(query)
+        self.assertEqual(cache.last_hit_counts(), (2, 3))
+        self.assertFalse(bool((cache.cache_state == 89).any()))
+        torch.testing.assert_close(warm.cpu(), expected, rtol=5e-3, atol=5e-3)
+        torch.testing.assert_close(warm[-1].cpu(), torch.zeros(128), rtol=0, atol=0)
 
     def test_tbe_checkpoint_pmt_retains_raw_format_after_scope_exit(self) -> None:
         tbe = self._cu_tbe()
