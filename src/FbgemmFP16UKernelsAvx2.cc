@@ -53,7 +53,9 @@ void NOINLINE gemmkernel_1x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vcvtph2ps ymm4,XMMWORD PTR [r10 + 16]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -218,7 +220,9 @@ void NOINLINE gemmkernel_2x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vcvtph2ps ymm6,XMMWORD PTR [r10 + 16]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -405,7 +409,9 @@ void NOINLINE gemmkernel_3x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vcvtph2ps ymm8,XMMWORD PTR [r10 + 16]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -562,7 +568,9 @@ void NOINLINE gemmkernel_4x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vcvtph2ps ymm10,XMMWORD PTR [r10 + 16]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -738,7 +746,9 @@ void NOINLINE gemmkernel_5x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vcvtph2ps ymm12,XMMWORD PTR [r10 + 16]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -933,7 +943,9 @@ void NOINLINE gemmkernel_6x2_Avx2_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
       "vcvtph2ps ymm14,XMMWORD PTR [r10 + 16]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
