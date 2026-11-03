@@ -705,18 +705,19 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     }
   }
 
-  // Allocate Tensor for ptrs of grad output and input, and indices
+  // Allocate Tensor for ptrs of grad output and input, and indices. The last
+  // group_size slots hold each gradient's row stride in elements, so that the
+  // index-add kernel can read row-strided 2D gradients without copying them.
 #ifdef USE_ROCM
   // The segment-reduction path also needs device-visible destination-row
   // offsets. Keep them in the existing packed argument transfer.
-  Tensor args_tensor = at::empty(
-      {group_size * 6 + 1},
-      at::TensorOptions().dtype(at::kLong).pinned_memory(true));
+  const int64_t grad_output_strides_offset = group_size * 6 + 1;
 #else
-  Tensor args_tensor = at::empty(
-      {group_size * 5},
-      at::TensorOptions().dtype(at::kLong).pinned_memory(true));
+  const int64_t grad_output_strides_offset = group_size * 5;
 #endif
+  Tensor args_tensor = at::empty(
+      {grad_output_strides_offset + group_size},
+      at::TensorOptions().dtype(at::kLong).pinned_memory(true));
   // Ensure that args_tensor is contiguous
   TORCH_CHECK(
       args_tensor.is_contiguous(), "Tensor args_tensor must be contiguous.");
@@ -729,6 +730,8 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
       args_tensor.data_ptr<int64_t>() + 3 * group_size;
   int64_t* reverse_indices_ptrs =
       args_tensor.data_ptr<int64_t>() + 4 * group_size;
+  int64_t* grad_output_strides =
+      args_tensor.mutable_data_ptr<int64_t>() + grad_output_strides_offset;
 #ifdef USE_ROCM
   int64_t* row_offsets_group =
       args_tensor.mutable_data_ptr<int64_t>() + 5 * group_size;
@@ -751,13 +754,28 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
   // that the contiguous tensors will outlive the kernel computation
   std::vector<c10::MaybeOwned<at::Tensor>> grad_output_contigs;
   grad_output_contigs.reserve(group_size);
+  // Whether any gradient is read in place with a row stride other than its
+  // width, e.g. a column view of one concatenated [rows, sum_cols] gradient.
+  bool any_strided = false;
 
   for (const auto i : c10::irange(group_size)) {
     const auto& grad = grad_output_group[i];
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(grad, first_indices);
 
-    // Store grad contigs to keep them alive during the kernel computation
-    grad_output_contigs.push_back(grad.expect_contiguous());
+    // Store grad contigs to keep them alive during the kernel computation. A
+    // 2D gradient with contiguous rows is read in place through its row
+    // stride; any other layout is made contiguous as before.
+    if (grad.dim() == 2 && grad.size(0) > 0 && grad.stride(1) == 1 &&
+        grad.stride(0) >= grad.size(1)) {
+      grad_output_contigs.push_back(
+          c10::MaybeOwned<at::Tensor>::borrowed(grad));
+      grad_output_strides[i] = grad.stride(0);
+      any_strided = any_strided || grad.stride(0) != grad.size(1);
+    } else {
+      grad_output_contigs.push_back(grad.expect_contiguous());
+      grad_output_strides[i] =
+          grad.dim() > 0 && grad.size(0) > 0 ? grad.numel() / grad.size(0) : 0;
+    }
 
     // Compute the total number of elements for all grad_inputs
 #ifdef USE_ROCM
@@ -793,6 +811,23 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     grad_output_ptrs[i] =
         reinterpret_cast<int64_t>(grad_output_contigs[i]->const_data_ptr());
   }
+
+#ifdef USE_ROCM
+  // The segment-reduce kernel reads contiguous gradients only: hand it
+  // contiguous copies of the members that would be read through a row stride.
+  if (use_segment_reduce && any_strided) {
+    for (const auto i : c10::irange(group_size)) {
+      const auto& grad = grad_output_group[i];
+      if (grad.dim() == 2 && grad_output_strides[i] != grad.size(1)) {
+        grad_output_contigs[i] = grad.expect_contiguous();
+        grad_output_ptrs[i] =
+            reinterpret_cast<int64_t>(grad_output_contigs[i]->const_data_ptr());
+        grad_output_strides[i] = grad.size(1);
+      }
+    }
+    any_strided = false;
+  }
+#endif
 
   // Allocate a big tensor to avoid calling many small elementwise kernels.
   const auto group_grad_input =
@@ -1025,7 +1060,11 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
         use_var_cols,
         use_contiguous_warps,
         use_cache,
-        use_packed_rows);
+        use_packed_rows,
+        // nullptr keeps the contiguous num_cols row stride for every member
+        any_strided
+            ? args_tensor.const_data_ptr<int64_t>() + grad_output_strides_offset
+            : nullptr);
 
 #ifdef USE_ROCM
   if (use_fp32_accum) {
