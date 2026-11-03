@@ -730,3 +730,158 @@ class IndexSelectAmdTest(unittest.TestCase):
             f"run={path_checks_run} skipped={path_checks_skipped} "
             "(skipped = profiler reported no kernel names)"
         )
+
+    def _assert_strided_grad_views_match_contiguous(
+        self,
+        widths: list[int],
+        dtype: torch.dtype,
+        num_embedding_rows: int,
+        num_indices: int,
+        expect_in_place: bool,
+    ) -> None:
+        """Backward fed column views of one [num_indices, sum(widths)] gradient.
+
+        Compares group_index_select_dim0_gpu_backward on the strided views with
+        the same op on contiguous copies of those views, and both with an FP64
+        index_add_ reference. The raw op is called (args from the setup op, as
+        in index_select_test.py) so that nothing between the caller and the
+        kernel can make the views contiguous first. With expect_in_place, the
+        strided call must also allocate no more device memory than the
+        contiguous one: a copy of the views would add num_indices *
+        sum(widths) elements.
+        """
+        device = torch.device(torch.accelerator.current_accelerator() or "cuda")
+        generator = torch.Generator().manual_seed(61)
+        group_size = len(widths)
+        total_width = sum(widths)
+
+        # num_indices > num_embedding_rows, so the indices repeat and the
+        # index-add accumulates several gradient rows into one table row.
+        indices_cpu_group = [
+            torch.randint(num_embedding_rows, (num_indices,), generator=generator)
+            for _ in widths
+        ]
+        indices_group = [indices.to(device) for indices in indices_cpu_group]
+        input_group = [
+            torch.randn(num_embedding_rows, width, generator=generator).to(
+                device=device, dtype=dtype
+            )
+            for width in widths
+        ]
+
+        output_group = torch.ops.fbgemm.group_index_select_dim0(
+            input_group, indices_group
+        )
+        for output, input_tensor, indices in zip(
+            output_group, input_group, indices_group
+        ):
+            torch.testing.assert_close(
+                output, input_tensor.index_select(0, indices), atol=0, rtol=0
+            )
+
+        # Values k / 8 keep every sum exact in FP32, so neither the atomic
+        # accumulation order nor the gradient layout can change the result.
+        grad_full = (
+            (
+                torch.randint(
+                    -8, 9, (num_indices, total_width), generator=generator
+                ).double()
+                / 8
+            )
+            .to(dtype)
+            .to(device)
+        )
+        strided_grads = list(grad_full.split(widths, dim=1))
+        contiguous_grads = [grad.contiguous() for grad in strided_grads]
+        # Guard against the case under test quietly disappearing.
+        for grad in strided_grads:
+            self.assertEqual(grad.stride(), (total_width, 1))
+            self.assertFalse(grad.is_contiguous())
+
+        args_tensor, saved_data = torch.ops.fbgemm.group_index_select_dim0_gpu_setup(
+            [*indices_group, *input_group], group_size
+        )
+        output_shape_group = [d for t in input_group for d in t.shape]
+
+        def run_backward(grads: list[torch.Tensor]) -> list[torch.Tensor]:
+            res = torch.ops.fbgemm.group_index_select_dim0_gpu_backward(
+                [*grads, *indices_group, args_tensor, saved_data, input_group[0]],
+                output_shape_group,
+            )
+            return list(res[group_size : 2 * group_size])
+
+        def run_backward_peak(
+            grads: list[torch.Tensor],
+        ) -> tuple[list[torch.Tensor], int]:
+            """Run the backward; also return its peak device allocation."""
+            torch.cuda.synchronize(device)
+            torch.cuda.reset_peak_memory_stats(device)
+            baseline = torch.cuda.memory_allocated(device)
+            result = run_backward(grads)
+            torch.cuda.synchronize(device)
+            return result, torch.cuda.max_memory_allocated(device) - baseline
+
+        contiguous_result, contiguous_peak = run_backward_peak(contiguous_grads)
+        strided_result, strided_peak = run_backward_peak(strided_grads)
+        if expect_in_place:
+            self.assertLessEqual(
+                strided_peak,
+                contiguous_peak,
+                "the strided backward allocated more than the contiguous one, "
+                "so it copied the gradient views",
+            )
+
+        for group_id, (width, indices_cpu, strided, contiguous) in enumerate(
+            zip(widths, indices_cpu_group, strided_result, contiguous_result)
+        ):
+            with self.subTest(group_id=group_id, num_cols=width):
+                torch.testing.assert_close(
+                    strided,
+                    contiguous,
+                    rtol=1e-5,
+                    atol=1e-5,
+                    msg="strided gradient views must match contiguous copies",
+                )
+                expected = torch.zeros(
+                    num_embedding_rows, width, dtype=torch.float64
+                ).index_add_(0, indices_cpu, contiguous_grads[group_id].cpu().double())
+                self._assert_grad_matches_reference(
+                    strided.cpu(), expected, indices_cpu, dtype
+                )
+
+    def test_group_index_select_backward_strided_grad_views(self) -> None:
+        """Row-strided gradient views are read in place, without copies.
+
+        A split (or the backward of torch.cat(..., dim=1)) of one [R, sum(W)]
+        gradient gives every member a view with strides (sum(W), 1). The
+        index-add kernel reads such views through a per-member row stride and
+        must match contiguous copies. The cases cover varying widths, equal
+        widths (member id derived from the warp id), narrow equal widths (the
+        packed-rows fast path), a narrow member among wide ones, BF16 (the ROCm
+        cache / contiguous-warp path), and a duplication factor >= 32 that
+        selects the segment-reduce kernel, which must still get contiguous
+        copies.
+        """
+        cases = [
+            # (name, widths, dtype, num_embedding_rows, num_indices, in place)
+            ("var_widths", [64, 64, 32, 128], torch.float, 64, 512, True),
+            ("equal_widths", [64, 64, 64], torch.float, 64, 512, True),
+            ("packed_rows", [16, 16, 16], torch.float, 64, 512, True),
+            ("narrow_member", [64, 16, 128], torch.float, 64, 512, True),
+            ("bf16_cache", [64, 64, 32, 128], torch.bfloat16, 64, 512, True),
+            # 1029 / 16 >= 32 duplicates per row: the segment-reduce kernel,
+            # which is handed contiguous copies.
+            ("segment_reduce", [64, 64, 32, 128], torch.float, 16, 1029, False),
+        ]
+        for (
+            name,
+            widths,
+            dtype,
+            num_embedding_rows,
+            num_indices,
+            expect_in_place,
+        ) in cases:
+            with self.subTest(name=name):
+                self._assert_strided_grad_views_match_contiguous(
+                    widths, dtype, num_embedding_rows, num_indices, expect_in_place
+                )
