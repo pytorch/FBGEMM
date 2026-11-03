@@ -6,7 +6,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
 #include <cstring>
+#include <numeric>
 #include <random>
 
 #include <gtest/gtest.h>
@@ -19,6 +21,58 @@
 
 using namespace std;
 using namespace fbgemm;
+
+namespace {
+template <bool HasWeight, typename F>
+auto uniformTestNBit(F kernel) {
+  return [kernel = std::move(kernel)](
+             auto n,
+             auto size,
+             auto rows,
+             const auto* input,
+             const auto* indices,
+             const auto* offsets,
+             const float* weights [[maybe_unused]],
+             auto* out) {
+    if constexpr (HasWeight) {
+      return kernel(n, size, rows, input, indices, offsets, out, weights);
+    } else {
+      return kernel(n, size, rows, input, indices, offsets, out);
+    }
+  };
+}
+template <
+    typename I,
+    typename O = int32_t,
+    typename T = float,
+    bool ThreadLocal = false,
+    bool Autovec = false,
+    typename... Args>
+EmbeddingSpMDMKernel<uint8_t, I, O, T> makeTestNBit(
+    int input_bit_rate,
+    int64_t block_size,
+    bool has_weight,
+    Args... args) {
+  auto create =
+      [&]<bool HasWeight>() -> EmbeddingSpMDMKernel<uint8_t, I, O, T> {
+    if constexpr (Autovec) {
+      return uniformTestNBit<HasWeight>(
+          GenerateEmbeddingSpMDMNBitWithStrides_autovec<HasWeight, I, O, T>(
+              input_bit_rate, block_size, args...));
+    } else {
+      return uniformTestNBit<HasWeight>(
+          GenerateEmbeddingSpMDMNBitWithStrides<
+              HasWeight,
+              I,
+              O,
+              T,
+              ThreadLocal>(input_bit_rate, block_size, args...));
+    }
+  };
+  return has_weight ? create.template operator()<true>()
+                    : create.template operator()<false>();
+}
+} // namespace
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -104,12 +158,12 @@ void expectThreadLocalKernelsMatchGlobal(int bit_rate) {
   vector<float> global_output(kBlockSize);
   vector<float> thread_local_output(kBlockSize);
 
-  auto global_kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+  auto global_kernel = makeTestNBit< // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
       IndexType,
       OffsetType,
       float,
       /*THREAD_LOCAL=*/false>(bit_rate, kBlockSize, false, false);
-  auto thread_local_kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+  auto thread_local_kernel = makeTestNBit< // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
       IndexType,
       OffsetType,
       float,
@@ -169,6 +223,47 @@ void expectThreadLocalKernelsMatchGlobal(int bit_rate) {
 #endif
 
 void expectDirectAutovecNBitKernelsMatchReference(int bit_rate) {
+  using Unweighted = EmbeddingSpMDMNBitKernel<false, int32_t>;
+  using Weighted = EmbeddingSpMDMNBitKernel<true, int32_t>;
+  static_assert(std::is_invocable_v<
+                Unweighted,
+                int64_t,
+                int64_t,
+                int64_t,
+                const uint8_t*,
+                const int32_t*,
+                const int32_t*,
+                float*>);
+  static_assert(!std::is_invocable_v<
+                Unweighted,
+                int64_t,
+                int64_t,
+                int64_t,
+                const uint8_t*,
+                const int32_t*,
+                const int32_t*,
+                float*,
+                const float*>);
+  static_assert(std::is_invocable_v<
+                Weighted,
+                int64_t,
+                int64_t,
+                int64_t,
+                const uint8_t*,
+                const int32_t*,
+                const int32_t*,
+                float*,
+                const float*>);
+  static_assert(!std::is_invocable_v<
+                Weighted,
+                int64_t,
+                int64_t,
+                int64_t,
+                const uint8_t*,
+                const int32_t*,
+                const int32_t*,
+                float*>);
+
   constexpr int64_t kBlockSize = 8;
   constexpr int64_t kRows = 2;
   const int64_t packed_row_size =
@@ -204,20 +299,19 @@ void expectDirectAutovecNBitKernelsMatchReference(int bit_rate) {
       -1,
       -1,
       true)));
-  auto dense_kernel =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int32_t, int32_t, float>(
-          bit_rate,
-          kBlockSize,
-          false,
-          false,
-          0,
-          false,
-          true,
-          -1,
-          -1,
-          true,
-          false,
-          -1);
+  auto dense_kernel = makeTestNBit<int32_t, int32_t, float, false, true>(
+      bit_rate,
+      kBlockSize,
+      false,
+      false,
+      0,
+      false,
+      true,
+      -1,
+      -1,
+      true,
+      false,
+      -1);
   ASSERT_TRUE(dense_kernel(
       1,
       indices.size(),
@@ -433,56 +527,52 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
 
     bool success = false, success_ref = false;
 
-#define TEST_BASE(                                                      \
-    indices,                                                            \
-    offsets_or_lengths,                                                 \
-    output_ref,                                                         \
-    output,                                                             \
-    IndexType,                                                          \
-    OffsetType,                                                         \
-    OutType,                                                            \
-    THREAD_LOCAL)                                                       \
-  success_ref = EmbeddingSpMDMNBit_ref<IndexType, OffsetType, OutType>( \
-      bit_rate,                                                         \
-      embedding_dim,                                                    \
-      batch_size,                                                       \
-      lengths_sum,                                                      \
-      num_rows,                                                         \
-      fused_embedding_table.data(),                                     \
-      corner_case == EMPTY_INDICES ? nullptr : indices.data(),          \
-      offsets_or_lengths,                                               \
-      use_weight ? weights.data() : nullptr,                            \
-      normalize_by_lengths,                                             \
-      output_ref.data(),                                                \
-      is_wt_positional,                                                 \
-      use_offsets,                                                      \
-      /*output_stride=*/-1,                                             \
-      /*input_stride=*/-1,                                              \
-      scale_bias_last);                                                 \
-                                                                        \
-  auto kernel = GenerateEmbeddingSpMDMNBitWithStrides<                  \
-      IndexType,                                                        \
-      OffsetType,                                                       \
-      OutType,                                                          \
-      THREAD_LOCAL>(                                                    \
-      bit_rate,                                                         \
-      embedding_dim,                                                    \
-      use_weight,                                                       \
-      normalize_by_lengths,                                             \
-      prefetch,                                                         \
-      is_wt_positional,                                                 \
-      use_offsets,                                                      \
-      /*output_stride=*/-1,                                             \
-      /*input_stride=*/-1,                                              \
-      scale_bias_last);                                                 \
-  success = kernel(                                                     \
-      batch_size,                                                       \
-      lengths_sum,                                                      \
-      num_rows,                                                         \
-      fused_embedding_table.data(),                                     \
-      corner_case == EMPTY_INDICES ? nullptr : indices.data(),          \
-      offsets_or_lengths,                                               \
-      use_weight ? weights.data() : nullptr,                            \
+#define TEST_BASE(                                                          \
+    indices,                                                                \
+    offsets_or_lengths,                                                     \
+    output_ref,                                                             \
+    output,                                                                 \
+    IndexType,                                                              \
+    OffsetType,                                                             \
+    OutType,                                                                \
+    THREAD_LOCAL)                                                           \
+  success_ref = EmbeddingSpMDMNBit_ref<IndexType, OffsetType, OutType>(     \
+      bit_rate,                                                             \
+      embedding_dim,                                                        \
+      batch_size,                                                           \
+      lengths_sum,                                                          \
+      num_rows,                                                             \
+      fused_embedding_table.data(),                                         \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(),              \
+      offsets_or_lengths,                                                   \
+      use_weight ? weights.data() : nullptr,                                \
+      normalize_by_lengths,                                                 \
+      output_ref.data(),                                                    \
+      is_wt_positional,                                                     \
+      use_offsets,                                                          \
+      /*output_stride=*/-1,                                                 \
+      /*input_stride=*/-1,                                                  \
+      scale_bias_last);                                                     \
+                                                                            \
+  auto kernel = makeTestNBit<IndexType, OffsetType, OutType, THREAD_LOCAL>( \
+      bit_rate,                                                             \
+      embedding_dim,                                                        \
+      use_weight,                                                           \
+      normalize_by_lengths,                                                 \
+      prefetch,                                                             \
+      is_wt_positional,                                                     \
+      use_offsets,                                                          \
+      /*output_stride=*/-1,                                                 \
+      /*input_stride=*/-1,                                                  \
+      scale_bias_last);                                                     \
+  success = kernel(                                                         \
+      batch_size,                                                           \
+      lengths_sum,                                                          \
+      num_rows,                                                             \
+      fused_embedding_table.data(),                                         \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(),              \
+      offsets_or_lengths,                                                   \
+      use_weight ? weights.data() : nullptr,                                \
       output.data());
 
 #define TEST_THREAD_LOCAL(  \
@@ -552,9 +642,12 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
     TEST_OUT_TYPE(indices, offsets_or_lengths_32, IndexType, int32_t); \
   }
 
+    // The returned std::function owns and destroys its captured callback.
     if (isIndex64b) {
+      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
       TEST_OFFSET_TYPE(indices, int64_t);
     } else {
+      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
       TEST_OFFSET_TYPE(indices_32, int32_t);
     }
 
@@ -762,19 +855,18 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           true,
           false);
 
-      auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
-              bit_rate,
-              embedding_dim,
-              use_weight,
-              false,
-              prefetch,
-              is_wt_positional,
-              true,
-              -1,
-              -1,
-              true,
-              false);
+      auto kernel = makeTestNBit<int64_t, int64_t, float16>( // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          false,
+          prefetch,
+          is_wt_positional,
+          true,
+          -1,
+          -1,
+          true,
+          false);
 
       bool success = kernel(
           batch_size,
@@ -870,19 +962,18 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           true,
           false);
 
-      auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
-              bit_rate,
-              embedding_dim,
-              use_weight,
-              false,
-              prefetch,
-              is_wt_positional,
-              true,
-              -1,
-              -1,
-              true,
-              false);
+      auto kernel = makeTestNBit<int64_t, int64_t, float16>( // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          false,
+          prefetch,
+          is_wt_positional,
+          true,
+          -1,
+          -1,
+          true,
+          false);
 
       bool success = kernel(
           batch_size,
@@ -986,19 +1077,18 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16CorrectnessTest) {
           true,
           false);
 
-      auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
-              bit_rate,
-              embedding_dim,
-              use_weight,
-              normalize,
-              prefetch,
-              is_wt_positional,
-              true,
-              -1,
-              -1,
-              true,
-              false);
+      auto kernel = makeTestNBit<int64_t, int64_t, float16>(
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          normalize,
+          prefetch,
+          is_wt_positional,
+          true,
+          -1,
+          -1,
+          true,
+          false);
 
       bool success = kernel(
           batch_size,
@@ -1178,19 +1268,20 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16ScaleBiasFirstTest) {
           false,
           false);
 
-      auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
-              bit_rate,
-              embedding_dim,
-              use_weight,
-              normalize,
-              prefetch,
-              is_wt_positional,
-              true,
-              -1,
-              -1,
-              false,
-              false);
+      // The returned std::function owns and destroys its captured callback.
+      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+      auto kernel = makeTestNBit<int64_t, int64_t, float16>(
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          normalize,
+          prefetch,
+          is_wt_positional,
+          true,
+          -1,
+          -1,
+          false,
+          false);
 
       bool success = kernel(
           batch_size,
@@ -1295,33 +1386,31 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagTest) {
         weights[i] = use_weight ? 1.0f : 0.0f;
       }
 
-      auto kernel_nobag =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
-              bit_rate,
-              embedding_dim,
-              use_weight,
-              false,
-              prefetch,
-              false,
-              true,
-              -1,
-              -1,
-              scale_bias_last,
-              /*no_bag=*/true);
+      auto kernel_nobag = makeTestNBit<int64_t, int64_t, float16>( // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          false,
+          prefetch,
+          false,
+          true,
+          -1,
+          -1,
+          scale_bias_last,
+          /*no_bag=*/true);
 
-      auto kernel_bag =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
-              bit_rate,
-              embedding_dim,
-              use_weight,
-              false,
-              prefetch,
-              false,
-              true,
-              -1,
-              -1,
-              scale_bias_last,
-              /*no_bag=*/false);
+      auto kernel_bag = makeTestNBit<int64_t, int64_t, float16>( // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
+          bit_rate,
+          embedding_dim,
+          use_weight,
+          false,
+          prefetch,
+          false,
+          true,
+          -1,
+          -1,
+          scale_bias_last,
+          /*no_bag=*/false);
 
       vector<int64_t> offsets(output_size + 1);
       for (int i = 0; i <= output_size; ++i) {
@@ -1407,19 +1496,18 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, fp16NoBagNegativeIndexTest) {
 
   vector<float16> output(output_size * embedding_dim);
 
-  auto kernel =
-      GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float16>(
-          bit_rate,
-          embedding_dim,
-          false,
-          false,
-          prefetch,
-          false,
-          true,
-          -1,
-          -1,
-          true,
-          /*no_bag=*/true);
+  auto kernel = makeTestNBit<int64_t, int64_t, float16>(
+      bit_rate,
+      embedding_dim,
+      false,
+      false,
+      prefetch,
+      false,
+      true,
+      -1,
+      -1,
+      true,
+      /*no_bag=*/true);
 
   bool success = kernel(
       output_size,
@@ -1496,18 +1584,17 @@ TEST(
             sizeof(bias));
       }
 
-      auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, float>(
-              bit_rate,
-              embedding_dim,
-              false /* has_weight */,
-              false /* normalize_by_lengths */,
-              0 /* prefetch */,
-              false /* is_weight_positional */,
-              true /* use_offsets */,
-              -1 /* output_stride */,
-              -1 /* input_stride */,
-              scale_bias_last);
+      auto kernel = makeTestNBit<int64_t, int64_t, float>( // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
+          bit_rate,
+          embedding_dim,
+          false /* has_weight */,
+          false /* normalize_by_lengths */,
+          0 /* prefetch */,
+          false /* is_weight_positional */,
+          true /* use_offsets */,
+          -1 /* output_stride */,
+          -1 /* input_stride */,
+          scale_bias_last);
 
       vector<float> output(
           2 * num_sentries + output_size * embedding_dim, sentry_value);
@@ -1570,20 +1657,19 @@ TEST(
   // the same loop. Both carried the off-by-one.
   for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
     ScopedKernelOverride kernel_override(kernel_choice);
-    const auto kernel =
-        GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
-            kBitRate,
-            kEmbeddingDim,
-            /*has_weight=*/false,
-            /*normalize_by_lengths=*/false,
-            /*prefetch=*/16,
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*output_stride=*/-1,
-            /*input_stride=*/-1,
-            /*scale_bias_last=*/true,
-            /*no_bag=*/true,
-            /*output_bit_rate=*/kBitRate);
+    const auto kernel = makeTestNBit<int64_t, int64_t, uint8_t>(
+        kBitRate,
+        kEmbeddingDim,
+        /*has_weight=*/false,
+        /*normalize_by_lengths=*/false,
+        /*prefetch=*/16,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*no_bag=*/true,
+        /*output_bit_rate=*/kBitRate);
 
     const auto gather_with = [&](int64_t probe_index) {
       vector<int64_t> indices(kOutputSize, 0);
@@ -1645,21 +1731,20 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4DropsInputRowPadding) {
   for (const auto requested_output_stride : {kOutputStride, int64_t{-1}}) {
     for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
       ScopedKernelOverride kernel_override(kernel_choice);
-      fill(output.begin(), output.end(), kCanary);
-      const auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
-              kBitRate,
-              kEmbeddingDim,
-              /*has_weight=*/false,
-              /*normalize_by_lengths=*/false,
-              /*prefetch=*/16,
-              /*is_weight_positional=*/false,
-              /*use_offsets=*/true,
-              /*output_stride=*/requested_output_stride,
-              /*input_stride=*/kInputStride,
-              /*scale_bias_last=*/true,
-              /*no_bag=*/true,
-              /*output_bit_rate=*/kBitRate);
+      std::ranges::fill(output, kCanary);
+      const auto kernel = makeTestNBit<int64_t, int64_t, uint8_t>(
+          kBitRate,
+          kEmbeddingDim,
+          /*has_weight=*/false,
+          /*normalize_by_lengths=*/false,
+          /*prefetch=*/16,
+          /*is_weight_positional=*/false,
+          /*use_offsets=*/true,
+          /*output_stride=*/requested_output_stride,
+          /*input_stride=*/kInputStride,
+          /*scale_bias_last=*/true,
+          /*no_bag=*/true,
+          /*output_bit_rate=*/kBitRate);
 
       ASSERT_TRUE(kernel(
           kOutputSize,
@@ -1746,20 +1831,19 @@ TEST(
       },
       "reference");
 
-  const auto autovec =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, uint8_t>(
-          /*input_bit_rate=*/4,
-          /*block_size=*/kInt4NoBagBlockSize,
-          /*has_weight=*/false,
-          /*normalize_by_lengths=*/false,
-          /*prefetch=*/16,
-          /*is_weight_positional=*/false,
-          /*use_offsets=*/true,
-          /*output_stride=*/-1,
-          kInt4NoBagInputStride,
-          /*scale_bias_last=*/true,
-          /*no_bag=*/true,
-          /*output_bit_rate=*/4);
+  const auto autovec = makeTestNBit<int64_t, int64_t, uint8_t, false, true>(
+      /*input_bit_rate=*/4,
+      /*block_size=*/kInt4NoBagBlockSize,
+      /*has_weight=*/false,
+      /*normalize_by_lengths=*/false,
+      /*prefetch=*/16,
+      /*is_weight_positional=*/false,
+      /*use_offsets=*/true,
+      /*output_stride=*/-1,
+      kInt4NoBagInputStride,
+      /*scale_bias_last=*/true,
+      /*no_bag=*/true,
+      /*output_bit_rate=*/4);
   verify(
       [&](uint8_t* output) {
         return autovec(
@@ -1803,20 +1887,19 @@ TEST(
       /*no_bag=*/true,
       /*output_bit_rate=*/4)));
 
-  const auto autovec =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, uint8_t>(
-          /*input_bit_rate=*/4,
-          /*block_size=*/kInt4NoBagBlockSize,
-          /*has_weight=*/false,
-          /*normalize_by_lengths=*/false,
-          /*prefetch=*/16,
-          /*is_weight_positional=*/false,
-          /*use_offsets=*/true,
-          /*output_stride=*/kInt4NoBagPackedRowSize,
-          /*input_stride=*/kInt4NoBagInputStride,
-          /*scale_bias_last=*/true,
-          /*no_bag=*/true,
-          /*output_bit_rate=*/4);
+  const auto autovec = makeTestNBit<int64_t, int64_t, uint8_t, false, true>(
+      /*input_bit_rate=*/4,
+      /*block_size=*/kInt4NoBagBlockSize,
+      /*has_weight=*/false,
+      /*normalize_by_lengths=*/false,
+      /*prefetch=*/16,
+      /*is_weight_positional=*/false,
+      /*use_offsets=*/true,
+      /*output_stride=*/kInt4NoBagPackedRowSize,
+      /*input_stride=*/kInt4NoBagInputStride,
+      /*scale_bias_last=*/true,
+      /*no_bag=*/true,
+      /*output_bit_rate=*/4);
   EXPECT_FALSE(autovec(
       /*output_size=*/1,
       indices.size(),
@@ -1857,20 +1940,19 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagRejectsNonInt4FloatOutput) {
   };
   EXPECT_THROW(run_reference(), std::exception);
 
-  const auto autovec =
-      GenerateEmbeddingSpMDMNBitWithStrides_autovec<int64_t, int64_t, float>(
-          /*input_bit_rate=*/2,
-          /*block_size=*/kInt4NoBagBlockSize,
-          /*has_weight=*/false,
-          /*normalize_by_lengths=*/false,
-          /*prefetch=*/16,
-          /*is_weight_positional=*/false,
-          /*use_offsets=*/true,
-          /*output_stride=*/kInt4NoBagBlockSize,
-          /*input_stride=*/kInt4NoBagInputStride,
-          /*scale_bias_last=*/true,
-          /*no_bag=*/true,
-          /*output_bit_rate=*/8 * sizeof(float));
+  const auto autovec = makeTestNBit<int64_t, int64_t, float, false, true>(
+      /*input_bit_rate=*/2,
+      /*block_size=*/kInt4NoBagBlockSize,
+      /*has_weight=*/false,
+      /*normalize_by_lengths=*/false,
+      /*prefetch=*/16,
+      /*is_weight_positional=*/false,
+      /*use_offsets=*/true,
+      /*output_stride=*/kInt4NoBagBlockSize,
+      /*input_stride=*/kInt4NoBagInputStride,
+      /*scale_bias_last=*/true,
+      /*no_bag=*/true,
+      /*output_bit_rate=*/8 * sizeof(float));
   EXPECT_THROW(
       autovec(
           /*output_size=*/1,
@@ -1901,20 +1983,19 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4ZerosOutputPadding) {
   for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
     ScopedKernelOverride kernel_override(kernel_choice);
     vector<uint8_t> output(kOutputStride, kCanary);
-    const auto kernel =
-        GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
-            kBitRate,
-            kEmbeddingDim,
-            /*has_weight=*/false,
-            /*normalize_by_lengths=*/false,
-            /*prefetch=*/16,
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*output_stride=*/kOutputStride,
-            /*input_stride=*/kInputStride,
-            /*scale_bias_last=*/true,
-            /*no_bag=*/true,
-            /*output_bit_rate=*/kBitRate);
+    const auto kernel = makeTestNBit<int64_t, int64_t, uint8_t>(
+        kBitRate,
+        kEmbeddingDim,
+        /*has_weight=*/false,
+        /*normalize_by_lengths=*/false,
+        /*prefetch=*/16,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/kOutputStride,
+        /*input_stride=*/kInputStride,
+        /*scale_bias_last=*/true,
+        /*no_bag=*/true,
+        /*output_bit_rate=*/kBitRate);
 
     ASSERT_TRUE(kernel(
         /*output_size=*/1,
@@ -1952,20 +2033,19 @@ TEST(FusedNBitRowwiseEmbeddingLookupTest, NoBagInt4RejectsShortRowStrides) {
   for (const auto& strides : invalid_strides) {
     for (const auto kernel_choice : {DISPATCH_DEFAULT, DISPATCH_AUTOVEC}) {
       ScopedKernelOverride kernel_override(kernel_choice);
-      const auto kernel =
-          GenerateEmbeddingSpMDMNBitWithStrides<int64_t, int64_t, uint8_t>(
-              kBitRate,
-              kEmbeddingDim,
-              /*has_weight=*/false,
-              /*normalize_by_lengths=*/false,
-              /*prefetch=*/16,
-              /*is_weight_positional=*/false,
-              /*use_offsets=*/true,
-              /*output_stride=*/strides.output_stride,
-              /*input_stride=*/strides.input_stride,
-              /*scale_bias_last=*/true,
-              /*no_bag=*/true,
-              /*output_bit_rate=*/kBitRate);
+      const auto kernel = makeTestNBit<int64_t, int64_t, uint8_t>(
+          kBitRate,
+          kEmbeddingDim,
+          /*has_weight=*/false,
+          /*normalize_by_lengths=*/false,
+          /*prefetch=*/16,
+          /*is_weight_positional=*/false,
+          /*use_offsets=*/true,
+          /*output_stride=*/strides.output_stride,
+          /*input_stride=*/strides.input_stride,
+          /*scale_bias_last=*/true,
+          /*no_bag=*/true,
+          /*output_bit_rate=*/kBitRate);
 
       try {
         kernel(

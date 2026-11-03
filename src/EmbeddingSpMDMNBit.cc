@@ -1003,10 +1003,11 @@ GenEmbeddingSpMDMNBitLookup<
 // inner loops all fold away at compile time.
 template <
     int InputBitRate,
+    bool HasWeight,
     typename indxType,
     typename offsetType,
     typename outType>
-EmbeddingSpMDMKernel<uint8_t, indxType, offsetType, outType>
+EmbeddingSpMDMNBitKernel<HasWeight, indxType, offsetType, outType>
 GenerateEmbeddingSpMDMNBitWithStrides_SveFp16(
     const int64_t block_size,
     const bool normalize_by_lengths,
@@ -1022,8 +1023,10 @@ GenerateEmbeddingSpMDMNBitWithStrides_SveFp16(
              const uint8_t* input,
              const indxType* indices,
              const offsetType* offsets_or_lengths,
-             const float* weights,
-             outType* out) {
+             outType* out,
+             auto... weight_args) {
+    const float* weights = nullptr;
+    ((weights = weight_args), ...);
     if (no_bag) {
       return internal::EmbeddingSpMDMNBit_Sve_Fp16<
           InputBitRate,
@@ -1077,15 +1080,15 @@ GenerateEmbeddingSpMDMNBitWithStrides_SveFp16(
 } // namespace
 
 template <
+    bool HasWeight,
     typename indxType,
     typename offsetType,
     typename outType,
     bool THREAD_LOCAL>
-EmbeddingSpMDMKernel<uint8_t, indxType, offsetType, outType>
+EmbeddingSpMDMNBitKernel<HasWeight, indxType, offsetType, outType>
 GenerateEmbeddingSpMDMNBitWithStrides(
     const int input_bit_rate,
     const int64_t block_size,
-    bool has_weight [[maybe_unused]],
     bool normalize_by_lengths,
     int prefetch [[maybe_unused]],
     bool is_weight_positional,
@@ -1116,19 +1119,19 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     if (!cpuinfo_initialize()) {
       throw runtime_error("Failed to initialize cpuinfo!");
     }
-    if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
+    auto make_jit = [&]<inst_set_t InstSet>() {
       static GenEmbeddingSpMDMNBitLookup<
           indxType,
           offsetType,
           outType,
-          inst_set_t::avx512,
+          InstSet,
           /*ROWWISE_SPARSE=*/false,
           THREAD_LOCAL>
           kernel_generator;
       const auto original_func = kernel_generator.getOrCreate(
           input_bit_rate,
           block_size,
-          has_weight,
+          HasWeight,
           is_weight_positional,
           normalize_by_lengths,
           prefetch,
@@ -1142,59 +1145,40 @@ GenerateEmbeddingSpMDMNBitWithStrides(
                  const uint8_t* input,
                  const indxType* indices,
                  const offsetType* offsets_or_lengths,
-                 const float* weights,
-                 outType* out) {
-        return original_func(
-            output_size,
-            index_size,
-            data_size,
-            input,
-            indices,
-            offsets_or_lengths,
-            weights,
-            out,
-            nullptr /* mask not used in avx512 */);
+                 outType* out,
+                 auto... weight_args) {
+        const float* weights = nullptr;
+        ((weights = weight_args), ...);
+        if constexpr (InstSet == inst_set_t::avx2) {
+          return original_func(
+              output_size,
+              index_size,
+              data_size,
+              input,
+              indices,
+              offsets_or_lengths,
+              weights,
+              out,
+              internal::avx2_ps_or_epi32_combined_mask);
+        } else {
+          return original_func(
+              output_size,
+              index_size,
+              data_size,
+              input,
+              indices,
+              offsets_or_lengths,
+              weights,
+              out,
+              nullptr);
+        }
       };
+    };
+    if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
+      return make_jit.template operator()<inst_set_t::avx512>();
     }
     if (fbgemmHasAvx2Support() && !is_asmjit_disabled()) {
-      static GenEmbeddingSpMDMNBitLookup<
-          indxType,
-          offsetType,
-          outType,
-          inst_set_t::avx2,
-          /*ROWWISE_SPARSE=*/false,
-          THREAD_LOCAL>
-          kernel_generator;
-      const auto original_func = kernel_generator.getOrCreate(
-          input_bit_rate,
-          block_size,
-          has_weight,
-          is_weight_positional,
-          normalize_by_lengths,
-          prefetch,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last);
-      return [=](int64_t output_size,
-                 int64_t index_size,
-                 int64_t data_size,
-                 const uint8_t* input,
-                 const indxType* indices,
-                 const offsetType* offsets_or_lengths,
-                 const float* weights,
-                 outType* out) {
-        return original_func(
-            output_size,
-            index_size,
-            data_size,
-            input,
-            indices,
-            offsets_or_lengths,
-            weights,
-            out,
-            internal::avx2_ps_or_epi32_combined_mask);
-      };
+      return make_jit.template operator()<inst_set_t::avx2>();
     }
   }
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
@@ -1208,6 +1192,7 @@ GenerateEmbeddingSpMDMNBitWithStrides(
       if (input_bit_rate == 4) {
         return GenerateEmbeddingSpMDMNBitWithStrides_SveFp16<
             4,
+            HasWeight,
             indxType,
             offsetType,
             outType>(
@@ -1222,6 +1207,7 @@ GenerateEmbeddingSpMDMNBitWithStrides(
       }
       return GenerateEmbeddingSpMDMNBitWithStrides_SveFp16<
           2,
+          HasWeight,
           indxType,
           offsetType,
           outType>(
@@ -1245,12 +1231,12 @@ GenerateEmbeddingSpMDMNBitWithStrides(
   if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
       is_autovec_forced()) {
     return GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        HasWeight,
         /*IndexType=*/indxType,
         /*OffsetType=*/offsetType,
         /*OutType=*/outType>(
         /*input_bit_rate=*/input_bit_rate,
         /*block_size=*/block_size,
-        /*has_weight=*/has_weight,
         /*normalize_by_lengths=*/normalize_by_lengths,
         /*prefetch=*/prefetch,
         /*is_weight_positional=*/is_weight_positional,
@@ -1273,8 +1259,10 @@ GenerateEmbeddingSpMDMNBitWithStrides(
              const uint8_t* input,
              const indxType* indices,
              const offsetType* offsets_or_lengths,
-             const float* weights,
-             outType* out) {
+             outType* out,
+             auto... weight_args) {
+    const float* weights = nullptr;
+    ((weights = weight_args), ...);
     return EmbeddingSpMDMNBit_ref(
         input_bit_rate,
         block_size,
@@ -1297,11 +1285,131 @@ GenerateEmbeddingSpMDMNBitWithStrides(
   };
 }
 
-template <typename IndexType, typename OffsetType, typename OutType>
-FBGEMM_API EmbeddingSpMDMKernel<std::uint8_t, IndexType, OffsetType, OutType>
+template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType>
+FBGEMM_API EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
 GenerateEmbeddingSpMDMNBit(
     int bit_rate,
     const std::int64_t block_size,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets) {
+  return GenerateEmbeddingSpMDMNBitWithStrides<
+      HasWeight,
+      IndexType,
+      OffsetType,
+      OutType>(
+      bit_rate,
+      block_size,
+      normalize_by_lengths,
+      prefetch,
+      is_weight_positional,
+      use_offsets);
+}
+
+template <
+    typename IndexType,
+    typename OffsetType,
+    typename OutType,
+    bool THREAD_LOCAL>
+EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
+GenerateEmbeddingSpMDMNBitWithStrides(
+    const int input_bit_rate,
+    const int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    bool scale_bias_last,
+    const bool no_bag,
+    int output_bit_rate) {
+  if (has_weight) {
+    auto kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+        true,
+        IndexType,
+        OffsetType,
+        OutType,
+        THREAD_LOCAL>(
+        input_bit_rate,
+        block_size,
+        normalize_by_lengths,
+        prefetch,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        no_bag,
+        output_bit_rate);
+    return [kernel = std::move(kernel)](
+               int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const uint8_t* input,
+               const IndexType* indices,
+               const OffsetType* offsets_or_lengths,
+               const float* weights,
+               OutType* out) {
+      return kernel(
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          out,
+          weights);
+    };
+  }
+  auto kernel = GenerateEmbeddingSpMDMNBitWithStrides<
+      false,
+      IndexType,
+      OffsetType,
+      OutType,
+      THREAD_LOCAL>(
+      input_bit_rate,
+      block_size,
+      normalize_by_lengths,
+      prefetch,
+      is_weight_positional,
+      use_offsets,
+      output_stride,
+      input_stride,
+      scale_bias_last,
+      no_bag,
+      output_bit_rate);
+  return [kernel = std::move(kernel)](
+             int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const uint8_t* input,
+             const IndexType* indices,
+             const OffsetType* offsets_or_lengths,
+             const float*,
+             OutType* out) {
+    return kernel(
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        out);
+  };
+}
+
+template <typename IndexType, typename OffsetType, typename OutType>
+FBGEMM_API EmbeddingSpMDMKernel<uint8_t, IndexType, OffsetType, OutType>
+GenerateEmbeddingSpMDMNBit(
+    int bit_rate,
+    const int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
     int prefetch,
@@ -1498,41 +1606,56 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       use_offsets);
 }
 
-#define INSTANTIATE_SPMDM_BASE(                                        \
-    INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL)                   \
-  template FBGEMM_API                                                  \
-      EmbeddingSpMDMKernel<uint8_t, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE> \
-      GenerateEmbeddingSpMDMNBitWithStrides<                           \
-          INDEX_TYPE,                                                  \
-          OFFSET_TYPE,                                                 \
-          OUT_TYPE,                                                    \
-          THREAD_LOCAL>(                                               \
-          const int input_bit_rate,                                    \
-          const int64_t block_size,                                    \
-          bool has_weight,                                             \
-          bool normalize_by_lengths,                                   \
-          int prefetch,                                                \
-          bool is_weight_positional,                                   \
-          bool use_offsets,                                            \
-          int64_t output_stride,                                       \
-          int64_t input_stride,                                        \
-          bool scale_bias_last,                                        \
-          const bool no_bag,                                           \
-          int output_bit_rate);
+#define INSTANTIATE_SPMDM_BASE(I, O, T, LOCAL, W)           \
+  template FBGEMM_API EmbeddingSpMDMNBitKernel<W, I, O, T>  \
+  GenerateEmbeddingSpMDMNBitWithStrides<W, I, O, T, LOCAL>( \
+      const int,                                            \
+      const int64_t,                                        \
+      bool,                                                 \
+      int,                                                  \
+      bool,                                                 \
+      bool,                                                 \
+      int64_t,                                              \
+      int64_t,                                              \
+      bool,                                                 \
+      const bool,                                           \
+      int);
 
-#define INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)        \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)         \
-  template FBGEMM_API                                                     \
-      EmbeddingSpMDMKernel<uint8_t, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>    \
-      GenerateEmbeddingSpMDMNBit<INDEX_TYPE, OFFSET_TYPE, OUT_TYPE>(      \
-          int bit_rate,                                                   \
-          const int64_t block_size,                                       \
-          bool has_weight,                                                \
-          bool normalize_by_lengths,                                      \
-          int prefetch,                                                   \
-          bool is_weight_positional,                                      \
-          bool use_offsets);
+#define INSTANTIATE_SPMDM_LEGACY_BASE(I, O, T, LOCAL)        \
+  template FBGEMM_API EmbeddingSpMDMKernel<uint8_t, I, O, T> \
+  GenerateEmbeddingSpMDMNBitWithStrides<I, O, T, LOCAL>(     \
+      const int,                                             \
+      const int64_t,                                         \
+      bool,                                                  \
+      bool,                                                  \
+      int,                                                   \
+      bool,                                                  \
+      bool,                                                  \
+      int64_t,                                               \
+      int64_t,                                               \
+      bool,                                                  \
+      const bool,                                            \
+      int);
+
+#define INSTANTIATE_SPMDM_THREAD_LOCAL(I, O, T) \
+  INSTANTIATE_SPMDM_BASE(I, O, T, false, false) \
+  INSTANTIATE_SPMDM_BASE(I, O, T, false, true)  \
+  INSTANTIATE_SPMDM_BASE(I, O, T, true, false)  \
+  INSTANTIATE_SPMDM_BASE(I, O, T, true, true)
+
+#define INSTANTIATE_SPMDM_LEGACY_THREAD_LOCAL(I, O, T) \
+  INSTANTIATE_SPMDM_LEGACY_BASE(I, O, T, false)        \
+  INSTANTIATE_SPMDM_LEGACY_BASE(I, O, T, true)
+
+#define INSTANTIATE_SPMDM_NBIT(I, O, T, W)                 \
+  template FBGEMM_API EmbeddingSpMDMNBitKernel<W, I, O, T> \
+  GenerateEmbeddingSpMDMNBit<W, I, O, T>(                  \
+      int, const int64_t, bool, int, bool, bool);
+
+#define INSTANTIATE_SPMDM_NBIT_LEGACY(I, O, T)               \
+  template FBGEMM_API EmbeddingSpMDMKernel<uint8_t, I, O, T> \
+  GenerateEmbeddingSpMDMNBit<I, O, T>(                       \
+      int, const int64_t, bool, bool, int, bool, bool);
 
 #define INSTANTIATE_SPMDM_ROWWISE_SPARSE_LEGACY(INDEX_TYPE, OFFSET_TYPE)   \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
@@ -1567,9 +1690,25 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       bool use_offsets);
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                    \
+  INSTANTIATE_SPMDM_NBIT_LEGACY(INDEX_TYPE, OFFSET_TYPE, float)             \
+  INSTANTIATE_SPMDM_LEGACY_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)     \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, float, false)             \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, float, true)              \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)            \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, float16, false)           \
+  INSTANTIATE_SPMDM_NBIT_LEGACY(INDEX_TYPE, OFFSET_TYPE, float16)           \
+  INSTANTIATE_SPMDM_LEGACY_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float16)   \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, float16, true)            \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float16)          \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, bfloat16, false)          \
+  INSTANTIATE_SPMDM_NBIT_LEGACY(INDEX_TYPE, OFFSET_TYPE, bfloat16)          \
+  INSTANTIATE_SPMDM_LEGACY_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, bfloat16)  \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, bfloat16, true)           \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, bfloat16)         \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, uint8_t, false)           \
+  INSTANTIATE_SPMDM_NBIT_LEGACY(INDEX_TYPE, OFFSET_TYPE, uint8_t)           \
+  INSTANTIATE_SPMDM_LEGACY_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)   \
+  INSTANTIATE_SPMDM_NBIT(INDEX_TYPE, OFFSET_TYPE, uint8_t, true)            \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)          \
   INSTANTIATE_SPMDM_ROWWISE_SPARSE_LEGACY(INDEX_TYPE, OFFSET_TYPE)          \
   INSTANTIATE_SPMDM_ROWWISE_SPARSE_STRATEGY(INDEX_TYPE, OFFSET_TYPE, false) \
@@ -1586,7 +1725,11 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 #undef INSTANTIATE_SPMDM_OUT_T
 #undef INSTANTIATE_SPMDM_ROWWISE_SPARSE_STRATEGY
 #undef INSTANTIATE_SPMDM_ROWWISE_SPARSE_LEGACY
+#undef INSTANTIATE_SPMDM_NBIT
+#undef INSTANTIATE_SPMDM_NBIT_LEGACY
 #undef INSTANTIATE_SPMDM_THREAD_LOCAL
+#undef INSTANTIATE_SPMDM_LEGACY_THREAD_LOCAL
 #undef INSTANTIATE_SPMDM_BASE
+#undef INSTANTIATE_SPMDM_LEGACY_BASE
 
 } // namespace fbgemm
