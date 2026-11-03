@@ -22,7 +22,10 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <torch/script.h>
+#include <cerrno>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <stdexcept> // for logic_error
 #include <utility>
@@ -70,6 +73,49 @@ void offset_args(
   *num_cols_group = reinterpret_cast<int32_t*>(
       base_addr + ptr_offsets[P_num_cols_group_ptrs]);
 }
+
+#ifdef USE_ROCM
+// Benchmarking/tuning override for the backward sort pre-pass of
+// group_index_select, default off: with none of these variables set (or
+// FBGEMM_GIS_BWD_SORT=auto, or any other value) the index-count heuristic in
+// group_index_select_dim0_forward_common_gpu is unchanged.
+//   FBGEMM_GIS_BWD_SORT=0  never sort; the cache/contig decision is unchanged.
+//   FBGEMM_GIS_BWD_SORT=1  sort whenever the cache path is enabled, ignoring
+//                          the index-count window.
+//   FBGEMM_GIS_BWD_SORT_MIN / FBGEMM_GIS_BWD_SORT_MAX (auto mode only):
+//                          replace the lower / upper index-count thresholds,
+//                          exactly as if they were compiled in (for fp32 the
+//                          lower one also gates the cache path).
+// Read on every forward/setup call; the setup runs once per forward.
+enum class GisBwdSortMode { kAuto, kOff, kOn };
+
+GisBwdSortMode get_gis_bwd_sort_mode() {
+  const char* const value = std::getenv("FBGEMM_GIS_BWD_SORT");
+  if (value != nullptr && std::strcmp(value, "0") == 0) {
+    return GisBwdSortMode::kOff;
+  }
+  if (value != nullptr && std::strcmp(value, "1") == 0) {
+    return GisBwdSortMode::kOn;
+  }
+  return GisBwdSortMode::kAuto;
+}
+
+// The variable's value when it is a whole non-negative decimal integer,
+// `fallback` otherwise (unset, empty, negative, trailing characters, overflow).
+size_t get_gis_bwd_sort_threshold(const char* name, const size_t fallback) {
+  const char* const value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return fallback;
+  }
+  char* end = nullptr;
+  errno = 0;
+  const long long parsed = std::strtoll(value, &end, 10);
+  if (errno != 0 || end == value || *end != '\0' || parsed < 0) {
+    return fallback;
+  }
+  return static_cast<size_t>(parsed);
+}
+#endif // USE_ROCM
 } // namespace
 
 class LookupFunctionBatchedUnaryEmbeddingOp
@@ -436,7 +482,7 @@ group_index_select_dim0_forward_common_gpu(
 #ifdef USE_ROCM
   // The values are selected empirically. Potential
   // place for optimization.
-  constexpr size_t kSortIndicesUpperThreshold = 15'000'000;
+  constexpr size_t kSortIndicesUpperThresholdDefault = 15'000'000;
 
   // Sorting only pays off when there are enough indices to amortize
   // the sorting cost, and the crossover point depends on the dtype.
@@ -444,9 +490,23 @@ group_index_select_dim0_forward_common_gpu(
   constexpr size_t kSortIndicesLowerThresholdFullPrec = 5'000'000;
 
   const bool is_low_precision = first_input.dtype().itemsize() <= 2;
-  const size_t kSortIndicesLowerThreshold = is_low_precision
+  const size_t kSortIndicesLowerThresholdDefault = is_low_precision
       ? kSortIndicesLowerThresholdLowPrec
       : kSortIndicesLowerThresholdFullPrec;
+
+  // FBGEMM_GIS_BWD_SORT{,_MIN,_MAX}: benchmarking/tuning override, default off
+  // (see get_gis_bwd_sort_mode()). The thresholds are only overridden in auto
+  // mode, so "0" and "1" keep today's cache/contig decision.
+  const GisBwdSortMode bwd_sort_mode = get_gis_bwd_sort_mode();
+  const bool bwd_sort_auto = bwd_sort_mode == GisBwdSortMode::kAuto;
+  const size_t kSortIndicesLowerThreshold = bwd_sort_auto
+      ? get_gis_bwd_sort_threshold(
+            "FBGEMM_GIS_BWD_SORT_MIN", kSortIndicesLowerThresholdDefault)
+      : kSortIndicesLowerThresholdDefault;
+  const size_t kSortIndicesUpperThreshold = bwd_sort_auto
+      ? get_gis_bwd_sort_threshold(
+            "FBGEMM_GIS_BWD_SORT_MAX", kSortIndicesUpperThresholdDefault)
+      : kSortIndicesUpperThresholdDefault;
 
   // Caching and contiguous warp dispatch only pay off when a warp can fill its
   // column tile; for narrow columns (num_cols < cols_per_warp) they regress, so
@@ -459,9 +519,21 @@ group_index_select_dim0_forward_common_gpu(
   // The sort pre-pass only exists to feed the cache (it groups equal indices so
   // the accumulator can collapse atomics). If caching is disabled, sorting is
   // pure overhead, so gate sorting on the cache decision as well.
-  const bool use_sorted_indices_for_bwd = enable_cache_and_contig_for_bwd &&
-      (num_total_indices >= kSortIndicesLowerThreshold) &&
-      (num_total_indices < kSortIndicesUpperThreshold);
+  bool use_sorted_indices_for_bwd = false;
+  switch (bwd_sort_mode) {
+    case GisBwdSortMode::kOff:
+      use_sorted_indices_for_bwd = false;
+      break;
+    case GisBwdSortMode::kOn:
+      use_sorted_indices_for_bwd =
+          enable_cache_and_contig_for_bwd && num_total_indices > 0;
+      break;
+    case GisBwdSortMode::kAuto:
+      use_sorted_indices_for_bwd = enable_cache_and_contig_for_bwd &&
+          (num_total_indices >= kSortIndicesLowerThreshold) &&
+          (num_total_indices < kSortIndicesUpperThreshold);
+      break;
+  }
 #else
   const bool use_sorted_indices_for_bwd = false;
   const bool enable_cache_and_contig_for_bwd = false;
