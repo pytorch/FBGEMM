@@ -1146,6 +1146,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.backend_return_whole_row: bool = False
         self._embedding_cache_mode: bool = False
         self._enrichment_enabled: bool = False
+        # Bytes of a raw INT8 checkpoint row (EnrichmentPolicy.int8_storage);
+        # 0 when the backend stores fp16 rows.
+        self._int8_row_bytes: int = 0
+        # set_int8_checkpoint_rows: whole-row checkpoint tensors carry the raw
+        # INT8 rows instead of fp16 rows.
+        self._int8_checkpoint_rows: bool = False
         self._direct_backend_gather: bool = False
         self._owner_cache_size_mb: int = 0
         self._owner_cache_read_populate: bool = False
@@ -1865,6 +1871,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     self._serving_qdq_bit_rate(ep),
                     ep.serving_qdq_group_size,
                     ep.packed_storage,
+                    self._int8_storage(ep),
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -1891,6 +1898,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.res_params.table_sizes,
                 enrichment_config,  # enrichment_config
             )
+            self._int8_row_bytes = self._ssd_db.get_int8_row_bytes()
         elif self.backend_type == BackendType.DRAM_SSD:
             logging.info(
                 f"Logging DRAM_SSD offloading setup, tbe_unique_id:{tbe_unique_id}, "
@@ -5236,6 +5244,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 # to achieve this, the row_offset will be set to (table_offset - local_shard_offset)
                 row_offset = table_offset - (bucket_id_start * bucket_size)
 
+            int8_rows = self.kv_zch_params is not None and (
+                self._int8_checkpoint_rows_active(is_loading_checkpoint)
+            )
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
                 shape=[
                     (
@@ -5243,11 +5254,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         if bucket_ascending_id_tensor is not None
                         else emb_height
                     ),
-                    self.get_embedding_dim_for_kvt(
-                        metaheader_dim, emb_dim, is_loading_checkpoint
+                    (
+                        self._int8_row_bytes
+                        if int8_rows
+                        else self.get_embedding_dim_for_kvt(
+                            metaheader_dim, emb_dim, is_loading_checkpoint
+                        )
                     ),
                 ],
-                dtype=dtype,
+                dtype=torch.uint8 if int8_rows else dtype,
                 row_offset=row_offset,
                 snapshot_handle=snapshot_handle,
                 # set bucket_ascending_id_tensor to kvt wrapper, so narrow will follow the id order to return
@@ -5398,6 +5413,44 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     1,
                     False,
                 )
+
+    def _int8_storage(self, ep: EnrichmentPolicy) -> bool:
+        """Validated EnrichmentPolicy.int8_storage for this TBE."""
+        if not ep.int8_storage:
+            return False
+        if self.weights_precision != SparseType.FP16:
+            raise ValueError(
+                f"int8_storage needs FP16 weights, got {self.weights_precision}"
+            )
+        if ep.enrichment_type not in (
+            EnrichmentType.IGR_LASER_EMBEDDING,
+            EnrichmentType.IN_MEMORY_TEST_ONLY,
+        ):
+            raise ValueError(
+                f"int8_storage needs an embedding payload, got {ep.enrichment_type}"
+            )
+        return True
+
+    @torch.jit.ignore
+    def set_int8_checkpoint_rows(self, enabled: bool) -> bool:
+        """With `enabled`, split_embedding_weights() returns the whole-row
+        weight tensors of an int8_storage table as its raw INT8 rows (uint8:
+        MetaHeader, codes, fp32 scale and bias, fp16 tail) instead of fp16
+        rows, both for saving and for loading a checkpoint. Only the checkpoint
+        path turns this on; publish keeps reading fp16 rows. Returns whether
+        this TBE stores INT8 rows (otherwise this is a no-op)."""
+        if self._int8_row_bytes == 0:
+            return False
+        self._int8_checkpoint_rows = enabled
+        return True
+
+    def _int8_checkpoint_rows_active(self, is_loading_checkpoint: bool) -> bool:
+        return (
+            self._int8_checkpoint_rows
+            and self._int8_row_bytes > 0
+            and self.backend_return_whole_row
+            and not (self.load_ckpt_without_opt and is_loading_checkpoint)
+        )
 
     def _serving_qdq_bit_rate(self, ep: EnrichmentPolicy) -> int:
         """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE, also

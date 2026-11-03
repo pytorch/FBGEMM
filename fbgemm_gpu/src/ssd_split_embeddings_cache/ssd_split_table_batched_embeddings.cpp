@@ -469,6 +469,24 @@ inline at::Tensor prepare_whole_row_weights(
   return whole_rows;
 }
 
+// Whether a KVTensorWrapper reads and writes the backend's raw INT8 rows:
+// uint8 rows on a backend that stores rows as INT8 (DRAM int8_storage). Their
+// width is in bytes, bounded by the backend's INT8 row bytes.
+inline bool is_int8_rows(
+    kv_db::EmbeddingKVDB& db,
+    const at::TensorOptions& options) {
+  return options.dtype() == at::kByte && db.get_int8_row_bytes() > 0;
+}
+
+// Upper bound of a row's width (MetaHeader included) in the wrapper's dtype.
+inline int64_t max_row_width(
+    kv_db::EmbeddingKVDB& db,
+    const at::TensorOptions& options) {
+  return is_int8_rows(db, options)
+      ? db.get_int8_row_bytes()
+      : db.get_max_D() + db.get_metaheader_width_in_front();
+}
+
 SnapshotHandle::SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
   auto num_shards = db->num_shards();
   CHECK_GT(num_shards, 0);
@@ -774,8 +792,7 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   if (db_) {
     CHECK_TRUE(db_ != nullptr);
-    CHECK_GE(
-        db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+    CHECK_GE(max_row_width(*db_, options_), shape_[1]);
     TORCH_CHECK(
         (snapshot_handle_ != nullptr) ==
             (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_) != nullptr ||
@@ -847,10 +864,14 @@ void KVTensorWrapper::set_range(
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   if (!only_load_weight_) {
-    CHECK_GE(
-        db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+    CHECK_GE(max_row_width(*db_, options_), shape_[1]);
   }
   if (length == 0) {
+    return;
+  }
+
+  if (is_int8_rows(*db_, options_)) {
+    set_raw_rows(weights, ids_in_checkpoint(weights));
     return;
   }
 
@@ -939,9 +960,13 @@ void KVTensorWrapper::set_weights_and_ids_impl(
   TORCH_CHECK(
       ids.numel() == weights.size(0),
       "ids and weights must have the same number of rows");
-  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+  CHECK_GE(max_row_width(*db_, options_), shape_[1]);
   auto checkpoint_view_ids =
       ids.to(at::ScalarType::Long).reshape({-1}).contiguous();
+  if (is_int8_rows(*db_, options_)) {
+    set_raw_rows(weights, checkpoint_view_ids);
+    return;
+  }
   if (db_->get_backend_return_whole_row()) {
     const int64_t metadata_width = db_->get_metaheader_width_in_front();
     if (!weights_include_metadata) {
@@ -1001,6 +1026,27 @@ void KVTensorWrapper::set_weights_and_ids_impl(
         padded_weights.size(1));
     db_->set_kv_to_storage(storage_ids, padded_weights);
   }
+}
+
+void KVTensorWrapper::set_raw_rows(
+    const at::Tensor& rows,
+    const at::Tensor& view_ids) {
+  TORCH_CHECK(
+      rows.scalar_type() == at::kByte &&
+          rows.size(1) == db_->get_int8_row_bytes(),
+      "INT8 rows must be uint8 with ",
+      db_->get_int8_row_bytes(),
+      " bytes per row");
+  const auto present_rows =
+      rows_present_in_checkpoint(rows, sizeof(FixedBlockPool::MetaHeader));
+  if (present_rows.numel() == 0) {
+    return;
+  }
+  auto raw_rows = rows.index_select(0, present_rows);
+  const auto storage_ids = storage_ids_from_view_ids(
+      view_ids.index_select(0, present_rows), row_offset_);
+  replace_weights_id(raw_rows, storage_ids);
+  db_->set_kv_to_storage(storage_ids, raw_rows);
 }
 
 void to_json(ssd::json& j, const KVTensorWrapper& kvt) {
@@ -1091,10 +1137,8 @@ void from_json(const ssd::json& j, KVTensorWrapper& kvt) {
 
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
   CHECK_TRUE(db_ != nullptr);
-  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
-  CHECK_GE(
-      db_->get_max_D() + db_->get_metaheader_width_in_front(),
-      shape_[1] + width_offset_);
+  CHECK_GE(max_row_width(*db_, options_), shape_[1]);
+  CHECK_GE(max_row_width(*db_, options_), shape_[1] + width_offset_);
   TORCH_CHECK(
       (snapshot_handle_ != nullptr) ==
           (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_) != nullptr ||
@@ -1432,6 +1476,7 @@ auto enrichment_config =
                 std::vector<std::string>,
                 int64_t,
                 int64_t,
+                bool,
                 bool>(),
             "",
             {
@@ -1460,6 +1505,7 @@ auto enrichment_config =
                 torch::arg("serving_qdq_bit_rate") = 0,
                 torch::arg("serving_qdq_group_size") = 0,
                 torch::arg("packed_storage") = false,
+                torch::arg("int8_storage") = false,
             });
 
 auto dram_kv_embedding_cache_wrapper =
@@ -1633,6 +1679,12 @@ auto dram_kv_embedding_cache_wrapper =
         .def(
             "exclusive_hbm_stats",
             &DramKVEmbeddingCacheWrapper::exclusive_hbm_stats)
+        .def(
+            "get_int8_row_bytes",
+            &DramKVEmbeddingCacheWrapper::get_int8_row_bytes)
+        .def(
+            "get_int8_write_counts",
+            &DramKVEmbeddingCacheWrapper::get_int8_write_counts)
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",

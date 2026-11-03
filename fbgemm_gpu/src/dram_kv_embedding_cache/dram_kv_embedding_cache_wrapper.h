@@ -290,6 +290,15 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return half_impl().exclusive_hbm_stats();
   }
 
+  /// Bytes per raw INT8 checkpoint row, or 0 without int8_storage.
+  int64_t get_int8_row_bytes() {
+    return impl_->get_int8_row_bytes();
+  }
+
+  std::vector<int64_t> get_int8_write_counts() {
+    return half_impl().get_int8_write_counts();
+  }
+
  private:
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;

@@ -596,6 +596,12 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return false;
   }
 
+  /// Bytes per row of the raw INT8 row format read and written through uint8
+  /// tensors (MetaHeader included), or 0 when the backend has no INT8 rows.
+  virtual int64_t get_int8_row_bytes() {
+    return 0;
+  }
+
   virtual int64_t get_metaheader_width_in_front() {
     // will return non-zero if DRAM enables backend_return_whole_row
     return 0;
