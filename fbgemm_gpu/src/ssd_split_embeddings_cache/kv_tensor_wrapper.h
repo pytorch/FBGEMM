@@ -73,6 +73,10 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 
+  // Read-only logical rows with the same IDs and snapshot as raw INT8 rows.
+  // Returns nullptr for wrappers that do not expose raw INT8 whole rows.
+  c10::intrusive_ptr<KVTensorWrapper> fp16_publish_view() const;
+
   void logss();
 
   /// @brief if the backend storage is SSD, use this function
