@@ -321,6 +321,43 @@ class ResEnabledTablesTest(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    def test_hbm_lane_turns_off_without_an_allowlisted_device_table(self) -> None:
+        # enable_hbm_streaming=True, but no table is both DEVICE and allowlisted.
+        for name, table_names, locations, res_enabled_tables, lookup in [
+            (
+                "no_device_table",
+                ["t0"],
+                [EmbeddingLocation.MANAGED_CACHING],
+                ["t0"],
+                ([[3]], [5]),
+            ),
+            (
+                "device_table_not_allowlisted",
+                ["t0", "t1"],
+                [EmbeddingLocation.DEVICE, EmbeddingLocation.MANAGED_CACHING],
+                ["t1"],
+                ([[3], [2]], [5, 1002]),
+            ),
+        ]:
+            with self.subTest(name):
+                tbe = self._build_mixed_tbe(
+                    table_names, locations, res_enabled_tables=res_enabled_tables
+                )
+                cache_lane_ships, hbm_ships = self._record_ships(tbe)
+
+                self._lookup_then_drain(tbe, [lookup])
+
+                _, cache_lane_identities = cache_lane_ships[0]
+                self.assertIsNotNone(cache_lane_identities)
+                self.assertEqual(hbm_ships, [])
+                self.assertFalse(tbe._res_hbm_streaming)
+                self.assertFalse(hasattr(tbe, "_res_rows_seen"))
+                self.assertFalse(hasattr(tbe, "_res_hbm_linear_mask"))
+                self.assertFalse(hasattr(tbe, "_res_hbm_row_identities"))
+                self.assertFalse(hasattr(tbe, "_res_hbm_row_runtime_meta"))
+
+    # pyrefly: ignore [bad-argument-type]
+    @unittest.skipIf(*gpu_unavailable)
     def test_hbm_mark_records_every_touched_row(self) -> None:
         # The mark is unconditional on cache state: t1 is DEVICE-placed and so
         # never hits the cache, and its row must still be recorded. At
@@ -1029,23 +1066,6 @@ class ResEnabledTablesTest(unittest.TestCase):
         self._lookup_then_drain(tbe, [([[3], [2]], None)])
 
         self.assertEqual(hbm_ships, [([ROWS + 2], None)])
-        self.assertIsNone(tbe._res_hbm_row_identities)
-
-    # pyrefly: ignore [bad-argument-type]
-    @unittest.skipIf(*gpu_unavailable)
-    def test_hbm_identities_not_recorded_without_an_allowlisted_device_table(
-        self,
-    ) -> None:
-        # t0 is UVM-cached, so no row of this TBE can ship on the HBM lane.
-        tbe = self._build_mixed_tbe(
-            ["t0"], [EmbeddingLocation.MANAGED_CACHING], res_enabled_tables=["t0"]
-        )
-        cache_lane_ships, hbm_ships = self._record_ships(tbe)
-
-        self._lookup_then_drain(tbe, [([[3]], [5])])
-
-        self.assertEqual(cache_lane_ships[0], ([3], [[5]]))
-        self.assertEqual(hbm_ships, [])
         self.assertIsNone(tbe._res_hbm_row_identities)
 
     # pyrefly: ignore [bad-argument-type]
