@@ -295,6 +295,17 @@ class EnrichmentPolicy(NamedTuple):
     # checkpoints stay fp16. Requires serving_qdq_bit_rate 4 and
     # serving_qdq_group_size 8.
     packed_storage: bool = False
+    # Exclusive owner-local cache: a row moved into the INT8 HBM cache is
+    # dropped from DRAM (only its timestamp stays there), so the HBM budget adds
+    # capacity instead of copying rows. Every lookup moves its missed rows into
+    # empty slots; rows go back to DRAM when idle past the table TTL, rewritten,
+    # or reset. Requires owner_cache_int8 and the DRAM backend, and replaces
+    # owner_cache_read_populate.
+    owner_cache_exclusive: bool = False
+    # Most missed rows a lookup moves into HBM. Zero means every miss.
+    owner_cache_exclusive_promote_max_rows: int = 0
+    # Move missed rows into HBM on every this-many lookups.
+    owner_cache_exclusive_promote_every_n: int = 1
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -337,6 +348,18 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             self.owner_cache_gather_reserved_sms == 0 or self.owner_cache_size_mb > 0
         ), "owner_cache_gather_reserved_sms requires owner_cache_size_mb"
+        assert (
+            not self.owner_cache_exclusive or self.owner_cache_int8
+        ), "owner_cache_exclusive requires owner_cache_int8"
+        assert not (
+            self.owner_cache_exclusive and self.owner_cache_read_populate
+        ), "owner_cache_exclusive replaces owner_cache_read_populate"
+        assert (
+            self.owner_cache_exclusive_promote_max_rows >= 0
+        ), "owner_cache_exclusive_promote_max_rows must be nonnegative"
+        assert (
+            self.owner_cache_exclusive_promote_every_n >= 1
+        ), "owner_cache_exclusive_promote_every_n must be positive"
 
     def __repr__(self) -> str:
         # The torchrec planner hashes str() of the policy into its context hash

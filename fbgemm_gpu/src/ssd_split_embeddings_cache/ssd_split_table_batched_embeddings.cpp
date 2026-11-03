@@ -80,6 +80,23 @@ Tensor kvzch_direct_cache_gather_int8_cuda(
     at::ScalarType row_dtype,
     const int64_t max_ctas);
 
+Tensor kvzch_exclusive_cache_insert_int8_cuda(
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor last_access,
+    Tensor indices,
+    Tensor rows,
+    const std::optional<Tensor>& count,
+    Tensor promoted_keys,
+    Tensor promoted_count,
+    const int64_t now);
+
+Tensor kvzch_exclusive_cache_touch_cuda(
+    Tensor row_addresses,
+    Tensor cache_weights,
+    Tensor last_access,
+    const int64_t now);
+
 Tensor kvzch_direct_cache_gather_int8_float_cuda(
     Tensor output,
     Tensor row_addresses,
@@ -1596,6 +1613,26 @@ auto dram_kv_embedding_cache_wrapper =
         .def(
             "serving_qdq_existing_rows",
             &DramKVEmbeddingCacheWrapper::serving_qdq_existing_rows)
+        .def(
+            "exclusive_hbm_register",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_register)
+        .def(
+            "exclusive_hbm_promote_cuda",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_promote_cuda)
+        .def(
+            "exclusive_hbm_demote_all",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_demote_all)
+        .def(
+            "exclusive_hbm_sweep",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_sweep,
+            "",
+            {torch::arg("now") = -1})
+        .def(
+            "exclusive_hbm_wait",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_wait)
+        .def(
+            "exclusive_hbm_stats",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_stats)
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",
@@ -1947,6 +1984,27 @@ Tensor kvzch_direct_cache_insert_meta(
   return cache_weights;
 }
 
+Tensor kvzch_exclusive_cache_insert_int8_meta(
+    Tensor /*cache_state*/,
+    Tensor /*cache_weights*/,
+    Tensor /*last_access*/,
+    Tensor /*indices*/,
+    Tensor /*rows*/,
+    const std::optional<Tensor>& /*count*/,
+    Tensor /*promoted_keys*/,
+    Tensor promoted_count,
+    const int64_t /*now*/) {
+  return promoted_count;
+}
+
+Tensor kvzch_exclusive_cache_touch_meta(
+    Tensor /*row_addresses*/,
+    Tensor /*cache_weights*/,
+    Tensor last_access,
+    const int64_t /*now*/) {
+  return last_access;
+}
+
 Tensor kvzch_direct_cache_gather_int8_meta(
     Tensor output,
     Tensor /*row_addresses*/,
@@ -2050,6 +2108,35 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_META(
       "kvzch_direct_cache_gather_int8_float",
       kvzch_direct_cache_gather_int8_float_meta);
+  m.def(
+      "kvzch_exclusive_cache_insert_int8("
+      "    Tensor(a!) cache_state, "
+      "    Tensor(b!) cache_weights, "
+      "    Tensor(c!) last_access, "
+      "    Tensor indices, "
+      "    Tensor rows, "
+      "    Tensor? count, "
+      "    Tensor(d!) promoted_keys, "
+      "    Tensor(e!) promoted_count, "
+      "    int now"
+      ") -> Tensor(e!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_exclusive_cache_insert_int8",
+      kvzch_exclusive_cache_insert_int8_cuda);
+  DISPATCH_TO_META(
+      "kvzch_exclusive_cache_insert_int8",
+      kvzch_exclusive_cache_insert_int8_meta);
+  m.def(
+      "kvzch_exclusive_cache_touch("
+      "    Tensor row_addresses, "
+      "    Tensor cache_weights, "
+      "    Tensor(a!) last_access, "
+      "    int now"
+      ") -> Tensor(a!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_exclusive_cache_touch", kvzch_exclusive_cache_touch_cuda);
+  DISPATCH_TO_META(
+      "kvzch_exclusive_cache_touch", kvzch_exclusive_cache_touch_meta);
 
   m.def(
       "create_kv_tensor_wrapper_from_serialized("

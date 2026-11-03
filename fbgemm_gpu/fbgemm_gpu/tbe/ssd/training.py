@@ -682,6 +682,178 @@ class _DirectMappedEnrichmentCache(nn.Module):
         self._last_miss_count = None
 
 
+class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
+    """Owner-local INT8 cache that holds the only copy of its rows.
+
+    Every ``promote_every_n``-th lookup moves up to ``promote_max_rows`` of its
+    missed rows (all of them when 0) into empty slots, and the DRAM backend
+    then drops those rows, keeping their timestamps (see
+    ``DramKVEmbeddingCache::exclusive_hbm_register``). Occupied slots are never
+    overwritten; rows leave HBM through the backend, which writes them back to
+    DRAM. Hits stamp each slot's ``last_access`` for the backend's TTL.
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        total_hash_size: int,
+        cache_dtype: torch.dtype,
+        device: torch.device,
+        cache_size_mb: int,
+        backend: Any,
+        promote_max_rows: int = 0,
+        promote_every_n: int = 1,
+        fused_float_gather: bool = False,
+        output_dtype: torch.dtype | None = None,
+        gather_reserved_sms: int = 0,
+    ) -> None:
+        # Codes and qparams, the int64 tag and the int32 last-access time.
+        slot_bytes = embedding_dim + _INT8_ROWWISE_QPARAMS_BYTES + 8 + 4
+        super().__init__(
+            embedding_dim=embedding_dim,
+            total_hash_size=min(
+                total_hash_size, max(1, cache_size_mb * 1024 * 1024 // slot_bytes)
+            ),
+            cache_dtype=cache_dtype,
+            device=device,
+            cache_size_mb=cache_size_mb,
+            read_populate=False,
+            read_populate_max_lookups=0,
+            int8=True,
+            fused_float_gather=fused_float_gather,
+            output_dtype=output_dtype,
+            gather_reserved_sms=gather_reserved_sms,
+        )
+        self.register_buffer(
+            "last_access",
+            torch.zeros(self.cache_state.size(0), dtype=torch.int32, device=device),
+            persistent=False,
+        )
+        self._backend = backend
+        self._promote_max_rows = promote_max_rows
+        self._promote_every_n = promote_every_n
+        # Not `_lookups`: publish walkers treat a module with `_lookups` or
+        # `_lookup` as a sharded-module container.
+        self._lookup_count = 0
+        self._promoted_keys: torch.Tensor | None = None
+        self._promoted_keys_cpu: torch.Tensor | None = None
+        self._promoted_count: torch.Tensor | None = None
+        self._promoted_count_cpu: torch.Tensor | None = None
+        backend.exclusive_hbm_register(
+            self.cache_state, self.cache_weights, self.last_access
+        )
+        logging.info(
+            "Exclusive owner cache: %d slots of %d bytes, promote_max_rows=%d, "
+            "promote_every_n=%d",
+            self.cache_state.size(0),
+            slot_bytes,
+            promote_max_rows,
+            promote_every_n,
+        )
+
+    def _grow_promoted(self, required_capacity: int) -> None:
+        if (
+            self._promoted_keys is not None
+            and self._promoted_keys.numel() >= required_capacity
+        ):
+            return
+        if self._promoted_keys is not None:
+            # A promotion callback may still read the host-mapped buffers.
+            torch.cuda.synchronize(self.cache_weights.device)
+            required_capacity += required_capacity // 4
+        device = self.cache_weights.device
+        self._promoted_keys = torch.ops.fbgemm.new_unified_tensor(
+            torch.empty(1, dtype=torch.int64, device=device),
+            (required_capacity,),
+            is_host_mapped=True,
+        )
+        self._promoted_keys_cpu = torch.ops.fbgemm.uvm_to_cpu(self._promoted_keys)
+        if self._promoted_count is None:
+            self._promoted_count = torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(1, dtype=torch.int32, device=device),
+                (1,),
+                is_host_mapped=True,
+            )
+            self._promoted_count_cpu = torch.ops.fbgemm.uvm_to_cpu(self._promoted_count)
+
+    def _promote(
+        self,
+        keys: torch.Tensor,
+        rows: torch.Tensor,
+        count: torch.Tensor | None,
+        now: int,
+    ) -> None:
+        self._grow_promoted(max(1, keys.numel()))
+        assert self._promoted_keys is not None
+        assert self._promoted_count is not None
+        torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
+            self.cache_state,
+            self.cache_weights,
+            self.last_access,
+            keys,
+            rows,
+            count,
+            self._promoted_keys,
+            self._promoted_count,
+            now,
+        )
+        self._backend.exclusive_hbm_promote_cuda(
+            self._promoted_keys_cpu, self._promoted_count_cpu
+        )
+
+    def lookup(
+        self,
+        indices: torch.Tensor,
+        read_backend_into: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
+    ) -> torch.Tensor:
+        output = super().lookup(indices, read_backend_into)
+        num_indices = indices.numel()
+        if num_indices == 0:
+            return output
+        assert self._row_addresses is not None
+        assert self._action_indices is not None
+        assert self._inserted_rows is not None
+        assert self._actions_count is not None
+        now = int(time.time())
+        torch.ops.fbgemm.kvzch_exclusive_cache_touch(
+            self._row_addresses[:num_indices],
+            self.cache_weights,
+            self.last_access,
+            now,
+        )
+        self._lookup_count += 1
+        if self._lookup_count % self._promote_every_n == 0:
+            count = self._actions_count
+            if self._promote_max_rows > 0:
+                count = torch.clamp(count, max=self._promote_max_rows)
+            self._promote(
+                self._action_indices[:num_indices],
+                self._inserted_rows[:num_indices],
+                count,
+                now,
+            )
+        return output
+
+    def populate_from_write(self, indices: torch.Tensor, rows: torch.Tensor) -> None:
+        if indices.numel() == 0:
+            return
+        if rows.dim() != 2 or rows.size(0) != indices.numel():
+            raise ValueError("owner-local direct cache write rows must match indices")
+        if rows.size(1) > self._embedding_dim:
+            raise ValueError("owner-local direct cache write rows are too wide")
+        if rows.size(1) < self._embedding_dim:
+            rows = torch.nn.functional.pad(
+                rows, (0, self._embedding_dim - rows.size(1))
+            )
+        self._promote(indices.contiguous(), rows.contiguous(), None, int(time.time()))
+
+    def reset(self) -> None:
+        # Every claimed slot is promoted (or skipped) before its rows go back.
+        torch.cuda.synchronize(self.cache_weights.device)
+        self._backend.exclusive_hbm_demote_all()
+        super().reset()
+
+
 class DramKvPerfStat(str, Enum):
     """Named keys for the perf stats vector returned by `ssd_db.get_dram_kv_perf()`.
 
@@ -981,6 +1153,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._owner_cache_int8: bool = False
         self._owner_cache_int8_fused_float: bool = False
         self._owner_cache_gather_reserved_sms: int = 0
+        self._owner_cache_exclusive: bool = False
+        self._owner_cache_exclusive_promote_max_rows: int = 0
+        self._owner_cache_exclusive_promote_every_n: int = 1
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -1045,11 +1220,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._owner_cache_gather_reserved_sms = (
                     enrichment_policy.owner_cache_gather_reserved_sms
                 )
+                self._owner_cache_exclusive = enrichment_policy.owner_cache_exclusive
+                self._owner_cache_exclusive_promote_max_rows = (
+                    enrichment_policy.owner_cache_exclusive_promote_max_rows
+                )
+                self._owner_cache_exclusive_promote_every_n = (
+                    enrichment_policy.owner_cache_exclusive_promote_every_n
+                )
                 if (
                     enrichment_policy.serving_qdq_bit_rate
                     and self.backend_type != BackendType.DRAM
                 ):
                     raise ValueError("serving_qdq_bit_rate requires the DRAM backend")
+                if (
+                    self._owner_cache_exclusive
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("owner_cache_exclusive requires the DRAM backend")
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -1912,7 +2099,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._direct_enrichment_dim = dims[0] if self._direct_backend_gather else 0
         self._direct_enrichment_output_dtype = output_dtype.as_dtype()
         self._direct_enrichment_cache: _DirectMappedEnrichmentCache | None = None
-        if self._owner_cache_size_mb > 0:
+        if self._owner_cache_size_mb > 0 and self._owner_cache_exclusive:
+            self._direct_enrichment_cache = _ExclusiveDirectMappedEnrichmentCache(
+                embedding_dim=self._direct_enrichment_dim,
+                total_hash_size=self.total_hash_size,
+                cache_dtype=weights_precision.as_dtype(),
+                device=self.lxu_cache_weights.device,
+                cache_size_mb=self._owner_cache_size_mb,
+                backend=self._ssd_db,
+                promote_max_rows=self._owner_cache_exclusive_promote_max_rows,
+                promote_every_n=self._owner_cache_exclusive_promote_every_n,
+                fused_float_gather=self._owner_cache_int8_fused_float,
+                output_dtype=self._direct_enrichment_output_dtype,
+                gather_reserved_sms=self._owner_cache_gather_reserved_sms,
+            )
+        elif self._owner_cache_size_mb > 0:
             self._direct_enrichment_cache = _DirectMappedEnrichmentCache(
                 embedding_dim=self._direct_enrichment_dim,
                 total_hash_size=self.total_hash_size,
@@ -3249,14 +3450,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         rows, found_mask = self._read_direct_backend_rows_with_found_mask(
             pending_indices
         )
-        found = found_mask != 0
+        # 2 marks a row the exclusive owner cache already holds: neither
+        # inserted nor retried.
+        found = found_mask == 1
         owner_cache.populate_from_write(
             pending_indices[found],
             rows[found],
         )
         current_stream.record_event(self._direct_cache_insert_complete_event)
         self._pending_direct_cache_fill_indices = None
-        return pending_indices[~found]
+        return pending_indices[found_mask == 0]
 
     def owner_local_cache_last_hit_counts(self) -> tuple[int, int] | None:
         owner_cache = self._direct_enrichment_cache

@@ -257,9 +257,50 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->serving_qdq_existing_rows();
   }
 
+  void exclusive_hbm_register(
+      at::Tensor cache_state,
+      at::Tensor cache_weights,
+      at::Tensor last_access) {
+    half_impl().exclusive_hbm_register(
+        std::move(cache_state),
+        std::move(cache_weights),
+        std::move(last_access));
+  }
+
+  void exclusive_hbm_promote_cuda(
+      at::Tensor promoted_keys_cpu,
+      at::Tensor promoted_count_cpu) {
+    half_impl().exclusive_hbm_promote_cuda(
+        std::move(promoted_keys_cpu), std::move(promoted_count_cpu));
+  }
+
+  int64_t exclusive_hbm_demote_all() {
+    return half_impl().exclusive_hbm_demote_all();
+  }
+
+  int64_t exclusive_hbm_sweep(int64_t now) {
+    return half_impl().exclusive_hbm_sweep(now);
+  }
+
+  void exclusive_hbm_wait() {
+    half_impl().exclusive_hbm_wait();
+  }
+
+  std::vector<int64_t> exclusive_hbm_stats() {
+    return half_impl().exclusive_hbm_stats();
+  }
+
  private:
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;
+
+  // The exclusive HBM tier exists only on FP16 caches.
+  kv_mem::DramKVEmbeddingCache<at::Half>& half_impl() {
+    auto* impl =
+        dynamic_cast<kv_mem::DramKVEmbeddingCache<at::Half>*>(impl_.get());
+    TORCH_CHECK(impl != nullptr, "exclusive HBM tier needs FP16 weights");
+    return *impl;
+  }
 
   std::shared_ptr<kv_db::EmbeddingKVDB> impl_;
 };
