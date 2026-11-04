@@ -63,6 +63,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmPackMatrixB.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
+        "src/GenerateKernelFP16FP32.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
         "src/GenerateKernelU8S8S32ACC16Avx512.cc",  # Acc16 AVX512 JIT code gen
         "src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc",
@@ -184,23 +185,8 @@ def get_fbgemm_avx512_srcs():
     ]
 
 def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
-    intrinsics_srcs = [
-        "src/FbgemmFP16UKernelsIntrinsicAvx512.cc",
-        "src/FbgemmFP16UKernelsIntrinsicAvx512_256.cc",
-    ]
-    asm_srcs = [
-        "src/FbgemmFP16UKernelsAvx512.cc",
-        "src/FbgemmFP16UKernelsAvx512_256.cc",
-        "src/fp32/FbgemmFP32UKernelsAvx512.cc",
-        "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
-    ]
-    if buck:
-        return select({
-            "DEFAULT": asm_srcs,
-            "ovr_config//compiler:cl": intrinsics_srcs,
-            "ovr_config//cpu:arm64": intrinsics_srcs,
-        })
-    return asm_srcs if not msvc else intrinsics_srcs
+    # FP16/FP32 kernels are now JIT-generated via asmjit in GenerateKernelFP16FP32.cc
+    return []
 
 def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
     srcs = [
