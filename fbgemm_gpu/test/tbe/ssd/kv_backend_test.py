@@ -230,6 +230,16 @@ class SSDCheckpointTest(unittest.TestCase):
                 flushing_block_size=flushing_block_size,
             )
 
+    def test_dram_should_trigger_evict_without_policy_is_neutral(self) -> None:
+        backend = self.generate_fbgemm_kv_backend(
+            max_D=4,
+            weight_precision=SparseType.FP32,
+            enable_l2=False,
+            backend_type=BackendType.DRAM,
+        )
+
+        self.assertEqual(backend.should_trigger_evict(7, 0), (False, True, 0))
+
     def generate_fbgemm_kv_tbe(
         self,
         T: int,
@@ -1444,6 +1454,11 @@ class SSDCheckpointTest(unittest.TestCase):
             flushing_block_size=1000,
             eviction_policy=eviction_policy,
         )
+
+        # The frontend's logical step, not backend reads, controls ITERATION.
+        # ITERATION reports the frontend step it judged, as the third value.
+        self.assertEqual(dram_kv_backend.should_trigger_evict(1, 0), (False, True, 1))
+        self.assertEqual(dram_kv_backend.should_trigger_evict(2, 0), (True, True, 2))
 
         # stimulating training for 10 iterations
 

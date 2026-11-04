@@ -1516,7 +1516,22 @@ auto dram_kv_embedding_cache_wrapper =
             })
         .def(
             "trigger_feature_evict",
-            &DramKVEmbeddingCacheWrapper::trigger_feature_evict)
+            &DramKVEmbeddingCacheWrapper::trigger_feature_evict,
+            "",
+            {
+                torch::arg("force") = false,
+            })
+        .def(
+            "should_trigger_evict",
+            &DramKVEmbeddingCacheWrapper::should_trigger_evict,
+            "",
+            {
+                torch::arg("step"),
+                torch::arg("free_mem_bytes"),
+            })
+        .def(
+            "last_eviction_sufficient",
+            &DramKVEmbeddingCacheWrapper::last_eviction_sufficient)
         .def("is_evicting", &DramKVEmbeddingCacheWrapper::is_evicting)
         .def(
             "set_resume_eviction_after_get",
@@ -1714,7 +1729,22 @@ auto dram_ssd_kv_embedding_cache_wrapper =
             })
         .def(
             "trigger_feature_evict",
-            &DramSsdKVEmbeddingCacheWrapper::trigger_feature_evict)
+            &DramSsdKVEmbeddingCacheWrapper::trigger_feature_evict,
+            "",
+            {
+                torch::arg("force") = false,
+            })
+        .def(
+            "should_trigger_evict",
+            &DramSsdKVEmbeddingCacheWrapper::should_trigger_evict,
+            "",
+            {
+                torch::arg("step"),
+                torch::arg("free_mem_bytes"),
+            })
+        .def(
+            "last_eviction_sufficient",
+            &DramSsdKVEmbeddingCacheWrapper::last_eviction_sufficient)
         .def("is_evicting", &DramSsdKVEmbeddingCacheWrapper::is_evicting)
         .def(
             "set_resume_eviction_after_get",

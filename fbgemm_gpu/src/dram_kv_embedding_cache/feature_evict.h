@@ -542,12 +542,14 @@ class FeatureEvict {
   // Trigger asynchronous eviction.
   // If there is an ongoing task, return directly to prevent multiple
   // triggers. If there is no ongoing task, initialize the task state.
-  void trigger_evict() {
+  // `force` skips only the local interval gate, for a caller that has already
+  // decided across ranks to start a round; an ongoing task still returns.
+  void trigger_evict(bool force = false) {
     std::unique_lock<std::mutex> lock(mutex_);
     if (trigger_suspensions_ > 0) {
       return;
     }
-    if (!reach_interval_to_trigger_new_round()) {
+    if (!force && !reach_interval_to_trigger_new_round()) {
       return;
     }
 
@@ -659,6 +661,13 @@ class FeatureEvict {
   bool is_evicting() {
     std::unique_lock<std::mutex> lock(mutex_);
     return evict_state_.load() != EvictState::Idle;
+  }
+
+  // Whether the last finished round evicted more than 100 rows. False before
+  // the first round.
+  bool last_eviction_sufficient() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return is_last_eviction_sufficient_.load();
   }
 
   // wait until eviction round finishes
