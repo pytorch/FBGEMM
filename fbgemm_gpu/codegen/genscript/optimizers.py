@@ -156,11 +156,29 @@ def rowwise_adagrad() -> dict[str, Any]:
              ++vec) {
             const int32_t d = (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH;
             Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
-            weight_sum_square
-                += weight_new.acc.x * weight_new.acc.x
-                + weight_new.acc.y * weight_new.acc.y
-                + weight_new.acc.z * weight_new.acc.z
-                + weight_new.acc.w * weight_new.acc.w;
+#if defined(USE_ROCM)
+            if (!kUseVecBlocking && kThreadGroupSize == 8
+                && (kFixedMaxVecsPerThread == 3 || (kFixedMaxVecsPerThread == 4 && vec < 3))) {
+                // Same bit-identity pin as the gradient sum of squares below, in <3,8> and in <4,8>'s vecs 0-2.
+                #pragma clang fp contract(off)
+                typedef float hip_md_f2 __attribute__((ext_vector_type(2)));
+                const float wyy = weight_new.acc.y * weight_new.acc.y;
+                const hip_md_f2 wxy{weight_new.acc.x, weight_new.acc.y};
+                const hip_md_f2 wzw{weight_new.acc.z, weight_new.acc.w};
+                hip_md_f2 wacc = __builtin_elementwise_fma(wxy, wxy, hip_md_f2{wyy, wyy});
+                wacc = __builtin_elementwise_fma(wzw, wzw, wacc);
+                const float www = weight_new.acc.w * weight_new.acc.w;
+                const hip_md_f2 ws2 = hip_md_f2{www, www} + wacc;
+                weight_sum_square = weight_sum_square + ws2.x;
+            } else
+#endif
+            {
+                weight_sum_square
+                    += weight_new.acc.x * weight_new.acc.x
+                    + weight_new.acc.y * weight_new.acc.y
+                    + weight_new.acc.z * weight_new.acc.z
+                    + weight_new.acc.w * weight_new.acc.w;
+            }
         }
         const at::acc_type<cache_t, true> weight_norm =
             sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_square, at::acc_type<cache_t, true>));
@@ -204,7 +222,26 @@ def rowwise_adagrad() -> dict[str, Any]:
             gz += weight_decay * weight.acc.z;
             gw += weight_decay * weight.acc.w;
         }
-        g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+#if defined(USE_ROCM)
+        if (!kUseVecBlocking && kThreadGroupSize == 8
+            && (kFixedMaxVecsPerThread == 3 || (kFixedMaxVecsPerThread == 4 && vec < 3))) {
+            // Bit-identity pin for the hip_mixed_d occupancy instantiation <3,8> against the default <4,8>: both
+            // compute the vecs they share (0-2) with the same spelled-out pattern, s = w*w + fma(z, z, fma(x, x, y*y));
+            // sum += s, with contraction off, so the result does not depend on the backend's instruction selection
+            // (one toolchain fuses these squares, another uses packed multiplies). <4,8>'s vec 3 (D 97-128) is unchanged.
+            #pragma clang fp contract(off)
+            typedef float hip_md_f2 __attribute__((ext_vector_type(2)));
+            const float gyy = gy * gy;
+            hip_md_f2 gacc = __builtin_elementwise_fma(hip_md_f2{gx, gy}, hip_md_f2{gx, gy}, hip_md_f2{gyy, gyy});
+            gacc = __builtin_elementwise_fma(hip_md_f2{gz, gw}, hip_md_f2{gz, gw}, gacc);
+            const float gww = gw * gw;
+            const hip_md_f2 gs2 = hip_md_f2{gww, gww} + gacc;
+            g_local_sum_square = g_local_sum_square + gs2.x;
+        } else
+#endif
+        {
+            g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+        }
     """
     )
     split_precomputation += """
