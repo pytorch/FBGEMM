@@ -1624,3 +1624,277 @@ Tensor kvzch_direct_cache_gather_int8_float_cuda(
       });
   return output;
 }
+
+// Exclusive owner-local cache: the HBM copy of a row is its only copy, so a
+// slot is only ever claimed when empty (an occupied slot is never overwritten)
+// and every claimed key is reported so the backend can drop its DRAM row.
+namespace {
+
+template <typename value_t, typename index_t>
+__global__
+__launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits> rows,
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> cache_state,
+    pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
+        cache_weights,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> last_access,
+    const int32_t* __restrict__ count,
+    int64_t* __restrict__ promoted_keys,
+    int32_t* __restrict__ promoted_count,
+    const int32_t now) {
+  constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
+  const auto lane = threadIdx.x;
+  const auto warp = threadIdx.y;
+  const int32_t N = count == nullptr ? indices.size(0) : *count;
+  CUDA_KERNEL_ASSERT(
+      N >= 0 && N <= indices.size(0) &&
+      "exclusive-cache insert count exceeds input size");
+  const int32_t C = cache_state.size(0);
+  const int32_t D = rows.size(1);
+  const int32_t num_vecs = D / 4;
+  // promoted_count and promoted_keys are host-mapped in production, so each
+  // warp reports its claims in batches of up to kWarpSize keys: one atomic
+  // and one coalesced store per batch instead of per key. Lane i holds the
+  // batch's i-th key.
+  int64_t batch_key = 0;
+  int32_t batch_size = 0;
+  const auto report_batch = [&]() {
+    int32_t base = 0;
+    if (lane == 0) {
+      base = atomicAdd(promoted_count, batch_size);
+    }
+    base = shfl_sync(base, 0);
+    if (static_cast<int32_t>(lane) < batch_size) {
+      promoted_keys[base + lane] = batch_key;
+    }
+    batch_size = 0;
+  };
+
+  for (auto n = blockIdx.x * kWarpsPerBlock + warp; n < N;
+       n += gridDim.x * kWarpsPerBlock) {
+    const auto key = static_cast<int64_t>(indices[n]);
+    bool lane_has_nonzero = false;
+    float row_min = std::numeric_limits<float>::max();
+    float row_max = std::numeric_limits<float>::lowest();
+    if (key >= 0) {
+      for (auto v = lane; v < num_vecs; v += kWarpSize) {
+        const Vec4T<float> x(&rows[n][4 * v]);
+        lane_has_nonzero |= x.acc.x != 0.0f || x.acc.y != 0.0f ||
+            x.acc.z != 0.0f || x.acc.w != 0.0f;
+        row_min = fminf(row_min, x.vmin());
+        row_max = fmaxf(row_max, x.vmax());
+      }
+    }
+    // An all-zero row is a backend miss, not a row to move into HBM.
+    if (fbgemm_gpu::ballot_sync(lane_has_nonzero) == 0) {
+      continue;
+    }
+
+    int32_t slot = -1;
+    int32_t claimed = 0;
+    if (lane == 0) {
+      slot = static_cast<int32_t>(cache_slot(key, C));
+      claimed = atomic_cas_int64(&cache_state[slot][0], -1, -key - 2) == -1;
+    }
+    slot = shfl_sync(slot, 0);
+    claimed = shfl_sync(claimed, 0);
+    if (!claimed) {
+      continue;
+    }
+
+    row_min = warp_reduce_min(row_min);
+    row_max = warp_reduce_max(row_max);
+    const float bias = row_min;
+    const float range = row_max - row_min;
+    const float scale = range == 0.0f ? 1.0f : range / 255.0f;
+    uint8_t* const dst = &cache_weights[slot][0];
+    for (auto v = lane; v < num_vecs; v += kWarpSize) {
+      const Vec4T<float> x(&rows[n][4 * v]);
+      reinterpret_cast<uint32_t*>(dst)[v] =
+          quantize_uint8(x.acc.x, bias, scale) |
+          (quantize_uint8(x.acc.y, bias, scale) << 8) |
+          (quantize_uint8(x.acc.z, bias, scale) << 16) |
+          (quantize_uint8(x.acc.w, bias, scale) << 24);
+    }
+    if (lane == 0) {
+      auto* const qparams = reinterpret_cast<float*>(dst + D);
+      qparams[0] = scale;
+      qparams[1] = bias;
+      last_access[slot] = now;
+    }
+    syncwarp();
+    if (lane == 0) {
+      __threadfence();
+      atomic_exchange_int64(&cache_state[slot][0], key);
+    }
+    if (static_cast<int32_t>(lane) == batch_size) {
+      batch_key = key;
+    }
+    if (++batch_size == kWarpSize) {
+      report_batch();
+    }
+  }
+  if (batch_size > 0) {
+    report_batch();
+  }
+}
+
+__global__
+__launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_touch_kernel(
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        row_addresses,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> last_access,
+    const uint64_t cache_weights_address,
+    const uint64_t cache_row_bytes,
+    const int32_t now) {
+  const auto N = row_addresses.size(0);
+  for (auto n = blockIdx.x * blockDim.x + threadIdx.x; n < N;
+       n += blockDim.x * gridDim.x) {
+    const auto row_address = static_cast<uint64_t>(row_addresses[n]);
+    // Bit 0 tags an INT8 cache hit; misses point into the inserted rows.
+    if (row_address & 1) {
+      const auto slot = ((row_address & ~uint64_t{1}) - cache_weights_address) /
+          cache_row_bytes;
+      last_access[slot] = now;
+    }
+  }
+}
+
+} // namespace
+
+Tensor kvzch_exclusive_cache_insert_int8_cuda(
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor last_access,
+    Tensor indices,
+    Tensor rows,
+    const std::optional<Tensor>& count,
+    Tensor promoted_keys,
+    Tensor promoted_count,
+    const int64_t now) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      cache_state,
+      cache_weights,
+      last_access,
+      indices,
+      rows,
+      count,
+      promoted_keys,
+      promoted_count);
+  TENSOR_CONTIGUOUS(cache_state);
+  TENSOR_CONTIGUOUS(cache_weights);
+  TENSOR_CONTIGUOUS(last_access);
+  TENSOR_CONTIGUOUS(indices);
+  TENSOR_CONTIGUOUS(rows);
+  TENSOR_CONTIGUOUS(promoted_keys);
+  TENSOR_CONTIGUOUS(promoted_count);
+  if (count.has_value()) {
+    TENSOR_CONTIGUOUS(count.value());
+    TORCH_CHECK_EQ(count->scalar_type(), at::ScalarType::Int);
+    TORCH_CHECK_EQ(count->numel(), 1);
+  }
+  TORCH_CHECK_EQ(cache_state.dim(), 2);
+  TORCH_CHECK_EQ(cache_state.size(1), 1);
+  TORCH_CHECK_EQ(cache_weights.dim(), 2);
+  TORCH_CHECK_EQ(last_access.dim(), 1);
+  TORCH_CHECK_EQ(indices.dim(), 1);
+  TORCH_CHECK_EQ(rows.dim(), 2);
+  TORCH_CHECK_EQ(cache_state.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(cache_weights.scalar_type(), at::ScalarType::Byte);
+  TORCH_CHECK_EQ(last_access.scalar_type(), at::ScalarType::Int);
+  TORCH_CHECK_EQ(promoted_keys.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(promoted_count.scalar_type(), at::ScalarType::Int);
+  TORCH_CHECK_EQ(promoted_count.numel(), 1);
+  TORCH_CHECK_EQ(cache_weights.size(0), cache_state.size(0));
+  TORCH_CHECK_EQ(last_access.size(0), cache_state.size(0));
+  TORCH_CHECK_EQ(rows.size(1) % 4, 0);
+  TORCH_CHECK_EQ(cache_weights.size(1), rows.size(1) + kINT8QparamsBytes);
+  TORCH_CHECK_EQ(reinterpret_cast<uintptr_t>(cache_weights.data_ptr()) % 4, 0);
+  TORCH_CHECK_EQ(
+      reinterpret_cast<uintptr_t>(rows.data_ptr()) % (4 * rows.element_size()),
+      0);
+  TORCH_CHECK_EQ(rows.size(0), indices.numel());
+  TORCH_CHECK_GE(promoted_keys.numel(), indices.numel());
+  TORCH_CHECK_GT(cache_state.size(0), 0);
+  TORCH_CHECK_LE(cache_state.size(0), std::numeric_limits<int32_t>::max());
+  TORCH_CHECK_LE(indices.numel(), std::numeric_limits<int32_t>::max());
+
+  CUDA_DEVICE_GUARD(cache_weights);
+  promoted_count.zero_();
+  if (indices.numel() == 0) {
+    return promoted_count;
+  }
+
+  constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
+  const dim3 threads(kWarpSize, kWarpsPerBlock);
+  const auto grid_size = utils::cuda::cap_grid_dim_x(
+      div_round_up(indices.numel(), kWarpsPerBlock),
+      kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
+  FBGEMM_DISPATCH_FLOATING_TYPES(
+      rows.scalar_type(), "kvzch_exclusive_cache_insert_int8_value", [&] {
+        AT_DISPATCH_INDEX_TYPES(
+            indices.scalar_type(),
+            "kvzch_exclusive_cache_insert_int8_index",
+            [&] {
+              FBGEMM_LAUNCH_KERNEL(
+                  (kvzch_exclusive_cache_insert_int8_kernel<scalar_t, index_t>),
+                  grid_size,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(indices, index_t, 1, 32),
+                  PTA_B(rows, scalar_t, 2, 64),
+                  PTA_B(cache_state, int64_t, 2, 32),
+                  PTA_B(cache_weights, uint8_t, 2, 64),
+                  PTA_B(last_access, int32_t, 1, 32),
+                  count.has_value() ? count->data_ptr<int32_t>() : nullptr,
+                  promoted_keys.data_ptr<int64_t>(),
+                  promoted_count.data_ptr<int32_t>(),
+                  static_cast<int32_t>(now));
+            });
+      });
+  return promoted_count;
+}
+
+Tensor kvzch_exclusive_cache_touch_cuda(
+    Tensor row_addresses,
+    Tensor cache_weights,
+    Tensor last_access,
+    const int64_t now) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      row_addresses, cache_weights, last_access);
+  TENSOR_CONTIGUOUS(row_addresses);
+  TENSOR_CONTIGUOUS(cache_weights);
+  TENSOR_CONTIGUOUS(last_access);
+  TORCH_CHECK_EQ(row_addresses.dim(), 1);
+  TORCH_CHECK_EQ(row_addresses.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(cache_weights.dim(), 2);
+  TORCH_CHECK_EQ(cache_weights.scalar_type(), at::ScalarType::Byte);
+  TORCH_CHECK_EQ(last_access.dim(), 1);
+  TORCH_CHECK_EQ(last_access.scalar_type(), at::ScalarType::Int);
+  TORCH_CHECK_EQ(last_access.size(0), cache_weights.size(0));
+
+  CUDA_DEVICE_GUARD(last_access);
+  if (row_addresses.numel() == 0) {
+    return last_access;
+  }
+  const auto grid_size = utils::cuda::cap_grid_dim_x(
+      div_round_up(row_addresses.numel(), kMaxThreads),
+      kMaxThreads,
+      at::cuda::getCurrentCUDAStream());
+  FBGEMM_LAUNCH_KERNEL(
+      kvzch_exclusive_cache_touch_kernel,
+      grid_size,
+      kMaxThreads,
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(row_addresses, int64_t, 1, 32),
+      PTA_B(last_access, int32_t, 1, 32),
+      reinterpret_cast<uint64_t>(cache_weights.data_ptr()),
+      static_cast<uint64_t>(cache_weights.size(1)),
+      static_cast<int32_t>(now));
+  return last_access;
+}

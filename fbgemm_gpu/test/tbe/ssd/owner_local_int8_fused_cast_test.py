@@ -8,6 +8,8 @@ import importlib.util
 import os
 import sys
 import unittest
+from collections.abc import Callable
+from typing import Protocol
 from unittest import mock
 
 import fbgemm_gpu
@@ -474,3 +476,346 @@ class OwnerLocalInt8FusedCastNumericTest(unittest.TestCase):
                 ),
             ):
                 self._check(torch.float16, torch.bfloat16)
+
+
+def _slot(key: int, num_slots: int) -> int:
+    """cache_slot() in split_embeddings_cache_cuda.cuh."""
+    mask = (1 << 64) - 1
+    h = key & mask
+    h ^= h >> 33
+    h = (h * 0xFF51AFD7ED558CCD) & mask
+    h ^= h >> 33
+    h = (h * 0xC4CEB9FE1A85EC53) & mask
+    h ^= h >> 33
+    return h % num_slots
+
+
+class _DramBackend(training._ExclusiveHbmBackend, Protocol):
+    def set(
+        self, indices: torch.Tensor, weights: torch.Tensor, count: torch.Tensor
+    ) -> None:
+        """Writes `count` rows."""
+
+    def get_cuda(
+        self, indices: torch.Tensor, weights: torch.Tensor, count: torch.Tensor
+    ) -> None:
+        """Reads `count` rows, on the current stream."""
+
+    def wait_util_filling_work_done(self) -> None:
+        """Waits for queued writes."""
+
+    def get_dram_kv_perf(self, step: int, interval: int) -> list[float]:
+        """DRAM KV perf counters."""
+
+    def exclusive_hbm_wait(self) -> None:
+        """Waits for queued HBM tier work."""
+
+    def exclusive_hbm_stats(self) -> list[int]:
+        """HBM tier counters."""
+
+
+def _dram_backend(dim: int, num_rows: int) -> _DramBackend:
+    enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
+        4,  # IN_MEMORY_TEST_ONLY
+        "",
+        "",
+        dim,
+        1,  # THRIFT_FLOAT
+    )
+    return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+        max_D=dim,
+        uniform_init_lower=-0.1,
+        uniform_init_upper=0.1,
+        num_shards=8,
+        num_threads=8,
+        row_storage_bitwidth=16,
+        hash_size_cumsum=torch.tensor([0, num_rows]),
+        disable_random_init=True,
+        enrichment_config=enrichment_config,
+    )
+
+
+@unittest.skipIf(_OPEN_SOURCE, "requires the internal KV ZCH ops")
+@unittest.skipIf(not torch.cuda.is_available(), "requires a CUDA device")
+class ExclusiveOwnerCacheTest(unittest.TestCase):
+    def test_insert_claims_only_empty_slots_and_reports_them(self) -> None:
+        device = torch.accelerator.current_accelerator(check_available=True)
+        assert device is not None
+        dim, slots = 128, 4096
+        cache_state = torch.full((slots, 1), -1, dtype=torch.int64, device=device)
+        cache_weights = torch.zeros(slots, dim + 8, dtype=torch.uint8, device=device)
+        last_access = torch.zeros(slots, dtype=torch.int32, device=device)
+        occupied_key = 7
+        cache_state[_slot(occupied_key, slots)] = 10**9
+        keys = torch.arange(1000, device=device)
+        rows = torch.randn(1000, dim, device=device).half()
+        rows[3].zero_()
+        promoted = torch.full((1000,), -1, dtype=torch.int64, device=device)
+        count = torch.zeros(1, dtype=torch.int32, device=device)
+
+        torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
+            cache_state,
+            cache_weights,
+            last_access,
+            keys,
+            rows,
+            None,
+            promoted,
+            count,
+            1234,
+        )
+
+        n = int(count.item())
+        claimed = set(promoted[:n].tolist())
+        self.assertNotIn(occupied_key, claimed)
+        self.assertNotIn(3, claimed)
+        self.assertEqual(cache_state[_slot(occupied_key, slots)].item(), 10**9)
+        # Each claimed key sits in its hashed slot with its access time; a key
+        # that lost its slot to another one in the batch was not reported.
+        for key in claimed:
+            slot = _slot(key, slots)
+            self.assertEqual(cache_state[slot].item(), key)
+            self.assertEqual(last_access[slot].item(), 1234)
+        self.assertEqual(int((cache_state >= 0).sum().item()), n + 1)
+
+        # Hits stamp their slot; misses (even address) do not.
+        slot = _slot(next(iter(claimed)), slots)
+        hit = cache_weights.data_ptr() + slot * (dim + 8) | 1
+        miss = cache_weights.data_ptr() + 2 * (dim + 8)
+        torch.ops.fbgemm.kvzch_exclusive_cache_touch(
+            torch.tensor([hit, miss], device=device),
+            cache_weights,
+            last_access,
+            5678,
+        )
+        self.assertEqual(last_access[slot].item(), 5678)
+        self.assertNotEqual(last_access[2].item(), 5678)
+
+    def test_lookup_moves_rows_to_hbm_and_reset_moves_them_back(self) -> None:
+        device = torch.accelerator.current_accelerator(check_available=True)
+        assert device is not None
+        dim, num_rows = 128, 2048
+        backend = _dram_backend(dim, num_rows)
+        table = (torch.randn(num_rows, dim) * 0.3).half()
+        ids = torch.arange(num_rows)
+        backend.set(ids, table, torch.tensor([num_rows]))
+        backend.wait_util_filling_work_done()
+        cache = training._ExclusiveDirectMappedEnrichmentCache(
+            embedding_dim=dim,
+            total_hash_size=1 << 20,
+            cache_dtype=torch.float16,
+            device=device,
+            cache_size_mb=4,
+            backend=backend,
+        )
+
+        def read_backend_into(
+            keys_cpu: torch.Tensor, rows: torch.Tensor, count_cpu: torch.Tensor
+        ) -> None:
+            backend.get_cuda(keys_cpu, rows, count_cpu)
+
+        indices = ids.to(device)
+        first = cache.lookup(indices, read_backend_into)
+        torch.cuda.synchronize()
+        backend.exclusive_hbm_wait()
+        in_hbm = int(backend.exclusive_hbm_stats()[0])
+        self.assertGreater(in_hbm, num_rows * 0.8)
+        self.assertEqual(int(backend.get_dram_kv_perf(1, 1)[22]), num_rows - in_hbm)
+        torch.testing.assert_close(first.cpu(), table, rtol=0, atol=0)
+
+        second = cache.lookup(indices, read_backend_into)
+        hits, queries = cache.last_hit_counts()
+        self.assertEqual(hits, in_hbm)
+        self.assertEqual(queries, num_rows)
+        # HBM rows are INT8: within half a quantization step of the row range.
+        step = (table.float().amax(1) - table.float().amin(1)) / 255
+        err = (second.cpu().float() - table.float()).abs().amax(1)
+        self.assertTrue(bool((err <= step / 2 + 1e-3).all()))
+
+        # No lookup reached a row that lived only in HBM.
+        self.assertEqual(int(backend.exclusive_hbm_stats()[7]), 0)
+
+        # dper_lib create_ssd_rdb_checkpoint walks every module and treats one
+        # with `_ssd_db`, `_lookups` or `_lookup` as a sharded container.
+        for name in ("_ssd_db", "_lookups", "_lookup", "_emb_module", "_emb_modules"):
+            self.assertFalse(hasattr(cache, name), name)
+
+        cache.reset()
+        self.assertEqual(int(backend.exclusive_hbm_stats()[0]), 0)
+        self.assertEqual(int(backend.get_dram_kv_perf(1, 1)[22]), num_rows)
+        third = cache.lookup(indices, read_backend_into)
+        torch.testing.assert_close(third, second, rtol=0, atol=0)
+
+    def test_lookups_return_each_ids_own_row_through_promotion_and_rewrites(
+        self,
+    ) -> None:
+        """Every lookup returns the id's own row (exact from DRAM, within half
+        an INT8 step from HBM), never zeros or another id's row: while
+        promotions are in flight, after they land, with duplicate ids and slot
+        collisions, after DRAM rewrites of HBM rows, and through the write-side
+        fill."""
+        device = torch.accelerator.current_accelerator(check_available=True)
+        assert device is not None
+        dim, num_rows = 128, 50000
+        backend = _dram_backend(dim, num_rows)
+        table = (torch.randn(num_rows, dim) * 0.3).half()
+        ids = torch.arange(num_rows)
+        backend.set(ids, table, torch.tensor([num_rows]))
+        backend.wait_util_filling_work_done()
+        # ~7k slots for 50k ids: most promotions collide.
+        cache = training._ExclusiveDirectMappedEnrichmentCache(
+            embedding_dim=dim,
+            total_hash_size=1 << 20,
+            cache_dtype=torch.float16,
+            device=device,
+            cache_size_mb=1,
+            backend=backend,
+            promote_max_rows=4096,
+        )
+
+        def read_backend_into(
+            keys_cpu: torch.Tensor, rows: torch.Tensor, count_cpu: torch.Tensor
+        ) -> None:
+            backend.get_cuda(keys_cpu, rows, count_cpu)
+
+        def check(expected: torch.Tensor, indices: torch.Tensor) -> None:
+            out = cache.lookup(indices.to(device), read_backend_into).cpu().float()
+            want = expected[indices].float()
+            step = (want.amax(1) - want.amin(1)) / 255
+            err = (out - want).abs().amax(1)
+            bad = (err > step / 2 + 1e-3).nonzero().flatten()
+            self.assertEqual(
+                bad.numel(),
+                0,
+                f"{bad.numel()} rows wrong, e.g. id {indices[bad[:5]].tolist()} "
+                f"err {err[bad[:5]].tolist()}",
+            )
+
+        gen = torch.Generator().manual_seed(0)
+        for _ in range(20):
+            # Duplicates and random order; no wait between lookups, so rows are
+            # read while their promotions are still queued.
+            check(table, torch.randint(0, num_rows, (30000,), generator=gen))
+        torch.cuda.synchronize()
+        backend.exclusive_hbm_wait()
+        self.assertGreater(int(backend.exclusive_hbm_stats()[0]), 1000)
+        check(table, ids)
+
+        # Rewrite half of the rows, HBM rows included: lookups see the new rows.
+        rewritten = ids[::2].contiguous()
+        fresh = table.clone()
+        fresh[rewritten] = (torch.randn(rewritten.numel(), dim) * 0.3).half()
+        backend.set(rewritten, fresh[rewritten], torch.tensor([rewritten.numel()]))
+        backend.wait_util_filling_work_done()
+        backend.exclusive_hbm_wait()
+        self.assertGreater(int(backend.exclusive_hbm_stats()[5]), 0)
+        for _ in range(5):
+            check(fresh, torch.randint(0, num_rows, (30000,), generator=gen))
+
+        # The write-side fill promotes rows read back from DRAM.
+        fill = torch.randint(0, num_rows, (20000,), generator=gen).unique()
+        rows = fresh[fill].to(device)
+        cache.populate_from_write(fill.to(device), rows)
+        torch.cuda.synchronize()
+        backend.exclusive_hbm_wait()
+        check(fresh, ids)
+        self.assertEqual(int(backend.exclusive_hbm_stats()[7]), 0)
+
+    @unittest.skipIf(
+        os.environ.get("KVZCH_EXCLUSIVE_HBM_BENCH") is None,
+        "set KVZCH_EXCLUSIVE_HBM_BENCH=1",
+    )
+    def test_benchmark_probe_touch_insert_at_ot_scale(self) -> None:
+        """GPU cost per lookup of the exclusive cache at OT scale: 5M indices
+        into a 12000 MB cache (~85M slots) that is ~70% full."""
+        device = torch.accelerator.current_accelerator(check_available=True)
+        assert device is not None
+        dim = 128
+        slot_bytes = dim + 8 + 8 + 4
+        slots = 12000 * 1024 * 1024 // slot_bytes
+        cache_state = torch.full((slots, 1), -1, dtype=torch.int64, device=device)
+        cache_weights = torch.zeros(slots, dim + 8, dtype=torch.uint8, device=device)
+        last_access = torch.zeros(slots, dtype=torch.int32, device=device)
+        filled = int(slots * 1.2)
+        chunk = 1 << 22
+        promoted = torch.empty(chunk, dtype=torch.int64, device=device)
+        count = torch.zeros(1, dtype=torch.int32, device=device)
+        rows = torch.randn(chunk, dim, device=device).half()
+        for start in range(0, filled, chunk):
+            keys = torch.arange(start, min(filled, start + chunk), device=device)
+            torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
+                cache_state,
+                cache_weights,
+                last_access,
+                keys,
+                rows[: keys.numel()],
+                None,
+                promoted,
+                count,
+                1,
+            )
+        occupancy = float((cache_state >= 0).float().mean().item())
+
+        n = 5_000_000
+        indices = torch.randint(0, 2 * filled, (n,), device=device)
+        action_indices = torch.empty(n, dtype=torch.int64, device=device)
+        actions_count = torch.zeros(1, dtype=torch.int32, device=device)
+        inserted = torch.randn(n, dim, device=device).half()
+        row_addresses = torch.empty(n, dtype=torch.int64, device=device)
+        output = torch.empty(n, dim, dtype=torch.float16, device=device)
+        promoted = torch.empty(n, dtype=torch.int64, device=device)
+        cap = torch.full((1,), 262144, dtype=torch.int32, device=device)
+
+        def timed(fn: Callable[[], None]) -> float:
+            for _ in range(3):
+                fn()
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            for _ in range(10):
+                fn()
+            end.record()
+            torch.cuda.synchronize()
+            return start.elapsed_time(end) / 10
+
+        probe_ms = timed(
+            lambda: torch.ops.fbgemm.kvzch_direct_cache_lookup_int8(
+                indices,
+                cache_state,
+                cache_weights,
+                action_indices,
+                actions_count,
+                inserted,
+                row_addresses,
+            )
+        )
+        hit_rate = 1 - int(actions_count.item()) / n
+        gather_ms = timed(
+            lambda: torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+                output, row_addresses, torch.float16, 0
+            )
+        )
+        touch_ms = timed(
+            lambda: torch.ops.fbgemm.kvzch_exclusive_cache_touch(
+                row_addresses, cache_weights, last_access, 2
+            )
+        )
+        insert_ms = timed(
+            lambda: torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
+                cache_state,
+                cache_weights,
+                last_access,
+                action_indices,
+                inserted,
+                cap,
+                promoted,
+                count,
+                3,
+            )
+        )
+        print(
+            f"exclusive owner cache, {slots} slots ({occupancy:.0%} full), "
+            f"{n} indices, hit rate {hit_rate:.0%}: probe {probe_ms:.3f} ms, "
+            f"gather {gather_ms:.3f} ms, touch {touch_ms:.3f} ms, "
+            f"insert (cap 262144) {insert_ms:.3f} ms"
+        )
