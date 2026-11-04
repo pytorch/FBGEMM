@@ -37,7 +37,7 @@ const auto kernel_f32_avx512 =
     makeKernelArray<float, inst_set_t::avx512>(1, 14);
 
 const kernel_array_t<float> kernel_f32_avx512_256 = []() {
-  auto k = makeKernelArray<float, inst_set_t::avx2>(1, 6);
+  auto k = kernel_f32_avx2;
   for (int n = 7; n <= 14; n++)
     k[n] = generateGemmKernel<float, inst_set_t::avx512_ymm>(n);
   return k;

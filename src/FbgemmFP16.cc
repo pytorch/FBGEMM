@@ -74,7 +74,7 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {{
 
 #if !defined(__aarch64__)
 const kernel_array_t<float16> kernel_fp16_avx512_256 = []() {
-  auto k = makeKernelArray<float16, inst_set_t::avx2>(1, 6);
+  auto k = kernel_fp16_avx2;
   for (int n = 7; n <= 14; n++)
     k[n] = generateGemmKernel<float16, inst_set_t::avx512_ymm>(n);
   return k;
