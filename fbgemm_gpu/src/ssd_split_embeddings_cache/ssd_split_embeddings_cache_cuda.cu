@@ -1652,7 +1652,7 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
       N >= 0 && N <= indices.size(0) &&
       "exclusive-cache insert count exceeds input size");
   const int32_t C = cache_state.size(0);
-  const int32_t D = rows.size(1);
+  const int32_t D = cache_weights.size(1) - kINT8QparamsBytes;
   const int32_t num_vecs = D / 4;
   // promoted_count and promoted_keys are host-mapped in production, so each
   // warp reports its claims in batches of up to kWarpSize keys: one atomic
@@ -1679,12 +1679,23 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
     float row_min = std::numeric_limits<float>::max();
     float row_max = std::numeric_limits<float>::lowest();
     if (key >= 0) {
-      for (auto v = lane; v < num_vecs; v += kWarpSize) {
-        const Vec4T<float> x(&rows[n][4 * v]);
-        lane_has_nonzero |= x.acc.x != 0.0f || x.acc.y != 0.0f ||
-            x.acc.z != 0.0f || x.acc.w != 0.0f;
-        row_min = fminf(row_min, x.vmin());
-        row_max = fmaxf(row_max, x.vmax());
+      if constexpr (std::is_same_v<value_t, uint8_t>) {
+        const auto* qparams = reinterpret_cast<const float*>(&rows[n][D]);
+        if (!isfinite(qparams[0]) || !isfinite(qparams[1]) || qparams[0] < 0) {
+          continue;
+        }
+        lane_has_nonzero = qparams[1] != 0.0f;
+        for (auto d = lane; d < D; d += kWarpSize) {
+          lane_has_nonzero |= qparams[0] != 0.0f && rows[n][d] != 0;
+        }
+      } else {
+        for (auto v = lane; v < num_vecs; v += kWarpSize) {
+          const Vec4T<float> x(&rows[n][4 * v]);
+          lane_has_nonzero |= x.acc.x != 0.0f || x.acc.y != 0.0f ||
+              x.acc.z != 0.0f || x.acc.w != 0.0f;
+          row_min = fminf(row_min, x.vmin());
+          row_max = fmaxf(row_max, x.vmax());
+        }
       }
     }
     // An all-zero row is a backend miss, not a row to move into HBM.
@@ -1704,24 +1715,33 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
       continue;
     }
 
-    row_min = warp_reduce_min(row_min);
-    row_max = warp_reduce_max(row_max);
-    const float bias = row_min;
-    const float range = row_max - row_min;
-    const float scale = range == 0.0f ? 1.0f : range / 255.0f;
     uint8_t* const dst = &cache_weights[slot][0];
-    for (auto v = lane; v < num_vecs; v += kWarpSize) {
-      const Vec4T<float> x(&rows[n][4 * v]);
-      reinterpret_cast<uint32_t*>(dst)[v] =
-          quantize_uint8(x.acc.x, bias, scale) |
-          (quantize_uint8(x.acc.y, bias, scale) << 8) |
-          (quantize_uint8(x.acc.z, bias, scale) << 16) |
-          (quantize_uint8(x.acc.w, bias, scale) << 24);
+    if constexpr (std::is_same_v<value_t, uint8_t>) {
+      for (auto v = lane; v < (D + kINT8QparamsBytes) / 4; v += kWarpSize) {
+        reinterpret_cast<uint32_t*>(dst)[v] =
+            reinterpret_cast<const uint32_t*>(&rows[n][0])[v];
+      }
+    } else {
+      row_min = warp_reduce_min(row_min);
+      row_max = warp_reduce_max(row_max);
+      const float bias = row_min;
+      const float range = row_max - row_min;
+      const float scale = range == 0.0f ? 1.0f : range / 255.0f;
+      for (auto v = lane; v < num_vecs; v += kWarpSize) {
+        const Vec4T<float> x(&rows[n][4 * v]);
+        reinterpret_cast<uint32_t*>(dst)[v] =
+            quantize_uint8(x.acc.x, bias, scale) |
+            (quantize_uint8(x.acc.y, bias, scale) << 8) |
+            (quantize_uint8(x.acc.z, bias, scale) << 16) |
+            (quantize_uint8(x.acc.w, bias, scale) << 24);
+      }
+      if (lane == 0) {
+        auto* const qparams = reinterpret_cast<float*>(dst + D);
+        qparams[0] = scale;
+        qparams[1] = bias;
+      }
     }
     if (lane == 0) {
-      auto* const qparams = reinterpret_cast<float*>(dst + D);
-      qparams[0] = scale;
-      qparams[1] = bias;
       last_access[slot] = now;
     }
     syncwarp();
@@ -1773,7 +1793,8 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
     const std::optional<Tensor>& count,
     Tensor promoted_keys,
     Tensor promoted_count,
-    const int64_t now) {
+    const int64_t now,
+    const bool input_is_packed) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cache_state,
       cache_weights,
@@ -1810,7 +1831,13 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
   TORCH_CHECK_EQ(cache_weights.size(0), cache_state.size(0));
   TORCH_CHECK_EQ(last_access.size(0), cache_state.size(0));
   TORCH_CHECK_EQ(rows.size(1) % 4, 0);
-  TORCH_CHECK_EQ(cache_weights.size(1), rows.size(1) + kINT8QparamsBytes);
+  TORCH_CHECK_EQ(
+      cache_weights.size(1),
+      rows.size(1) + (input_is_packed ? 0 : kINT8QparamsBytes));
+  if (input_is_packed) {
+    TORCH_CHECK_EQ(rows.scalar_type(), at::kByte);
+    TORCH_CHECK_GT(rows.size(1), kINT8QparamsBytes);
+  }
   TORCH_CHECK_EQ(reinterpret_cast<uintptr_t>(cache_weights.data_ptr()) % 4, 0);
   TORCH_CHECK_EQ(
       reinterpret_cast<uintptr_t>(rows.data_ptr()) % (4 * rows.element_size()),
@@ -1833,29 +1860,35 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
       div_round_up(indices.numel(), kWarpsPerBlock),
       kMaxThreads,
       at::cuda::getCurrentCUDAStream());
-  FBGEMM_DISPATCH_FLOATING_TYPES(
-      rows.scalar_type(), "kvzch_exclusive_cache_insert_int8_value", [&] {
-        AT_DISPATCH_INDEX_TYPES(
-            indices.scalar_type(),
-            "kvzch_exclusive_cache_insert_int8_index",
-            [&] {
-              FBGEMM_LAUNCH_KERNEL(
-                  (kvzch_exclusive_cache_insert_int8_kernel<scalar_t, index_t>),
-                  grid_size,
-                  threads,
-                  0,
-                  at::cuda::getCurrentCUDAStream(),
-                  PTA_B(indices, index_t, 1, 32),
-                  PTA_B(rows, scalar_t, 2, 64),
-                  PTA_B(cache_state, int64_t, 2, 32),
-                  PTA_B(cache_weights, uint8_t, 2, 64),
-                  PTA_B(last_access, int32_t, 1, 32),
-                  count.has_value() ? count->data_ptr<int32_t>() : nullptr,
-                  promoted_keys.data_ptr<int64_t>(),
-                  promoted_count.data_ptr<int32_t>(),
-                  static_cast<int32_t>(now));
-            });
-      });
+  const auto launch = [&](auto value) {
+    using value_t = decltype(value);
+    AT_DISPATCH_INDEX_TYPES(
+        indices.scalar_type(), "kvzch_exclusive_cache_insert_int8_index", [&] {
+          FBGEMM_LAUNCH_KERNEL(
+              (kvzch_exclusive_cache_insert_int8_kernel<value_t, index_t>),
+              grid_size,
+              threads,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              PTA_B(indices, index_t, 1, 32),
+              PTA_B(rows, value_t, 2, 64),
+              PTA_B(cache_state, int64_t, 2, 32),
+              PTA_B(cache_weights, uint8_t, 2, 64),
+              PTA_B(last_access, int32_t, 1, 32),
+              count.has_value() ? count->data_ptr<int32_t>() : nullptr,
+              promoted_keys.data_ptr<int64_t>(),
+              promoted_count.data_ptr<int32_t>(),
+              static_cast<int32_t>(now));
+        });
+  };
+  if (input_is_packed) {
+    launch(uint8_t{});
+  } else {
+    FBGEMM_DISPATCH_FLOATING_TYPES(
+        rows.scalar_type(), "kvzch_exclusive_cache_insert_int8_value", [&] {
+          launch(scalar_t{});
+        });
+  }
   return promoted_count;
 }
 
