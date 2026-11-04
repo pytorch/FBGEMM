@@ -506,47 +506,6 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
                 std::int64_t>(),
             a->environment());
 
-        asmjit::FuncFrame frame;
-        frame.init(func);
-
-        if constexpr (instSet == inst_set_t::avx2) {
-          frame.setDirtyRegs(
-              asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
-        } else {
-          frame.setDirtyRegs(
-              asmjit::RegGroup::kVec,
-              asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                  asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15) |
-                  asmjit::Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-                  asmjit::Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31));
-        }
-
-        frame.setDirtyRegs(
-            asmjit::RegGroup::kGp,
-            asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
-
-        asmjit::FuncArgsAssignment args(&func);
-        args.assignAll(
-            num_rows,
-            param_size,
-            w,
-            g,
-            h,
-            indices,
-            epsilon,
-            lr,
-            mask_avx2,
-            weight_decay,
-            counter,
-            counter_halflife);
-
-        args.updateFuncFrame(frame);
-        frame.finalize();
-        a->emitProlog(frame);
-        a->emitArgsAssignment(frame, args);
-
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
@@ -575,16 +534,54 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           adjusted_weight_decay_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (remainder) {
-          if constexpr (instSet == inst_set_t::avx2) {
-            --unroll_factor;
-            temp_vreg = vec_reg_t(unroll_factor);
-          }
+        if (remainder && instSet == inst_set_t::avx2) {
+          temp_vreg = vec_reg_t(--unroll_factor);
+          mask_vreg = Ymm(--unroll_factor);
+        }
 
+        auto dirty_vec_regs = asmjit::Support::lsbMask<uint32_t>(NUM_VEC_REG);
+        if (!rowwise) {
+          // Constants and tail temporaries occupy the high registers. Each
+          // unrolled update uses two low registers, for its gradient and output.
+          dirty_vec_regs ^= asmjit::Support::lsbMask<uint32_t>(unroll_factor);
+          unroll_factor /= 2;
+          dirty_vec_regs |= asmjit::Support::lsbMask<uint32_t>(
+              2 * std::min(unroll_factor, num_vec_regs_per_block));
+        }
+
+        asmjit::FuncFrame frame;
+        frame.init(func);
+
+        frame.setDirtyRegs(asmjit::RegGroup::kVec, dirty_vec_regs);
+        auto dirty_gp_regs = asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14);
+        if (has_weight_decay || (rowwise && prefetch)) {
+          dirty_gp_regs |= asmjit::Support::bitMask(15);
+        }
+        frame.setDirtyRegs(asmjit::RegGroup::kGp, dirty_gp_regs);
+
+        asmjit::FuncArgsAssignment args(&func);
+        args.assignAll(
+            num_rows,
+            param_size,
+            w,
+            g,
+            h,
+            indices,
+            epsilon,
+            lr,
+            mask_avx2,
+            weight_decay,
+            counter,
+            counter_halflife);
+
+        args.updateFuncFrame(frame);
+        frame.finalize();
+        a->emitProlog(frame);
+        a->emitArgsAssignment(frame, args);
+
+        if (remainder) {
           // Creating masks for non multiples of vlen iterations
           if constexpr (instSet == inst_set_t::avx2) {
-            --unroll_factor;
-            mask_vreg = Ymm(unroll_factor);
             a->vmovups(mask_vreg, x86::dword_ptr(mask_avx2));
           } else {
             a->mov(temp1_, (1 << remainder) - 1);
@@ -598,10 +595,6 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           reduce_mask_avx512_ = x86::k(2);
           a->mov(temp1_, (1 << remainder_avx2) - 1);
           a->kmovw(reduce_mask_avx512_, temp1_);
-        }
-
-        if (!rowwise) {
-          unroll_factor = unroll_factor / 2; // accont for g_vreg
         }
 
         asmjit::Label exit = a->newLabel();
