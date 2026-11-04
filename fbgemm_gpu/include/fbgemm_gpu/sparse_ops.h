@@ -1149,7 +1149,10 @@ void group_index_select_or_add_cuda(
     const bool use_var_cols,
     const bool use_contiguous_warps,
     const bool use_cache,
-    const bool use_packed_rows);
+    const bool use_packed_rows,
+    // Per-member input row strides in elements (device memory), used by the
+    // index-add path only; nullptr means contiguous rows of num_cols elements.
+    const int64_t* input_strides_group = nullptr);
 
 #ifdef USE_ROCM
 // Reduces sorted grouped index-add inputs in bounded chunks. Single-chunk rows

@@ -223,13 +223,33 @@ endif()
 ################################################################################
 
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
-if(MSVC)
-  list(FILTER FBGEMM_GENERIC_SRCS EXCLUDE REGEX "src/fp32/.*\\.cc$")
-endif()
 
 set(fbgemm_generic_defs "${fbgemm_arm_defs}")
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   list(APPEND fbgemm_generic_defs FBGEMM_STATIC)
+endif()
+
+# Probe the compiler's native type and function-target support on every target.
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles([=[
+  #include <bit>
+  #include <cstdint>
+  #if !__has_attribute(target)
+  #error Function targets are required
+  #endif
+  int main() {
+    auto convert = [](float x)
+  #if defined(__aarch64__)
+      __attribute__((target("+bf16")))
+  #elif defined(__x86_64__) || defined(_M_X64)
+      __attribute__((target("avx512bf16,avx512vl")))
+  #endif
+    { return std::bit_cast<uint16_t>(static_cast<__bf16>(x)); };
+    return convert(1.0f) == 0;
+  }
+]=] FBGEMM_COMPILER_HAS_TARGETED_BF16)
+if(FBGEMM_COMPILER_HAS_TARGETED_BF16)
+  list(APPEND fbgemm_generic_defs FBGEMM_HAVE_NATIVE_BF16)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")

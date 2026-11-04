@@ -9,6 +9,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <type_traits>
 #include <utility>
 
 #include "fbgemm/FbgemmBuild.h"
@@ -62,6 +63,34 @@ using EmbeddingSpMDMKernel = typename EmbeddingSpMDMKernelSignature<
     IndexType,
     OffsetType,
     OutType>::Type;
+
+namespace detail {
+template <
+    typename IndexType,
+    typename OffsetType,
+    typename OutType,
+    typename... WeightArgs>
+using NBitCallback = std::function<bool(
+    int64_t,
+    int64_t,
+    int64_t,
+    const uint8_t*,
+    const IndexType*,
+    const OffsetType*,
+    OutType*,
+    WeightArgs...)>;
+} // namespace detail
+
+// Unweighted callbacks omit weights entirely.
+template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType = int32_t,
+    typename OutType = float>
+using EmbeddingSpMDMNBitKernel = std::conditional_t<
+    HasWeight,
+    detail::NBitCallback<IndexType, OffsetType, OutType, const float*>,
+    detail::NBitCallback<IndexType, OffsetType, OutType>>;
 
 /**
  * @tparam InType can be float, float16, or uint8_t
@@ -124,6 +153,20 @@ GenerateEmbeddingSpMDMWithStrides(
  * @param bit_rate can be 2 or 4
  */
 template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
+GenerateEmbeddingSpMDMNBit(
+    int bit_rate,
+    const std::int64_t block_size,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true);
+
+template <
     typename IndexType,
     typename OffsetType = std::int32_t,
     typename OutType = float>
@@ -151,6 +194,26 @@ GenerateEmbeddingSpMDMNBit(
  *        in FBGEMM_GPU. If false, it can also take -1 indices (output from
  *        pruned embedding id mapping)
  */
+template <
+    bool HasWeight,
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float,
+    bool THREAD_LOCAL = false>
+FBGEMM_API EmbeddingSpMDMNBitKernel<HasWeight, IndexType, OffsetType, OutType>
+GenerateEmbeddingSpMDMNBitWithStrides(
+    const int input_bit_rate,
+    const std::int64_t block_size,
+    bool normalize_by_lengths,
+    int prefetch = 16,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true,
+    const bool no_bag = false,
+    int output_bit_rate = -1);
+
 template <
     typename IndexType,
     typename OffsetType = std::int32_t,

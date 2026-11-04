@@ -1929,9 +1929,17 @@ class SSDCheckpointTest(unittest.TestCase):
                     checkpoint_rows, mismatched_ids
                 )
 
-            with self.assertRaisesRegex(RuntimeError, "ids must have dtype int64"):
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                checkpoint_rows, checkpoint_view_ids.to(torch.int32)
+            )
+            torch.testing.assert_close(
+                tensor_wrapper.narrow(0, 0, N), expected_restored, equal_nan=True
+            )
+            with self.assertRaisesRegex(
+                RuntimeError, "ids must have dtype int32 or int64"
+            ):
                 tensor_wrapper.set_prefixed_weights_and_ids(
-                    original_narrowed, checkpoint_ids.to(torch.int32)
+                    checkpoint_rows, checkpoint_view_ids.to(torch.float32)
                 )
             with self.assertRaisesRegex(
                 RuntimeError,
@@ -1940,10 +1948,17 @@ class SSDCheckpointTest(unittest.TestCase):
                 tensor_wrapper.set_prefixed_weights_and_ids(
                     original_narrowed, checkpoint_ids[:-1]
                 )
-            with self.assertRaisesRegex(RuntimeError, "weights must be contiguous"):
-                tensor_wrapper.set_prefixed_weights_and_ids(
-                    original_narrowed[:, ::2], checkpoint_ids
-                )
+            strided_rows = torch.empty((N, 2 * checkpoint_rows.size(1)), dtype=dtype)[
+                :, ::2
+            ]
+            strided_rows.copy_(checkpoint_rows)
+            self.assertFalse(strided_rows.is_contiguous())
+            tensor_wrapper.set_prefixed_weights_and_ids(
+                strided_rows, checkpoint_view_ids
+            )
+            torch.testing.assert_close(
+                tensor_wrapper.narrow(0, 0, N), expected_restored, equal_nan=True
+            )
 
             sparse_ids = torch.tensor([11, 1_000_003, 42, 9_000_001], dtype=torch.int64)
             sparse_rows = original_narrowed.clone()

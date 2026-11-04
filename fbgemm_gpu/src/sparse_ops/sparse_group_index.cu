@@ -66,6 +66,10 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     const int64_t* reverse_indices_ptrs,
     const int64_t* warp_offsets_group,
     const int32_t* num_cols_group,
+    // Per-member row stride of the input, in elements. Read only by the
+    // index-add (backward) paths, where the input is the gradient and may be a
+    // row-strided column view; nullptr means contiguous rows of num_cols.
+    const int64_t* input_strides_group,
     const int64_t num_work_rows, // number of rows to work on per member
     const int64_t group_size) {
   static_assert(
@@ -116,11 +120,14 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
           index_t* indices =
               reinterpret_cast<index_t*>(indices_ptrs[member_id]);
           const index_t idx = indices[current_row];
+          const int64_t input_stride = input_strides_group
+              ? input_strides_group[member_id]
+              : static_cast<int64_t>(num_cols);
 #pragma unroll
           for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
             gpuAtomicAddNoReturn(
                 &output[static_cast<int64_t>(idx) * num_cols + i],
-                input[current_row * num_cols + i]);
+                input[current_row * input_stride + i]);
           }
         }
       } else {
@@ -136,11 +143,14 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
             reinterpret_cast<output_t*>(output_ptrs[member_id]) + col_offset;
         index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
         const index_t idx = indices[row];
+        const int64_t input_stride = input_strides_group
+            ? input_strides_group[member_id]
+            : static_cast<int64_t>(num_cols);
 #pragma unroll
         for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
           gpuAtomicAddNoReturn(
               &output[static_cast<int64_t>(idx) * num_cols + i],
-              input[row * num_cols + i]);
+              input[row * input_stride + i]);
         }
       }
     }
@@ -310,6 +320,11 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         reinterpret_cast<input_t*>(input_ptrs[member_id]) + col_offset;
     output_t* output =
         reinterpret_cast<output_t*>(output_ptrs[member_id]) + col_offset;
+    // Row stride of this member's input; only the index-add reads below use it
+    // (the index-select reads address the contiguous embedding table).
+    [[maybe_unused]] const int64_t input_stride = input_strides_group
+        ? input_strides_group[member_id]
+        : static_cast<int64_t>(num_cols);
 
     const index_t idx = indices[logical_row];
     // TODO: Account for UNROLL_FACTOR
@@ -352,16 +367,16 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
               member_changed || col_tile_changed || (warp_id == start_warp_id);
           const bool is_last_warp = (warp_id + warp_stride >= warp_end);
           if (is_first_warp) {
-            storage = input[row * num_cols + i];
+            storage = input[row * input_stride + i];
             cached_idx = idx;
           } else if (cached_idx != idx) {
             // Flush using the output tile that owns the cached accumulator.
             flush_cache_accumulator(
                 last_member_output_tile, last_member_num_cols);
-            storage = input[row * num_cols + i];
+            storage = input[row * input_stride + i];
             cached_idx = idx;
           } else {
-            storage += input[row * num_cols + i];
+            storage += input[row * input_stride + i];
           }
 
           if (is_last_warp) {
@@ -374,7 +389,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         } else {
           gpuAtomicAddNoReturn(
               &output[static_cast<int64_t>(idx) * num_cols + i],
-              input[row * num_cols + i]);
+              input[row * input_stride + i]);
         }
       }
     }
@@ -404,7 +419,8 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
     // three to std::false_type.
     [[maybe_unused]] const bool use_contiguous_warps,
     [[maybe_unused]] const bool use_cache,
-    [[maybe_unused]] const bool use_packed_rows) {
+    [[maybe_unused]] const bool use_packed_rows,
+    const int64_t* input_strides_group) {
   if (group_size == 0) {
     return;
   }
@@ -454,6 +470,7 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
         reverse_indices_ptrs,
         warp_offsets_group,
         num_cols_group,
+        input_strides_group,
         num_work_rows,
         group_size);
   };

@@ -45,7 +45,9 @@ void NOINLINE gemmkernel_1x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm4,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -162,7 +164,9 @@ void NOINLINE gemmkernel_2x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm6,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -300,7 +304,9 @@ void NOINLINE gemmkernel_3x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm8,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -457,7 +463,9 @@ void NOINLINE gemmkernel_4x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm10,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -633,7 +641,9 @@ void NOINLINE gemmkernel_5x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm12,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
@@ -828,7 +838,9 @@ void NOINLINE gemmkernel_6x2_Avx2_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm14,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm15, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm15, [r12 + 0]\t\n"
