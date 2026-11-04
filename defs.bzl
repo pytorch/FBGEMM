@@ -63,6 +63,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmPackMatrixB.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
+        "src/GenerateKernelFP16FP32.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
         "src/GenerateKernelU8S8S32ACC16Avx512.cc",  # Acc16 AVX512 JIT code gen
         "src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc",
