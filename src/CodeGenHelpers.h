@@ -8,6 +8,7 @@
 
 #pragma once
 #include <asmjit/x86.h> // @manual
+#include <type_traits>
 #include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 
@@ -26,6 +27,46 @@ inline constexpr bool is_avx512_any_v = instSet == inst_set_t::avx512 ||
 template <inst_set_t instSet>
 inline constexpr bool is_avx512_vnni_v = instSet == inst_set_t::avx512_vnni ||
     instSet == inst_set_t::avx512_vnni_ymm;
+
+// Bias is 0x7fff in every 32-bit lane. Only stores need a tail mask:
+// conversion acts independently on each lane.
+template <typename Vec>
+void genBfloat16Rounding(
+    x86::Emitter* a, Vec value, Vec scratch, Vec bias) {
+  const auto no_nan = a->newLabel();
+  if constexpr (std::is_same_v<Vec, x86::Zmm>) {
+    // k1 and k2 are reserved for store/input tail masks by the callers.
+    a->vfpclassps(x86::k(3), value, 0x81); // quiet or signaling NaN
+    a->kortestw(x86::k(3), x86::k(3));
+    a->jz(no_nan);
+    a->vpmovm2d(scratch, x86::k(3));
+  } else {
+    // Accumulation has already quieted signaling NaNs.
+    a->vcmpps(scratch, value, value, 3); // unordered, quiet comparison
+    a->vptest(scratch, scratch);
+    a->jz(no_nan);
+  }
+  // Remove discarded NaN payload bits before rounding, and set the quiet bit.
+  a->vpsrld(scratch, scratch, 16);
+  if constexpr (std::is_same_v<Vec, x86::Zmm>) {
+    a->vpandnd(value, scratch, value);
+  } else {
+    a->vpandn(value, scratch, value);
+  }
+  a->vpslld(scratch, scratch, 31);
+  a->vpsrld(scratch, scratch, 9);
+  if constexpr (std::is_same_v<Vec, x86::Zmm>) {
+    a->vpord(value, value, scratch);
+  } else {
+    a->vpor(value, value, scratch);
+  }
+  a->bind(no_nan);
+  a->vpslld(scratch, value, 15);
+  a->vpsrld(scratch, scratch, 31);
+  a->vpaddd(scratch, scratch, bias);
+  a->vpaddd(value, value, scratch);
+  a->vpsrld(value, value, 16);
+}
 
 /**
  * @brief Create instruction sequence to generate 16-bit 1s
