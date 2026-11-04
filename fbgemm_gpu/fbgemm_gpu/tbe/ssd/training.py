@@ -2281,6 +2281,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._prefetched_direct_backend_output: torch.Tensor | None = None
         self._prefetched_direct_backend_indices: torch.Tensor | None = None
         self._pending_direct_cache_fill_indices: torch.Tensor | None = None
+        # KVZCH_EXCLUSIVE_HBM_MASKED_WRITE_PROMOTE=1: the write-side promotion
+        # into the exclusive owner cache masks rows instead of boolean-indexing
+        # them (no host sync) and is capped at its promote_max_rows.
+        self._masked_write_promote: bool = (
+            os.environ.get("KVZCH_EXCLUSIVE_HBM_MASKED_WRITE_PROMOTE", "0") == "1"
+        )
         self._direct_enrichment_dim = dims[0] if self._direct_backend_gather else 0
         self._direct_enrichment_output_dtype = output_dtype.as_dtype()
         self._direct_enrichment_cache: _DirectMappedEnrichmentCache | None = None
@@ -3633,6 +3639,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         current_stream = torch.cuda.current_stream()
         current_stream.wait_event(self.prefetch_complete_event)
         pending_indices.record_stream(current_stream)
+        if self._masked_write_promote and isinstance(
+            owner_cache, _ExclusiveDirectMappedEnrichmentCache
+        ):
+            return self._populate_exclusive_cache_masked(owner_cache, pending_indices)
         rows, found_mask = self._read_direct_backend_rows_with_found_mask(
             pending_indices
         )
@@ -3646,6 +3656,31 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         current_stream.record_event(self._direct_cache_insert_complete_event)
         self._pending_direct_cache_fill_indices = None
         return pending_indices[found_mask == 0]
+
+    def _populate_exclusive_cache_masked(
+        self,
+        owner_cache: "_ExclusiveDirectMappedEnrichmentCache",
+        pending_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        """_populate_direct_enrichment_cache_from_pending without host syncs:
+        rows not found in DRAM (found mask 0) or already in HBM (2) are zeroed,
+        which the exclusive insert skips. Only the indices past the
+        promote_max_rows cap are handed back for retry: picking out the
+        unlanded ones would need a host sync, and a lookup promotes them on
+        their first read anyway."""
+        current_stream = torch.cuda.current_stream()
+        cap = owner_cache._promote_max_rows
+        indices = pending_indices[:cap] if cap > 0 else pending_indices
+        rows, found_mask = self._read_direct_backend_rows_with_found_mask(indices)
+        # Not a multiply: rows that were not read hold stale pinned bytes, and
+        # NaN * 0 is NaN.
+        owner_cache.populate_from_write(
+            indices,
+            torch.where((found_mask == 1).unsqueeze(1), rows, torch.zeros_like(rows)),
+        )
+        current_stream.record_event(self._direct_cache_insert_complete_event)
+        self._pending_direct_cache_fill_indices = None
+        return pending_indices[cap:] if cap > 0 else pending_indices[:0]
 
     def owner_local_cache_last_hit_counts(self) -> tuple[int, int] | None:
         owner_cache = self._direct_enrichment_cache

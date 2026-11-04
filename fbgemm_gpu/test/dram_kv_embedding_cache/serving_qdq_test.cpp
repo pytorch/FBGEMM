@@ -20,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -1700,6 +1701,240 @@ TEST(TongxinRowWriteTest, FillOnlyWritesKeepPackedDramAndExclusiveHbmRows) {
   EXPECT_EQ(hbm.tag(11), 11);
   EXPECT_EQ(cache->exclusive_hbm_stats()[0], 1);
   EXPECT_EQ(cache->exclusive_hbm_stats()[5], 0);
+}
+
+// Sets the exclusive HBM checkpoint-fill flags (read when the tier is
+// registered) for the scope, or clears them.
+class ScopedHbmFillFlags {
+ public:
+  explicit ScopedHbmFillFlags(bool on) {
+    for (const auto* name : kNames) {
+      if (on) {
+        setenv(name, "1", 1);
+      } else {
+        unsetenv(name);
+      }
+    }
+    setenv("KVZCH_EXCLUSIVE_HBM_FILL_THREADS", "4", 1);
+  }
+  ~ScopedHbmFillFlags() {
+    for (const auto* name : kNames) {
+      unsetenv(name);
+    }
+    unsetenv("KVZCH_EXCLUSIVE_HBM_FILL_THREADS");
+  }
+
+ private:
+  static constexpr std::array<const char*, 3> kNames{
+      "KVZCH_EXCLUSIVE_HBM_SNAPSHOT_FILLS",
+      "KVZCH_EXCLUSIVE_HBM_BATCHED_FILLS",
+      "KVZCH_EXCLUSIVE_HBM_SKIP_TAIL_FILL"};
+};
+
+// FakeHbm::insert for many keys: the same claim rule and INT8 encoding,
+// without per-element tensor access.
+std::vector<int64_t>
+bulk_insert(FakeHbm& hbm, const at::Tensor& keys, const at::Tensor& rows) {
+  const int64_t dim = rows.size(1);
+  const auto values = rows.to(at::kFloat).contiguous();
+  const auto* x = values.const_data_ptr<float>();
+  const auto* key_ptr = keys.const_data_ptr<int64_t>();
+  auto* tags = hbm.cache_state.data_ptr<int64_t>();
+  auto* weights = hbm.cache_weights.data_ptr<uint8_t>();
+  auto* access = hbm.last_access.data_ptr<int32_t>();
+  const auto now = static_cast<int32_t>(FixedBlockPool::current_timestamp());
+  std::vector<int64_t> claimed;
+  for (int64_t n = 0; n < keys.size(0); ++n) {
+    const auto* row = x + n * dim;
+    const auto [lo, hi] = std::minmax_element(row, row + dim);
+    const auto s = hbm.slot(key_ptr[n]);
+    if ((*lo == 0.0f && *hi == 0.0f) || tags[s] != -1) {
+      continue;
+    }
+    const float range = *hi - *lo;
+    const float scale = range == 0.0f ? 1.0f : range / 255.0f;
+    auto* dst = weights + s * (dim + 8);
+    for (int64_t d = 0; d < dim; ++d) {
+      dst[d] = static_cast<uint8_t>(std::fmin(
+          std::fmax(std::rint((row[d] - *lo) / scale), 0.0f), 255.0f));
+    }
+    std::memcpy(dst + dim, &scale, sizeof(float));
+    std::memcpy(dst + dim + 4, lo, sizeof(float));
+    access[s] = now;
+    tags[s] = key_ptr[n];
+    claimed.push_back(key_ptr[n]);
+  }
+  return claimed;
+}
+
+struct HbmFillResults {
+  at::Tensor raw;
+  at::Tensor fp16;
+  at::Tensor tail;
+  at::Tensor metadata;
+};
+
+HbmFillResults read_for_checkpoint(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids) {
+  HbmFillResults out;
+  out.raw = at::zeros({ids.size(0), cache.get_raw_row_bytes()}, at::kByte);
+  cache.get_kv_from_storage_by_snapshot(ids, out.raw, nullptr, 0, std::nullopt);
+  out.fp16 = read_rows(cache, ids, kPackedMaxD);
+  out.tail = read_rows(cache, ids, kTail, /*offset=*/kDim);
+  out.metadata = cache.get_kv_zch_eviction_metadata_impl(
+      ids, at::tensor({ids.size(0)}, at::kLong));
+  return out;
+}
+
+// Raw rows with the MetaHeader timestamp (the write time in seconds) zeroed.
+at::Tensor without_timestamps(const at::Tensor& raw) {
+  auto out = raw.clone();
+  out.narrow(
+         1, offsetof(FixedBlockPool::MetaHeader, timestamp), sizeof(uint32_t))
+      .zero_();
+  return out;
+}
+
+// Promotes `keys` with `rows` (kPackedMaxD wide) into a packed cache's HBM.
+std::vector<int64_t> write_and_promote_packed(
+    DramKVEmbeddingCache<at::Half>& cache,
+    FakeHbm& hbm,
+    const at::Tensor& keys,
+    const at::Tensor& rows) {
+  write_rows(cache, keys, rows);
+  auto claimed = bulk_insert(hbm, keys, read_rows(cache, keys, kDim));
+  cache.exclusive_hbm_promote_async(claimed);
+  cache.exclusive_hbm_wait();
+  return claimed;
+}
+
+TEST(ExclusiveHbmTest, FastCheckpointFillsMatchTheDefaultFills) {
+  constexpr int64_t kRows = 20000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto rows = fixed_rows_with_tail(kRows, /*seed=*/90);
+  const auto rewritten = at::arange(0, kRows, 3, at::kLong);
+  const auto fresh = fixed_rows_with_tail(rewritten.size(0), /*seed=*/91);
+  std::vector<HbmFillResults> before;
+  std::vector<HbmFillResults> after;
+  std::vector<std::shared_ptr<DramKVEmbeddingCache<at::Half>>> caches;
+  std::vector<std::unique_ptr<FakeHbm>> hbms;
+  const auto start = std::chrono::steady_clock::now();
+  for (const bool fast : {false, true}) {
+    SCOPED_TRACE(testing::Message() << "fast=" << fast);
+    const ScopedHbmFillFlags flags(fast);
+    hbms.push_back(std::make_unique<FakeHbm>(1 << 16));
+    auto& hbm = *hbms.back();
+    caches.push_back(make_exclusive_cache(
+        hbm,
+        kBitRate,
+        kGroupSize,
+        {.packed_storage = true, .max_D = kPackedMaxD}));
+    auto& cache = *caches.back();
+    const auto moved = write_and_promote_packed(cache, hbm, ids, rows);
+    ASSERT_GT(static_cast<int64_t>(moved.size()), kRows / 2);
+    before.push_back(read_for_checkpoint(cache, ids));
+    // Rows that leave HBM and come back with new values after the fast
+    // path's snapshot was taken.
+    cache.exclusive_hbm_demote_all();
+    write_and_promote_packed(cache, hbm, rewritten, fresh);
+    after.push_back(read_for_checkpoint(cache, ids));
+  }
+  // The two caches are written in turn, so their write timestamps differ by
+  // up to the run's wall time (seconds under ASAN); every other byte matches.
+  const int64_t max_skew_s = 1 +
+      std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::steady_clock::now() - start)
+          .count();
+  for (const auto* results : {&before, &after}) {
+    EXPECT_TRUE(same_bits(
+        without_timestamps((*results)[0].raw),
+        without_timestamps((*results)[1].raw)));
+    EXPECT_TRUE(same_bits((*results)[0].fp16, (*results)[1].fp16));
+    EXPECT_TRUE(same_bits((*results)[0].tail, (*results)[1].tail));
+    EXPECT_LE(
+        ((*results)[1].metadata - (*results)[0].metadata)
+            .abs()
+            .max()
+            .item<int64_t>(),
+        max_skew_s);
+  }
+  // The HBM rows' new values are what the fast path read after the rewrite.
+  const auto fresh_read = read_rows(*caches[0], rewritten, kDim);
+  EXPECT_TRUE(same_bits(
+      after[1].fp16.index_select(0, rewritten).narrow(1, 0, kDim).contiguous(),
+      fresh_read));
+
+  // Restoring the fast path's raw rows gives back the rows it read.
+  auto restored = make_cache(
+      kBitRate, kGroupSize, {.packed_storage = true, .max_D = kPackedMaxD});
+  restored->set_range_to_storage(after[1].raw.clone(), 0, kRows);
+  EXPECT_TRUE(same_bits(read_rows(*restored, ids, kPackedMaxD), after[1].fp16));
+}
+
+TEST(ExclusiveHbmTest, BenchmarkCheckpointFills) {
+  if (std::getenv("KVZCH_HBM_CKPT_BENCH") == nullptr) {
+    GTEST_SKIP() << "set KVZCH_HBM_CKPT_BENCH=1";
+  }
+  using Clock = std::chrono::steady_clock;
+  const auto seconds_since = [](Clock::time_point start) {
+    return std::chrono::duration<double>(Clock::now() - start).count();
+  };
+  const char* rows_env = std::getenv("KVZCH_HBM_CKPT_BENCH_ROWS");
+  const int64_t rows_total = rows_env ? std::atoll(rows_env) : 2000000;
+  // Checkpoint reads go through KVTensorWrapper::narrow in chunks.
+  constexpr int64_t kChunk = 1 << 20;
+  const auto ids = at::arange(rows_total, at::kLong);
+  const auto rows = fixed_rows_with_tail(rows_total, /*seed=*/92);
+  std::vector<HbmFillResults> results;
+  for (const bool fast : {false, true}) {
+    const ScopedHbmFillFlags flags(fast);
+    FakeHbm hbm(rows_total);
+    auto cache = make_exclusive_cache(
+        hbm,
+        kBitRate,
+        kGroupSize,
+        {.packed_storage = true, .max_D = kPackedMaxD});
+    const auto moved = write_and_promote_packed(*cache, hbm, ids, rows);
+    std::vector<at::Tensor> raw, fp16, tail, metadata;
+    double raw_s = 0, fp16_s = 0, tail_s = 0, metadata_s = 0;
+    for (int64_t begin = 0; begin < rows_total; begin += kChunk) {
+      const auto chunk =
+          ids.narrow(0, begin, std::min(kChunk, rows_total - begin));
+      auto start = Clock::now();
+      raw.push_back(
+          at::zeros({chunk.size(0), cache->get_raw_row_bytes()}, at::kByte));
+      cache->get_kv_from_storage_by_snapshot(
+          chunk, raw.back(), nullptr, 0, std::nullopt);
+      raw_s += seconds_since(start);
+      start = Clock::now();
+      fp16.push_back(read_rows(*cache, chunk, kPackedMaxD));
+      fp16_s += seconds_since(start);
+      start = Clock::now();
+      tail.push_back(read_rows(*cache, chunk, kTail, /*offset=*/kDim));
+      tail_s += seconds_since(start);
+      start = Clock::now();
+      metadata.push_back(cache->get_kv_zch_eviction_metadata_impl(
+          chunk, at::tensor({chunk.size(0)}, at::kLong)));
+      metadata_s += seconds_since(start);
+    }
+    std::cout << "checkpoint fills, fast=" << fast << ": " << rows_total
+              << " rows, " << moved.size() << " in HBM; raw g8 " << raw_s
+              << " s, fp16 " << fp16_s << " s, tail " << tail_s
+              << " s, metadata " << metadata_s << " s, total "
+              << raw_s + fp16_s + tail_s + metadata_s << " s" << '\n';
+    results.push_back(
+        {at::cat(raw), at::cat(fp16), at::cat(tail), at::cat(metadata)});
+  }
+  // The two caches were written seconds apart, so only the MetaHeader
+  // timestamps (and the metadata built from them) may differ.
+  const int64_t meta_bytes = sizeof(FixedBlockPool::MetaHeader);
+  const auto payload = [&](const at::Tensor& rows) {
+    return rows.narrow(1, meta_bytes, rows.size(1) - meta_bytes).contiguous();
+  };
+  EXPECT_TRUE(same_bits(payload(results[0].raw), payload(results[1].raw)));
+  EXPECT_TRUE(same_bits(results[0].fp16, results[1].fp16));
+  EXPECT_TRUE(same_bits(results[0].tail, results[1].tail));
 }
 
 TEST(ExclusiveHbmTest, Fp16RowsLoseOnlyInt8PrecisionOnce) {

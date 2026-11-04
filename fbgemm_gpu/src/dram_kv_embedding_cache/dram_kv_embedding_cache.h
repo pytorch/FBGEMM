@@ -15,6 +15,7 @@
 #include <folly/ScopeGuard.h>
 #include <folly/SocketAddress.h>
 #include <folly/Synchronized.h>
+#include <folly/container/F14Set.h>
 #include <folly/container/small_vector.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
@@ -29,6 +30,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -36,6 +38,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <stdexcept>
 #include <string_view>
@@ -3312,6 +3315,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       feature_evict_->set_untracked_rows_counter(
           [this] { return static_cast<int64_t>(hbm_row_count()); });
     }
+    hbm_snapshot_fills_ =
+        env_int64("KVZCH_EXCLUSIVE_HBM_SNAPSHOT_FILLS", 0) != 0;
+    hbm_snapshot_ttl_s_ =
+        std::max<int64_t>(1, env_int64("KVZCH_EXCLUSIVE_HBM_SNAPSHOT_S", 900));
+    hbm_skip_tail_fill_ =
+        env_int64("KVZCH_EXCLUSIVE_HBM_SKIP_TAIL_FILL", 0) != 0;
+    if (env_int64("KVZCH_EXCLUSIVE_HBM_BATCHED_FILLS", 0) != 0) {
+      hbm_fill_executor_ =
+          std::make_unique<folly::CPUThreadPoolExecutor>(std::max<int64_t>(
+              1, env_int64("KVZCH_EXCLUSIVE_HBM_FILL_THREADS", 16)));
+    }
     if (hbm_ttl_s_ > 0 && sweep_s > 0) {
       hbm_scheduler_.addFunction(
           [this] {
@@ -3327,7 +3341,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     LOG(INFO) << "KVZCH exclusive HBM tier: slots=" << hbm_->cache_state.size(0)
               << " row_bytes=" << hbm_->cache_weights.size(1)
               << " chunk_rows=" << hbm_chunk_rows_ << " ttl_s=" << hbm_ttl_s_
-              << " ttl_demote=" << hbm_ttl_demote_ << " sweep_s=" << sweep_s;
+              << " ttl_demote=" << hbm_ttl_demote_ << " sweep_s=" << sweep_s
+              << " snapshot_fills=" << hbm_snapshot_fills_
+              << " batched_fills=" << (hbm_fill_executor_ != nullptr)
+              << " skip_tail_fill=" << hbm_skip_tail_fill_;
   }
 
   bool exclusive_hbm_enabled() const {
@@ -3395,6 +3412,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
     hbm_executor_->add([this, keys = std::move(keys)]() mutable {
       hbm_run_async([&] {
+        // Promotions run every step, so an expired snapshot is released even
+        // when no TTL sweep is scheduled.
+        hbm_drop_expired_snapshot();
         try {
           hbm_promote(keys);
         } catch (...) {
@@ -4035,6 +4055,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     at::Tensor rows; // [n, dim + 8] uint8, CPU; undefined unless requested
   };
 
+  struct HbmSnapshot {
+    at::Tensor tags; // [slots] int64, CPU
+    at::Tensor last_access; // [slots] int32, CPU
+    at::Tensor rows; // [slots, dim + 8] uint8, CPU
+    std::chrono::steady_clock::time_point taken;
+    // Keys promoted after the copy: their snapshot bytes may predate the
+    // HBM row. Written on hbm_executor_.
+    folly::F14FastSet<int64_t> promoted_since;
+  };
+
   static int64_t env_int64(const char* name, int64_t fallback) {
     const char* const value = std::getenv(name);
     if (value == nullptr || *value == '\0') {
@@ -4347,6 +4377,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             hbm_promote_skipped_++;
             continue;
           }
+          if (hbm_snapshot_) {
+            hbm_snapshot_->promoted_since.insert(key);
+          }
           weight_type* block = it->second;
           tombstones[key] = FixedBlockPool::get_metaheader_raw(block);
           wlmap->erase(it);
@@ -4445,6 +4478,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
   int64_t exclusive_hbm_sweep_now(int64_t now = -1) {
+    hbm_drop_expired_snapshot();
     if (hbm_ttl_s_ <= 0) {
       return 0;
     }
@@ -4528,35 +4562,345 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     });
   }
 
+  /// One row whose only copy is in HBM: its output position, tombstone
+  /// MetaHeader word, HBM last access time and HBM row bytes (null when rows
+  /// were not read).
+  struct HbmHeld {
+    int64_t position;
+    uint64_t meta;
+    uint32_t last_access;
+    const uint8_t* row;
+  };
+
+  struct HbmHeldRows {
+    std::vector<HbmHeld> held;
+    // Positions that are not HBM rows (any more): read from the backend.
+    std::vector<int64_t> reread;
+    // Keep the rows `held` points into alive.
+    std::vector<at::Tensor> chunks;
+    std::shared_ptr<HbmSnapshot> snapshot;
+  };
+
+  /// The `candidates` (ascending positions into id_ptr) whose only copy is in
+  /// HBM, with their tombstone words. With batched fills, one shard lock per
+  /// shard instead of per id.
+  std::pair<std::vector<int64_t>, std::vector<uint64_t>> hbm_find_tombstones(
+      const int64_t* id_ptr,
+      const std::vector<int64_t>& candidates) {
+    std::vector<int64_t> positions;
+    std::vector<uint64_t> metas;
+    if (!hbm_fill_executor_) {
+      for (const auto i : candidates) {
+        const auto shard_id = kv_db_utils::hash_shard(id_ptr[i], num_shards_);
+        const auto lock = kv_store_.by(shard_id).rlock();
+        const auto it = hbm_rows_[shard_id].find(id_ptr[i]);
+        if (it != hbm_rows_[shard_id].end()) {
+          positions.push_back(i);
+          metas.push_back(it->second);
+        }
+      }
+      return {std::move(positions), std::move(metas)};
+    }
+    std::vector<std::vector<int64_t>> by_shard(num_shards_);
+    for (const auto i : candidates) {
+      by_shard[kv_db_utils::hash_shard(id_ptr[i], num_shards_)].push_back(i);
+    }
+    std::vector<std::vector<std::pair<int64_t, uint64_t>>> found(num_shards_);
+    std::vector<folly::Future<folly::Unit>> futures;
+    for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
+      if (by_shard[shard_id].empty()) {
+        continue;
+      }
+      futures.push_back(folly::via(hbm_fill_executor_.get(), [&, shard_id] {
+        const auto lock = kv_store_.by(shard_id).rlock();
+        const auto& tombstones = hbm_rows_[shard_id];
+        if (tombstones.empty()) {
+          return;
+        }
+        for (const auto i : by_shard[shard_id]) {
+          const auto it = tombstones.find(id_ptr[i]);
+          if (it != tombstones.end()) {
+            found[shard_id].emplace_back(i, it->second);
+          }
+        }
+      }));
+    }
+    folly::collect(std::move(futures)).get();
+    std::vector<std::pair<int64_t, uint64_t>> merged;
+    for (auto& f : found) {
+      merged.insert(merged.end(), f.begin(), f.end());
+    }
+    std::ranges::sort(merged);
+    positions.reserve(merged.size());
+    metas.reserve(merged.size());
+    for (const auto& [position, meta] : merged) {
+      positions.push_back(position);
+      metas.push_back(meta);
+    }
+    return {std::move(positions), std::move(metas)};
+  }
+
   /// Positions of the `ids` whose only copy is in HBM now.
   std::vector<int64_t> hbm_tombstoned_positions(const at::Tensor& ids) {
-    std::vector<int64_t> positions;
     if (!hbm_) {
-      return positions;
+      return {};
     }
     const auto id_values = ids.to(at::kLong).contiguous();
-    const auto* id_ptr = id_values.const_data_ptr<int64_t>();
-    for (int64_t i = 0; i < id_values.numel(); ++i) {
-      const auto shard_id = kv_db_utils::hash_shard(id_ptr[i], num_shards_);
-      const auto lock = kv_store_.by(shard_id).rlock();
-      if (hbm_rows_[shard_id].contains(id_ptr[i])) {
-        positions.push_back(i);
+    std::vector<int64_t> all(id_values.numel());
+    std::iota(all.begin(), all.end(), int64_t{0});
+    return hbm_find_tombstones(id_values.const_data_ptr<int64_t>(), all).first;
+  }
+
+  /// The positions a checkpoint fill resolves: rows that were HBM rows before
+  /// the backend read (`tombstoned_before`), are HBM rows now, or, when the
+  /// read covers HBM columns, read back as zero. Rows move between the tiers
+  /// during the backend read (the TTL sweep, a promotion, a write that takes
+  /// the tombstone), and a row in none of these sets read a backend row.
+  std::vector<int64_t> hbm_fill_candidates(
+      const at::Tensor& id_values,
+      const at::Tensor& rows,
+      bool reads_hbm_columns,
+      std::vector<int64_t> tombstoned_before) {
+    auto positions = hbm_tombstoned_positions(id_values);
+    positions.insert(
+        positions.end(), tombstoned_before.begin(), tombstoned_before.end());
+    if (reads_hbm_columns) {
+      const auto zero_rows =
+          at::nonzero(rows.view({id_values.numel(), -1}).ne(0).sum(1) == 0)
+              .view(-1);
+      const auto* zero_ptr = zero_rows.const_data_ptr<int64_t>();
+      positions.insert(positions.end(), zero_ptr, zero_ptr + zero_rows.numel());
+    }
+    std::ranges::sort(positions);
+    positions.erase(std::ranges::unique(positions).begin(), positions.end());
+    return positions;
+  }
+
+  /// The HBM tier as of one bulk copy, shared by every checkpoint fill until
+  /// it expires (KVZCH_EXCLUSIVE_HBM_SNAPSHOT_S). Runs on hbm_executor_.
+  std::shared_ptr<HbmSnapshot> hbm_current_snapshot() {
+    const auto now = std::chrono::steady_clock::now();
+    if (hbm_snapshot_ &&
+        now - hbm_snapshot_->taken <
+            std::chrono::seconds(hbm_snapshot_ttl_s_)) {
+      return hbm_snapshot_;
+    }
+    auto snapshot = std::make_shared<HbmSnapshot>();
+    const auto start = facebook::WallClockUtil::NowInUsecFast();
+    // Always a copy: cpu() of a CPU tier (tests) would alias it.
+    on_hbm_stream([&] {
+      snapshot->tags = hbm_->cache_state.view(-1).to(
+          at::kCPU, /*non_blocking=*/false, /*copy=*/true);
+      snapshot->last_access =
+          hbm_->last_access.to(at::kCPU, /*non_blocking=*/false, /*copy=*/true);
+      snapshot->rows = hbm_->cache_weights.to(
+          at::kCPU, /*non_blocking=*/false, /*copy=*/true);
+    });
+    snapshot->taken = now;
+    hbm_snapshot_ = snapshot;
+    hbm_snapshots_++;
+    XLOG(INFO) << "[ExclusiveHBM] snapshot of " << snapshot->tags.numel()
+               << " slots in "
+               << (facebook::WallClockUtil::NowInUsecFast() - start) / 1000
+               << " ms";
+    return snapshot;
+  }
+
+  void hbm_drop_expired_snapshot() {
+    if (hbm_snapshot_ &&
+        std::chrono::steady_clock::now() - hbm_snapshot_->taken >=
+            std::chrono::seconds(hbm_snapshot_ttl_s_)) {
+      hbm_snapshot_.reset();
+    }
+  }
+
+  /// The HBM row and access time of each tombstoned position: from the
+  /// snapshot when it holds the key and the key was not promoted again since,
+  /// else from a chunked read of the live tier. With `check_tags`, a position
+  /// whose slot no longer holds its key goes to `reread`. Runs on
+  /// hbm_executor_.
+  void hbm_collect_held_on_executor(
+      HbmHeldRows& out,
+      const int64_t* id_ptr,
+      const std::vector<int64_t>& positions,
+      const std::vector<uint64_t>& metas,
+      bool rows,
+      bool check_tags) {
+    out.held.reserve(positions.size());
+    std::vector<size_t> live;
+    if (hbm_snapshot_fills_) {
+      out.snapshot = hbm_current_snapshot();
+      const auto& snapshot = *out.snapshot;
+      const auto* tags = snapshot.tags.template const_data_ptr<int64_t>();
+      const auto* access =
+          snapshot.last_access.template const_data_ptr<int32_t>();
+      const auto* snapshot_rows =
+          snapshot.rows.template const_data_ptr<uint8_t>();
+      const int64_t row_bytes = snapshot.rows.size(1);
+      for (size_t i = 0; i < positions.size(); ++i) {
+        const auto key = id_ptr[positions[i]];
+        const auto slot = hbm_slot(key);
+        if ((tags[slot] == key || !check_tags) &&
+            !snapshot.promoted_since.contains(key)) {
+          out.held.push_back(
+              {positions[i],
+               metas[i],
+               static_cast<uint32_t>(access[slot]),
+               rows ? snapshot_rows + slot * row_bytes : nullptr});
+        } else {
+          live.push_back(i);
+        }
+      }
+    } else {
+      live.resize(positions.size());
+      std::iota(live.begin(), live.end(), size_t{0});
+    }
+    for (size_t begin = 0; begin < live.size();
+         begin += static_cast<size_t>(hbm_chunk_rows_)) {
+      const auto end =
+          std::min(live.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
+      std::vector<int64_t> slots;
+      slots.reserve(end - begin);
+      for (auto k = begin; k < end; ++k) {
+        slots.push_back(hbm_slot(id_ptr[positions[live[k]]]));
+      }
+      const auto held = hbm_read_slots(slots, rows);
+      const int64_t row_bytes = rows ? held.rows.size(1) : 0;
+      for (auto k = begin; k < end; ++k) {
+        const auto i = live[k];
+        if (check_tags && held.tags[k - begin] != id_ptr[positions[i]]) {
+          out.reread.push_back(positions[i]);
+          continue;
+        }
+        out.held.push_back(
+            {positions[i],
+             metas[i],
+             static_cast<uint32_t>(held.last_access[k - begin]),
+             rows ? held.rows.template const_data_ptr<uint8_t>() +
+                     (k - begin) * row_bytes
+                  : nullptr});
+      }
+      if (rows) {
+        out.chunks.push_back(held.rows);
       }
     }
-    return positions;
+  }
+
+  HbmHeldRows hbm_collect_held(
+      const int64_t* id_ptr,
+      const std::vector<int64_t>& positions,
+      const std::vector<uint64_t>& metas,
+      bool rows,
+      bool check_tags = true) {
+    HbmHeldRows out;
+    via_hbm_executor([&] {
+      hbm_collect_held_on_executor(
+          out, id_ptr, positions, metas, rows, check_tags);
+      return int64_t{0};
+    });
+    return out;
+  }
+
+  /// Resolves checkpoint-fill `candidates` (see hbm_fill_candidates) on
+  /// hbm_executor_, where promotions and demotions run, so no row moves
+  /// meanwhile: rows tombstoned now are collected into `held`, and every other
+  /// row is read from the backend by `reread` before the task ends.
+  template <typename Reread>
+  HbmHeldRows hbm_resolve_fill(
+      const int64_t* id_ptr,
+      const std::vector<int64_t>& candidates,
+      Reread reread) {
+    HbmHeldRows out;
+    via_hbm_executor([&] {
+      const auto [positions, metas] = hbm_find_tombstones(id_ptr, candidates);
+      hbm_collect_held_on_executor(
+          out, id_ptr, positions, metas, /*rows=*/true, /*check_tags=*/true);
+      std::ranges::set_difference(
+          candidates, positions, std::back_inserter(out.reread));
+      std::ranges::sort(out.reread);
+      reread(out.reread);
+      return int64_t{0};
+    });
+    return out;
+  }
+
+  /// Runs fn(row, scratch) for each held row; with batched fills, split over
+  /// the fill pool (each part with its own scratch).
+  template <typename Fn>
+  void hbm_for_each_held(const std::vector<HbmHeld>& held, Fn fn) {
+    constexpr size_t kMinRowsPerPart = 4096;
+    if (!hbm_fill_executor_ || held.size() < 2 * kMinRowsPerPart) {
+      std::vector<weight_type> scratch;
+      for (const auto& h : held) {
+        fn(h, scratch);
+      }
+      return;
+    }
+    const size_t parts = std::min<size_t>(
+        hbm_fill_executor_->numThreads(), held.size() / kMinRowsPerPart);
+    const size_t per_part = (held.size() + parts - 1) / parts;
+    std::vector<folly::Future<folly::Unit>> futures;
+    for (size_t begin = 0; begin < held.size(); begin += per_part) {
+      const auto end = std::min(held.size(), begin + per_part);
+      futures.push_back(folly::via(hbm_fill_executor_.get(), [&, begin, end] {
+        std::vector<weight_type> scratch;
+        for (auto i = begin; i < end; ++i) {
+          fn(held[i], scratch);
+        }
+      }));
+    }
+    folly::collect(std::move(futures)).get();
+  }
+
+  /// MetaHeader of an HBM row: the tombstone word with the later of its
+  /// timestamp and the HBM access time.
+  static FixedBlockPool::MetaHeader
+  hbm_header(int64_t key, uint64_t meta, uint32_t last_access) {
+    FixedBlockPool::MetaHeader header{};
+    std::memcpy(
+        reinterpret_cast<char*>(&header) + sizeof(int64_t),
+        &meta,
+        sizeof(uint64_t));
+    header.key = key;
+    header.used = true;
+    header.timestamp = std::max<uint32_t>(header.timestamp, last_access);
+    return header;
+  }
+
+  /// The raw checkpoint row of an HBM row: its MetaHeader, then the row in
+  /// this table's raw format.
+  void hbm_encode_raw_row(
+      const FixedBlockPool::MetaHeader& header,
+      const uint8_t* hbm_row,
+      uint8_t* dst,
+      int64_t row_bytes,
+      std::vector<weight_type>& decoded) {
+    decoded.resize(max_D_);
+    std::memset(dst, 0, row_bytes);
+    std::memcpy(dst, &header, sizeof(header));
+    auto* block = reinterpret_cast<weight_type*>(dst);
+    if (hbm_rows_are_int8_rows()) {
+      copy_hbm_row_to_int8_block(hbm_row, block);
+    } else if (packed_) {
+      hbm_decode_row(hbm_row, decoded.data());
+      encode_packed_raw_payload(
+          decoded.data(),
+          reinterpret_cast<uint8_t*>(
+              FixedBlockPool::data_ptr<weight_type>(block)));
+    } else {
+      hbm_decode_row(hbm_row, decoded.data());
+      write_int8_payload(
+          FixedBlockPool::data_ptr<weight_type>(block), decoded.data(), max_D_);
+    }
   }
 
   /// Fills the rows of `ids` that live only in HBM into `weights` after a
   /// backend read zero-filled them: columns [width_offset, width_offset +
-  /// width) of each row, counted from the MetaHeader when `whole_row`.
-  ///
-  /// A row can move between the tiers during the backend read (the TTL sweep,
-  /// a promotion, a write that takes the tombstone), so this resolves every
-  /// row that was an HBM row before the read (`tombstoned_before`, from
-  /// hbm_tombstoned_positions), is one now, or read back as zero. It resolves
-  /// them on hbm_executor_, where promotions and demotions run, so none can
-  /// move: a row still tombstoned is read from HBM, any other is re-read from
-  /// the backend. HBM is read in chunks of hbm_chunk_rows_ rows.
+  /// width) of each row, counted from the MetaHeader when `whole_row`. Which
+  /// rows: hbm_fill_candidates; they are resolved on hbm_executor_, where no
+  /// row can move between the tiers: a row still tombstoned is read from HBM
+  /// (in chunks of hbm_chunk_rows_ rows, or the snapshot), any other is
+  /// re-read from the backend.
   void hbm_fill_rows(
       const at::Tensor& ids,
       const at::Tensor& weights,
@@ -4573,26 +4917,41 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             width_offset + width <= (whole_row ? meta_dim : 0) + max_D_,
         "HBM fill columns exceed the row width");
     const int64_t first = whole_row ? width_offset : width_offset + meta_dim;
+    // HBM rows hold no columns past their dim (no optimizer state), which
+    // the backend read already zero-filled.
+    const bool reads_hbm_columns = first < meta_dim + hbm_->dim;
+    if (hbm_skip_tail_fill_ && !reads_hbm_columns) {
+      return;
+    }
     const auto id_values = ids.to(at::kLong).contiguous();
     const auto* id_ptr = id_values.const_data_ptr<int64_t>();
-    auto positions = hbm_tombstoned_positions(id_values);
-    positions.insert(
-        positions.end(), tombstoned_before.begin(), tombstoned_before.end());
-    // Columns past the HBM row read back as zero for an HBM row anyway.
-    if (first < meta_dim + hbm_->dim) {
-      const auto zero_rows =
-          at::nonzero(weights.view({ids.numel(), width}).abs().amax({1}) == 0)
-              .view(-1);
-      const auto* zero_ptr = zero_rows.const_data_ptr<int64_t>();
-      positions.insert(positions.end(), zero_ptr, zero_ptr + zero_rows.numel());
-    }
-    std::ranges::sort(positions);
-    positions.erase(std::ranges::unique(positions).begin(), positions.end());
+    const auto positions = hbm_fill_candidates(
+        id_values, weights, reads_hbm_columns, std::move(tombstoned_before));
     if (positions.empty()) {
       return;
     }
-    const int64_t row_bytes = hbm_->dim + kHbmQparamsBytes;
     auto* out = weights.data_ptr<weight_type>();
+    if (hbm_snapshot_fills_ || hbm_fill_executor_) {
+      const auto held = hbm_resolve_fill(
+          id_ptr, positions, [&](const std::vector<int64_t>& reread) {
+            hbm_reread_rows(
+                id_values, weights, reread, width_offset, whole_row);
+          });
+      hbm_for_each_held(
+          held.held, [&](const HbmHeld& h, std::vector<weight_type>& row) {
+            row.resize(meta_dim + max_D_);
+            const auto header =
+                hbm_header(id_ptr[h.position], h.meta, h.last_access);
+            std::memcpy(row.data(), &header, sizeof(header));
+            hbm_decode_row(h.row, row.data() + meta_dim);
+            std::copy(
+                row.data() + first,
+                row.data() + first + width,
+                out + h.position * width);
+          });
+      return;
+    }
+    const int64_t row_bytes = hbm_->dim + kHbmQparamsBytes;
     via_hbm_executor([&] {
       std::vector<int64_t> reread;
       std::vector<weight_type> row(meta_dim + max_D_);
@@ -4623,16 +4982,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             reread.push_back(positions[i]);
             continue;
           }
-          FixedBlockPool::MetaHeader header{};
-          std::memcpy(
-              reinterpret_cast<char*>(&header) + sizeof(int64_t),
-              &*meta,
-              sizeof(uint64_t));
-          header.key = key;
-          header.used = true;
-          header.timestamp = std::max<uint32_t>(
-              header.timestamp,
-              static_cast<uint32_t>(held.last_access[i - begin]));
+          const auto header = hbm_header(
+              key, *meta, static_cast<uint32_t>(held.last_access[i - begin]));
           std::memcpy(row.data(), &header, sizeof(header));
           hbm_decode_row(
               held.rows.template const_data_ptr<uint8_t>() +
@@ -4644,24 +4995,34 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               out + positions[i] * width);
         }
       }
-      if (reread.empty()) {
-        return int64_t{0};
-      }
-      const auto index = at::tensor(reread, at::kLong);
-      auto again = at::zeros({index.numel(), width}, weights.options());
-      const auto again_ids = id_values.index_select(0, index);
-      const auto count = at::tensor({index.numel()}, at::kLong);
-      if (whole_row) {
-        get_kv_db_with_metaheader_async_impl(
-            again_ids, again, count, width_offset, width)
-            .wait();
-      } else {
-        get_kv_db_async_impl(again_ids, again, count, width_offset, width)
-            .wait();
-      }
-      weights.index_copy_(0, index, again);
+      hbm_reread_rows(id_values, weights, reread, width_offset, whole_row);
       return int64_t{0};
     });
+  }
+
+  /// hbm_fill_rows for rows that are not HBM rows: read from the backend.
+  void hbm_reread_rows(
+      const at::Tensor& id_values,
+      const at::Tensor& weights,
+      const std::vector<int64_t>& reread,
+      int64_t width_offset,
+      bool whole_row) {
+    if (reread.empty()) {
+      return;
+    }
+    const int64_t width = weights.size(1);
+    const auto index = at::tensor(reread, at::kLong);
+    auto again = at::zeros({index.numel(), width}, weights.options());
+    const auto again_ids = id_values.index_select(0, index);
+    const auto count = at::tensor({index.numel()}, at::kLong);
+    if (whole_row) {
+      get_kv_db_with_metaheader_async_impl(
+          again_ids, again, count, width_offset, width)
+          .wait();
+    } else {
+      get_kv_db_async_impl(again_ids, again, count, width_offset, width).wait();
+    }
+    weights.index_copy_(0, index, again);
   }
 
   void check_int8_rows(const at::Tensor& rows) const {
@@ -4944,8 +5305,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   /// get_int8_rows_with_metaheader for rows that live only in HBM: the
   /// MetaHeader from the tombstone (with the later access time) and the HBM
-  /// row's bytes. Resolves the same rows as hbm_fill_rows (missing rows read
-  /// back all zero), on hbm_executor_.
+  /// row in this table's raw format. Resolves the same rows as hbm_fill_rows
+  /// (missing rows read back all zero), on hbm_executor_.
   void hbm_fill_int8_rows(
       const at::Tensor& id_values,
       const at::Tensor& rows,
@@ -4954,20 +5315,41 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       return;
     }
     const auto* id_ptr = id_values.const_data_ptr<int64_t>();
-    auto positions = hbm_tombstoned_positions(id_values);
-    positions.insert(
-        positions.end(), tombstoned_before.begin(), tombstoned_before.end());
-    const auto zero_rows = at::nonzero(rows.ne(0).sum(1) == 0).view(-1);
-    const auto* zero_ptr = zero_rows.const_data_ptr<int64_t>();
-    positions.insert(positions.end(), zero_ptr, zero_ptr + zero_rows.numel());
-    std::ranges::sort(positions);
-    positions.erase(std::ranges::unique(positions).begin(), positions.end());
+    const auto positions = hbm_fill_candidates(
+        id_values,
+        rows,
+        /*reads_hbm_columns=*/true,
+        std::move(tombstoned_before));
     if (positions.empty()) {
       return;
     }
     const int64_t row_bytes = rows.size(1);
     const int64_t hbm_row_bytes = hbm_->dim + kHbmQparamsBytes;
     auto* out = rows.data_ptr<uint8_t>();
+    const auto reread_rows = [&](const std::vector<int64_t>& reread) {
+      if (reread.empty()) {
+        return;
+      }
+      const auto index = at::tensor(reread, at::kLong);
+      auto again = at::zeros({index.numel(), row_bytes}, rows.options());
+      read_int8_blocks(id_values.index_select(0, index), again);
+      rows.index_copy_(0, index, again);
+    };
+    if (hbm_snapshot_fills_ || hbm_fill_executor_) {
+      const auto held = hbm_resolve_fill(id_ptr, positions, reread_rows);
+      hbm_for_each_held(
+          held.held, [&](const HbmHeld& h, std::vector<weight_type>& decoded) {
+            const auto header =
+                hbm_header(id_ptr[h.position], h.meta, h.last_access);
+            hbm_encode_raw_row(
+                header,
+                h.row,
+                out + h.position * row_bytes,
+                row_bytes,
+                decoded);
+          });
+      return;
+    }
     via_hbm_executor([&] {
       std::vector<int64_t> reread;
       std::vector<weight_type> decoded(max_D_);
@@ -4996,45 +5378,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             reread.push_back(positions[i]);
             continue;
           }
-          FixedBlockPool::MetaHeader header{};
-          std::memcpy(
-              reinterpret_cast<char*>(&header) + sizeof(int64_t),
-              &*meta,
-              sizeof(uint64_t));
-          header.key = key;
-          header.used = true;
-          header.timestamp = std::max<uint32_t>(
-              header.timestamp,
-              static_cast<uint32_t>(held.last_access[i - begin]));
-          auto* dst = out + positions[i] * row_bytes;
-          std::memset(dst, 0, row_bytes);
-          std::memcpy(dst, &header, sizeof(header));
-          auto* block = reinterpret_cast<weight_type*>(dst);
-          const auto* hbm_row = held.rows.template const_data_ptr<uint8_t>() +
-              (i - begin) * hbm_row_bytes;
-          if (hbm_rows_are_int8_rows()) {
-            copy_hbm_row_to_int8_block(hbm_row, block);
-          } else if (packed_) {
-            hbm_decode_row(hbm_row, decoded.data());
-            encode_packed_raw_payload(
-                decoded.data(),
-                reinterpret_cast<uint8_t*>(
-                    FixedBlockPool::data_ptr<weight_type>(block)));
-          } else {
-            hbm_decode_row(hbm_row, decoded.data());
-            write_int8_payload(
-                FixedBlockPool::data_ptr<weight_type>(block),
-                decoded.data(),
-                max_D_);
-          }
+          hbm_encode_raw_row(
+              hbm_header(
+                  key,
+                  *meta,
+                  static_cast<uint32_t>(held.last_access[i - begin])),
+              held.rows.template const_data_ptr<uint8_t>() +
+                  (i - begin) * hbm_row_bytes,
+              out + positions[i] * row_bytes,
+              row_bytes,
+              decoded);
         }
       }
-      if (!reread.empty()) {
-        const auto index = at::tensor(reread, at::kLong);
-        auto again = at::zeros({index.numel(), row_bytes}, rows.options());
-        read_int8_blocks(id_values.index_select(0, index), again);
-        rows.index_copy_(0, index, again);
-      }
+      reread_rows(reread);
       return int64_t{0};
     });
   }
@@ -5063,6 +5419,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         out[i] = static_cast<int64_t>(
             FixedBlockPool::get_metaheader_raw(block->second));
       }
+    }
+    if (positions.empty()) {
+      return;
+    }
+    if (hbm_snapshot_fills_ || hbm_fill_executor_) {
+      const auto held = hbm_collect_held(
+          id_ptr, positions, metas, /*rows=*/false, /*check_tags=*/false);
+      for (const auto& h : held.held) {
+        const auto last =
+            std::max<uint32_t>(meta_timestamp(h.meta), h.last_access);
+        out[h.position] = static_cast<int64_t>(with_timestamp(h.meta, last));
+      }
+      return;
     }
     via_hbm_executor([&] {
       for (size_t begin = 0; begin < positions.size();
@@ -6043,6 +6412,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> hbm_requantized_{0};
   std::atomic<int64_t> hbm_tombstone_reads_{0};
   std::atomic<int64_t> hbm_tombstone_mask_reads_{0};
+  // Bulk copy of the HBM tier shared by checkpoint fills
+  // (KVZCH_EXCLUSIVE_HBM_SNAPSHOT_FILLS); read and replaced on hbm_executor_.
+  std::shared_ptr<HbmSnapshot> hbm_snapshot_;
+  bool hbm_snapshot_fills_{false};
+  int64_t hbm_snapshot_ttl_s_{900};
+  std::atomic<int64_t> hbm_snapshots_{0};
+  // Skip HBM fills of columns past the HBM rows
+  // (KVZCH_EXCLUSIVE_HBM_SKIP_TAIL_FILL).
+  bool hbm_skip_tail_fill_{false};
+  // Set with KVZCH_EXCLUSIVE_HBM_BATCHED_FILLS: per-shard tombstone lookups
+  // and row decodes of checkpoint fills run here.
+  std::unique_ptr<folly::CPUThreadPoolExecutor> hbm_fill_executor_;
   // One thread: tag and tombstone changes run in order.
   std::unique_ptr<folly::CPUThreadPoolExecutor> hbm_executor_;
   // Destroyed before hbm_executor_, which its sweeps run on.

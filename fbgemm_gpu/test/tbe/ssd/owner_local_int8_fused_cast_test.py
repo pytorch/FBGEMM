@@ -917,6 +917,91 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
     def test_packed_dram_exclusive_promote_demote_and_fill_only_writes(
         self,
     ) -> None:
+        self._check_packed_dram_exclusive()
+
+    def test_packed_dram_exclusive_with_fast_checkpoint_and_masked_promote(
+        self,
+    ) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "KVZCH_EXCLUSIVE_HBM_SNAPSHOT_FILLS": "1",
+                "KVZCH_EXCLUSIVE_HBM_BATCHED_FILLS": "1",
+                "KVZCH_EXCLUSIVE_HBM_SKIP_TAIL_FILL": "1",
+                "KVZCH_EXCLUSIVE_HBM_MASKED_WRITE_PROMOTE": "1",
+            },
+        ):
+            self._check_packed_dram_exclusive()
+
+    def _masked_promote_tbe(
+        self, promote_max_rows: int
+    ) -> training.SSDTableBatchedEmbeddingBags:
+        with mock.patch.dict(
+            os.environ, {"KVZCH_EXCLUSIVE_HBM_MASKED_WRITE_PROMOTE": "1"}
+        ):
+            tbe = self._cu_tbe(
+                load_without_opt=True,
+                owner_cache=True,
+                packed_storage=True,
+                exclusive=True,
+            )
+        cache = tbe._direct_enrichment_cache
+        assert isinstance(cache, training._ExclusiveDirectMappedEnrichmentCache)
+        cache._promote_max_rows = promote_max_rows
+        return tbe
+
+    def _set_rows(
+        self, tbe: training.SSDTableBatchedEmbeddingBags, keys: torch.Tensor
+    ) -> None:
+        rows = torch.randn(keys.numel(), tbe.cache_row_dim) * 0.3
+        tbe.ssd_db.set(keys, rows.half(), torch.tensor([keys.numel()]))
+
+    def test_masked_write_promote_claims_no_unread_rows(self) -> None:
+        device = _cuda_device()
+        tbe = self._masked_promote_tbe(0)
+        in_dram = torch.arange(32) * 7 + 3
+        missing = torch.arange(32) * 7 + 5
+        self._set_rows(tbe, in_dram)
+        pending = torch.cat((in_dram, missing))
+        # Stale NaN bytes in the pinned pool that the found-mask read reuses:
+        # the rows it does not read (missing keys) keep them.
+        poison = torch.full(
+            (pending.numel(), tbe.cache_row_dim),
+            float("nan"),
+            dtype=torch.float16,
+            pin_memory=True,
+        )
+        del poison
+        tbe._pending_direct_cache_fill_indices = pending.to(device)
+        retry = tbe._populate_direct_enrichment_cache_from_pending()
+        torch.cuda.synchronize()
+        tbe.ssd_db.exclusive_hbm_wait()
+        stats = [int(v) for v in tbe.ssd_db.exclusive_hbm_stats()]
+        self.assertEqual(stats[0], in_dram.numel())
+        # No missing key claimed a slot (its promotion would be skipped).
+        self.assertEqual(stats[2], 0)
+        assert retry is not None
+        self.assertEqual(retry.numel(), 0)
+
+    def test_masked_write_promote_retries_only_the_rows_past_the_cap(self) -> None:
+        device = _cuda_device()
+        tbe = self._masked_promote_tbe(4)
+        keys = torch.arange(10) * 7 + 3
+        self._set_rows(tbe, keys)
+        pending: torch.Tensor | None = keys.to(device)
+        in_hbm = []
+        for left in (6, 2, 0):
+            tbe._pending_direct_cache_fill_indices = pending
+            pending = tbe._populate_direct_enrichment_cache_from_pending()
+            torch.cuda.synchronize()
+            tbe.ssd_db.exclusive_hbm_wait()
+            assert pending is not None
+            self.assertEqual(pending.numel(), left)
+            in_hbm.append(int(tbe.ssd_db.exclusive_hbm_stats()[0]))
+        # Each cadence promotes the next promote_max_rows rows.
+        self.assertEqual(in_hbm, [4, 8, 10])
+
+    def _check_packed_dram_exclusive(self) -> None:
         device = _cuda_device()
         tbe = self._cu_tbe(
             load_without_opt=True,
