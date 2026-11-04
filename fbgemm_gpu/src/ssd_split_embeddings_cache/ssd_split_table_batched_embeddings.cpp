@@ -1710,6 +1710,9 @@ auto dram_kv_embedding_cache_wrapper =
             "exclusive_hbm_wait",
             &DramKVEmbeddingCacheWrapper::exclusive_hbm_wait)
         .def(
+            "wait_row_writes_done",
+            &DramKVEmbeddingCacheWrapper::wait_row_writes_done)
+        .def(
             "exclusive_hbm_stats",
             &DramKVEmbeddingCacheWrapper::exclusive_hbm_stats)
         .def(

@@ -1867,6 +1867,110 @@ const std::uint8_t* int8_row_ptr(const at::Tensor& rows, int64_t r) {
   return rows.const_data_ptr<std::uint8_t>() + r * rows.size(1);
 }
 
+TEST(TongxinRowWriteTest, FillOnlyWritesPreserveDramAndExclusiveHbmRows) {
+  for (const bool int8_storage : {false, true}) {
+    for (const bool exclusive : {false, true}) {
+      SCOPED_TRACE(
+          testing::Message()
+          << "int8_storage=" << int8_storage << ", exclusive=" << exclusive);
+      FakeHbm hbm(kHbmSlots);
+      auto cache = make_cache(0, 0, {.int8_storage = int8_storage});
+      const auto existing = at::tensor({11, 12}, at::kLong);
+      const auto initial = dex_like_rows(2, /*seed=*/71);
+      write_rows(*cache, existing, initial);
+      write_rows(
+          *cache, at::tensor({13}, at::kLong), at::zeros({1, kDim}, at::kHalf));
+      if (exclusive) {
+        cache->exclusive_hbm_register(
+            hbm.cache_state, hbm.cache_weights, hbm.last_access);
+        const auto moved = hbm.insert(
+            existing.narrow(0, 0, 1),
+            read_rows(*cache, existing.narrow(0, 0, 1)),
+            static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+        ASSERT_EQ(moved, std::vector<int64_t>{11});
+        cache->exclusive_hbm_promote_async(moved);
+        cache->exclusive_hbm_wait();
+      }
+      const auto before = read_rows(*cache, existing, kDim);
+      const auto ids = at::tensor({11, 12, 13, 14}, at::kLong);
+      auto incoming = at::full({4, kDim}, -7.0, at::kHalf);
+      incoming[2].fill_(0.25);
+      incoming[3].fill_(0.5);
+
+      folly::coro::blockingWait(cache->set_kv_db_async_on_enrichment_executor(
+          ids,
+          incoming,
+          at::tensor({4}, at::kLong),
+          cache->laser_write_epoch(),
+          /*skip_nonzero_rows=*/true));
+      cache->exclusive_hbm_wait();
+
+      const auto stored = read_rows(*cache, ids, kDim);
+      EXPECT_TRUE(same_bits(stored.narrow(0, 0, 2), before));
+      EXPECT_TRUE(same_bits(stored.narrow(0, 2, 2), incoming.narrow(0, 2, 2)));
+      if (exclusive) {
+        EXPECT_EQ(hbm.tag(11), 11);
+        EXPECT_EQ(cache->exclusive_hbm_stats()[0], 1);
+        EXPECT_EQ(cache->exclusive_hbm_stats()[5], 0);
+        EXPECT_EQ(cache->get_num_rows(), 3);
+      }
+    }
+  }
+}
+
+TEST(TongxinRowWriteTest, RowWritesAreSnappedLikeLaserFillsWithServingQdq) {
+  for (const bool packed : {false, true}) {
+    SCOPED_TRACE(testing::Message() << "packed=" << packed);
+    auto cache =
+        packed ? make_packed_cache() : make_cache(kBitRate, kGroupSize);
+    const auto ids = at::tensor({90001, 90002}, at::kLong);
+    const auto rows = dex_like_rows(2, /*seed=*/72);
+    const auto before = rows.clone();
+
+    cache->set_embedding_cache_rows_async(
+        ids, rows, at::tensor({2}, at::kLong));
+    const auto stored = wait_for_enriched_rows(*cache, ids);
+
+    EXPECT_TRUE(same_bits(rows, before));
+    // The g8 fixed point a Laser fill of the same rows stores
+    // (apply_serving_qdq's round trip).
+    auto filled = before.clone();
+    serving_qdq::round_trip_rows(
+        filled.mutable_data_ptr<at::Half>(), 2, kDim, kDim, kGrouped);
+    for (int64_t r = 0; r < 2; ++r) {
+      EXPECT_TRUE(same_bits(row_ptr(stored, r), row_ptr(filled, r), kDim));
+      EXPECT_TRUE(same_bits(
+          row_ptr(stored, r),
+          grouped_fixed_point_ref(row_ptr(before, r)).data(),
+          kDim));
+    }
+  }
+}
+
+TEST(TongxinRowWriteTest, RowWritesUseTheTablesServingFormat) {
+  // Row-wise INT4 (group size 0): stored rows are row-wise serving fixed
+  // points.
+  auto rowwise = make_cache(kBitRate, 0);
+  const auto ids = at::tensor({90011, 90012}, at::kLong);
+  const auto rows = dex_like_rows(2, /*seed=*/73);
+  rowwise->set_embedding_cache_rows_async(
+      ids, rows, at::tensor({2}, at::kLong));
+  const auto stored = wait_for_enriched_rows(*rowwise, ids);
+  for (int64_t r = 0; r < 2; ++r) {
+    EXPECT_TRUE(is_serving_fixed_point(row_ptr(stored, r)));
+    EXPECT_FALSE(same_bits(row_ptr(stored, r), row_ptr(rows, r), kDim));
+  }
+}
+
+TEST(TongxinRowWriteTest, RowWritesStayRawWithoutServingQdq) {
+  auto cache = make_cache(0);
+  const auto ids = at::tensor({90021, 90022}, at::kLong);
+  const auto rows = dex_like_rows(2, /*seed=*/74);
+  cache->set_embedding_cache_rows_async(ids, rows, at::tensor({2}, at::kLong));
+  const auto stored = wait_for_enriched_rows(*cache, ids);
+  EXPECT_TRUE(same_bits(stored, rows));
+}
+
 TEST(Int8StorageTest, EncodedRowsAreFixedPointsOfTheInt8Publish) {
   const auto rows = dex_like_rows(4096, /*seed=*/50);
   std::vector<std::uint8_t> encoded(kInt8RowBytes);

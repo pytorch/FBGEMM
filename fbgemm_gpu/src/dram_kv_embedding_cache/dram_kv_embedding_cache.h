@@ -945,6 +945,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         });
   }
 
+  /// The write epoch an enrichment write captures before it is queued.
+  uint64_t laser_write_epoch() const {
+    return laser_write_epoch_.load();
+  }
+
+  /// Waits until no set_embedding_cache_rows_async write is in flight.
+  void wait_row_writes_done() const {
+    while (row_write_in_progress_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+
   /// Separate write path for enrichment that runs on enrichment_executor_
   /// instead of the main executor_. This avoids competing with forward/backward
   /// for thread pool resources. Uses pause/resume to yield to fwd/bwd —
@@ -1597,7 +1609,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                     indices = std::move(indices),
                     weights = std::move(weights),
                     count = std::move(count)](folly::Unit) mutable {
-          if (packed_ && serving_qdq_format().bit_rate != 0) {
+          // Snapped to the serving fixed point like Laser fills, so training
+          // reads what serving decodes; a no-op without serving QDQ.
+          if (serving_qdq_format().bit_rate != 0) {
             weights = weights.clone();
             apply_serving_qdq(weights, count.item<int64_t>());
           }

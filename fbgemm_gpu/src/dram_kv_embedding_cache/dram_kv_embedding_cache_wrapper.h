@@ -286,6 +286,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     half_impl().exclusive_hbm_wait();
   }
 
+  void wait_row_writes_done() {
+    half_impl().wait_row_writes_done();
+  }
+
   std::vector<int64_t> exclusive_hbm_stats() {
     return half_impl().exclusive_hbm_stats();
   }
