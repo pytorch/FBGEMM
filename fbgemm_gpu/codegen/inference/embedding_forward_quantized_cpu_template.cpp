@@ -15,6 +15,7 @@
 #include <ATen/Parallel.h>
 
 #include "fbgemm_gpu/utils/cpu_utils.h"
+#include "fbgemm_gpu/utils/cpu_output_pool.h"
 #include "fbgemm_gpu/utils/embedding_cpu_threading.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
@@ -362,6 +363,17 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     bool output_is_int8 = o_dtype == SparseType::INT8;
     bool output_is_int4 = o_dtype == SparseType::INT4;
     {% if nobag %}
+    const static bool pool_output = fbgemm_gpu::tbe_cpu_output_pool_enabled();
+    // Pinned outputs keep going through the CUDA caching host allocator.
+    static const bool pool_pinned_checked = [&] {
+      if (pool_output && pinned_memory) {
+        LOG(WARNING) << "FBGEMM_TBE_CPU_OUTPUT_POOL is enabled but CPU TBE "
+                        "outputs are pinned, so the output pool is unused; set "
+                        "FBGEMM_TBE_CPU_OUTPUT_DISABLE_PINNED_MEMORY=1 to use it.";
+      }
+      return true;
+    }();
+    (void)pool_pinned_checked;
     constexpr int kINT8QparamsBytes = 4; // no bag int8 output aligns with fbgemm weights storage size and layout
     constexpr int kINT4QparamsElems = 8; // scale + bias takes 4 bytes which are 8 int4 elements
     int64_t adjusted_D = D;
@@ -374,7 +386,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
           "INT4 no-bag output requires an even embedding dimension, got D=",
           D);
     }
-    output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
+    output = (pool_output && !pinned_memory)
+        ? fbgemm_gpu::pooled_empty_cpu({total_L, adjusted_D}, getScalarType(o_dtype), fbgemm_gpu::tbe_cpu_output_pool())
+        : at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
     if (!output_is_int8 && !output_is_int4) {
       output.fill_(0);
     }
