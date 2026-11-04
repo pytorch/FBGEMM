@@ -789,6 +789,33 @@ void KVTensorWrapper::logss() {
   XLOG(INFO) << "readonly_db_ is valid: " << (readonly_db_ != nullptr);
   XLOG(INFO) << "read_only_: " << read_only_;
 }
+c10::intrusive_ptr<KVTensorWrapper> KVTensorWrapper::fp16_publish_view() const {
+  if (!db_ || !is_int8_rows(*db_, options_) ||
+      !db_->get_backend_return_whole_row() || width_offset_ != 0) {
+    return nullptr;
+  }
+  TORCH_CHECK(
+      shape_[1] == db_->get_int8_row_bytes(),
+      "Publishing requires complete INT8 rows, including metadata and tail");
+  auto view = c10::make_intrusive<KVTensorWrapper>(
+      std::vector<int64_t>{
+          shape_[0], db_->get_max_D() + db_->get_metaheader_width_in_front()},
+      static_cast<int64_t>(at::kHalf),
+      row_offset_,
+      snapshot_handle_,
+      sorted_indices_,
+      0,
+      checkpoint_handle_,
+      /*read_only=*/true);
+  view->db_ = db_;
+  view->rocksdb_for_serialization_ = rocksdb_for_serialization_;
+  return view;
+}
+
+bool KVTensorWrapper::stores_raw_rows() const {
+  return db_ && db_->get_int8_row_bytes() > 0;
+}
+
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   if (db_) {
@@ -1982,6 +2009,7 @@ auto kv_tensor_wrapper =
             "set_prefixed_weights_and_ids",
             &KVTensorWrapper::set_prefixed_weights_and_ids)
         .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
+        .def("stores_raw_rows", &KVTensorWrapper::stores_raw_rows)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property("device_str", &KVTensorWrapper::device_str)
         .def_property("layout_str", &KVTensorWrapper::layout_str)
