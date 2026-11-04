@@ -20,12 +20,23 @@ namespace fbgemm {
 template <typename T, inst_set_t instSet>
 FBGEMM_API funcptr_t<T> generateGemmKernel(int kernel_nrows);
 
-/// Build a kernel_array_t by JIT-generating kernels for rows [from, to].
+/// Generate each ISA's dispatch table on first use.
 template <typename T, inst_set_t instSet>
-kernel_array_t<T> makeKernelArray(int from, int to) {
-  kernel_array_t<T> k{};
-  for (int n = from; n <= to; n++) k[n] = generateGemmKernel<T, instSet>(n);
-  return k;
+const kernel_array_t<T>& getGemmKernelArray() {
+  static const kernel_array_t<T> kernels = [] {
+    kernel_array_t<T> result{};
+    int first_row = 1;
+    if constexpr (instSet == inst_set_t::avx512_ymm) {
+      result = getGemmKernelArray<T, inst_set_t::avx2>();
+      first_row = 7;
+    }
+    constexpr int last_row = instSet == inst_set_t::avx2 ? 6 : 14;
+    for (int row = first_row; row <= last_row; ++row) {
+      result[row] = generateGemmKernel<T, instSet>(row);
+    }
+    return result;
+  }();
+  return kernels;
 }
 
 }  // namespace fbgemm
