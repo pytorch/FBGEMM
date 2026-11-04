@@ -8,6 +8,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import time
 import unittest
 from collections.abc import Callable
 from typing import Protocol
@@ -638,16 +639,23 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         output_dtype: SparseType = SparseType.FP32,
         backend_type: BackendType = BackendType.DRAM,
         packed_storage: bool = False,
+        exclusive: bool = False,
     ) -> training.SSDTableBatchedEmbeddingBags:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         enrichment_policy = EnrichmentPolicy(
             enrichment_type=EnrichmentType.IN_MEMORY_TEST_ONLY,
             enrichment_dim=128,
-            int8_storage=int8_storage,
+            int8_storage=int8_storage and not packed_storage,
             direct_backend_gather=True,
             packed_storage=packed_storage,
         )
+        if packed_storage:
+            enrichment_policy = enrichment_policy._replace(
+                serving_qdq_bit_rate=4,
+                serving_qdq_group_size=8,
+                packed_storage=True,
+            )
         if owner_cache:
             enrichment_policy = enrichment_policy._replace(
                 owner_cache_size_mb=2000,
@@ -656,8 +664,13 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 owner_cache_int8=True,
                 owner_cache_int8_fused_float=True,
                 owner_cache_gather_reserved_sms=32,
-                owner_cache_exclusive=False,
+                owner_cache_exclusive=exclusive,
             )
+            if exclusive:
+                enrichment_policy = enrichment_policy._replace(
+                    owner_cache_read_populate=False,
+                    owner_cache_read_populate_max_lookups=0,
+                )
         params = KVZCHParams(
             bucket_offsets=[(0, 10)],
             bucket_sizes=[1000],
@@ -685,7 +698,10 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
     def test_dram_only_row_formats_reject_other_backends(self) -> None:
         for name, packed in (("int8_storage", False), ("packed_storage", True)):
             with self.subTest(name=name):
-                with self.assertRaisesRegex(ValueError, f"{name} requires the DRAM"):
+                # A packed policy may already fail on its serving_qdq_bit_rate.
+                with self.assertRaisesRegex(
+                    ValueError, f"({name}|serving_qdq_bit_rate) requires the DRAM"
+                ):
                     self._cu_tbe(
                         backend_type=BackendType.DRAM_SSD,
                         int8_storage=not packed,
@@ -824,6 +840,306 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertFalse(bool((cache.cache_state == 89).any()))
         torch.testing.assert_close(warm.cpu(), expected, rtol=5e-3, atol=5e-3)
         torch.testing.assert_close(warm[-1].cpu(), torch.zeros(128), rtol=0, atol=0)
+
+    def test_packed_dram_nonexclusive_read_populate_and_fill_only_writes(
+        self,
+    ) -> None:
+        device = _cuda_device()
+        tbe = self._cu_tbe(load_without_opt=True, owner_cache=True, packed_storage=True)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertIs(type(cache), training._DirectMappedEnrichmentCache)
+        self.assertTrue(cache._int8)
+        self.assertTrue(cache._read_populate)
+        self.assertEqual(tbe.ssd_db.get_int8_row_bytes(), 0)
+        self.assertEqual(tbe.ssd_db.get_raw_row_bytes(), 16 + 64 + 16)
+
+        def read_dram(keys: torch.Tensor) -> torch.Tensor:
+            # Decodes the raw g8 checkpoint rows (MetaHeader, codes, scales).
+            tbe.set_int8_checkpoint_rows(True)
+            raw = tbe.split_embedding_weights()[0][0]
+            tbe.set_int8_checkpoint_rows(False)
+            assert isinstance(raw, PartiallyMaterializedTensor)
+            rows = raw.wrapped.get_weights_by_ids(keys.cpu())
+            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                rows[:, 16:].contiguous(), 8, 128
+            )
+
+        def g8_fixed_point(rows: torch.Tensor) -> torch.Tensor:
+            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(rows.contiguous(), 8),
+                8,
+                128,
+            )
+
+        generator = torch.Generator().manual_seed(72)
+        original = (torch.randn(2, 128, generator=generator) * 0.3).half()
+        keys = torch.tensor([7, 31], device=device)
+        written = tbe.enrichment_write_rows(
+            torch.tensor([7, 31, 7, 89], device=device),
+            torch.tensor([0, 4], device=device),
+            torch.cat((original[[0, 1, 0]], torch.zeros(1, 128).half())).to(device),
+        )
+        # The host callback only queues the write; wait for it to land.
+        torch.cuda.synchronize()
+        tbe.ssd_db.wait_row_writes_done()
+        self.assertEqual(written.cpu().tolist(), [7, 31])
+        saved = read_dram(keys)
+        # Stored as g8 serving values: the g8 publish reproduces them.
+        torch.testing.assert_close(g8_fixed_point(saved), saved, rtol=0, atol=0)
+        torch.testing.assert_close(
+            saved.float(), original.float(), rtol=0.15, atol=0.05
+        )
+
+        expected = saved.float()
+        cold = tbe._direct_enrichment_lookup(keys)
+        self.assertEqual(cache.last_hit_counts(), (0, 2))
+        torch.testing.assert_close(cold.cpu(), expected, rtol=1e-3, atol=5e-4)
+        warm = tbe._direct_enrichment_lookup(keys)
+        self.assertEqual(cache.last_hit_counts(), (2, 2))
+        torch.testing.assert_close(warm.cpu(), expected, rtol=5e-3, atol=5e-3)
+
+        fresh = (torch.randn(1, 128, generator=generator) * 0.3).half()
+        written = tbe.enrichment_write_rows(
+            torch.tensor([7, 53], device=device),
+            torch.tensor([0, 2], device=device),
+            torch.cat((torch.full((1, 128), -7).half(), fresh)).to(device),
+        )
+        # The host callback only queues the write; wait for it to land.
+        torch.cuda.synchronize()
+        tbe.ssd_db.wait_row_writes_done()
+        self.assertEqual(written.cpu().tolist(), [7, 53])
+        torch.testing.assert_close(read_dram(keys), saved, rtol=0, atol=0)
+        torch.testing.assert_close(
+            read_dram(torch.tensor([53])), g8_fixed_point(fresh), rtol=0, atol=0
+        )
+
+    def test_packed_dram_exclusive_promote_demote_and_fill_only_writes(
+        self,
+    ) -> None:
+        device = _cuda_device()
+        tbe = self._cu_tbe(
+            load_without_opt=True,
+            owner_cache=True,
+            packed_storage=True,
+            exclusive=True,
+        )
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertIs(type(cache), training._ExclusiveDirectMappedEnrichmentCache)
+        self.assertEqual(tbe.ssd_db.get_int8_row_bytes(), 0)
+        self.assertEqual(tbe.ssd_db.get_raw_row_bytes(), 16 + 64 + 16)
+
+        def g8(rows: torch.Tensor) -> torch.Tensor:
+            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(rows.contiguous(), 8),
+                8,
+                128,
+            )
+
+        def read_dram(keys: torch.Tensor) -> torch.Tensor:
+            tbe.set_int8_checkpoint_rows(True)
+            raw = tbe.split_embedding_weights()[0][0]
+            tbe.set_int8_checkpoint_rows(False)
+            assert isinstance(raw, PartiallyMaterializedTensor)
+            rows = raw.wrapped.get_weights_by_ids(keys.cpu())
+            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                rows[:, 16:].contiguous(), 8, 128
+            )
+
+        def write(
+            keys: torch.Tensor, rows: torch.Tensor, landed: torch.Tensor
+        ) -> torch.Tensor:
+            written = tbe.enrichment_write_rows(
+                keys.to(device),
+                torch.tensor([0, keys.numel()], device=device),
+                rows.to(device),
+            )
+            torch.cuda.synchronize()
+            # The row write runs on the enrichment executor after the host
+            # callback, which wait_util_filling_work_done does not track.
+            deadline = time.monotonic() + 60
+            while bool((read_dram(landed).abs().amax(1) == 0).any()):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.1)
+            tbe.ssd_db.exclusive_hbm_wait()
+            return written
+
+        n = 512
+        keys = torch.arange(n) * 7 + 3
+        generator = torch.Generator().manual_seed(73)
+        original = (torch.randn(n, 128, generator=generator) * 0.3).half()
+        self.assertEqual(write(keys, original, keys).numel(), n)
+        stored = read_dram(keys)
+        torch.testing.assert_close(stored, g8(original), rtol=0, atol=0)
+
+        # Lookups promote rows into the INT8 HBM tier, which then holds the
+        # only copy; a fill-only write of a promoted row leaves it alone.
+        for _ in range(3):
+            out = tbe._direct_enrichment_lookup(keys.to(device))
+            step = (stored.float().amax(1) - stored.float().amin(1)) / 255
+            err = (out.cpu().float() - stored.float()).abs().amax(1)
+            self.assertTrue(bool((err <= step / 2 + 1e-3).all()))
+        torch.cuda.synchronize()
+        tbe.ssd_db.exclusive_hbm_wait()
+        in_hbm = int(tbe.ssd_db.exclusive_hbm_stats()[0])
+        self.assertGreater(in_hbm, n // 2)
+        hbm_rows = tbe._direct_enrichment_lookup(keys.to(device)).cpu().half()
+        new_keys = torch.arange(64) * 7 + 5
+        fresh = (torch.randn(64, 128, generator=generator) * 0.3).half()
+        written = write(
+            torch.cat((keys[:64], new_keys)),
+            torch.cat((torch.full((64, 128), -7).half(), fresh)),
+            new_keys,
+        )
+        self.assertEqual(written.numel(), 128)
+        torch.testing.assert_close(
+            tbe._direct_enrichment_lookup(keys.to(device)).cpu().half(),
+            hbm_rows,
+            rtol=0,
+            atol=0,
+        )
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[5]), 0)
+        torch.testing.assert_close(read_dram(new_keys), g8(fresh), rtol=0, atol=0)
+
+        # Demotion re-encodes every HBM row as the g8 fixed point of its INT8
+        # decode, so DRAM holds g8 rows again.
+        cache.reset()
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), 0)
+        demoted = read_dram(keys)
+        torch.testing.assert_close(demoted, g8(demoted), rtol=0, atol=0)
+        torch.testing.assert_close(
+            demoted.float(), hbm_rows.float(), rtol=0.05, atol=0.05
+        )
+        torch.testing.assert_close(
+            demoted.float(), stored.float(), rtol=0.05, atol=0.05
+        )
+
+    def test_tbe_raw_checkpoint_of_packed_rows_and_int8_reload(self) -> None:
+        n = 100
+        ids = torch.arange(n)
+        rows = torch.randn(n, 132).half()
+        packed = self._cu_tbe(packed_storage=True)
+        packed.ssd_db.set(ids, rows, torch.tensor([n]))
+        self.assertTrue(packed.set_int8_checkpoint_rows(True))
+        weights, saved_ids, _, _ = packed.split_embedding_weights()
+        assert saved_ids is not None
+        raw = weights[0]
+        self.assertEqual(raw.dtype, torch.uint8)
+        self.assertEqual(tuple(raw.shape), (n, 16 + 64 + 16 + 8))
+        saved = raw.narrow(0, 0, n)
+        packed.set_int8_checkpoint_rows(False)
+
+        # A raw INT8 checkpoint of the same rows re-quantizes into g8 rows.
+        int8 = self._cu_tbe()
+        int8.ssd_db.set(ids, rows, torch.tensor([n]))
+        int8.set_int8_checkpoint_rows(True)
+        int8_weights, int8_ids, _, _ = int8.split_embedding_weights()
+        assert int8_ids is not None
+        int8_saved = int8_weights[0].narrow(0, 0, n)
+        int8.set_int8_checkpoint_rows(False)
+        int8_pmt = int8.split_embedding_weights()[0][0]
+        assert isinstance(int8_pmt, PartiallyMaterializedTensor)
+        int8_live = int8_pmt.wrapped.get_weights_by_ids(int8_ids[0])
+        target = self._cu_tbe(packed_storage=True)
+        target.local_weight_counts[0] = n
+        target.global_id_per_rank[0] = int8_ids[0].view(-1, 1)
+        target.set_int8_checkpoint_rows(
+            True, checkpoint_row_bytes=int8_saved.size(1), source_format="int8"
+        )
+        pmt = target.split_embedding_weights()[0][0]
+        assert isinstance(pmt, PartiallyMaterializedTensor)
+        self.assertEqual(tuple(pmt.shape), (n, 160))
+        pmt.wrapped.set_range(0, 0, n, int8_saved.clone())
+        target.set_int8_checkpoint_rows(False)
+        restored_pmt = target.split_embedding_weights()[0][0]
+        assert isinstance(restored_pmt, PartiallyMaterializedTensor)
+        restored = restored_pmt.wrapped.get_weights_by_ids(int8_ids[0])
+        emb = restored[:, 8:136].contiguous()
+        torch.testing.assert_close(
+            torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(emb, 8), 8, 128
+            ),
+            emb,
+            rtol=0,
+            atol=0,
+        )
+        torch.testing.assert_close(restored[:, 136:], int8_live[:, 136:])
+        torch.testing.assert_close(
+            emb.float(), int8_live[:, 8:136].float(), rtol=0.2, atol=0.3
+        )
+        reloaded = self._cu_tbe(packed_storage=True)
+        reloaded.local_weight_counts[0] = n
+        reloaded.global_id_per_rank[0] = saved_ids[0].view(-1, 1)
+        reloaded.set_int8_checkpoint_rows(True)
+        reload_pmt = reloaded.split_embedding_weights()[0][0]
+        assert isinstance(reload_pmt, PartiallyMaterializedTensor)
+        reload_pmt.wrapped.set_range(0, 0, n, saved.clone())
+        reloaded_pmt = reloaded.split_embedding_weights()[0][0]
+        assert isinstance(reloaded_pmt, PartiallyMaterializedTensor)
+        assert isinstance(raw, PartiallyMaterializedTensor)
+        torch.testing.assert_close(
+            reloaded_pmt.wrapped.get_weights_by_ids(saved_ids[0]),
+            raw.wrapped.get_weights_by_ids(saved_ids[0]),
+            rtol=0,
+            atol=0,
+        )
+
+    def test_tbe_loads_int8_checkpoint_into_packed_table_without_optimizer_tail(
+        self,
+    ) -> None:
+        n = 100
+        ids = torch.arange(n)
+        int8 = self._cu_tbe()
+        int8.ssd_db.set(ids, torch.randn(n, 132).half(), torch.tensor([n]))
+        int8.set_int8_checkpoint_rows(True)
+        weights, int8_ids, _, _ = int8.split_embedding_weights()
+        assert int8_ids is not None
+        saved = weights[0].narrow(0, 0, n)
+        self.assertEqual(saved.size(1), 160)
+        int8.set_int8_checkpoint_rows(False)
+        int8_pmt = int8.split_embedding_weights()[0][0]
+        assert isinstance(int8_pmt, PartiallyMaterializedTensor)
+        int8_live = int8_pmt.wrapped.get_weights_by_ids(int8_ids[0])
+
+        target = self._cu_tbe(packed_storage=True, load_without_opt=True)
+        self.assertEqual(target.ssd_db.get_raw_row_bytes(), 96)
+        # 160 B is also a packed width (with a 32-column tail); only the INT8
+        # reading has a tail shorter than the formats' 28-column gap.
+        self.assertTrue(target.ssd_db.accepts_raw_row_bytes(160, True))
+        self.assertFalse(target.ssd_db.accepts_raw_row_bytes(160, False))
+        target.local_weight_counts[0] = n
+        target.global_id_per_rank[0] = int8_ids[0].view(-1, 1)
+        # The other raw format loads only when the caller names it.
+        with self.assertRaisesRegex(ValueError, "source_format"):
+            target.set_int8_checkpoint_rows(True, checkpoint_row_bytes=160)
+        # A refused switch leaves the width rule in place.
+        self.assertTrue(target.ssd_db.accepts_raw_row_bytes(160, True))
+        self.assertTrue(
+            target.set_int8_checkpoint_rows(
+                True, checkpoint_row_bytes=160, source_format="int8"
+            )
+        )
+        pmt = target.split_embedding_weights()[0][0]
+        assert isinstance(pmt, PartiallyMaterializedTensor)
+        pmt.wrapped.set_range(0, 0, n, saved.clone())
+        target.set_int8_checkpoint_rows(False)
+        restored_pmt = target.split_embedding_weights()[0][0]
+        assert isinstance(restored_pmt, PartiallyMaterializedTensor)
+        emb = restored_pmt.wrapped.get_weights_by_ids(int8_ids[0])[:, 8:136]
+        emb = emb.contiguous()
+        # Re-quantized from the INT8 decode, not misread as g8 codes.
+        torch.testing.assert_close(
+            torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(emb, 8), 8, 128
+            ),
+            emb,
+            rtol=0,
+            atol=0,
+        )
+        torch.testing.assert_close(
+            emb.float(), int8_live[:, 8:136].float(), rtol=0.2, atol=0.3
+        )
 
     def test_tbe_checkpoint_pmt_retains_raw_format_after_scope_exit(self) -> None:
         tbe = self._cu_tbe()

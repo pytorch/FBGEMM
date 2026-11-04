@@ -602,6 +602,18 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return 0;
   }
 
+  /// Bytes per row of the backend's raw row format (INT8 or packed group-wise
+  /// INT4, MetaHeader included), or 0 when the backend stores fp16 rows.
+  virtual int64_t get_raw_row_bytes() {
+    return get_int8_row_bytes();
+  }
+
+  /// Widest raw row the backend accepts on a load: rows of another raw format
+  /// are re-quantized into its own.
+  virtual int64_t get_max_raw_row_bytes() {
+    return get_raw_row_bytes();
+  }
+
   virtual int64_t get_metaheader_width_in_front() {
     // will return non-zero if DRAM enables backend_return_whole_row
     return 0;
