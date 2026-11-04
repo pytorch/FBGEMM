@@ -7,15 +7,34 @@
 import importlib.util
 import os
 import sys
+import tempfile
 import unittest
 from typing import Any
 from unittest import mock
 
 import torch
+from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.ssd import training
+from fbgemm_gpu.tbe.ssd.ssd_config import (
+    BackendType,
+    EnrichmentPolicy,
+    EnrichmentType,
+    EvictionPolicy,
+    KVZCHParams,
+)
+from fbgemm_gpu.tbe.ssd.utils.partially_materialized_tensor import (
+    PartiallyMaterializedTensor,
+)
 
 ENV = "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST"
 _HAS_TRITON: bool = importlib.util.find_spec("triton") is not None
+
+
+def _cuda_device() -> torch.device:
+    device = torch.accelerator.current_accelerator(check_available=True)
+    if device is None or device.type != "cuda":
+        raise RuntimeError("requires a CUDA device")
+    return device
 
 
 def _cache(
@@ -483,13 +502,14 @@ def _slot(key: int, num_slots: int) -> int:
     return h % num_slots
 
 
-def _dram_backend(dim: int, num_rows: int) -> Any:
+def _dram_backend(dim: int, num_rows: int, int8_storage: bool = False) -> Any:
     enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
         4,  # IN_MEMORY_TEST_ONLY
         "",
         "",
         dim,
         1,  # THRIFT_FLOAT
+        int8_storage=int8_storage,
     )
     return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
         max_D=dim,
@@ -506,9 +526,283 @@ def _dram_backend(dim: int, num_rows: int) -> Any:
 
 @unittest.skipIf(not torch.cuda.is_available(), "requires a CUDA device")
 class ExclusiveOwnerCacheTest(unittest.TestCase):
+    def test_int8_payload_inputs_are_checked_before_the_host_callback(
+        self,
+    ) -> None:
+        _cuda_device()
+        backend = _dram_backend(128, 1000, int8_storage=True)
+        ids = torch.arange(4)
+        for rows in (
+            torch.empty(4, 7, dtype=torch.uint8),
+            torch.empty(4, 136, dtype=torch.float16),
+            torch.empty(3, 136, dtype=torch.uint8),
+        ):
+            with self.assertRaises(RuntimeError):
+                backend.get_int8_payloads_cuda(ids, rows, torch.tensor([4]))
+        torch.cuda.synchronize()
+
+    def test_raw_insert_preserves_bytes_and_rejects_missing_or_nonfinite_rows(
+        self,
+    ) -> None:
+        device = _cuda_device()
+        dim, slots, n = 128, 4096, 1000
+        backend = _dram_backend(dim, n, int8_storage=True)
+        ids = torch.arange(n)
+        table = torch.randn(n, dim).half()
+        table[3].zero_()
+        backend.set(ids, table, torch.tensor([n]))
+        backend.wait_util_filling_work_done()
+        raw = torch.empty(n, dim + 8, dtype=torch.uint8)
+        backend.get_int8_payloads(ids, raw, torch.tensor([n]))
+        raw[4, -8:-4].view(torch.float32).fill_(float("nan"))
+        state = torch.full((slots, 1), -1, dtype=torch.int64, device=device)
+        weights = torch.zeros(slots, dim + 8, dtype=torch.uint8, device=device)
+        access = torch.zeros(slots, dtype=torch.int32, device=device)
+        state[_slot(7, slots)] = 10**9
+        promoted = torch.empty(n, dtype=torch.int64, device=device)
+        count = torch.zeros(1, dtype=torch.int32, device=device)
+        torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
+            state,
+            weights,
+            access,
+            ids.to(device),
+            raw.to(device),
+            None,
+            promoted,
+            count,
+            1234,
+            True,
+        )
+        claimed = promoted[: int(count.item())].cpu().tolist()
+        self.assertGreater(len(claimed), 700)
+        for key in (3, 4, 7):
+            self.assertNotIn(key, claimed)
+        host_weights = weights.cpu()
+        for key in claimed:
+            torch.testing.assert_close(
+                host_weights[_slot(key, slots)], raw[key], rtol=0, atol=0
+            )
+        self.assertEqual(int(state[_slot(7, slots)].item()), 10**9)
+
+    def _cu_tbe(
+        self, int8_storage: bool = True, load_without_opt: bool = False
+    ) -> training.SSDTableBatchedEmbeddingBags:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        params = KVZCHParams(
+            bucket_offsets=[(0, 10)],
+            bucket_sizes=[1000],
+            enable_optimizer_offloading=True,
+            backend_return_whole_row=True,
+            embedding_cache_mode=True,
+            load_ckpt_without_opt=load_without_opt,
+            eviction_policy=EvictionPolicy(
+                eviction_trigger_mode=0, meta_header_lens=[8]
+            ),
+            enrichment_policy=EnrichmentPolicy(
+                enrichment_type=EnrichmentType.IN_MEMORY_TEST_ONLY,
+                enrichment_dim=128,
+                int8_storage=int8_storage,
+                direct_backend_gather=True,
+            ),
+        )
+        return training.SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(10000, 128)],
+            feature_table_map=[0],
+            ssd_storage_directory=directory.name,
+            weights_precision=SparseType.FP16,
+            pooling_mode=training.PoolingMode.NONE,
+            backend_type=BackendType.DRAM,
+            kv_zch_params=params,
+            cache_sets=1,
+        )
+
+    def test_tbe_checkpoint_pmt_retains_raw_format_after_scope_exit(self) -> None:
+        tbe = self._cu_tbe()
+        n = 100
+        ids = torch.arange(n)
+        tbe.ssd_db.set(ids, torch.randn(n, 132).half(), torch.tensor([n]))
+        live = tbe.split_embedding_weights()[0][0]
+        self.assertIsInstance(live, PartiallyMaterializedTensor)
+        self.assertEqual(live.dtype, torch.float16)
+        self.assertEqual(tuple(live.shape), (n, 140))
+
+        self.assertTrue(tbe.set_int8_checkpoint_rows(True))
+        raw = tbe.split_embedding_weights()[0][0]
+        self.assertEqual(raw.dtype, torch.uint8)
+        self.assertEqual(tuple(raw.shape), (n, 160))
+        saved = raw.narrow(0, 0, n)
+        self.assertTrue(tbe.set_int8_checkpoint_rows(False))
+
+        torch.testing.assert_close(raw.narrow(0, 0, n), saved, rtol=0, atol=0)
+        published = tbe.split_embedding_weights()[0][0].narrow(0, 0, n)[:, 8:136]
+        torch.testing.assert_close(
+            torch.ops.quantized.embedding_bag_byte_prepack(published.contiguous()),
+            saved[:, 16:152],
+            rtol=0,
+            atol=0,
+        )
+
+    def test_tbe_loads_int8_checkpoint_without_unused_optimizer_tail(self) -> None:
+        source = self._cu_tbe()
+        n = 100
+        ids = torch.arange(n)
+        source.ssd_db.set(ids, torch.randn(n, 132).half(), torch.tensor([n]))
+        source.set_int8_checkpoint_rows(True)
+        weights, saved_ids, _, _ = source.split_embedding_weights()
+        assert saved_ids is not None
+        saved = weights[0].narrow(0, 0, n)
+        target = self._cu_tbe(load_without_opt=True)
+        self.assertEqual(target.ssd_db.get_int8_row_bytes(), 152)
+        target.local_weight_counts[0] = n
+        target.global_id_per_rank[0] = saved_ids[0].view(-1, 1)
+        target.set_int8_checkpoint_rows(True, checkpoint_row_bytes=saved.size(1))
+        pmt = target.split_embedding_weights()[0][0]
+        assert isinstance(pmt, PartiallyMaterializedTensor)
+        self.assertEqual(tuple(pmt.shape), (n, 160))
+        pmt.wrapped.set_range(0, 0, n, saved.clone())
+        target.set_int8_checkpoint_rows(False)
+
+        target.set_int8_checkpoint_rows(True)
+        restored_pmt = target.split_embedding_weights()[0][0]
+        assert isinstance(restored_pmt, PartiallyMaterializedTensor)
+        restored = restored_pmt.wrapped.get_weights_by_ids(saved_ids[0])
+        torch.testing.assert_close(restored, saved[:, :152], rtol=0, atol=0)
+        target.set_int8_checkpoint_rows(False)
+
+    def test_set_int8_checkpoint_rows_reports_whether_it_takes_effect(self) -> None:
+        fp16 = self._cu_tbe(int8_storage=False)
+        self.assertFalse(fp16.set_int8_checkpoint_rows(True))
+        self.assertEqual(fp16.split_embedding_weights()[0][0].dtype, torch.float16)
+
+        tbe = self._cu_tbe()
+        tbe.ssd_db.set(
+            torch.arange(10), torch.randn(10, 132).half(), torch.tensor([10])
+        )
+        tbe.backend_return_whole_row = False
+        self.assertFalse(tbe.set_int8_checkpoint_rows(True))
+        self.assertEqual(tbe.split_embedding_weights()[0][0].dtype, torch.float16)
+        tbe.backend_return_whole_row = True
+        # Wider rows drop an optimizer tail: only with load_ckpt_without_opt.
+        with self.assertRaisesRegex(ValueError, "load_ckpt_without_opt"):
+            tbe.set_int8_checkpoint_rows(True, checkpoint_row_bytes=168)
+        self.assertTrue(tbe.set_int8_checkpoint_rows(True))
+        raw = tbe.split_embedding_weights()[0][0]
+        self.assertEqual((raw.dtype, tuple(raw.shape)), (torch.uint8, (10, 160)))
+        self.assertTrue(tbe.set_int8_checkpoint_rows(False))
+        self.assertEqual(tbe.split_embedding_weights()[0][0].dtype, torch.float16)
+
+    def test_reuse_last_split_ids_skips_one_key_scan(self) -> None:
+        tbe = self._cu_tbe()
+        tbe.ssd_db.set(
+            torch.arange(50), torch.randn(50, 132).half(), torch.tensor([50])
+        )
+        _, ids, _, _ = tbe.split_embedding_weights()
+        assert ids is not None
+        tbe.ssd_db.set(
+            torch.tensor([60]), torch.randn(1, 132).half(), torch.tensor([1])
+        )
+
+        tbe.reuse_last_split_ids()
+        weights, reused, _, _ = tbe.split_embedding_weights()
+        assert reused is not None
+        self.assertTrue(torch.equal(reused[0], ids[0]))
+        self.assertEqual(weights[0].shape[0], 50)
+        # One split only: the next one scans again and sees the new row.
+        _, fresh, _, _ = tbe.split_embedding_weights()
+        assert fresh is not None
+        self.assertEqual(fresh[0].numel(), 51)
+
+    def test_int8_dram_promotion_demotion_and_rewrites_have_zero_extra_loss(
+        self,
+    ) -> None:
+        device = _cuda_device()
+        dim, n = 128, 5000
+        backend = _dram_backend(dim, n, int8_storage=True)
+        ids = torch.arange(n)
+        original = (torch.randn(n, dim) * 0.3).half()
+        backend.set(ids, original, torch.tensor([n]))
+        backend.wait_util_filling_work_done()
+        expected = torch.empty_like(original)
+        backend.get(ids, expected, torch.tensor([n]), 0)
+        raw = torch.empty(n, dim + 8, dtype=torch.uint8)
+        backend.get_int8_payloads(ids, raw, torch.tensor([n]))
+        step = (original.float().amax(1) - original.float().amin(1)) / 255
+        error = (expected.float() - original.float()).abs().amax(1)
+        self.assertTrue(
+            bool(
+                (error <= step / 2 + original.float().abs().amax(1) / 2048 + 1e-7).all()
+            )
+        )
+        cache = training._ExclusiveDirectMappedEnrichmentCache(
+            embedding_dim=dim,
+            total_hash_size=1 << 20,
+            cache_dtype=torch.float16,
+            device=device,
+            cache_size_mb=1,
+            backend=backend,
+            int8_storage=True,
+            promote_max_rows=2048,
+        )
+
+        def read_backend_into(
+            keys: torch.Tensor, rows: torch.Tensor, count: torch.Tensor
+        ) -> None:
+            backend.get_cuda(keys, rows, count)
+
+        gen = torch.Generator().manual_seed(71)
+        for _ in range(3):
+            for _ in range(3):
+                query = torch.randint(0, n, (8000,), generator=gen)
+                out = cache.lookup(query.to(device), read_backend_into)
+                torch.testing.assert_close(out.cpu(), expected[query], rtol=0, atol=0)
+            torch.cuda.synchronize()
+            backend.exclusive_hbm_wait()
+            self.assertGreater(int(backend.exclusive_hbm_stats()[0]), 1000)
+            held = cache.cache_state.flatten().cpu()
+            occupied = held >= 0
+            torch.testing.assert_close(
+                cache.cache_weights.cpu()[occupied], raw[held[occupied]], rtol=0, atol=0
+            )
+            cache.reset()
+            reread = torch.empty_like(raw)
+            backend.get_int8_payloads(ids, reread, torch.tensor([n]))
+            torch.testing.assert_close(reread, raw, rtol=0, atol=0)
+        device_ids = ids.to(device)
+        device_rows = expected.to(device)
+        for start in range(0, n, 1250):
+            cache.populate_from_write(
+                device_ids[start : start + 1250], device_rows[start : start + 1250]
+            )
+        torch.cuda.synchronize()
+        backend.exclusive_hbm_wait()
+        torch.testing.assert_close(
+            cache.lookup(ids.to(device), read_backend_into).cpu(),
+            expected,
+            rtol=0,
+            atol=0,
+        )
+
+        rewritten = ids[::2].contiguous()
+        fresh = torch.randn(rewritten.numel(), dim).half()
+        backend.set(rewritten, fresh, torch.tensor([rewritten.numel()]))
+        backend.wait_util_filling_work_done()
+        backend.exclusive_hbm_wait()
+        decoded = torch.empty_like(fresh)
+        backend.get(rewritten, decoded, torch.tensor([rewritten.numel()]), 0)
+        expected[rewritten] = decoded
+        torch.testing.assert_close(
+            cache.lookup(ids.to(device), read_backend_into).cpu(),
+            expected,
+            rtol=0,
+            atol=0,
+        )
+        self.assertEqual(int(backend.exclusive_hbm_stats()[6]), 0)
+        self.assertEqual(int(backend.exclusive_hbm_stats()[7]), 0)
+        cache.reset()
+
     def test_insert_claims_only_empty_slots_and_reports_them(self) -> None:
-        device = torch.accelerator.current_accelerator(check_available=True)
-        assert device is not None
+        device = _cuda_device()
         dim, slots = 128, 4096
         cache_state = torch.full((slots, 1), -1, dtype=torch.int64, device=device)
         cache_weights = torch.zeros(slots, dim + 8, dtype=torch.uint8, device=device)
@@ -560,8 +854,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertNotEqual(last_access[2].item(), 5678)
 
     def test_lookup_moves_rows_to_hbm_and_reset_moves_them_back(self) -> None:
-        device = torch.accelerator.current_accelerator(check_available=True)
-        assert device is not None
+        device = _cuda_device()
         dim, num_rows = 128, 2048
         backend = _dram_backend(dim, num_rows)
         table = (torch.randn(num_rows, dim) * 0.3).half()
@@ -622,8 +915,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         promotions are in flight, after they land, with duplicate ids and slot
         collisions, after DRAM rewrites of HBM rows, and through the write-side
         fill."""
-        device = torch.accelerator.current_accelerator(check_available=True)
-        assert device is not None
+        device = _cuda_device()
         dim, num_rows = 128, 50000
         backend = _dram_backend(dim, num_rows)
         table = (torch.randn(num_rows, dim) * 0.3).half()
@@ -696,8 +988,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
     def test_benchmark_probe_touch_insert_at_ot_scale(self) -> None:
         """GPU cost per lookup of the exclusive cache at OT scale: 5M indices
         into a 12000 MB cache (~85M slots) that is ~70% full."""
-        device = torch.accelerator.current_accelerator(check_available=True)
-        assert device is not None
+        device = _cuda_device()
         dim = 128
         slot_bytes = dim + 8 + 8 + 4
         slots = 12000 * 1024 * 1024 // slot_bytes

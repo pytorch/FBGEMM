@@ -89,7 +89,8 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
     const std::optional<Tensor>& count,
     Tensor promoted_keys,
     Tensor promoted_count,
-    const int64_t now);
+    const int64_t now,
+    const bool input_is_packed);
 
 Tensor kvzch_exclusive_cache_touch_cuda(
     Tensor row_addresses,
@@ -960,7 +961,9 @@ void KVTensorWrapper::set_weights_and_ids_impl(
   TORCH_CHECK(
       ids.numel() == weights.size(0),
       "ids and weights must have the same number of rows");
-  CHECK_GE(max_row_width(*db_, options_), shape_[1]);
+  if (!is_int8_rows(*db_, options_) || !only_load_weight_) {
+    CHECK_GE(max_row_width(*db_, options_), shape_[1]);
+  }
   auto checkpoint_view_ids =
       ids.to(at::ScalarType::Long).reshape({-1}).contiguous();
   if (is_int8_rows(*db_, options_)) {
@@ -1032,10 +1035,9 @@ void KVTensorWrapper::set_raw_rows(
     const at::Tensor& rows,
     const at::Tensor& view_ids) {
   TORCH_CHECK(
-      rows.scalar_type() == at::kByte &&
-          rows.size(1) == db_->get_int8_row_bytes(),
+      rows.scalar_type() == at::kByte && rows.size(1) == shape_[1],
       "INT8 rows must be uint8 with ",
-      db_->get_int8_row_bytes(),
+      shape_[1],
       " bytes per row");
   const auto present_rows =
       rows_present_in_checkpoint(rows, sizeof(FixedBlockPool::MetaHeader));
@@ -1687,6 +1689,12 @@ auto dram_kv_embedding_cache_wrapper =
             "get_int8_row_bytes",
             &DramKVEmbeddingCacheWrapper::get_int8_row_bytes)
         .def(
+            "get_int8_payloads_cuda",
+            &DramKVEmbeddingCacheWrapper::get_int8_payloads_cuda)
+        .def(
+            "get_int8_payloads",
+            &DramKVEmbeddingCacheWrapper::get_int8_payloads)
+        .def(
             "get_int8_write_counts",
             &DramKVEmbeddingCacheWrapper::get_int8_write_counts)
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
@@ -2049,7 +2057,8 @@ Tensor kvzch_exclusive_cache_insert_int8_meta(
     const std::optional<Tensor>& /*count*/,
     Tensor /*promoted_keys*/,
     Tensor promoted_count,
-    const int64_t /*now*/) {
+    const int64_t /*now*/,
+    const bool /*input_is_packed*/) {
   return promoted_count;
 }
 
@@ -2174,7 +2183,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor? count, "
       "    Tensor(d!) promoted_keys, "
       "    Tensor(e!) promoted_count, "
-      "    int now"
+      "    int now, "
+      "    bool input_is_packed=False"
       ") -> Tensor(e!)");
   DISPATCH_TO_CUDA(
       "kvzch_exclusive_cache_insert_int8",
