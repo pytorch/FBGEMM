@@ -158,6 +158,21 @@ class EnrichmentPolicyValidateTest(unittest.TestCase):
 
         self.assertTrue(repr(policy).endswith(", serving_qdq_bit_rate=4)"))
 
+    def test_repr_leaves_out_later_fields_at_their_defaults(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(provider_name="p", enrichment_dim=8)
+        later = EnrichmentPolicy._fields[
+            EnrichmentPolicy._fields.index("serving_qdq_group_size") + 1 :
+        ]
+
+        self.assertTrue(later)
+        for name in later:
+            self.assertNotIn(f"{name}=", repr(policy))
+            changed = policy._asdict()
+            changed[name] = not changed[name]
+            self.assertIn(f", {name}=", repr(EnrichmentPolicy(**changed)))
+
 
 class KVZCHParamsValidateTest(unittest.TestCase):
     """Test KVZCHParams.validate() logic."""

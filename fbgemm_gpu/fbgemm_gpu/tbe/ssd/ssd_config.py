@@ -290,6 +290,11 @@ class EnrichmentPolicy(NamedTuple):
     # publish is group-wise INT4 with one float8_e4m3fn scale per this many dims
     # (fbgemm.FloatOrHalfToGroupedInt4E4M3); requires serving_qdq_bit_rate 4.
     serving_qdq_group_size: int = 0
+    # Store DRAM rows in that group-wise INT4 encoding (dim / 2 code bytes plus
+    # dim / group_size scale bytes) instead of fp16; reads, writes and
+    # checkpoints stay fp16. Requires serving_qdq_bit_rate 4 and
+    # serving_qdq_group_size 8.
+    packed_storage: bool = False
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -335,12 +340,15 @@ class EnrichmentPolicy(NamedTuple):
 
     def __repr__(self) -> str:
         # The torchrec planner hashes str() of the policy into its context hash
-        # and plan cache key. Leaving serving_qdq_* fields at 0 out keeps both
-        # unchanged for policies that do not use them.
+        # and plan cache key. Leaving serving_qdq_* fields at 0, and the fields
+        # declared after them at their defaults, out keeps both unchanged for
+        # policies that do not use them.
+        later_fields = self._fields[self._fields.index("serving_qdq_group_size") + 1 :]
         fields = ", ".join(
             f"{name}={value!r}"
             for name, value in self._asdict().items()
             if not (name.startswith("serving_qdq_") and value == 0)
+            and not (name in later_fields and value == self._field_defaults[name])
         )
         return f"{type(self).__name__}({fields})"
 

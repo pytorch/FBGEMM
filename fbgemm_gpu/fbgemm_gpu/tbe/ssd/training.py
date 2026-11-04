@@ -1129,6 +1129,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     and self.backend_type != BackendType.DRAM
                 ):
                     raise ValueError("serving_qdq_bit_rate requires the DRAM backend")
+                if (
+                    enrichment_policy.packed_storage
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("packed_storage requires the DRAM backend")
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -1756,6 +1761,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     list(ep.laser_key_suffixes),
                     self._serving_qdq_bit_rate(ep),
                     ep.serving_qdq_group_size,
+                    ep.packed_storage,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -5278,6 +5284,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE, also
         validating serving_qdq_group_size, which depends on it."""
         bit_rate, group_size = ep.serving_qdq_bit_rate, ep.serving_qdq_group_size
+        if ep.packed_storage and (bit_rate != 4 or group_size != 8):
+            raise ValueError(
+                "packed_storage needs serving_qdq_bit_rate 4 and "
+                f"serving_qdq_group_size 8, got {bit_rate} and {group_size}"
+            )
         if bit_rate == 0:
             if group_size != 0:
                 raise ValueError("serving_qdq_group_size needs serving_qdq_bit_rate 4")
