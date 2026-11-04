@@ -306,6 +306,13 @@ class EnrichmentPolicy(NamedTuple):
     owner_cache_exclusive_promote_max_rows: int = 0
     # Move missed rows into HBM on every this-many lookups.
     owner_cache_exclusive_promote_every_n: int = 1
+    # Store DRAM rows as row-wise INT8 (enrichment_dim codes, then fp32 scale
+    # and bias: the INT8 publish row and the owner-local HBM row) instead of
+    # fp16; reads and writes stay fp16. With
+    # SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows, checkpoints carry
+    # these bytes instead of fp16 rows. Excludes packed_storage and
+    # serving_qdq_bit_rate; needs an enrichment_dim divisible by 4.
+    int8_storage: bool = False
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -360,6 +367,12 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             self.owner_cache_exclusive_promote_every_n >= 1
         ), "owner_cache_exclusive_promote_every_n must be positive"
+        assert not self.int8_storage or (
+            not self.packed_storage and self.serving_qdq_bit_rate == 0
+        ), "int8_storage excludes packed_storage and serving_qdq_bit_rate"
+        assert (
+            not self.int8_storage or self.enrichment_dim % 4 == 0
+        ), f"int8_storage needs an enrichment_dim divisible by 4, actual {self.enrichment_dim}"
 
     def __repr__(self) -> str:
         # The torchrec planner hashes str() of the policy into its context hash

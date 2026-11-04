@@ -274,6 +274,21 @@ class KVZCHParamsValidateTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 KVZCHParams(enrichment_policy=policy).validate()
 
+    def test_int8_storage_excludes_packed_rows_and_serving_qdq(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
+
+        int8 = EnrichmentPolicy(enrichment_dim=128, int8_storage=True)
+        KVZCHParams(enrichment_policy=int8).validate()
+        for policy in (
+            int8._replace(serving_qdq_bit_rate=4),
+            int8._replace(
+                serving_qdq_bit_rate=4, serving_qdq_group_size=8, packed_storage=True
+            ),
+            int8._replace(enrichment_dim=130),
+        ):
+            with self.assertRaises(AssertionError):
+                KVZCHParams(enrichment_policy=policy).validate()
+
     def test_owner_cache_gather_reserved_sms_requires_owner_cache(self) -> None:
         from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
 
