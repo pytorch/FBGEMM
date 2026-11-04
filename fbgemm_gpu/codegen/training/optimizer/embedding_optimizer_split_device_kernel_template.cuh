@@ -106,6 +106,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     // when kUseVecBlocking == false
     const int32_t max_vecs =
         kUseVecBlocking ? max_vecs_per_thread : kFixedMaxVecsPerThread;
+    const int32_t thread_idx = static_cast<int32_t>(threadIdx.x);
     const int64_t weights_offset = weights_offsets[t];
     emb_t* __restrict__ weights {nullptr};
     cache_t* __restrict__ cache_weights {nullptr};
@@ -202,9 +203,11 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
             // Fetch cached updated row from shared mem and quantize on-the-fly
             // when saving to lowp embedding
             for (int32_t vec = 0;
-                (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                (vec * kThreadGroupSize +
+                 thread_idx) * VEC_WIDTH < D;
                 ++vec) {
-                const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
+                const auto d_vec =
+                    vec * kThreadGroupSize + thread_idx;
                 const int32_t d = d_vec * VEC_WIDTH;
                 weight_row_template.store(
                     shared_weight_update_row[d_vec],
@@ -269,6 +272,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     // when kUseVecBlocking == false
     const int32_t max_vecs =
         kUseVecBlocking ? max_vecs_per_thread : kFixedMaxVecsPerThread;
+    const int32_t thread_idx = static_cast<int32_t>(threadIdx.x);
     emb_t* __restrict__ weights {nullptr};
     cache_t* __restrict__ cache_weights {nullptr};
     int32_t D_emb = D;
@@ -361,9 +365,11 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
             // Fetch cached updated row from shared mem and quantize on-the-fly
             // when saving to lowp embedding
             for (int32_t vec = 0;
-                (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                (vec * kThreadGroupSize +
+                 thread_idx) * VEC_WIDTH < D;
                 ++vec) {
-                const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
+                const auto d_vec =
+                    vec * kThreadGroupSize + thread_idx;
                 const int32_t d = d_vec * VEC_WIDTH;
                 weight_row_template.store(
                     shared_weight_update_row[d_vec],
