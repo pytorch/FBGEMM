@@ -2625,7 +2625,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) override {
-    if (int8_ && weights.scalar_type() == at::kByte) {
+    if (is_raw_rows(weights)) {
       set_int8_rows_with_metaheader(weights);
       return;
     }
@@ -2654,7 +2654,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
 
-    if (int8_ && weights.scalar_type() == at::kByte) {
+    if (is_raw_rows(weights)) {
       CHECK_EQ(width_offset, 0);
       get_int8_rows_with_metaheader(seq_indices, weights);
       return;
@@ -2685,7 +2685,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights)
       override {
-    if (int8_ && weights.scalar_type() == at::kByte) {
+    if (is_raw_rows(weights)) {
       set_int8_rows_with_metaheader(weights, ids);
       return;
     }
@@ -2709,7 +2709,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       std::optional<int64_t> width_length = std::nullopt) override {
     CHECK(snapshot_handle == nullptr);
 
-    if (int8_ && weights.scalar_type() == at::kByte) {
+    if (is_raw_rows(weights)) {
       CHECK_EQ(width_offset, 0);
       get_int8_rows_with_metaheader(ids, weights);
       return;
@@ -2786,29 +2786,32 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     hbm_fill_int8_rows(id_values, rows, std::move(tombstoned));
   }
 
-  /// Writes raw INT8 rows (as read by get_int8_rows_with_metaheader, the key
-  /// in each row's first 8 bytes) without re-quantizing them.
+  /// Writes raw rows (as read by get_int8_rows_with_metaheader, the key in
+  /// each row's first 8 bytes) without re-quantizing them. Rows saved in the
+  /// other raw format (INT8 into a packed table, packed into an INT8 table)
+  /// are decoded and re-quantized like fp16 writes.
   void set_int8_rows_with_metaheader(
       const at::Tensor& rows,
       std::optional<at::Tensor> ids = std::nullopt) {
-    TORCH_CHECK(int8_, "uint8 rows need int8_storage");
+    TORCH_CHECK(
+        int8_ || packed_, "uint8 rows need int8_storage or packed_storage");
     TORCH_CHECK(
         rows.dim() == 2 && rows.scalar_type() == at::kByte &&
             rows.is_contiguous() && rows.device().is_cpu(),
-        "INT8 rows must be a contiguous 2D uint8 CPU tensor");
-    const int64_t required_bytes =
-        sizeof(FixedBlockPool::MetaHeader) + int8_->row_bytes();
+        "Raw rows must be a contiguous 2D uint8 CPU tensor");
+    const int64_t n = rows.size(0);
+    const int64_t row_bytes = rows.size(1);
     TORCH_CHECK(
-        rows.size(1) >= required_bytes &&
-            (rows.size(1) - required_bytes) % sizeof(weight_type) == 0,
-        "INT8 rows need a MetaHeader, codes, fp32 qparams and an fp16 tail");
+        raw_row_source(row_bytes).has_value(),
+        "Raw rows of ",
+        row_bytes,
+        " bytes are neither INT8 nor packed rows (a MetaHeader, the encoded "
+        "dims and an fp16 tail) of this table");
     // A complete-row restore, like set_kv_with_metaheader_to_storage.
     auto pause_state = pause_for_stream_write();
     SCOPE_EXIT {
       resume_after_stream_write(pause_state);
     };
-    const int64_t n = rows.size(0);
-    const int64_t row_bytes = rows.size(1);
     const auto* src = rows.const_data_ptr<uint8_t>();
     std::vector<int64_t> keys(n);
     if (ids.has_value()) {
@@ -3076,6 +3079,52 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// bias, fp16 tail columns), or 0 without int8_storage.
   int64_t get_int8_row_bytes() override {
     return int8_ ? static_cast<int64_t>(payload_end_bytes()) : 0;
+  }
+
+  /// Bytes of a raw checkpoint row in the stored format (INT8 or packed
+  /// INT4), or 0 for fp16 rows.
+  int64_t get_raw_row_bytes() override {
+    return (int8_ || packed_) ? static_cast<int64_t>(payload_end_bytes()) : 0;
+  }
+
+  /// A packed table also loads raw INT8 rows, which are wider.
+  int64_t get_max_raw_row_bytes() override {
+    if (!packed_) {
+      return get_raw_row_bytes();
+    }
+    return sizeof(FixedBlockPool::MetaHeader) +
+        serving_qdq::Int8Layout{packed_->dim, packed_->tail}.payload_bytes();
+  }
+
+  /// Names the raw format of the next raw rows loaded ("int8" or "packed"),
+  /// so raw_row_source takes it from the caller rather than the width; ""
+  /// goes back to telling it by width.
+  void set_raw_source_format(const std::string& format) {
+    TORCH_CHECK(
+        format.empty() || format == "int8" || format == "packed",
+        "raw source format must be int8, packed or empty, got ",
+        format);
+    raw_source_format_.store(
+        format.empty()         ? -1
+            : format == "int8" ? static_cast<int>(RawRowFormat::kInt8)
+                               : static_cast<int>(RawRowFormat::kPacked));
+  }
+
+  /// Whether set_int8_rows_with_metaheader can load raw rows `row_bytes`
+  /// wide: their format is known (raw_row_source) and their fp16 tail fits
+  /// this table's, or is wider and `drop_tail` (load_ckpt_without_opt).
+  bool accepts_raw_row_bytes(int64_t row_bytes, bool drop_tail) const {
+    if (!int8_ && !packed_) {
+      return false;
+    }
+    const auto source = raw_row_source(row_bytes);
+    if (!source) {
+      return false;
+    }
+    const auto own = int8_ ? RawRowFormat::kInt8 : RawRowFormat::kPacked;
+    return drop_tail ||
+        *raw_tail_cols(*source, row_bytes) <=
+        *raw_tail_cols(own, static_cast<int64_t>(payload_end_bytes()));
   }
 
   /// Raw payloads for HBM promotion. Missing rows are zero-filled. All tensors
@@ -4616,17 +4665,183 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
   void check_int8_rows(const at::Tensor& rows) const {
-    TORCH_CHECK(int8_, "uint8 rows need int8_storage");
+    TORCH_CHECK(
+        int8_ || packed_, "uint8 rows need int8_storage or packed_storage");
     TORCH_CHECK(
         rows.dim() == 2 && rows.scalar_type() == at::kByte &&
             rows.is_contiguous() && rows.device().is_cpu(),
-        "INT8 rows must be a contiguous 2D uint8 CPU tensor");
+        "Raw rows must be a contiguous 2D uint8 CPU tensor");
     TORCH_CHECK(
         rows.size(1) == static_cast<int64_t>(payload_end_bytes()),
-        "INT8 rows hold ",
+        "Raw rows hold ",
         payload_end_bytes(),
         " bytes, got ",
         rows.size(1));
+  }
+
+  bool is_raw_rows(const at::Tensor& weights) const {
+    return (int8_ || packed_) && weights.scalar_type() == at::kByte;
+  }
+
+  enum class RawRowFormat { kInt8, kPacked };
+
+  /// Format of raw rows `row_bytes` wide: this table's own (its row width, or
+  /// a MetaHeader, its encoded dims and fp16 tail columns), or rows of the
+  /// other raw format with the same enrichment dim (packed rows with 8-dim
+  /// groups), preferring whichever needs this table's tail width. Away from
+  /// those two exact widths, a tail must be shorter than the gap between the
+  /// INT8 and packed dims (raw_format_tail_gap_cols, 28 columns at dim 128):
+  /// an INT8 row and a packed row of the same width differ in tail by exactly
+  /// that gap, so no width matches both formats. nullopt when neither fits.
+  std::optional<RawRowFormat> raw_row_source(int64_t row_bytes) const {
+    const auto own = int8_ ? RawRowFormat::kInt8 : RawRowFormat::kPacked;
+    if (const int named = raw_source_format_.load(); named >= 0) {
+      // A format the caller named, with the same tail bound, so even a named
+      // format never reads a row that is plausible only as the other one.
+      const auto format = static_cast<RawRowFormat>(named);
+      if (row_bytes == static_cast<int64_t>(payload_end_bytes())) {
+        return format == own ? std::optional(own) : std::nullopt;
+      }
+      const auto tail = raw_tail_cols(format, row_bytes);
+      return tail.has_value() && *tail < raw_format_tail_gap_cols()
+          ? std::optional(format)
+          : std::nullopt;
+    }
+    if (row_bytes == static_cast<int64_t>(payload_end_bytes())) {
+      return own;
+    }
+    const auto fits = [&](RawRowFormat format) {
+      const auto tail = raw_tail_cols(format, row_bytes);
+      return tail.has_value() && *tail < raw_format_tail_gap_cols();
+    };
+    const auto other = int8_ ? RawRowFormat::kPacked : RawRowFormat::kInt8;
+    const int64_t own_tail_bytes = static_cast<int64_t>(payload_end_bytes()) -
+        static_cast<int64_t>(sizeof(FixedBlockPool::MetaHeader)) -
+        raw_dims_bytes(own, raw_dim());
+    if (row_bytes ==
+        static_cast<int64_t>(sizeof(FixedBlockPool::MetaHeader)) +
+            raw_dims_bytes(other, raw_dim()) + own_tail_bytes) {
+      return other;
+    }
+    if (fits(own)) {
+      return own;
+    }
+    if (fits(other)) {
+      return other;
+    }
+    return std::nullopt;
+  }
+
+  static int64_t raw_dims_bytes(RawRowFormat format, int64_t dim) {
+    return format == RawRowFormat::kInt8
+        ? serving_qdq::Int8Layout{dim, 0}.row_bytes()
+        : serving_qdq::PackedLayout{dim, 8, 0}.packed_bytes();
+  }
+
+  int64_t raw_dim() const {
+    return int8_ ? int8_->dim : packed_->dim;
+  }
+
+  /// fp16 tail columns of a `row_bytes` raw row in `format`; nullopt when the
+  /// width does not fit the format.
+  std::optional<int64_t> raw_tail_cols(RawRowFormat format, int64_t row_bytes)
+      const {
+    const int64_t rest = row_bytes -
+        static_cast<int64_t>(sizeof(FixedBlockPool::MetaHeader)) -
+        raw_dims_bytes(format, raw_dim());
+    if (rest < 0 || rest % static_cast<int64_t>(sizeof(weight_type)) != 0) {
+      return std::nullopt;
+    }
+    return rest / static_cast<int64_t>(sizeof(weight_type));
+  }
+
+  int64_t raw_format_tail_gap_cols() const {
+    return (raw_dims_bytes(RawRowFormat::kInt8, raw_dim()) -
+            raw_dims_bytes(RawRowFormat::kPacked, raw_dim())) /
+        static_cast<int64_t>(sizeof(weight_type));
+  }
+
+  /// Decodes a raw row payload of `payload_bytes` in `format` to max_D_ fp16
+  /// columns: the encoded dims, then the fp16 tail columns both rows have;
+  /// columns the source lacks are zero.
+  void decode_raw_payload(
+      RawRowFormat format,
+      const uint8_t* payload,
+      int64_t payload_bytes,
+      weight_type* dst) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const int64_t dim = int8_ ? int8_->dim : packed_->dim;
+      if (format == RawRowFormat::kInt8) {
+        serving_qdq::decode_int8_row(payload, dim, dst);
+      } else {
+        serving_qdq::unpack_row(
+            payload, serving_qdq::PackedLayout{dim, 8, 0}, dst);
+      }
+      const int64_t dims_bytes = raw_dims_bytes(format, dim);
+      const int64_t tail_cols = std::min<int64_t>(
+          (payload_bytes - dims_bytes) /
+              static_cast<int64_t>(sizeof(weight_type)),
+          max_D_ - dim);
+      std::memcpy(
+          dst + dim, payload + dims_bytes, tail_cols * sizeof(weight_type));
+      std::fill(dst + dim + tail_cols, dst + max_D_, weight_type(0));
+    }
+  }
+
+  /// A packed row kept as fp16 outside its block has only a marker in the
+  /// block, so its raw row gets the plain (lossy) packing of those values.
+  void encode_fallback_raw_row(
+      int shard_id,
+      const weight_type* block,
+      uint8_t* dst_payload) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const auto& layout = *packed_;
+      if (dst_payload[layout.code_bytes()] != serving_qdq::kFallbackScale) {
+        return;
+      }
+      const auto& fallback = fallback_rows_[shard_id];
+      const auto it = fallback.find(
+          static_cast<const void*>(FixedBlockPool::data_ptr(block)));
+      if (it == fallback.end()) {
+        // As read_packed_dims: a block allocated without a row write.
+        packed_fallback_missing_++;
+        XLOG_EVERY_MS(ERR, 60000)
+            << "[EmbeddingCacheEnrich] packed rows with no fp16 fallback row: "
+            << packed_fallback_missing_.load();
+        std::memset(dst_payload, 0, layout.packed_bytes());
+        return;
+      }
+      std::vector<weight_type> values(max_D_);
+      std::copy(it->second.begin(), it->second.end(), values.begin());
+      std::memcpy(
+          values.data() + layout.dim,
+          dst_payload + layout.packed_bytes(),
+          layout.tail * sizeof(weight_type));
+      encode_packed_raw_payload(values.data(), dst_payload);
+    }
+  }
+
+  /// Packed raw payload of a max_D_-column fp16 row outside the table (no
+  /// fallback bookkeeping): exact for serving fixed points, the plain packing
+  /// of the clamped values otherwise.
+  void encode_packed_raw_payload(weight_type* row, uint8_t* payload) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const auto& layout = *packed_;
+      serving_qdq::clamp_non_finite(row, layout.dim);
+      if (!serving_qdq::pack_row(row, layout, payload)) {
+        // A fallback row (no g8 fixed point) loses precision in its raw row,
+        // while an fp16 checkpoint keeps it exactly.
+        packed_lossy_raw_rows_++;
+        XLOG_EVERY_MS(WARN, 60000)
+            << "[EmbeddingCacheEnrich] packed raw rows saved lossily (rows "
+               "kept as fp16 in the table): "
+            << packed_lossy_raw_rows_.load();
+      }
+      std::memcpy(
+          payload + layout.packed_bytes(),
+          row + layout.dim,
+          layout.tail * sizeof(weight_type));
+    }
   }
 
   void read_int8_blocks(const at::Tensor& id_values, const at::Tensor& rows) {
@@ -4648,6 +4863,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                     std::memset(dst, 0, row_bytes);
                   } else {
                     std::memcpy(dst, it->second, row_bytes);
+                    if (packed_) {
+                      encode_fallback_raw_row(
+                          shard_id,
+                          it->second,
+                          dst + sizeof(FixedBlockPool::MetaHeader));
+                    }
                   }
                 }
               }));
@@ -4666,6 +4887,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     const bool restamp = restamp_on_restore_ && is_training_;
     const uint32_t restore_ts =
         restamp ? FixedBlockPool::current_timestamp() : 0;
+    const auto source = raw_row_source(row_bytes).value();
+    const bool convert =
+        source != (int8_ ? RawRowFormat::kInt8 : RawRowFormat::kPacked);
+    std::vector<weight_type> decoded(convert ? max_D_ : 0);
     for (const auto i : indexes) {
       const auto key = keys[i];
       weight_type* block = nullptr;
@@ -4678,13 +4903,27 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       } else {
         block = it->second;
       }
-      const int64_t copied_bytes =
-          std::min<int64_t>(row_bytes, payload_end_bytes());
-      std::memcpy(block, src + i * row_bytes, copied_bytes);
-      std::memset(
-          reinterpret_cast<uint8_t*>(block) + copied_bytes,
-          0,
-          payload_end_bytes() - copied_bytes);
+      const auto* row = src + i * row_bytes;
+      if (convert) {
+        constexpr int64_t kMetaBytes = sizeof(FixedBlockPool::MetaHeader);
+        std::memcpy(block, row, kMetaBytes);
+        decode_raw_payload(
+            source, row + kMetaBytes, row_bytes - kMetaBytes, decoded.data());
+        write_payload(
+            shard_id, FixedBlockPool::data_ptr(block), decoded.data(), max_D_);
+      } else {
+        const int64_t copied_bytes =
+            std::min<int64_t>(row_bytes, payload_end_bytes());
+        std::memcpy(block, row, copied_bytes);
+        std::memset(
+            reinterpret_cast<uint8_t*>(block) + copied_bytes,
+            0,
+            payload_end_bytes() - copied_bytes);
+        if (packed_ && !fallback_rows_[shard_id].empty()) {
+          fallback_rows_[shard_id].erase(
+              static_cast<const void*>(FixedBlockPool::data_ptr(block)));
+        }
+      }
       FixedBlockPool::set_key(block, key);
       FixedBlockPool::set_used(block, true);
       if (restamp) {
@@ -4775,6 +5014,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               (i - begin) * hbm_row_bytes;
           if (hbm_rows_are_int8_rows()) {
             copy_hbm_row_to_int8_block(hbm_row, block);
+          } else if (packed_) {
+            hbm_decode_row(hbm_row, decoded.data());
+            encode_packed_raw_payload(
+                decoded.data(),
+                reinterpret_cast<uint8_t*>(
+                    FixedBlockPool::data_ptr<weight_type>(block)));
           } else {
             hbm_decode_row(hbm_row, decoded.data());
             write_int8_payload(
@@ -5765,6 +6010,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<folly::F14FastMap<const void*, std::vector<weight_type>>>
       fallback_rows_;
   std::atomic<int64_t> packed_fallback_writes_{0};
+  mutable std::atomic<int64_t> packed_lossy_raw_rows_{0};
+  // set_raw_source_format: a RawRowFormat, or -1 to tell it by width.
+  std::atomic<int> raw_source_format_{-1};
   mutable std::atomic<int64_t> packed_fallback_missing_{0};
   std::atomic<int64_t> packed_inexact_fixed_points_{0};
   std::atomic<int64_t> packed_requantized_writes_{0};

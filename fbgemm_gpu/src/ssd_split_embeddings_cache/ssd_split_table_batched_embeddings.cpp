@@ -470,13 +470,14 @@ inline at::Tensor prepare_whole_row_weights(
   return whole_rows;
 }
 
-// Whether a KVTensorWrapper reads and writes the backend's raw INT8 rows:
-// uint8 rows on a backend that stores rows as INT8 (DRAM int8_storage). Their
-// width is in bytes, bounded by the backend's INT8 row bytes.
+// Whether a KVTensorWrapper reads and writes the backend's raw rows: uint8
+// rows on a backend that stores rows as INT8 or packed INT4 (DRAM int8_storage
+// or packed_storage). Their width is in bytes, bounded by the widest raw row
+// the backend accepts.
 inline bool is_int8_rows(
     kv_db::EmbeddingKVDB& db,
     const at::TensorOptions& options) {
-  return options.dtype() == at::kByte && db.get_int8_row_bytes() > 0;
+  return options.dtype() == at::kByte && db.get_raw_row_bytes() > 0;
 }
 
 // Upper bound of a row's width (MetaHeader included) in the wrapper's dtype.
@@ -484,7 +485,7 @@ inline int64_t max_row_width(
     kv_db::EmbeddingKVDB& db,
     const at::TensorOptions& options) {
   return is_int8_rows(db, options)
-      ? db.get_int8_row_bytes()
+      ? db.get_max_raw_row_bytes()
       : db.get_max_D() + db.get_metaheader_width_in_front();
 }
 
@@ -795,8 +796,8 @@ c10::intrusive_ptr<KVTensorWrapper> KVTensorWrapper::fp16_publish_view() const {
     return nullptr;
   }
   TORCH_CHECK(
-      shape_[1] == db_->get_int8_row_bytes(),
-      "Publishing requires complete INT8 rows, including metadata and tail");
+      shape_[1] == db_->get_raw_row_bytes(),
+      "Publishing requires complete raw rows, including metadata and tail");
   auto view = c10::make_intrusive<KVTensorWrapper>(
       std::vector<int64_t>{
           shape_[0], db_->get_max_D() + db_->get_metaheader_width_in_front()},
@@ -813,7 +814,7 @@ c10::intrusive_ptr<KVTensorWrapper> KVTensorWrapper::fp16_publish_view() const {
 }
 
 bool KVTensorWrapper::stores_raw_rows() const {
-  return db_ && db_->get_int8_row_bytes() > 0;
+  return db_ && db_->get_raw_row_bytes() > 0;
 }
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
@@ -1718,6 +1719,15 @@ auto dram_kv_embedding_cache_wrapper =
         .def(
             "get_int8_row_bytes",
             &DramKVEmbeddingCacheWrapper::get_int8_row_bytes)
+        .def(
+            "get_raw_row_bytes",
+            &DramKVEmbeddingCacheWrapper::get_raw_row_bytes)
+        .def(
+            "accepts_raw_row_bytes",
+            &DramKVEmbeddingCacheWrapper::accepts_raw_row_bytes)
+        .def(
+            "set_raw_source_format",
+            &DramKVEmbeddingCacheWrapper::set_raw_source_format)
         .def(
             "get_int8_payloads_cuda",
             &DramKVEmbeddingCacheWrapper::get_int8_payloads_cuda)
