@@ -290,6 +290,30 @@ class EnrichmentPolicy(NamedTuple):
     # publish is group-wise INT4 with one float8_e4m3fn scale per this many dims
     # (fbgemm.FloatOrHalfToGroupedInt4E4M3); requires serving_qdq_bit_rate 4.
     serving_qdq_group_size: int = 0
+    # Store DRAM rows in that group-wise INT4 encoding (dim / 2 code bytes plus
+    # dim / group_size scale bytes) instead of fp16; reads and writes stay
+    # fp16. With SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows,
+    # checkpoints carry these raw rows. Requires serving_qdq_bit_rate 4 and
+    # serving_qdq_group_size 8.
+    packed_storage: bool = False
+    # Exclusive owner-local cache: a row moved into the INT8 HBM cache is
+    # dropped from DRAM (only its timestamp stays there), so the HBM budget adds
+    # capacity instead of copying rows. Every lookup moves its missed rows into
+    # empty slots; rows go back to DRAM when idle past the table TTL, rewritten,
+    # or reset. Requires owner_cache_int8 and the DRAM backend, and replaces
+    # owner_cache_read_populate.
+    owner_cache_exclusive: bool = False
+    # Most missed rows a lookup moves into HBM. Zero means every miss.
+    owner_cache_exclusive_promote_max_rows: int = 0
+    # Move missed rows into HBM on every this-many lookups.
+    owner_cache_exclusive_promote_every_n: int = 1
+    # Store DRAM rows as row-wise INT8 (enrichment_dim codes, then fp32 scale
+    # and bias: the INT8 publish row and the owner-local HBM row) instead of
+    # fp16; reads and writes stay fp16. With
+    # SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows, checkpoints carry
+    # these bytes instead of fp16 rows. Excludes packed_storage and
+    # serving_qdq_bit_rate; needs an enrichment_dim divisible by 4.
+    int8_storage: bool = False
 
     def validate(self) -> None:
         assert not (self.laser_key_suffix and self.laser_key_suffixes), (
@@ -332,15 +356,36 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             self.owner_cache_gather_reserved_sms == 0 or self.owner_cache_size_mb > 0
         ), "owner_cache_gather_reserved_sms requires owner_cache_size_mb"
+        assert (
+            not self.owner_cache_exclusive or self.owner_cache_int8
+        ), "owner_cache_exclusive requires owner_cache_int8"
+        assert not (
+            self.owner_cache_exclusive and self.owner_cache_read_populate
+        ), "owner_cache_exclusive replaces owner_cache_read_populate"
+        assert (
+            self.owner_cache_exclusive_promote_max_rows >= 0
+        ), "owner_cache_exclusive_promote_max_rows must be nonnegative"
+        assert (
+            self.owner_cache_exclusive_promote_every_n >= 1
+        ), "owner_cache_exclusive_promote_every_n must be positive"
+        assert not self.int8_storage or (
+            not self.packed_storage and self.serving_qdq_bit_rate == 0
+        ), "int8_storage excludes packed_storage and serving_qdq_bit_rate"
+        assert (
+            not self.int8_storage or self.enrichment_dim % 4 == 0
+        ), f"int8_storage needs an enrichment_dim divisible by 4, actual {self.enrichment_dim}"
 
     def __repr__(self) -> str:
         # The torchrec planner hashes str() of the policy into its context hash
-        # and plan cache key. Leaving serving_qdq_* fields at 0 out keeps both
-        # unchanged for policies that do not use them.
+        # and plan cache key. Leaving serving_qdq_* fields at 0, and the fields
+        # declared after them at their defaults, out keeps both unchanged for
+        # policies that do not use them.
+        later_fields = self._fields[self._fields.index("serving_qdq_group_size") + 1 :]
         fields = ", ".join(
             f"{name}={value!r}"
             for name, value in self._asdict().items()
             if not (name.startswith("serving_qdq_") and value == 0)
+            and not (name in later_fields and value == self._field_defaults[name])
         )
         return f"{type(self).__name__}({fields})"
 

@@ -158,6 +158,21 @@ class EnrichmentPolicyValidateTest(unittest.TestCase):
 
         self.assertTrue(repr(policy).endswith(", serving_qdq_bit_rate=4)"))
 
+    def test_repr_leaves_out_later_fields_at_their_defaults(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(provider_name="p", enrichment_dim=8)
+        later = EnrichmentPolicy._fields[
+            EnrichmentPolicy._fields.index("serving_qdq_group_size") + 1 :
+        ]
+
+        self.assertTrue(later)
+        for name in later:
+            self.assertNotIn(f"{name}=", repr(policy))
+            changed = policy._asdict()
+            changed[name] = not changed[name]
+            self.assertIn(f", {name}=", repr(EnrichmentPolicy(**changed)))
+
 
 class KVZCHParamsValidateTest(unittest.TestCase):
     """Test KVZCHParams.validate() logic."""
@@ -234,6 +249,42 @@ class KVZCHParamsValidateTest(unittest.TestCase):
                 owner_cache_size_mb=1024,
                 owner_cache_int8_fused_float=True,
             ),
+        ):
+            with self.assertRaises(AssertionError):
+                KVZCHParams(enrichment_policy=policy).validate()
+
+    def test_owner_cache_exclusive_requires_int8_and_no_read_populate(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
+
+        exclusive = EnrichmentPolicy(
+            direct_backend_gather=True,
+            owner_cache_size_mb=12000,
+            owner_cache_int8=True,
+            owner_cache_exclusive=True,
+            owner_cache_exclusive_promote_max_rows=262144,
+            owner_cache_exclusive_promote_every_n=2,
+        )
+        KVZCHParams(enrichment_policy=exclusive).validate()
+        for policy in (
+            exclusive._replace(owner_cache_int8=False),
+            exclusive._replace(owner_cache_read_populate=True),
+            exclusive._replace(owner_cache_exclusive_promote_max_rows=-1),
+            exclusive._replace(owner_cache_exclusive_promote_every_n=0),
+        ):
+            with self.assertRaises(AssertionError):
+                KVZCHParams(enrichment_policy=policy).validate()
+
+    def test_int8_storage_excludes_packed_rows_and_serving_qdq(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
+
+        int8 = EnrichmentPolicy(enrichment_dim=128, int8_storage=True)
+        KVZCHParams(enrichment_policy=int8).validate()
+        for policy in (
+            int8._replace(serving_qdq_bit_rate=4),
+            int8._replace(
+                serving_qdq_bit_rate=4, serving_qdq_group_size=8, packed_storage=True
+            ),
+            int8._replace(enrichment_dim=130),
         ):
             with self.assertRaises(AssertionError):
                 KVZCHParams(enrichment_policy=policy).validate()

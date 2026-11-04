@@ -661,7 +661,20 @@ class FeatureEvict {
     return enable_ssd_writeback_.load();
   }
 
+  /// Rows the cache holds outside kv_store (the exclusive HBM tier): counted
+  /// toward training_id_keep_count, so the keep floor bounds all of a rank's
+  /// rows. They are not evicted here.
+  void set_untracked_rows_counter(std::function<int64_t()> counter) {
+    untracked_rows_counter_ = std::move(counter);
+  }
+
  protected:
+  int64_t untracked_rows() const {
+    return untracked_rows_counter_ ? untracked_rows_counter_() : 0;
+  }
+
+  std::function<int64_t()> untracked_rows_counter_;
+
   void sanity_check_before_new_round() {
     CHECK_EQ(num_waiting_evicts_.load(), 0)
         << "found " << num_waiting_evicts_.load()
@@ -1586,7 +1599,8 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
       return;
     }
 
-    const auto total = this->kv_store_.getNumRows();
+    const auto total = static_cast<int64_t>(this->kv_store_.getNumRows()) +
+        this->untracked_rows();
     remaining_evict_count_.store(
         std::max<int64_t>(
             static_cast<int64_t>(total) - total_training_id_keep_count_, 0));
