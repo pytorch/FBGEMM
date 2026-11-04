@@ -39,48 +39,55 @@ on:
         default: ""
 
 concurrency:
-  # PRs: cancel previous runs when a new commit is pushed.
-  # Push/main: group by sha so a new merge does not cancel an in-flight run.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  # Cancel previous runs in the PR if a new commit is pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  detect-sll-changes:
+  # Source ROCm/Python versions from pytorch/test-infra so FBGEMM tracks the
+  # nightly binary matrix instead of hardcoding versions in generate_ci_matrix.py.
+  generate-rocm-binary-matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    with:
+      package-type: wheel
+      channel: nightly
+      os: linux
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      with-cpu: disable
+      with-xpu: disable
+      with-cuda: disable
+      with-rocm: enable
+      build-python-only: "disable"
+
+  filter-rocm-versions:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: generate-rocm-binary-matrix
     runs-on: ubuntu-latest
     outputs:
-      run-sll-tests: ${{ steps.changes.outputs.run-sll-tests }}
+      rocm-versions: ${{ steps.filter.outputs.rocm-versions }}
+      python-versions: ${{ steps.filter.outputs.python-versions }}
     steps:
-    - name: Checkout the Repository
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ github.ref }}
-        fetch-depth: 0
-
-    - name: Detect SLL Changes
-      id: changes
-      env:
-        EVENT_NAME: ${{ github.event_name }}
-      run: |
-        if [[ "$EVENT_NAME" != "pull_request" ]]; then
-          run_sll_tests=true
-        else
-          git diff --quiet HEAD^1 HEAD^2 -- fbgemm_gpu/sll fbgemm_gpu/test/sll && diff_status=0 || diff_status=$?
-          if [[ "$diff_status" == 0 ]]; then
-            run_sll_tests=false
-          elif [[ "$diff_status" == 1 ]]; then
-            run_sll_tests=true
-          else
-            exit "$diff_status"
-          fi
-        fi
-        echo "run-sll-tests=${run_sll_tests}" >> "$GITHUB_OUTPUT"
+      - id: filter
+        run: |
+          set -euo pipefail
+          # Unique ROCm versions + first Python from the nightly binary matrix.
+          rocm_versions=$(echo '${{ needs.generate-rocm-binary-matrix.outputs.matrix }}' \
+            | jq -r '[.include[].gpu_arch_version] | unique | sort_by(split(".") | map(tonumber)) | join(",")')
+          python_versions=$(echo '${{ needs.generate-rocm-binary-matrix.outputs.matrix }}' \
+            | jq -r '[.include[].python_version] | unique | .[0]')
+          echo "rocm-versions=${rocm_versions}" >> "$GITHUB_OUTPUT"
+          echo "python-versions=${python_versions}" >> "$GITHUB_OUTPUT"
+          echo "ROCm versions: ${rocm_versions}"
+          echo "Python versions: ${python_versions}"
 
   generate-build-matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
+    needs: filter-rocm-versions
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
       repo-owner: ${{ github.repository_owner }}
@@ -88,6 +95,8 @@ jobs:
       targets: default,genai
       variant: rocm
       jobtype: build
+      rocm-versions: ${{ needs.filter-rocm-versions.outputs.rocm-versions }}
+      python-versions: ${{ needs.filter-rocm-versions.outputs.python-versions }}
 
   build:
     needs: generate-build-matrix
@@ -98,7 +107,7 @@ jobs:
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
 
   generate-test-matrix:
-    needs: build
+    needs: [build, filter-rocm-versions]
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
       repo-owner: ${{ github.repository_owner }}
@@ -106,15 +115,16 @@ jobs:
       targets: default,genai
       variant: rocm
       jobtype: test
+      rocm-versions: ${{ needs.filter-rocm-versions.outputs.rocm-versions }}
+      python-versions: ${{ needs.filter-rocm-versions.outputs.python-versions }}
 
   test:
-    needs: [detect-sll-changes, generate-test-matrix]
+    needs: generate-test-matrix
     uses: ./.github/workflows/_fbgemm_gpu_rocm_test.yml
     with:
       matrix: ${{ needs.generate-test-matrix.outputs.matrix }}
       repo-ref: ${{ (github.event_name == 'schedule' && 'nightly') || github.ref }}
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
-      run-sll-tests: ${{ needs.detect-sll-changes.outputs.run-sll-tests != 'false' }}
       extra-env: >-
         {
           "ENFORCE_ROCM_DEVICE": 1

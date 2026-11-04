@@ -11,20 +11,30 @@ Add the container image for its ROCm version to each row of a ROCm CI matrix.
 The matrix is read from the MATRIX environment variable in `{"include": [...]}`
 form, and each row specifies its `rocm-version`, or "latest" for the newest
 ROCm version.  The images are taken from ROCM_CONTAINER_IMAGES in
-generate_ci_matrix.py, so that callers of the ROCm workflows only need to
-specify the ROCm version.
+generate_ci_matrix.py when known; otherwise ROCM_BASE_IMAGE is used so versions
+sourced from pytorch/test-infra do not require a hardcoded map update.
 """
 
 import json
 import os
 import sys
 
-from generate_ci_matrix import ROCM_CONTAINER_IMAGES
+from generate_ci_matrix import ROCM_BASE_IMAGE, ROCM_CONTAINER_IMAGES
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(map(int, version.split(".")))
 
 
 def main() -> None:
     matrix = json.loads(os.environ["MATRIX"])
-    latest = list(ROCM_CONTAINER_IMAGES)[-1]
+    known = list(ROCM_CONTAINER_IMAGES)
+    matrix_versions = [
+        row["rocm-version"]
+        for row in matrix["include"]
+        if row.get("rocm-version") and row["rocm-version"] != "latest"
+    ]
+    latest = sorted(set(known) | set(matrix_versions), key=_version_key)[-1]
 
     for row in matrix["include"]:
         if "rocm-version" not in row:
@@ -38,15 +48,9 @@ def main() -> None:
         if row["rocm-version"] == "latest":
             row["rocm-version"] = latest
 
-        if row["rocm-version"] not in ROCM_CONTAINER_IMAGES:
-            print(
-                f"Error: no container image for ROCm {row['rocm-version']}; "
-                f"known versions: {', '.join(ROCM_CONTAINER_IMAGES)}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        row["container-image"] = ROCM_CONTAINER_IMAGES[row["rocm-version"]]
+        row["container-image"] = ROCM_CONTAINER_IMAGES.get(
+            row["rocm-version"], ROCM_BASE_IMAGE
+        )
 
     print(json.dumps(matrix))
 

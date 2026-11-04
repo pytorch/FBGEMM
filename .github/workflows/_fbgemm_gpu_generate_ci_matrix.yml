@@ -35,6 +35,16 @@ on:
         type: string
         required: true
         default: ""
+      rocm-versions:
+        description: Optional comma-separated ROCm versions (from test-infra)
+        type: string
+        required: false
+        default: ""
+      python-versions:
+        description: Optional comma-separated Python versions (from test-infra)
+        type: string
+        required: false
+        default: ""
     outputs:
       matrix:
         value: ${{ jobs.generate_ci_matrix.outputs.matrix }}
@@ -49,6 +59,8 @@ jobs:
       GEN_VARIANT: ${{ inputs.variant }}
       GEN_JOBTYPE: ${{ inputs.jobtype }}
       GEN_REPO_OWNER: ${{ inputs.repo-owner }}
+      GEN_ROCM_VERSIONS: ${{ inputs.rocm-versions }}
+      GEN_PYTHON_VERSIONS: ${{ inputs.python-versions }}
     steps:
       - name: Checkout the Repository
         uses: actions/checkout@v6
@@ -70,12 +82,20 @@ jobs:
           fi
 
           LOG_FILE=$(mktemp)
+          EXTRA_ARGS=()
+          if [[ -n "${GEN_ROCM_VERSIONS}" ]]; then
+            EXTRA_ARGS+=(--rocm-versions "${GEN_ROCM_VERSIONS}")
+          fi
+          if [[ -n "${GEN_PYTHON_VERSIONS}" ]]; then
+            EXTRA_ARGS+=(--python-versions "${GEN_PYTHON_VERSIONS}")
+          fi
 
           MATRIX_BLOB=$(python3 "$SCRIPT_PATH" \
             --target "$GEN_TARGETS" \
             --variant "$GEN_VARIANT" \
             --jobtype "$GEN_JOBTYPE" \
-            --repo-owner "$GEN_REPO_OWNER" 2> $LOG_FILE)
+            --repo-owner "$GEN_REPO_OWNER" \
+            "${EXTRA_ARGS[@]}" 2> $LOG_FILE)
 
           cat $LOG_FILE
 
