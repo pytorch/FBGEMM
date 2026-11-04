@@ -174,7 +174,6 @@ function(fbgemm_get_warning_flags)
     -Wno-deprecated-declarations
     -Wno-deprecated-enum-enum-conversion
     -Wno-strict-aliasing
-    -Wno-sign-compare
     -Wno-vla)
 
   # Clang suppressions. The clang version controls which lines apply. The

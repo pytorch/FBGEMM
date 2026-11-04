@@ -90,12 +90,14 @@ using namespace fbgemm_gpu;
 
     {%- if not nobag %}
     // Iterate over the row in the weights table, in 4-element strides
-    #pragma unroll kMaxVecsPerThread
+    #pragma unroll kMaxVecsPerThreadInt
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+        i < kMaxVecsPerThreadInt &&
+            (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH < D;
         ++i) {
         // Load the slice of the weights
-        const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+        const int32_t d =
+            (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH;
 
         {%- if is_gwd_kernel %}
         auto weights_slice = weights_row.load(d);
@@ -116,7 +118,7 @@ using namespace fbgemm_gpu;
 
     {%- else %}
     for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
-        const auto d = i + threadIdx.x * VEC_WIDTH;
+        const auto d = i + threadIdxX * VEC_WIDTH;
         if (d < D) {
             // Since there is no pooling, simply copy the weights to output
             const auto weights_slice = weights_row.load(d);
@@ -188,19 +190,19 @@ using namespace fbgemm_gpu;
 
     {%- if not nobag %}
     // Iterate over the row in the weights table, in 4-element strides
-    #pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0; i < kMaxVecsPerThread; ++i)
+    #pragma unroll kMaxVecsPerThreadInt
+    for (int32_t i = 0; i < kMaxVecsPerThreadInt; ++i)
     {
         // Load the slice of the weights
-        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+        int32_t d = (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH;
         d = (d < D) ? d : 0;
         const auto weights_slice = weights_row.load(d);
-        vals[inner_j * kMaxVecsPerThread + i] = weights_slice;
+        vals[inner_j * kMaxVecsPerThreadInt + i] = weights_slice;
     }
 
     {%- else %}
     for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
-        const auto d = i + threadIdx.x * VEC_WIDTH;
+        const auto d = i + threadIdxX * VEC_WIDTH;
         if (d < D) {
             // Since there is no pooling, simply copy the weights to output
             const auto weights_slice = weights_row.load(d);
@@ -249,20 +251,22 @@ using namespace fbgemm_gpu;
 {%- macro accumulate_and_store(from_cache) %}
     {%- if not nobag %}
     // Iterate over the row in the weights table, in 4-element strides
-    #pragma unroll kMaxVecsPerThread
+    #pragma unroll kMaxVecsPerThreadInt
     for (int32_t i = 0;
-        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+        i < kMaxVecsPerThreadInt &&
+            (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH < D;
         ++i) {
         {%- if is_gwd_kernel %}
         // Scale weights with global weight decay
-        vals[inner_j * kMaxVecsPerThread + i].mul_(global_weight_decay_j);
+        vals[inner_j * kMaxVecsPerThreadInt + i].mul_(global_weight_decay_j);
         {%- endif %}
         {%- if weighted %}
         // Accumulate the weights * positional weight
-        accumulators[i].fma_(vals[inner_j * kMaxVecsPerThread + i], idx_weight_j);
+        accumulators[i].fma_(
+            vals[inner_j * kMaxVecsPerThreadInt + i], idx_weight_j);
         {%- else %}
         // Accumulate the weights
-        accumulators[i].add_(vals[inner_j * kMaxVecsPerThread + i]);
+        accumulators[i].add_(vals[inner_j * kMaxVecsPerThreadInt + i]);
         {%- endif %}
     }
     {%- endif %}
@@ -279,7 +283,7 @@ using namespace fbgemm_gpu;
     // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
     for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
         // Determine the L index that this thread will load data from in cooperative load
-        auto l = l_start + threadIdx.x;
+        const auto l = l_start + threadIdxX;
 
         {%- if (
               dense
@@ -312,10 +316,13 @@ using namespace fbgemm_gpu;
 
         {%- if is_rocm %}
         {%- if not nobag %}
-        Vec4T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];
+        Vec4T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThreadInt];
         {%- endif %}
         // Iterate over kThreadGroupSize indices
-        for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength)
+        for (auto outer_j = 0;
+             outer_j < kThreadGroupSize &&
+                 l_start + outer_j < L - L % kManualUnrollLength;
+             outer_j += kManualUnrollLength)
         {
             {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
             // Load index from thread j in the group
@@ -468,10 +475,15 @@ using namespace fbgemm_gpu;
         {%- endif %}
 
         {%- if is_rocm %}
-        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
+        for (auto j =
+                 L % kThreadGroupSize - L % kManualUnrollLength;
+             l_start + kThreadGroupSize > L && l_start + j < L;
+             ++j) {
         {%- else %}
         // Iterate over kThreadGroupSize indices
-        for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
+        for (auto j = 0;
+             j < kThreadGroupSize && l_start + j < L;
+             ++j) {
         {%- endif %}
             {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
             // Load index from thread j in the group
@@ -625,7 +637,16 @@ batch_index_select_dim0_codegen_forward_kernel(
     ) {
 // kThreadGroupSize derived per-arch from the device-pass kWarpSize.
 // The template's mangled name carries kSubwarpDivisor, not kThreadGroupSize.
-constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
+{%- if not nobag %}
+static_assert(kMaxVecsPerThread <= std::numeric_limits<int32_t>::max());
+constexpr int32_t kMaxVecsPerThreadInt =
+    static_cast<int32_t>(kMaxVecsPerThread);
+{%- endif %}
+static_assert(
+    kWarpSize / kSubwarpDivisor <= std::numeric_limits<int32_t>::max());
+constexpr int32_t kThreadGroupSize =
+    static_cast<int32_t>(kWarpSize / kSubwarpDivisor);
+const int32_t threadIdxX = static_cast<int32_t>(threadIdx.x);
 // shfl_sync_mask is implicitly used by SHFL_SYNC
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
     const unsigned int shfl_sync_mask =
@@ -644,11 +665,15 @@ constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
 
     // Determine the linearized warp ID, and exit early if needed
     {%- if is_index_select %}
-    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    int64_t b_t =
+        static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
     {%- else %}
     const auto total_B = offsets.size(0) - 1;
     // Since we place a limit on the grid size, we need to perform grid-striding
-    for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B; b_t += blockDim.y * gridDim.x) {
+    for (int64_t b_t =
+             static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+         b_t < total_B;
+         b_t += static_cast<int64_t>(blockDim.y) * gridDim.x) {
     {%- endif %}
 
     // Determine the Table and Training Example IDs
@@ -743,7 +768,7 @@ constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
     const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
 
     // Set up the accumulator buffer
-    Vec4T<cache_t> accumulators[kMaxVecsPerThread];
+    Vec4T<cache_t> accumulators[kMaxVecsPerThreadInt];
     {%- endif %}
 
     {%- if dense %}
@@ -781,13 +806,15 @@ constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
         output_t* output_ = &output[b][D_start];
         {%- endif %}
 
-        #pragma unroll kMaxVecsPerThread
+        #pragma unroll kMaxVecsPerThreadInt
         for (int32_t i = 0;
-             i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+             i < kMaxVecsPerThreadInt &&
+                 (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH < D;
              ++i) {
             // Compute the mean (for mean pooling) and store directly to memory as is
             accumulators[i].mul_(inv_L);
-            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+            int32_t d =
+                (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH;
             {%- if vbe or dense %}
             accumulators[i].store(output_ + d);
             {%- else %}
@@ -802,9 +829,10 @@ constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
         float2 qparams;
 
         // Accumulate the min and max values
-        #pragma unroll kMaxVecsPerThread
+        #pragma unroll kMaxVecsPerThreadInt
         for (int32_t i = 0;
-            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+            i < kMaxVecsPerThreadInt &&
+                (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH < D;
             ++i) {
             // Simultaneously multiply by 1/L to compute the mean
             accumulators[i].mul_(inv_L);
@@ -817,17 +845,19 @@ constexpr size_t kThreadGroupSize = kWarpSize / kSubwarpDivisor;
         int output_D_start = D_start + t * 8;
         int output_D_end = output_D_start + D;
 
-        #pragma unroll kMaxVecsPerThread
+        #pragma unroll kMaxVecsPerThreadInt
         for (int32_t i = 0;
-            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+            i < kMaxVecsPerThreadInt &&
+                (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH < D;
             ++i) {
-            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+            int32_t d =
+                (i * kThreadGroupSize + threadIdxX) * VEC_WIDTH;
             // Fused quantize-and-store to memory
             nearest_rounding_vector<output_t, cache_t>(&output[b][output_D_start + d], accumulators[i], qparams);
         }
 
         // Write out the qparams to the front of the embedding table row
-        if (threadIdx.x == 0) {
+        if (threadIdxX == 0) {
             store_qparams_to_row(&output[b][output_D_end], qparams);
         }
 

@@ -74,7 +74,7 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
 
     output_row_scale_bias[0] = __float2half(scale);
     output_row_scale_bias[1] = __float2half(minimum_element);
-    for (std::size_t col = 0; col < ncols; ++col) {
+    for (int64_t col = 0; col < ncols; ++col) {
       const float X = input_row[col];
 
       std::uint8_t quantized = QUANTIZE_OPS_MAX(

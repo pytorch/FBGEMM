@@ -41,16 +41,18 @@ __global__ void permute_multi_embs_kernel(
     const int32_t batch_size,
     const int32_t permute_size) {
   // workers in a warp handle exact one permute (of a feature/key)
-  const auto worker_id = threadIdx.x;
-  const auto permute_id_start = threadIdx.y + blockIdx.x * blockDim.y;
-  const auto permute_stride = gridDim.x * blockDim.y;
-  const auto batch_id = blockIdx.y + gridDim.y * blockIdx.z;
+  const int32_t worker_id = static_cast<int32_t>(threadIdx.x);
+  const int64_t permute_id_start =
+      threadIdx.y + static_cast<int64_t>(blockIdx.x) * blockDim.y;
+  const int64_t permute_stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
+  const int64_t batch_id =
+      blockIdx.y + static_cast<int64_t>(gridDim.y) * blockIdx.z;
   if (batch_id >= batch_size) {
     return;
   }
   // Grid-stride loop over permute_id so the kernel remains correct when the
   // host caps gridDim.x to satisfy the HIP 2^32 thread-per-launch limit.
-  for (int32_t permute_id = permute_id_start; permute_id < permute_size;
+  for (int64_t permute_id = permute_id_start; permute_id < permute_size;
        permute_id += permute_stride) {
     // parse permutes
     int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
@@ -100,11 +102,11 @@ __global__ void permute_multi_embs_kernel(
         fbgemm_gpu::Vec4T<scalar_t>::copy(&input_ptr[i], &output_ptr[i]);
       }
       // Use elementwise access for the last incomplete vector.
-      for (auto i = loop_end + worker_id; i < length; i += blockDim.x) {
+      for (int32_t i = loop_end + worker_id; i < length; i += blockDim.x) {
         output_ptr[i] = input_ptr[i];
       }
     } else { // Fallback if not aligned.
-      for (auto i = worker_id; i < length; i += blockDim.x) {
+      for (int32_t i = worker_id; i < length; i += blockDim.x) {
         output_ptr[i] = input_ptr[i];
       }
     }
@@ -124,7 +126,7 @@ __global__ void permute_multi_embs_kernel(
               static_cast<int64_t>(next_in_length) +
           in_offset;
 
-      for (auto i = worker_id; i < length; i += blockDim.x) {
+      for (int32_t i = worker_id; i < length; i += blockDim.x) {
         output_ptr[i] += next_input_ptr[i];
       }
     }
@@ -221,7 +223,7 @@ Tensor tensors_ptr(const at::TensorList& tensors) {
   // Ensure that ptr_tensor is contiguous
   TORCH_CHECK(ptr_tensor.is_contiguous());
   auto tp = reinterpret_cast<scalar_t**>(ptr_tensor.data_ptr());
-  for (int32_t i = 0; i < tensors.size(); i++) {
+  for (size_t i = 0; i < tensors.size(); i++) {
     tp[i] = tensors[i].data_ptr<scalar_t>();
   }
   // Ensure that ptr_tensor is contiguous

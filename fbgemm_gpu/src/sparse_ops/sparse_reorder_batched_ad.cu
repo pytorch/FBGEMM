@@ -39,9 +39,11 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
   const int32_t num_ads_in_batch = batch_offsets[B];
   // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
   // avoid the 2^32 launch-side limit) still covers all B*T segments.
-  const auto b_t_init = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto stride = gridDim.x * blockDim.y;
-  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+  const int64_t b_t_init =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
+  for (int64_t b_t = b_t_init; b_t < static_cast<int64_t>(B) * T;
+       b_t += stride) {
     const int32_t b = b_t % B;
     const int32_t t = b_t / B;
 
@@ -51,7 +53,8 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
     const int32_t output_segment_start =
         t * num_ads_in_batch + batch_offsets[b];
 
-    for (auto i = threadIdx.x; i < num_ads_b; i += blockDim.x) {
+    for (int32_t i = static_cast<int32_t>(threadIdx.x); i < num_ads_b;
+         i += blockDim.x) {
       reordered_cat_ad_lengths[output_segment_start + i] = broadcast_lengths
           ? cat_ad_lengths[input_segment_start]
           : cat_ad_lengths[input_segment_start + i];
@@ -129,8 +132,9 @@ __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
         reordered_cat_ad_indices,
     const int num_ads_in_batch,
     const int reordered_cat_ad_batches) {
-  const auto lane_id = threadIdx.x % kWarpSize;
-  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+  const int32_t lane_id = static_cast<int32_t>(threadIdx.x) % kWarpSize;
+  const int64_t warp_id =
+      (static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) / kWarpSize;
   const auto table_idx = warp_id / num_ads_in_batch;
   const auto ads_idx = warp_id % num_ads_in_batch;
   const auto start_offset = cat_ad_offsets[table_idx];
@@ -160,10 +164,10 @@ __launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
         batch_offsets,
     const int32_t T) {
   const auto B = batch_offsets.size(0) - 1;
-  const auto num_ads_in_batch = static_cast<uint32_t>(batch_offsets[B]);
+  const int32_t num_ads_in_batch = batch_offsets[B];
   // calculate table_id and batch_id for this warp
-  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) /
-      static_cast<uint32_t>(kWarpSize);
+  const int64_t warp_id =
+      (static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) / kWarpSize;
   const auto table_id = warp_id / num_ads_in_batch;
   const auto warp_id_in_table = warp_id % num_ads_in_batch;
   // warps in a table equally splited for each B
@@ -186,7 +190,7 @@ __launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
   const auto num_elements = input_segment_end - input_segment_start;
 
   const auto warp_id_in_batch = warp_id_in_table % num_warp_in_batch;
-  const auto lane_id_in_warp = threadIdx.x % kWarpSize;
+  const int32_t lane_id_in_warp = static_cast<int32_t>(threadIdx.x) % kWarpSize;
   for (auto i = warp_id_in_batch; i < num_ads_b; i += num_warp_in_batch) {
     for (auto j = lane_id_in_warp; j < num_elements; j += kWarpSize) {
       reordered_cat_ad_indices[output_segment_start + i * num_elements + j] =
@@ -221,9 +225,11 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
   const int32_t num_ads_in_batch = batch_offsets[B];
   // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
   // avoid the 2^32 launch-side limit) still covers all B*T segments.
-  const auto b_t_init = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto stride = gridDim.x * blockDim.y;
-  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+  const int64_t b_t_init =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
+  for (int64_t b_t = b_t_init; b_t < static_cast<int64_t>(B) * T;
+       b_t += stride) {
     const int32_t b = b_t % B;
     const int32_t t = b_t / B;
 
@@ -290,16 +296,18 @@ __launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kerne
   const int32_t num_ads_in_batch = batch_offsets[B];
   // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
   // avoid the 2^32 launch-side limit) still covers all B*T segments.
-  const auto b_t_init = blockIdx.x * blockDim.y +
+  const int64_t b_t_init = static_cast<int64_t>(blockIdx.x) * blockDim.y +
       threadIdx.y; // can be more efficient through bitwise op
-  const auto stride = gridDim.x * blockDim.y;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
   // Segment lengths are heavily skewed in production: a handful of features can
   // hold nearly all of the indices, so one warp per segment leaves the copy
   // running on a couple of warps. gridDim.y fans each segment out over multiple
   // blocks; blocks with no work for their slice fall straight through.
-  const auto seg_tid = blockIdx.y * blockDim.x + threadIdx.x;
-  const auto seg_nthreads = gridDim.y * blockDim.x;
-  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+  const int64_t seg_tid =
+      static_cast<int64_t>(blockIdx.y) * blockDim.x + threadIdx.x;
+  const int64_t seg_nthreads = static_cast<int64_t>(gridDim.y) * blockDim.x;
+  for (int64_t b_t = b_t_init; b_t < static_cast<int64_t>(B) * T;
+       b_t += stride) {
     const int32_t b = b_t % B;
     const int32_t t = b_t / B;
 
@@ -568,9 +576,11 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
   const int32_t num_items_in_batch = batch_offsets[B];
   // warp-per-segment with grid-stride loop. A capped grid (used on ROCm to
   // avoid the 2^32 launch-side limit) still covers all B*T segments.
-  const auto b_t_init = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto stride = gridDim.x * blockDim.y;
-  for (auto b_t = b_t_init; b_t < B * T; b_t += stride) {
+  const int64_t b_t_init =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
+  for (int64_t b_t = b_t_init; b_t < static_cast<int64_t>(B) * T;
+       b_t += stride) {
     const int32_t b = b_t % B;
     const int32_t t = b_t / B;
 
@@ -588,10 +598,11 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
     const auto input_segment_end =
         cat_sequence_embeddings_offsets[input_segment_offset_end];
 
-    for (size_t i = 0; i < input_segment_end - input_segment_start; i++) {
+    for (index_t i = 0; i < input_segment_end - input_segment_start; i++) {
       const auto output_offset = output_segment_start + i;
       const auto input_offset = input_segment_start + i;
-      for (auto d = threadIdx.x; d < D; d += blockDim.x) {
+      for (int32_t d = static_cast<int32_t>(threadIdx.x); d < D;
+           d += blockDim.x) {
         reordered_cat_sequence_embeddings[output_offset][d] =
             cat_sequence_embeddings[input_offset][d];
       }

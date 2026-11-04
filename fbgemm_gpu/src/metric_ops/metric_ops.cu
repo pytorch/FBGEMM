@@ -41,7 +41,9 @@ __inline__ __device__ void trapz_kernel(
     sum +=
         0.5 * (x[0] - block_x[block_id - 1]) * (y[0] + block_y[block_id - 1]);
   }
-  for (auto i = threadIdx.x + 1; i < num_entries_per_block; i += blockDim.x) {
+  for (int32_t i = static_cast<int32_t>(threadIdx.x) + 1;
+       i < num_entries_per_block;
+       i += blockDim.x) {
     sum += 0.5 * (x[i] - x[i - 1]) * (y[i] + y[i - 1]);
   }
   if constexpr (std::is_same_v<scalar_t, double>) {
@@ -85,8 +87,8 @@ __global__ void auc_kernel(
   acc_t* smem_tmp = smem_tp + padded_num_entries_per_block;
   acc_t* smem_auc = smem_tmp + 2;
 
-  const auto block_id = blockIdx.x % num_blocks;
-  const auto task_id = blockIdx.x / num_blocks;
+  const int32_t block_id = static_cast<int32_t>(blockIdx.x) % num_blocks;
+  const int32_t task_id = static_cast<int32_t>(blockIdx.x) / num_blocks;
 
   const int num_entries_per_block = block_id == num_blocks - 1
       ? last_block_num_entries
@@ -94,7 +96,8 @@ __global__ void auc_kernel(
   const int input_offset = task_id * num_entries;
   const int block_sums_offset = task_id * num_blocks;
   const bool is_multi_block = num_blocks > 1;
-  const auto section_offset = PADDED_SECTION_SIZE * threadIdx.x;
+  const int32_t section_offset =
+      PADDED_SECTION_SIZE * static_cast<int32_t>(threadIdx.x);
 
   indices += input_offset + (block_id * MAX_ENTRIES_PER_BLOCK);
   labels += input_offset;

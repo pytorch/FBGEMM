@@ -72,7 +72,8 @@ __global__ void bounds_check_offsets_kernel(
     index_t* __restrict__ offsets,
     int64_t* __restrict__ warning,
     bool warn) {
-  const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int64_t b_t =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (b_t >= total_B) {
     return;
   }
@@ -270,20 +271,24 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
   // threads-per-launch limit, so we grid-stride to cover the full workload.
   // On CUDA the grid is not capped and the loop body runs once per warp.
 #ifdef USE_ROCM
-  for (auto bt0 = blockIdx.x * blockDim.y + threadIdx.y; bt0 < fd.D() * T;
-       bt0 += blockDim.y * gridDim.x) {
+  for (int64_t bt0 =
+           static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       bt0 < static_cast<int64_t>(fd.D()) * T;
+       bt0 += static_cast<int64_t>(blockDim.y) * gridDim.x) {
 #else
-  auto bt0 = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bt0 >= fd.D() * T) {
+  const int64_t bt0 =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (bt0 >= static_cast<int64_t>(fd.D()) * T) {
     return;
   }
 #endif
-    auto b_t = bt0;
+    const int32_t bt0_int = static_cast<int32_t>(bt0);
     int32_t b;
     int32_t t;
+    int32_t b_t;
     int32_t B = 0;
 
-    if (!vbe && b_t >= total_B) {
+    if (!vbe && bt0 >= total_B) {
 #ifdef USE_ROCM
       continue;
 #else
@@ -291,7 +296,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
 #endif
     }
 
-    fd.DivMod(b_t, &t, &b);
+    fd.DivMod(bt0_int, &t, &b);
 
     if (vbe) {
       // Check if t is valid
@@ -315,6 +320,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
       // Update b_t value
       b_t = B_start + b;
     } else {
+      b_t = static_cast<int32_t>(bt0);
       B = total_B / T;
     }
 

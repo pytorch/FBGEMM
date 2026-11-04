@@ -32,8 +32,8 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_kernel(
   __shared__ scalar_t max_value;
   __shared__ scalar_t exp_sum;
 
-  const auto tid = threadIdx.x;
-  for (uint32_t b = blockIdx.y; b < B; b += gridDim.y) {
+  const int64_t tid = threadIdx.x;
+  for (int64_t b = blockIdx.y; b < B; b += gridDim.y) {
     const index_t row_start = offsets[b];
     const index_t row_end = offsets[b + 1];
     const auto length = min(row_end - row_start, (index_t)max_L);
@@ -42,7 +42,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_kernel(
       const auto num_l_blocks =
           (length + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-      for (uint32_t d = blockIdx.x; d < D; d += gridDim.x) {
+      for (int64_t d = blockIdx.x; d < D; d += gridDim.x) {
         if (tid == 0) {
           max_value = values[row_start][d];
           exp_sum = 0;

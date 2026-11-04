@@ -654,20 +654,22 @@ void copy_to_shared(const Tensor& t) {
   const auto device = t.device().index();
   const auto properties = *at::cuda::getDeviceProperties(device);
   const auto nbytes = t.numel() * t.element_size();
+  const auto shared_mem_per_block =
+      static_cast<int64_t>(properties.sharedMemPerBlock);
 
   TORCH_CHECK(
-      nbytes <= properties.sharedMemPerBlock,
+      nbytes <= shared_mem_per_block,
       "Input tensor is too large to fit on shared memory");
 
   FBGEMM_LAUNCH_KERNEL(
       (copy_kernel),
       properties.multiProcessorCount,
       1,
-      properties.sharedMemPerBlock,
+      shared_mem_per_block,
       at::cuda::getCurrentCUDAStream(),
       reinterpret_cast<uint8_t*>(t.data_ptr()),
       nbytes,
-      properties.sharedMemPerBlock);
+      shared_mem_per_block);
 }
 
 void initialize_nan_shared_mem(int64_t device_index) {

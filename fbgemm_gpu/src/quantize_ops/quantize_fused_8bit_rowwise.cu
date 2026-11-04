@@ -42,7 +42,7 @@ __global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
     output_row_scale_bias[0] = range / 255.0f;
     output_row_scale_bias[1] = minimum_element;
     const auto inverse_scale = 255.0f / (range + kEpsilon);
-    for (std::size_t col = 0; col < ncols; ++col) {
+    for (int64_t col = 0; col < ncols; ++col) {
       output_row[col] =
           lrintf((input_row[col] - minimum_element) * inverse_scale);
     }
@@ -92,7 +92,7 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
     if (row < nrows) {
       const input_t* const input_row = input + row * ncols;
 
-      for (auto col = threadIdx.x; col < ncols; col += lane_width) {
+      for (int64_t col = threadIdx.x; col < ncols; col += lane_width) {
         // Get thread-local minmax. These are the smallest min and max ever seen
         // by this thread.
         minimum_element = fminf(minimum_element, input_row[col]);
@@ -248,7 +248,7 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
         &input[batch_idx][table_qparam_offset]);
     const int64_t input_offset = D_offsets[table_idx];
     const int64_t output_offset = input_offset - table_idx * qparam_size;
-    for (auto i = threadIdx.x; i < table_D; i += kWarpSize) {
+    for (int64_t i = threadIdx.x; i < table_D; i += kWarpSize) {
       output[batch_idx][i + output_offset] =
           input[batch_idx][i + input_offset] * qparams.x + qparams.y;
     }

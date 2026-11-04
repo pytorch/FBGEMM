@@ -32,14 +32,16 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
     const int consecutive_range_start,
     const int num_unique_indices) {
   // Each thread block processes max of stride_D elements
-  const int start_D = (blockIdx.y * stride_D) + (threadIdx.x * UNROLL_FACTOR);
-  const bool has_remainder = blockIdx.y == blockDim.y - 1 && remaining_D > 0 &&
-      threadIdx.x < remaining_D;
+  const int32_t block_y = static_cast<int32_t>(blockIdx.y);
+  const int32_t thread_x = static_cast<int32_t>(threadIdx.x);
+  const int start_D = (block_y * stride_D) + (thread_x * UNROLL_FACTOR);
+  const bool has_remainder =
+      blockIdx.y == blockDim.y - 1 && remaining_D > 0 && thread_x < remaining_D;
 
   // Grid-stride over unique indices (the saturating x dim) so a capped grid
   // (used on ROCm to avoid the 2^32 launch-side limit) still covers all
   // unique indices. blockIdx.y is bounded by D/stride_D and needs no cap.
-  for (auto u = blockIdx.x; u < num_unique_indices; u += gridDim.x) {
+  for (int64_t u = blockIdx.x; u < num_unique_indices; u += gridDim.x) {
     const auto start_offset = u == 0 ? 0 : offsets[u - 1];
     const int end_offset = offsets[u];
     index_t dst_idx =
