@@ -112,8 +112,8 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
   // GP registers we use (callee-saved ones need to be declared dirty)
   frame.setDirtyRegs(
       RegGroup::kGp,
-      Support::bitMask(0, 1, 2, 3, 7) |  // rax, rcx, rdx, rbx, rdi
-          Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
+      Support::bitMask(0, 1, 7) |  // rax, rcx, rdi
+          Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
   // Function argument: GemmParams<T>* in a GP register
   const x86::Gp gpReg = a->gpz(0);  // rax temporarily, reassigned by asmjit
@@ -131,18 +131,15 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
   const x86::Gp& BPtr = a->gpz(10);      // r10: B pointer
   const x86::Gp& CPtr = a->gpz(12);      // r12: C pointer
   const x86::Gp& ldcReg = a->gpz(13);    // r13: ldc (in bytes)
-  const x86::Gp& betaPtr = a->gpz(15);   // r15: &beta
   const x86::Gp& bColsReg = a->gpz(7);   // rdi: b_block_cols
   const x86::Gp& ASaved = a->gpz(1);     // rcx: saved A base
-  const x86::Gp& CSaved = a->gpz(2);     // rdx: saved C base
-  const x86::Gp& outerIdx = a->gpz(3);   // rbx: outer loop counter
   const x86::Gp& innerIdx = a->gpz(14);  // r14: inner loop counter
 
   // Load GemmParams fields from struct pointer (gpReg = rax)
   a->mov(kReg, x86::qword_ptr(gpReg, offsetof(GemmParams<T>, k)));
   a->mov(APtr, x86::qword_ptr(gpReg, offsetof(GemmParams<T>, A)));
   a->mov(BPtr, x86::qword_ptr(gpReg, offsetof(GemmParams<T>, B)));
-  a->lea(betaPtr, x86::ptr(gpReg, offsetof(GemmParams<T>, beta)));
+  a->vbroadcastss(betaReg, x86::dword_ptr(gpReg, offsetof(GemmParams<T>, beta)));
   a->mov(CPtr, x86::qword_ptr(gpReg, offsetof(GemmParams<T>, C)));
   a->mov(ldcReg, x86::qword_ptr(gpReg, offsetof(GemmParams<T>, ldc)));
   a->mov(bColsReg,
@@ -150,17 +147,15 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
 
   // Save base pointers
   a->mov(ASaved, APtr);
-  a->mov(CSaved, CPtr);
 
   // ====== Outer loop (over b_block_cols) ======
-  a->xor_(outerIdx.r32(), outerIdx.r32());
 
   Label loopOuter = a->newLabel();
   Label loopEnd = a->newLabel();
 
+  a->test(bColsReg, bColsReg);
+  a->jle(loopEnd);
   a->bind(loopOuter);
-  a->cmp(outerIdx, bColsReg);
-  a->jge(loopEnd);
 
   // Reset A for each column block
   a->mov(APtr, ASaved);
@@ -168,9 +163,6 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
   // innerIdx = k - 1 (peel first iteration)
   a->mov(innerIdx, kReg);
   a->dec(innerIdx);
-
-  // Broadcast beta
-  a->vbroadcastss(betaReg, x86::dword_ptr(betaPtr));
 
   // Load first B pair
   emitBLoad<T, instSet>(a, bReg0, BPtr, 0);
@@ -277,9 +269,9 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
   // Advance C to next block column
   a->add(CPtr, C_STRIDE_BYTES);
 
-  // Increment outer counter
-  a->inc(outerIdx);
-  a->jmp(loopOuter);
+  // Advance to the next column block.
+  a->dec(bColsReg);
+  a->jnz(loopOuter);
 
   // ====== End ======
   a->bind(loopEnd);
