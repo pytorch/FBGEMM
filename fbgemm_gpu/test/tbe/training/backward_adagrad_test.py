@@ -103,6 +103,46 @@ def _run_backward_adagrad_rocm_hip_fp16_parity(output_path: str) -> None:
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardAdagradTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
+    def test_post_fused_update_hook_observes_updated_state(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        tbe = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (8, 4, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),
+            ],
+            weights_precision=SparseType.FP32,
+            output_dtype=SparseType.FP32,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            learning_rate=0.1,
+            eps=1.0e-8,
+        ).to(device)
+        weights = tbe.split_embedding_weights()[0]
+        optimizer_state = tbe.split_optimizer_states()[0][0]
+        with torch.no_grad():
+            weights.fill_(1.0)
+            optimizer_state.zero_()
+        initial_weights = weights.clone()
+        observations: list[tuple[torch.Tensor, torch.Tensor]] = []
+
+        def observe_update() -> None:
+            torch.accelerator.synchronize()
+            observations.append((weights.clone(), optimizer_state.clone()))
+
+        handle = tbe.register_post_fused_update_hook(observe_update)
+        indices = torch.tensor([0, 1], device=device, dtype=torch.int64)
+        offsets = torch.tensor([0, 2], device=device, dtype=torch.int64)
+        tbe(indices, offsets).sum().backward()
+
+        self.assertEqual(len(observations), 1)
+        observed_weights, observed_state = observations[0]
+        self.assertFalse(torch.equal(observed_weights, initial_weights))
+        self.assertGreater(observed_state[:2].sum().item(), 0.0)
+
+        handle.remove()
+        tbe.placeholder_autograd_tensor.grad = None
+        tbe(indices, offsets).sum().backward()
+        self.assertEqual(len(observations), 1)
+
+    @unittest.skipIf(*gpu_unavailable)
     @given(mixed_B=st.booleans(), **test_st)
     @settings(**common_settings)
     def test_backward_adagrad_fp16_pmSUM(  # noqa C901
