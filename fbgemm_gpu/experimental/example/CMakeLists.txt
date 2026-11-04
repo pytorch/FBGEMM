@@ -11,6 +11,10 @@
 glob_files_nohip(experimental_example_cpp_source_files
   src/*.cpp)
 
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
+  list(FILTER experimental_example_cpp_source_files EXCLUDE REGEX "sgemm_hip\\.cpp$")
+endif()
+
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   # Only include .CU files if CUDA is enabled bc they use CUTLASS and HIPify
   # isn't able to handle them
