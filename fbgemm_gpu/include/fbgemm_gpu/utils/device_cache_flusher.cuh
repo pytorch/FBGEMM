@@ -45,7 +45,7 @@ class DeviceCacheFlusher {
     cudaGetDeviceProperties(&properties, 0);
     cache_size = properties.l2CacheSize;
 
-    h_flush.assign(cache_size, 0xFF);
+    h_flush.assign(cache_size, static_cast<char>(0xFF));
     cudaMalloc(&d_flush1, cache_size * sizeof(char));
     cudaMalloc(&d_flush2, cache_size * sizeof(char));
   }
