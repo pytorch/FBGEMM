@@ -310,8 +310,12 @@ constexpr float cpu_bf162float(bfloat16 src) {
 }
 
 constexpr bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp = std::bit_cast<uint32_t>(src);
-  return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
+  uint32_t bits = std::bit_cast<uint32_t>(src);
+  if ((bits & 0x7fffffffu) > 0x7f800000u) {
+    return {static_cast<uint16_t>((bits >> 16) | 0x40u)};
+  }
+  bits += ((bits >> 16) & 1) + 0x7FFFu; // round to nearest, ties to even
+  return {static_cast<uint16_t>(bits >> 16)};
 }
 
 template <FbgemmHalfType T>
