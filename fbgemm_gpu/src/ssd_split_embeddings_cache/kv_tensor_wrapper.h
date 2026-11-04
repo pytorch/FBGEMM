@@ -151,6 +151,10 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const at::Tensor& ids,
       bool weights_include_metadata);
 
+  // Writes the backend's raw INT8 rows as is: rows not marked used are
+  // skipped and view ids are rewritten to storage ids.
+  void set_raw_rows(const at::Tensor& rows, const at::Tensor& view_ids);
+
   std::shared_ptr<kv_db::EmbeddingKVDB> db_;
   // For DRAM_SSD backend: stores the underlying EmbeddingRocksDB separately
   // because db_ holds the composite DramSsdKVEmbeddingCache (inherits

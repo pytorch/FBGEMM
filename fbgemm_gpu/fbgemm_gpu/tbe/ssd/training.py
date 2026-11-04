@@ -1225,6 +1225,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.backend_return_whole_row: bool = False
         self._embedding_cache_mode: bool = False
         self._enrichment_enabled: bool = False
+        # Bytes of a raw INT8 checkpoint row (EnrichmentPolicy.int8_storage);
+        # 0 when the backend stores fp16 rows.
+        self._int8_row_bytes: int = 0
+        # set_int8_checkpoint_rows: whole-row checkpoint tensors carry the raw
+        # INT8 rows instead of fp16 rows.
+        self._int8_checkpoint_rows: bool = False
+        # reuse_last_split_ids: the next split_embedding_weights() reuses the
+        # per-table ids, bucket counts and metadata of the last one.
+        self._reuse_split_ids: bool = False
+        self._last_split_ids: list[tuple[Tensor, Tensor, Tensor]] | None = None
         self._direct_backend_gather: bool = False
         self._owner_cache_size_mb: int = 0
         self._owner_cache_read_populate: bool = False
@@ -1316,6 +1326,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     and self.backend_type != BackendType.DRAM
                 ):
                     raise ValueError("packed_storage requires the DRAM backend")
+                if (
+                    enrichment_policy.int8_storage
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("int8_storage requires the DRAM backend")
                 if (
                     self._owner_cache_exclusive
                     and self.backend_type != BackendType.DRAM
@@ -1949,6 +1964,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     self._serving_qdq_bit_rate(ep),
                     ep.serving_qdq_group_size,
                     ep.packed_storage,
+                    self._int8_storage(ep),
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -1975,6 +1991,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.res_params.table_sizes,
                 enrichment_config,  # enrichment_config
             )
+            self._int8_row_bytes = self._ssd_db.get_int8_row_bytes()
         elif self.backend_type == BackendType.DRAM_SSD:
             logging.info(
                 f"Logging DRAM_SSD offloading setup, tbe_unique_id:{tbe_unique_id}, "
@@ -4206,6 +4223,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         vbe_output_offsets: Tensor | None = None,
         # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
     ) -> Tensor:
+        # Training changes the rows, so the next split scans the backend again.
+        self._reuse_split_ids = False
         if self._direct_backend_gather:
             prefetched_output = self._consume_direct_enrichment_prefetch(indices)
             if prefetched_output is not None:
@@ -5179,7 +5198,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
 
     @torch.jit.export
-    def split_embedding_weights(
+    def split_embedding_weights(  # noqa: C901
         self,
         no_snapshot: bool = True,
         should_flush: bool = False,
@@ -5227,6 +5246,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 [],  # metadata tensor is not needed for checkpointing loading
             )
         start_time = time.time()
+        reuse_split_ids = self._reuse_split_ids and self._last_split_ids is not None
+        self._reuse_split_ids = False
+        split_ids: list[tuple[Tensor, Tensor, Tensor]] | None = []
         pmt_splits = []
         bucket_sorted_id_splits = [] if self.kv_zch_params else None
         active_id_cnt_per_bucket_split = [] if self.kv_zch_params else None
@@ -5251,34 +5273,46 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     self.kv_zch_params.eviction_policy.meta_header_lens[i]
                 )
 
-                # linearize with table offset
-                table_input_id_start = table_offset
-                table_input_id_end = table_offset + emb_height
-                # 1. get all keys from backend for one table
-                unordered_id_tensor = self._ssd_db.get_keys_in_range_by_snapshot(
-                    table_input_id_start,
-                    table_input_id_end,
-                    table_offset,
-                    snapshot_handle,
-                )
-                # 2. sorting keys in bucket ascending order
-                bucket_ascending_id_tensor, bucket_t = (
-                    torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
-                        unordered_id_tensor,
-                        0,  # id--bucket hashing mode, 0 for chunk-based hashing, 1 for interleave-based hashing
-                        0,  # local bucket offset
-                        bucket_id_end - bucket_id_start,  # local bucket num
-                        bucket_size,
+                if reuse_split_ids:
+                    assert self._last_split_ids is not None
+                    bucket_ascending_id_tensor, bucket_t, metadata_tensor = (
+                        self._last_split_ids[i]
                     )
-                )
-                metadata_tensor = self._ssd_db.get_kv_zch_eviction_metadata_by_snapshot(
-                    bucket_ascending_id_tensor + table_offset,
-                    torch.as_tensor(bucket_ascending_id_tensor.size(0)),
-                    snapshot_handle,
-                ).view(-1, 1)
+                else:
+                    # linearize with table offset
+                    table_input_id_start = table_offset
+                    table_input_id_end = table_offset + emb_height
+                    # 1. get all keys from backend for one table
+                    unordered_id_tensor = self._ssd_db.get_keys_in_range_by_snapshot(
+                        table_input_id_start,
+                        table_input_id_end,
+                        table_offset,
+                        snapshot_handle,
+                    )
+                    # 2. sorting keys in bucket ascending order
+                    bucket_ascending_id_tensor, bucket_t = (
+                        torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
+                            unordered_id_tensor,
+                            0,  # id--bucket hashing mode, 0 for chunk-based hashing, 1 for interleave-based hashing
+                            0,  # local bucket offset
+                            bucket_id_end - bucket_id_start,  # local bucket num
+                            bucket_size,
+                        )
+                    )
+                    metadata_tensor = (
+                        self._ssd_db.get_kv_zch_eviction_metadata_by_snapshot(
+                            bucket_ascending_id_tensor + table_offset,
+                            torch.as_tensor(bucket_ascending_id_tensor.size(0)),
+                            snapshot_handle,
+                        ).view(-1, 1)
+                    )
 
-                # 3. convert local id back to global id
-                bucket_ascending_id_tensor.add_(bucket_id_start * bucket_size)
+                    # 3. convert local id back to global id
+                    bucket_ascending_id_tensor.add_(bucket_id_start * bucket_size)
+                if split_ids is not None:
+                    split_ids.append(
+                        (bucket_ascending_id_tensor, bucket_t, metadata_tensor)
+                    )
 
                 if (
                     bucket_ascending_id_tensor.size(0) == 0
@@ -5303,6 +5337,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         )
                     skip_metadata = True
                     is_loading_checkpoint = True
+                    split_ids = None
 
                     # self.local_weight_counts[i] = 0  # Reset the count
 
@@ -5320,6 +5355,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 # to achieve this, the row_offset will be set to (table_offset - local_shard_offset)
                 row_offset = table_offset - (bucket_id_start * bucket_size)
 
+            int8_rows = self.kv_zch_params is not None and (
+                self._int8_checkpoint_rows_active(is_loading_checkpoint)
+            )
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
                 shape=[
                     (
@@ -5327,11 +5365,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         if bucket_ascending_id_tensor is not None
                         else emb_height
                     ),
-                    self.get_embedding_dim_for_kvt(
-                        metaheader_dim, emb_dim, is_loading_checkpoint
+                    (
+                        self._int8_row_bytes
+                        if int8_rows
+                        else self.get_embedding_dim_for_kvt(
+                            metaheader_dim, emb_dim, is_loading_checkpoint
+                        )
                     ),
                 ],
-                dtype=dtype,
+                dtype=torch.uint8 if int8_rows else dtype,
                 row_offset=row_offset,
                 snapshot_handle=snapshot_handle,
                 # set bucket_ascending_id_tensor to kvt wrapper, so narrow will follow the id order to return
@@ -5380,12 +5422,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         logging.info(
             f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms, "
+            f"reused_split_ids={reuse_split_ids}"
         )
         if self.kv_zch_params is not None:
             logging.info(
                 # pyre-ignore [16]
                 f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
             )
+            if not reuse_split_ids:
+                self._last_split_ids = split_ids
 
         return (
             pmt_splits,
@@ -5482,6 +5527,58 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     1,
                     False,
                 )
+
+    def _int8_storage(self, ep: EnrichmentPolicy) -> bool:
+        """Validated EnrichmentPolicy.int8_storage for this TBE."""
+        if not ep.int8_storage:
+            return False
+        if self.weights_precision != SparseType.FP16:
+            raise ValueError(
+                f"int8_storage needs FP16 weights, got {self.weights_precision}"
+            )
+        if ep.enrichment_type not in (
+            EnrichmentType.IGR_LASER_EMBEDDING,
+            EnrichmentType.IN_MEMORY_TEST_ONLY,
+        ):
+            raise ValueError(
+                f"int8_storage needs an embedding payload, got {ep.enrichment_type}"
+            )
+        return True
+
+    @torch.jit.ignore
+    def set_int8_checkpoint_rows(self, enabled: bool) -> bool:
+        """With `enabled`, split_embedding_weights() returns the whole-row
+        weight tensors of an int8_storage table as its raw INT8 rows (uint8:
+        MetaHeader, codes, fp32 scale and bias, fp16 tail) instead of fp16
+        rows, both for saving and for loading a checkpoint. Only the checkpoint
+        path turns this on; publish keeps reading fp16 rows. Returns whether
+        the switch takes effect: this TBE stores INT8 rows, returns whole rows
+        and loads optimizer state. Otherwise this is a no-op."""
+        if (
+            self._int8_row_bytes == 0
+            or not self.backend_return_whole_row
+            or self.load_ckpt_without_opt
+        ):
+            return False
+        self._int8_checkpoint_rows = enabled
+        return True
+
+    @torch.jit.ignore
+    def reuse_last_split_ids(self) -> None:
+        """The next split_embedding_weights() reuses the ids, bucket counts and
+        metadata of the last one instead of scanning the backend again, so the
+        fp16 split built for a publish after a raw-row checkpoint save covers
+        exactly the rows that checkpoint saved. Cleared by that split or by the
+        next forward()."""
+        self._reuse_split_ids = True
+
+    def _int8_checkpoint_rows_active(self, is_loading_checkpoint: bool) -> bool:
+        return (
+            self._int8_checkpoint_rows
+            and self._int8_row_bytes > 0
+            and self.backend_return_whole_row
+            and not (self.load_ckpt_without_opt and is_loading_checkpoint)
+        )
 
     def _serving_qdq_bit_rate(self, ep: EnrichmentPolicy) -> int:
         """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE, also

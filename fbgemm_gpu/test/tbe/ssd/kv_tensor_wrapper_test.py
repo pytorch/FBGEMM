@@ -43,6 +43,30 @@ default_settings: dict[str, Any] = {
 }
 
 
+def _metaheader_diff(actual: torch.Tensor, expected: torch.Tensor) -> str:
+    """The MetaHeader fields (key, timestamp, count, used) that differ between
+    the first 8 fp16 columns of two row tensors, with the first differing
+    row's actual and expected values."""
+    a = actual[:, :8].contiguous().view(torch.int64).view(-1, 2)
+    e = expected[:, :8].contiguous().view(torch.int64).view(-1, 2)
+    fields = (
+        ("key", a[:, 0], e[:, 0]),
+        ("timestamp", a[:, 1] & 0xFFFFFFFF, e[:, 1] & 0xFFFFFFFF),
+        ("count", (a[:, 1] >> 32) & 0x7FFFFFFF, (e[:, 1] >> 32) & 0x7FFFFFFF),
+        ("used", (a[:, 1] >> 63) & 1, (e[:, 1] >> 63) & 1),
+    )
+    diffs = []
+    for name, x, y in fields:
+        bad = (x != y).nonzero().flatten()
+        if bad.numel() > 0:
+            row = int(bad[0])
+            diffs.append(
+                f"{name}: {bad.numel()} rows, row {row} actual {int(x[row])} "
+                f"expected {int(y[row])}"
+            )
+    return "; ".join(diffs)
+
+
 # pyrefly: ignore [bad-argument-type]
 @unittest.skipIf(*running_in_oss)
 class KvTensorWrapperTest(TestCase):
@@ -646,6 +670,123 @@ class KvTensorWrapperTest(TestCase):
             if backend_type == BackendType.SSD:
                 # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
+
+    def _create_cu_cache(self, int8_storage: bool) -> Any:
+        # The CU cache shape: 128-dim enrichment rows plus 4 fp16 optimizer
+        # columns, read and written as whole rows (MetaHeader first).
+        enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
+            enrichment_type=4,  # IN_MEMORY_TEST_ONLY
+            provider_name="",
+            client_id="",
+            enrichment_dim=128,
+            response_format=0,
+            int8_storage=int8_storage,
+        )
+        return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+            max_D=132,
+            uniform_init_lower=-0.1,
+            uniform_init_upper=0.1,
+            num_shards=8,
+            num_threads=8,
+            row_storage_bitwidth=16,
+            table_dims=torch.tensor([132]),
+            hash_size_cumsum=torch.tensor([0, 100000]),
+            backend_return_whole_row=True,
+            disable_random_init=True,
+            enrichment_config=enrichment_config,
+        )
+
+    def _whole_row_pmt(
+        self, db: object, ids: torch.Tensor, width: int, dtype: torch.dtype
+    ) -> PartiallyMaterializedTensor:
+        kvt = torch.classes.fbgemm.KVTensorWrapper(
+            shape=[ids.numel(), width],
+            dtype=dtype,
+            row_offset=0,
+            snapshot_handle=None,
+            sorted_indices=ids.view(-1, 1),
+        )
+        kvt.set_dram_db_wrapper(db)
+        return PartiallyMaterializedTensor(kvt, True)
+
+    def _write_cu_rows(self, db: object, n: int) -> torch.Tensor:
+        torch.manual_seed(0)
+        mean = torch.randn(1, 128) * 0.6
+        rows = mean + torch.randn(n, 128) * 0.3
+        rows = rows / rows.norm(dim=1, keepdim=True)
+        rows = torch.cat([rows, torch.randn(n, 4)], dim=1).half()
+        # pyrefly: ignore [missing-attribute]
+        db.set(torch.arange(n), rows, torch.tensor([n]))
+        return rows
+
+    def test_int8_rows_checkpoint_round_trip_through_uint8_pmt(self) -> None:
+        n = 1000
+        ids = torch.arange(n)
+        src = self._create_cu_cache(int8_storage=True)
+        self._write_cu_rows(src, n)
+        # pyrefly: ignore [missing-attribute]
+        row_bytes = src.get_int8_row_bytes()
+        self.assertEqual(row_bytes, 16 + 128 + 8 + 4 * 2)
+
+        saved_pmt = self._whole_row_pmt(src, ids, row_bytes, torch.uint8)
+        self.assertEqual(saved_pmt.dtype, torch.uint8)
+        saved = saved_pmt.narrow(0, 0, n)
+        self.assertEqual(saved.dtype, torch.uint8)
+        self.assertEqual(saved.shape, torch.Size([n, row_bytes]))
+        self.assertTrue(torch.equal(saved[:, :8].view(torch.int64).view(-1), ids))
+
+        dst = self._create_cu_cache(int8_storage=True)
+        load_pmt = self._whole_row_pmt(dst, ids, row_bytes, torch.uint8)
+        load_pmt.wrapped.set_range(0, 0, n, saved.clone())
+
+        self.assertTrue(torch.equal(load_pmt.narrow(0, 0, n), saved))
+        fp16_src = self._whole_row_pmt(src, ids, 8 + 132, torch.float16)
+        fp16_dst = self._whole_row_pmt(dst, ids, 8 + 132, torch.float16)
+        self.assertTrue(
+            torch.equal(
+                fp16_src.narrow(0, 0, n).view(torch.uint8),
+                fp16_dst.narrow(0, 0, n).view(torch.uint8),
+            )
+        )
+        fp16_bytes = (8 + 132) * 2
+        print(
+            f"checkpoint bytes/row: fp16 {fp16_bytes}, INT8 {row_bytes} "
+            f"({row_bytes / fp16_bytes:.3f}x)"
+        )
+
+    def test_fp16_checkpoint_loads_into_int8_rows(self) -> None:
+        n = 500
+        ids = torch.arange(n)
+        fp16_db = self._create_cu_cache(int8_storage=False)
+        self.assertEqual(fp16_db.get_int8_row_bytes(), 0)
+        rows = self._write_cu_rows(fp16_db, n)
+        saved = self._whole_row_pmt(fp16_db, ids, 8 + 132, torch.float16).narrow(
+            0, 0, n
+        )
+
+        int8_db = self._create_cu_cache(int8_storage=True)
+        load_pmt = self._whole_row_pmt(int8_db, ids, 8 + 132, torch.float16)
+        load_pmt.wrapped.set_range(0, 0, n, saved.clone())
+
+        restored = load_pmt.narrow(0, 0, n)
+        # MetaHeader and the fp16 tail come back exactly; the embedding is the
+        # INT8 publish of the saved row, within half an INT8 step.
+        self.assertTrue(
+            torch.equal(restored[:, :8], saved[:, :8]),
+            _metaheader_diff(restored, saved),
+        )
+        self.assertTrue(torch.equal(restored[:, 136:], saved[:, 136:]))
+        emb = rows[:, :128].float()
+        step = (emb.max(dim=1).values - emb.min(dim=1).values) / 255
+        err = (restored[:, 8:136].float() - emb).abs().max(dim=1).values
+        self.assertTrue(bool((err <= step * 0.5 + 1e-3).all()))
+        codes = torch.ops.quantized.embedding_bag_byte_prepack(
+            restored[:, 8:136].contiguous()
+        )
+        int8_rows = self._whole_row_pmt(
+            int8_db, ids, int8_db.get_int8_row_bytes(), torch.uint8
+        ).narrow(0, 0, n)
+        self.assertTrue(torch.equal(codes, int8_rows[:, 16 : 16 + 136]))
 
     def test_dram_kv_and_rdb_snapshot_check(self) -> None:
         max_D = MAX_D  # max emb dimension seen by rocksDB
