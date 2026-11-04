@@ -45,7 +45,9 @@ void NOINLINE gemmkernel_7x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm16,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"
@@ -278,7 +280,9 @@ void NOINLINE gemmkernel_8x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm18,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"
@@ -530,7 +534,9 @@ void NOINLINE gemmkernel_9x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm20,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"
@@ -801,7 +807,9 @@ void NOINLINE gemmkernel_10x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm22,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"
@@ -1091,7 +1099,9 @@ void NOINLINE gemmkernel_11x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm24,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"
@@ -1400,7 +1410,9 @@ void NOINLINE gemmkernel_12x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm26,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"
@@ -1728,7 +1740,9 @@ void NOINLINE gemmkernel_13x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm28,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"
@@ -2075,7 +2089,9 @@ void NOINLINE gemmkernel_14x2_Avx512_256_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "vmovups ymm30,YMMWORD PTR [r10 + 32]\t\n"
       "vxorps xmm0, xmm0, xmm0\t\n"
       "vcomiss xmm31, xmm0\t\n"
+      "jp nonzero_beta%=\t\n"
       "jz zero_regs%=\t\n"
+      "nonzero_beta%=:\t\n"
 
       // Setup values with beta multiplication
       "vmulps ymm0, ymm31, [r12 + 0]\t\n"

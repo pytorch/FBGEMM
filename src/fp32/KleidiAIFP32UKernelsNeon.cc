@@ -29,7 +29,6 @@ void NOINLINE gemmkernel_1x2_Neon_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "ldr x22, [%x[gp], %[offsetof_C]]\n"
       "fcmp s16, #0.0\n"
       "csel x25, XZR, x25, EQ\n"
-      "csel x25, XZR, x25, VS\n"
       "1:" // Height 1: Column loop
       "tbz x25, #0, 2f\n"
       "ldr q28, [x22, #0x0]\n"
@@ -212,7 +211,6 @@ void NOINLINE gemmkernel_2x2_Neon_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "ldr x23, [%x[gp], %[offsetof_C]]\n"
       "fcmp s16, #0.0\n"
       "csel x26, XZR, x26, EQ\n"
-      "csel x26, XZR, x26, VS\n"
       "1:" // Height 2: Column loop
       "tbz x26, #0, 2f\n"
       "ldr q24, [x23, #0x0]\n"
@@ -469,7 +467,6 @@ void NOINLINE gemmkernel_3x2_Neon_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "ldr x24, [%x[gp], %[offsetof_C]]\n"
       "fcmp s16, #0.0\n"
       "csel x27, XZR, x27, EQ\n"
-      "csel x27, XZR, x27, VS\n"
       "1:" // Height 3: Column loop
       "tbz x27, #0, 2f\n"
       "ldr q20, [x24, #0x0]\n"
@@ -792,7 +789,6 @@ void NOINLINE gemmkernel_4x2_Neon_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "ldr x25, [%x[gp], %[offsetof_C]]\n"
       "fcmp s16, #0.0\n"
       "csel x28, XZR, x28, EQ\n"
-      "csel x28, XZR, x28, VS\n"
       "1:" // Height 4: Column loop
       "tbz x28, #0, 2f\n"
       "ldr q16, [x25, #0x0]\n"
@@ -1179,7 +1175,6 @@ void NOINLINE gemmkernel_5x2_Neon_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "ldr x26, [%x[gp], %[offsetof_C]]\n"
       "fcmp s16, #0.0\n"
       "csel x9, XZR, x9, EQ\n"
-      "csel x9, XZR, x9, VS\n"
       "1:" // Height 5: Column loop
       "tbz x9, #0, 2f\n"
       "ldr q12, [x26, #0x0]\n"
@@ -1630,7 +1625,6 @@ void NOINLINE gemmkernel_6x2_Neon_fp32_fA0fB0fC0(GemmParamsFP32* gp) {
       "ldr x27, [%x[gp], %[offsetof_C]]\n"
       "fcmp s16, #0.0\n"
       "csel x10, XZR, x10, EQ\n"
-      "csel x10, XZR, x10, VS\n"
       "1:" // Height 6: Column loop
       "tbz x10, #0, 2f\n"
       "ldr q8, [x27, #0x0]\n"

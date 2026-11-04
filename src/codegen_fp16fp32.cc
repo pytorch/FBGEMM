@@ -423,7 +423,10 @@ int main(int argc, const char* argv[]) {
         }
         addi(srcfile, "vxorps xmm0, xmm0, xmm0");
         addi(srcfile, "vcomiss " + r_spare_cmp + ", xmm0");
+        // Unordered comparisons set ZF too; NaN beta must still multiply C.
+        addi(srcfile, "jp nonzero_beta%=");
         addi(srcfile, "jz " + label_zero);
+        addi(srcfile, "nonzero_beta%=:");
 
         srcfile << "\n";
         srcfile << "      // Setup values with beta multiplication\n";
