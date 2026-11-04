@@ -62,7 +62,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
           static_cast<long long>(segment_length),
           static_cast<long long>(len));
     }
-    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
+    for (int32_t i = static_cast<int32_t>(threadIdx.x); i < segment_length;
+         i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
         for (auto w_col = 0; w_col < weights_columns; ++w_col) {
@@ -91,11 +92,12 @@ __device__ __forceinline__ void vec4_copy_segment(
   auto* __restrict__ dst_vec = reinterpret_cast<uint4*>(dst);
   const auto* __restrict__ src_vec = reinterpret_cast<const uint4*>(src);
 #pragma unroll
-  for (auto i = threadIdx.x; i < nvec; i += blockDim.x) {
+  for (int32_t i = static_cast<int32_t>(threadIdx.x); i < nvec;
+       i += blockDim.x) {
     dst_vec[i] = src_vec[i];
   }
   const int32_t remainder = n - nvec * E;
-  if (threadIdx.x < remainder) {
+  if (static_cast<int32_t>(threadIdx.x) < remainder) {
     const auto offset = nvec * E + threadIdx.x;
     dst[offset] = src[offset];
   }
@@ -116,7 +118,8 @@ __device__ __forceinline__ void copy_segment_maybe_vec(
     vec4_copy_segment(dst, src, n);
   } else {
 #pragma unroll 4
-    for (auto i = threadIdx.x; i < n; i += blockDim.x) {
+    for (int32_t i = static_cast<int32_t>(threadIdx.x); i < n;
+         i += blockDim.x) {
       dst[i] = src[i];
     }
   }
@@ -204,12 +207,13 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
           auto* wd = reinterpret_cast<uint4*>(weights_dst);
           const auto* ws = reinterpret_cast<const uint4*>(weights_src);
 #pragma unroll
-          for (auto i = threadIdx.x; i < nvec; i += blockDim.x) {
+          for (int32_t i = static_cast<int32_t>(threadIdx.x); i < nvec;
+               i += blockDim.x) {
             id[i] = is[i];
             wd[i] = ws[i];
           }
           const int32_t remainder = segment_length - nvec * E;
-          if (threadIdx.x < remainder) {
+          if (static_cast<int32_t>(threadIdx.x) < remainder) {
             const auto offset = nvec * E + threadIdx.x;
             indices_dst[offset] = indices_src[offset];
             weights_dst[offset] = weights_src[offset];
@@ -218,7 +222,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_vec(
         }
         // Equal size but not 16-byte aligned (rare, odd emb_dim): scalar.
 #pragma unroll 4
-        for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
+        for (int32_t i = static_cast<int32_t>(threadIdx.x); i < segment_length;
+             i += blockDim.x) {
           indices_dst[i] = indices_src[i];
           weights_dst[i] = weights_src[i];
         }
@@ -778,7 +783,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
     index_t output_start = output_offsets[b_t];
     index_t segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
     index_t input_start = input_offsets[permute[t] * B + b];
-    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
+    for (int64_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
         permuted_weights[output_start + i] = weights[input_start + i];

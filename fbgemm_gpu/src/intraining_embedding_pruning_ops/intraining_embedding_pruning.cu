@@ -45,7 +45,7 @@ __global__ void init_address_lookup_kernel(
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         emb_sizes) {
   int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  auto t_i = blockIdx.x / blocks_per_table;
+  const int64_t t_i = static_cast<int64_t>(blockIdx.x) / blocks_per_table;
   auto threads_per_table = blocks_per_table * blockDim.x;
   int32_t idx_table = idx % threads_per_table;
 
@@ -99,7 +99,7 @@ __global__ void get_util_samples(
     const pta::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
         row_utils) {
   int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  auto t_i = blockIdx.x / blocks_per_table;
+  const int64_t t_i = static_cast<int64_t>(blockIdx.x) / blocks_per_table;
   int32_t num_tables = buffer_offsets.size(0) - 1;
 
   if (t_i >= num_tables) {
@@ -412,7 +412,8 @@ __launch_bounds__(kMaxThreads) void remap_indices_update_utils_per_table_sorted_
     pta::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> row_util,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         buffer_offsets) {
-  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const int64_t idx =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (idx >= num_indices) {
     return;
   }

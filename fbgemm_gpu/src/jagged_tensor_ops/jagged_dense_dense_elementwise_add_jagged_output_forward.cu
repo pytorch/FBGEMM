@@ -124,7 +124,8 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
             int used_shared_kb = shared_kb;
 #endif
             int used_shared_bytes = used_shared_kb << 10;
-            TORCH_CHECK_LE(dynamic_smem_size, used_shared_bytes);
+            TORCH_CHECK_LE(
+                dynamic_smem_size, static_cast<size_t>(used_shared_bytes));
 
             utils::cuda::set_max_dynamic_smem(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<

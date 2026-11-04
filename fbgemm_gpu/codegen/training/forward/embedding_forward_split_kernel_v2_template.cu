@@ -125,7 +125,7 @@ __inline__ __device__ void get_next_bag_boundary_and_L(
     const uint32_t bag_boundary,
     int32_t* const next_boundary,
     uint32_t* const L) {
-  const int32_t tid = bag_boundary & WARP_MASK;
+  const uint32_t tid = bag_boundary & WARP_MASK;
   if (tid < kWarpSize) {
     const auto prev_boundary = *next_boundary;
     *next_boundary = shfl_sync(bag_boundary, tid) >> LOWER_BIT_CNT;
@@ -216,7 +216,9 @@ __inline__ __device__ void write_loop_small_Ls(
   // When threads first enter this loop, they write the accumulated results.
   // Then, if next_boundary is still equal to l + 1, they write zeros. If all
   // the outputs (up to 32 outputs) are written, next_boundary will be -1.
-  while (*next_boundary == l + 1) {
+  while (*next_boundary >= 0 &&
+         static_cast<int64_t>(*next_boundary) ==
+             static_cast<int64_t>(l) + 1) {
     output_vec_t* __restrict__ const output =
       *reinterpret_cast<output_vec_t**>(&smem[params_offset + SAVED_PARAMS::P_outputs]) + *write_idx + threadIdx.x;
 
@@ -787,9 +789,13 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
       const auto global_warp_id = blockIdx.x * blockDim.y + threadIdx.y;
 #endif
 
-      int32_t t;
-      int32_t table_warp_id;
-      fd_num_warps_per_table.DivMod(global_warp_id, &t, &table_warp_id);
+      int32_t t_signed;
+      int32_t table_warp_id_signed;
+      fd_num_warps_per_table.DivMod(
+          global_warp_id, &t_signed, &table_warp_id_signed);
+      const uint32_t t = static_cast<uint32_t>(t_signed);
+      const uint32_t table_warp_id =
+          static_cast<uint32_t>(table_warp_id_signed);
 
       if (t >= T) {
 #if defined(USE_ROCM)

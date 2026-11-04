@@ -324,45 +324,52 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel_vec(
 
 // copy indices
 #pragma unroll
-        for (auto i = threadIdx.x; i < vec4_count; i += blockDim.x) {
+        for (int32_t i = static_cast<int32_t>(threadIdx.x); i < vec4_count;
+             i += blockDim.x) {
           indices_dst[i] = indices_src[i];
         }
         // Handle remainder indices (0-3 elements)
-        if (threadIdx.x < remainder) {
+        if (static_cast<int32_t>(threadIdx.x) < remainder) {
           const auto offset = vec4_count * 4 + threadIdx.x;
           indices_dst_ptr[offset] = indices_src_ptr[offset];
         }
 
 // copy weights (segment_length * weights_columns total elements)
 #pragma unroll
-        for (auto i = threadIdx.x; i < vec4_weight_count; i += blockDim.x) {
+        for (int32_t i = static_cast<int32_t>(threadIdx.x);
+             i < vec4_weight_count;
+             i += blockDim.x) {
           weights_dst[i] = weights_src[i];
         }
         // Handle remainder weight elements (0-3 elements)
-        if (threadIdx.x < weight_remainder) {
+        if (static_cast<int32_t>(threadIdx.x) < weight_remainder) {
           const auto offset = vec4_weight_count * 4 + threadIdx.x;
           weights_dst_ptr[offset] = weights_src_ptr[offset];
         }
       } else {
 // copy only indices
 #pragma unroll
-        for (auto i = threadIdx.x; i < vec4_count; i += blockDim.x) {
+        for (int32_t i = static_cast<int32_t>(threadIdx.x); i < vec4_count;
+             i += blockDim.x) {
           indices_dst[i] = indices_src[i];
         }
 
         // Handle remainder elements (0-3 elements)
-        if (threadIdx.x < remainder) {
+        if (static_cast<int32_t>(threadIdx.x) < remainder) {
           const auto offset = vec4_count * 4 + threadIdx.x;
           indices_dst_ptr[offset] = indices_src_ptr[offset];
         }
       }
     } else {
       // Scalar fallback path
-      for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
+      for (int32_t i = static_cast<int32_t>(threadIdx.x); i < segment_length;
+           i += blockDim.x) {
         indices_dst_ptr[i] = indices_src_ptr[i];
       }
       if (has_weight) {
-        for (auto i = threadIdx.x; i < total_weight_elements; i += blockDim.x) {
+        for (int32_t i = static_cast<int32_t>(threadIdx.x);
+             i < total_weight_elements;
+             i += blockDim.x) {
           weights_dst_ptr[i] = weights_src_ptr[i];
         }
       }

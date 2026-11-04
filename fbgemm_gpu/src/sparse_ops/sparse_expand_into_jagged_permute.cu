@@ -28,7 +28,8 @@ __launch_bounds__(kMaxThreads) void expand_into_jagged_permute_kernel(
     const offsets_t output_start = output_offsets[t];
     const offsets_t segment_length = output_offsets[t + 1] - output_offsets[t];
     const offsets_t input_start = input_offsets[permute[t]];
-    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
+    for (offsets_t i = static_cast<offsets_t>(threadIdx.x); i < segment_length;
+         i += blockDim.x) {
       output_permute[output_start + i] = input_start + i;
     }
   }

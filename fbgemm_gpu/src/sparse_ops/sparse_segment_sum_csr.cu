@@ -29,7 +29,7 @@ __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
 
   // Grid-stride over segments so a capped grid (used on ROCm to avoid the
   // 2^32 launch-side limit) still covers all segments.
-  for (auto seg = blockIdx.x; seg < num_segments; seg += gridDim.x) {
+  for (int64_t seg = blockIdx.x; seg < num_segments; seg += gridDim.x) {
     // 64-bit segment offsets: csr_seg_data[seg] (index_t) * batch_size
     // (int64_t) can exceed INT_MAX, so accumulate in int64_t to avoid
     // truncation.

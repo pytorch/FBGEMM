@@ -177,7 +177,8 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
       &max_grid_size, cudaDevAttrMaxGridDimX, device_id));
 
   TORCH_CHECK(
-      gridDim_x > 0 && gridDim_x <= max_grid_size,
+      max_grid_size >= 0 && gridDim_x > 0 &&
+          static_cast<int64_t>(gridDim_x) <= max_grid_size,
       "gridDim_x is of bound with value ",
       gridDim_x,
       ". MaxGridDimX is ",

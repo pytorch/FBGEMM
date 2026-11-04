@@ -111,7 +111,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     const int32_t lane_group) {
   const auto T = hash_size_cumsum.size(0) - 1;
   const auto total_B = offsets.size(0) - 1;
-  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+  const auto lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
   int32_t b;
   int32_t t;
   // Grid-stride over b_t so the kernel covers the whole workload even when the
@@ -126,7 +126,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
   for (auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
        static_cast<int64_t>(b_t - lane_id) < total_B;
        b_t += gridDim.x * blockDim.x) {
-    const bool valid = b_t < total_B;
+    const bool valid = static_cast<int64_t>(b_t) < total_B;
     // info must be uint32_t (using auto will assign int32_t to info)
     uint32_t info = 0;
 
@@ -149,7 +149,8 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
         const auto t_warp = fbgemm_gpu::shfl_sync(t, j);
         const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
         const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-        for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+        for (auto i = lane_id; static_cast<int64_t>(i) < L_warp;
+             i += fbgemm_gpu::kWarpSize) {
           const index_t idx = __ldg(&indices[indices_start_warp + i]);
           const auto l_t = (indices_start_warp + i) * T + t_warp;
           infos[indices_start_warp + i] = l_t;
@@ -171,7 +172,8 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
           const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
           const index_t hash_offset_warp =
               fbgemm_gpu::shfl_sync(hash_offset, j);
-          for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+          for (auto i = lane_id; static_cast<int64_t>(i) < L_warp;
+               i += fbgemm_gpu::kWarpSize) {
             const index_t idx = __ldg(&indices[indices_start_warp + i]);
             reinterpret_cast<uint32_t*>(&infos[0])[indices_start_warp + i] =
                 info_warp;
@@ -221,7 +223,7 @@ __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
   // Flattened (B * T) extent this kernel walks. Computed in 64 bits so it
   // cannot truncate.
   const auto total_b_t = static_cast<int64_t>(fd.D()) * T;
-  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+  const auto lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
   int32_t b;
   int32_t t;
   // Grid-stride over b_t so the kernel covers the whole workload even when the
@@ -269,7 +271,8 @@ __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
       const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
       const auto L_start_warp = fbgemm_gpu::shfl_sync(L_start, j);
       const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-      for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+      for (auto i = lane_id; static_cast<int64_t>(i) < L_warp;
+           i += fbgemm_gpu::kWarpSize) {
         const index_t idx = __ldg(&indices[indices_start_warp + i]);
         // l is the relative l in the feature (i.e., the first l in the feature
         // is 0)

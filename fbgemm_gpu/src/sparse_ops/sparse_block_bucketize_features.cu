@@ -36,8 +36,9 @@ __launch_bounds__(kMaxThreads) void _populate_length_to_feature_id_inplace_kerne
            static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
        b_t < b_t_total;
        b_t += b_t_stride) {
-    const auto t = b_t / max_B;
-    const auto b = b_t % max_B;
+    const int64_t signed_max_B = static_cast<int64_t>(max_B);
+    const int64_t t = b_t / signed_max_B;
+    const int64_t b = b_t % signed_max_B;
 
     if (b >= batch_size_per_feature[t]) {
       continue;
@@ -107,9 +108,10 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const index_t* const __restrict__ block_bucketize_pos_offsets,
     index_t* __restrict__ indices_to_lb) {
   using uindex_t = std::make_unsigned_t<index_t>;
-  const auto bt_start = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto stride = gridDim.x * blockDim.y;
-  for (auto b_t = bt_start; b_t < lengths_size; b_t += stride) {
+  const int64_t bt_start =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
+  for (int64_t b_t = bt_start; b_t < lengths_size; b_t += stride) {
     const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
     index_t blk_size = block_sizes_data[t];
     const index_t local_num_blks =
@@ -129,11 +131,21 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     // range of blk_size, we expect the later embedding module to take care
     // of hashing indices calculation.
     if (!use_block_bucketize_pos) {
-      for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
+      for (offset_t i = rowstart + static_cast<offset_t>(threadIdx.x);
+           i < rowend;
+           i += blockDim.x) {
         uindex_t idx = static_cast<uindex_t>(indices_data[i]);
-        uindex_t p = idx < global_idx_size
-            ? idx / local_idx_size
-            : (idx % global_num_blks) / local_num_blks;
+        const uindex_t unsigned_global_idx_size =
+            static_cast<uindex_t>(global_idx_size);
+        const uindex_t unsigned_local_idx_size =
+            static_cast<uindex_t>(local_idx_size);
+        const uindex_t unsigned_global_num_blks =
+            static_cast<uindex_t>(global_num_blks);
+        const uindex_t unsigned_local_num_blks =
+            static_cast<uindex_t>(local_num_blks);
+        uindex_t p = idx < unsigned_global_idx_size
+            ? idx / unsigned_local_idx_size
+            : (idx % unsigned_global_num_blks) / unsigned_local_num_blks;
         atomicAdd(&new_lengths_data[p * lengths_size + b_t], 1);
       }
       continue;
@@ -142,7 +154,8 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const index_t bucketize_max_idx = (t + 1) * (my_size + 1) - 1;
     const uindex_t blk_scalar =
         block_bucketize_pos_concat[bucketize_max_idx] / global_num_blks;
-    for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
+    for (offset_t i = rowstart + static_cast<offset_t>(threadIdx.x); i < rowend;
+         i += blockDim.x) {
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = 0;
       index_t first = block_bucketize_pos_offsets[t];
@@ -162,7 +175,8 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
       uindex_t lb =
           static_cast<uindex_t>(first - block_bucketize_pos_offsets[t] - 1);
       indices_to_lb[i] = lb;
-      p = lb < my_size ? lb : idx % my_size;
+      const uindex_t unsigned_my_size = static_cast<uindex_t>(my_size);
+      p = lb < unsigned_my_size ? lb : idx % unsigned_my_size;
       atomicAdd(&new_lengths_data[p * lengths_size + b_t], 1);
     }
   }
@@ -202,13 +216,14 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
     const bool keep_orig_idx,
     const bool* const __restrict__ keep_orig_idx_per_feature) {
   using uindex_t = std::make_unsigned_t<index_t>;
-  const auto bt_start = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto stride = gridDim.x * blockDim.y;
+  const int64_t bt_start =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
 
   extern __shared__ uint64_t smem[];
   uint64_t* offset_in_different_ranks = &smem[my_size * threadIdx.y];
 
-  for (auto b_t = bt_start; b_t < lengths_size; b_t += stride) {
+  for (int64_t b_t = bt_start; b_t < lengths_size; b_t += stride) {
     const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
     const index_t blk_size = block_sizes_data[t];
     const offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
@@ -218,7 +233,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
 
     /* Re-init the offset array to be 0 for the current iteration */
     syncwarp();
-    for (auto i = threadIdx.x; i < my_size; i += blockDim.x) {
+    for (int64_t i = threadIdx.x; i < my_size; i += blockDim.x) {
       offset_in_different_ranks[i] = 0;
     }
     syncwarp();
@@ -235,7 +250,8 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
       // keep_orig_idx settings
       keep_idx = keep_orig_idx_per_feature[t];
     }
-    for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
+    for (index_t i = rowstart + static_cast<index_t>(threadIdx.x); i < rowend;
+         i += static_cast<index_t>(blockDim.x)) {
       // We have use cases using none-hashed raw indices that can be either
       // negative or larger than embedding table hash_size (blk_size *
       // my_size). In cases of none-hashed indices we need to ensure
@@ -245,28 +261,38 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
       const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = 0;
       uindex_t new_idx = 0;
+      const uindex_t unsigned_global_idx_size =
+          static_cast<uindex_t>(global_idx_size);
+      const uindex_t unsigned_local_idx_size =
+          static_cast<uindex_t>(local_idx_size);
+      const uindex_t unsigned_global_num_blks =
+          static_cast<uindex_t>(global_num_blks);
+      const uindex_t unsigned_local_num_blks =
+          static_cast<uindex_t>(local_num_blks);
+      const uindex_t unsigned_my_size = static_cast<uindex_t>(my_size);
       if (!use_block_bucketize_pos) { // uniform bucket sizes
-        p = idx < global_idx_size ? idx / local_idx_size
-                                  : (idx % global_num_blks) / local_num_blks;
+        p = idx < unsigned_global_idx_size
+            ? idx / unsigned_local_idx_size
+            : (idx % unsigned_global_num_blks) / unsigned_local_num_blks;
         if (keep_idx) {
           new_idx = idx;
-        } else if (idx < global_idx_size) {
-          new_idx = idx % local_idx_size;
+        } else if (idx < unsigned_global_idx_size) {
+          new_idx = idx % unsigned_local_idx_size;
         } else {
-          new_idx = idx / global_num_blks;
+          new_idx = idx / unsigned_global_num_blks;
         }
       } else { // variable bucket sizes
         uindex_t lb = indices_to_lb[i];
-        p = lb < my_size ? lb : idx % my_size;
+        p = lb < unsigned_my_size ? lb : idx % unsigned_my_size;
         if (keep_idx) {
           new_idx = idx;
         } else if (blk_size == 0) {
-          new_idx = idx / global_num_blks;
-        } else if (lb < my_size) {
+          new_idx = idx / unsigned_global_num_blks;
+        } else if (lb < unsigned_my_size) {
           new_idx = idx -
               block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
         } else {
-          new_idx = idx / my_size;
+          new_idx = idx / unsigned_my_size;
         }
       }
       static_assert(
@@ -356,28 +382,38 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = 0;
       uindex_t new_idx = 0;
+      const uindex_t unsigned_global_num_blks =
+          static_cast<uindex_t>(global_num_blks);
       if (!use_block_bucketize_pos) {
-        p = idx < global_idx_size ? idx / local_idx_size
-                                  : (idx % global_num_blks) / local_num_blks;
+        const uindex_t unsigned_global_idx_size =
+            static_cast<uindex_t>(global_idx_size);
+        const uindex_t unsigned_local_idx_size =
+            static_cast<uindex_t>(local_idx_size);
+        const uindex_t unsigned_local_num_blks =
+            static_cast<uindex_t>(local_num_blks);
+        p = idx < unsigned_global_idx_size
+            ? idx / unsigned_local_idx_size
+            : (idx % unsigned_global_num_blks) / unsigned_local_num_blks;
         if (keep_idx) {
           new_idx = idx;
-        } else if (idx < global_idx_size) {
-          new_idx = idx % local_idx_size;
+        } else if (idx < unsigned_global_idx_size) {
+          new_idx = idx % unsigned_local_idx_size;
         } else {
-          new_idx = idx / global_num_blks;
+          new_idx = idx / unsigned_global_num_blks;
         }
       } else {
         uindex_t lb = indices_to_lb[i];
-        p = lb < my_size ? lb : idx % my_size;
+        const uindex_t unsigned_my_size = static_cast<uindex_t>(my_size);
+        p = lb < unsigned_my_size ? lb : idx % unsigned_my_size;
         if (keep_idx) {
           new_idx = idx;
         } else if (blk_size == 0) {
-          new_idx = idx / global_num_blks;
-        } else if (lb < my_size) {
+          new_idx = idx / unsigned_global_num_blks;
+        } else if (lb < unsigned_my_size) {
           new_idx = idx -
               block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
         } else {
-          new_idx = idx / my_size;
+          new_idx = idx / unsigned_my_size;
         }
       }
       uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
@@ -409,7 +445,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
   CUDA_KERNEL_LOOP(b_t, lengths_size) {
     const auto length = length_data[b_t];
     const auto offset = offset_data[b_t];
-    for (size_t i = 0; i < length; i++) {
+    for (offset_t i = 0; i < length; i++) {
       const auto index = offset + i;
       const auto bucket = bucket_mapping_data[index];
       bucketized_permute_data_out[index] =
@@ -680,7 +716,9 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
                             index_t,                                             \
                             scalar_t>;                                           \
                                                                                  \
-                    if (smem_size > smem_adjust_threshold) {                     \
+                    if (smem_size >= 0 &&                                        \
+                        static_cast<int64_t>(smem_size) >                        \
+                            static_cast<int64_t>(smem_adjust_threshold)) {       \
                       utils::cuda::set_max_dynamic_smem(                         \
                           block_bucketize_kernel, max_smem);                     \
                     }                                                            \
@@ -745,7 +783,9 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
                       index_t,                                                      \
                       std::nullptr_t>;                                              \
                                                                                     \
-              if (smem_size > smem_adjust_threshold) {                              \
+              if (smem_size >= 0 &&                                                 \
+                  static_cast<int64_t>(smem_size) >                                 \
+                      static_cast<int64_t>(smem_adjust_threshold)) {                \
                 utils::cuda::set_max_dynamic_smem(                                  \
                     block_bucketize_kernel, max_smem);                              \
               }                                                                     \

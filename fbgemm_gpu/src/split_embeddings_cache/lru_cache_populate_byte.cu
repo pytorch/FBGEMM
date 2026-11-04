@@ -284,8 +284,10 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
 
   // one warp for each set (multiple times)
   // (no divergence for each control branch)
-  for (auto pos = blockIdx.x * blockDim.y + threadIdx.y; pos < N;
-       pos += gridDim.x * blockDim.y) {
+  for (int64_t pos =
+           static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+       pos < N;
+       pos += static_cast<int64_t>(gridDim.x) * blockDim.y) {
     auto cache_set = cache_sets[pos];
 
     if (cache_set == -1) {

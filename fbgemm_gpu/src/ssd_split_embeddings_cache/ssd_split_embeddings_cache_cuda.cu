@@ -67,7 +67,7 @@ vec4_copy(scalar_t* dst, const scalar_t* src, const int32_t D) {
   constexpr int32_t VEC_SIZE = 4;
   const scalar_t* __restrict__ src_ = src;
   scalar_t* __restrict__ dst_ = dst;
-  for (auto d = threadIdx.x * VEC_SIZE; d < D; d += blockDim.x * VEC_SIZE) {
+  for (int64_t d = threadIdx.x * VEC_SIZE; d < D; d += blockDim.x * VEC_SIZE) {
     Vec4T<scalar_t>::copy(&src_[d], &dst_[d]);
   }
 }
@@ -79,7 +79,8 @@ vec4_copy(uint8_t* dst, const uint8_t* src, const int32_t D) {
   // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
   const uint4* __restrict__ src_ = reinterpret_cast<const uint4*>(src);
   uint4* __restrict__ dst_ = reinterpret_cast<uint4*>(dst);
-  for (auto d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
+  for (int64_t d = threadIdx.x; d * static_cast<int64_t>(sizeof(uint4)) < D;
+       d += blockDim.x) {
     dst_[d] = src_[d];
   }
 }
@@ -90,7 +91,8 @@ DEVICE_INLINE void vec4_copy(int8_t* dst, const int8_t* src, const int32_t D) {
   // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
   const uint4* __restrict__ src_ = reinterpret_cast<const uint4*>(src);
   uint4* __restrict__ dst_ = reinterpret_cast<uint4*>(dst);
-  for (auto d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
+  for (int64_t d = threadIdx.x; d * static_cast<int64_t>(sizeof(uint4)) < D;
+       d += blockDim.x) {
     dst_[d] = src_[d];
   }
 }
@@ -106,7 +108,7 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
   const int32_t N = indices.size(0);
   const auto count_ = count[0];
   CUDA_KERNEL_ASSERT(count_ <= N && "masked index count exceeds input size");
-  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < count_;
+  for (int64_t n = blockIdx.x * blockDim.y + threadIdx.y; n < count_;
        n += blockDim.y * gridDim.x) {
     // idx == -1 if it is conflict miss
     const auto idx = indices[n];
@@ -251,7 +253,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
   const int32_t C = lxu_cache_state.size(0);
 
   const int32_t N = sorted_cache_sets.size(0);
-  const auto n = blockIdx.x * blockDim.y + threadIdx.y;
+  const int64_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= N) {
     return;
   }
@@ -298,7 +300,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
 
   // Now, we need to insert the (unique!) values in indices[n:n + SL] into
   // our slots.
-  const auto slot = threadIdx.x;
+  const int64_t slot = threadIdx.x;
   const int64_t slot_time = lru_state[cache_set][slot];
 
   // Check if the slot is locked
@@ -328,7 +330,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
   const int64_t insert_slot = slots[0];
   const int64_t insert_cost = costs[0];
 
-  auto l = threadIdx.x;
+  int64_t l = threadIdx.x;
 
   // Get the current index
   const int64_t current_idx = shfl_sync(slot_idx, insert_slot);
@@ -359,7 +361,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
   }
 
   // Conflict misses
-  for (auto l = kWarpSize + threadIdx.x; l < SL; l += kWarpSize) {
+  for (int64_t l = kWarpSize + threadIdx.x; l < SL; l += kWarpSize) {
     evicted_indices[n + l] = -1;
     assigned_cache_slots[n + l] = -1;
   }
@@ -515,10 +517,10 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_generate_row_addrs_kernel(
     const uint64_t cache_row_bytes // has to be 64 bits to prevent overflow
 ) {
 #ifdef USE_ROCM
-  for (auto n = blockDim.y * blockIdx.x + threadIdx.y; n < *N_unique;
+  for (int64_t n = blockDim.y * blockIdx.x + threadIdx.y; n < *N_unique;
        n += blockDim.y * gridDim.x) {
 #else
-  const auto n = blockDim.y * blockIdx.x + threadIdx.y;
+  const int64_t n = blockDim.y * blockIdx.x + threadIdx.y;
   if (n >= *N_unique) {
     return;
   }
@@ -545,7 +547,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_generate_row_addrs_kernel(
     }
 
     // Set pointer address
-    for (auto l = segment_start + threadIdx.x; l < segment_end;
+    for (int64_t l = segment_start + threadIdx.x; l < segment_end;
          l += blockDim.x) {
       auto dst = linear_index_inverse_indices[l];
       *reinterpret_cast<uint64_t*>(&ssd_row_addrs[dst]) = ptr_addr;
@@ -646,7 +648,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_update_row_addrs_kernel(
     const uint64_t cache_row_bytes // has to be 64 bits to prevent overflow
 ) {
 #ifdef USE_ROCM
-  for (auto n_curr = blockDim.y * blockIdx.x + threadIdx.y;
+  for (int64_t n_curr = blockDim.y * blockIdx.x + threadIdx.y;
        n_curr < *N_unique_curr;
        n_curr += blockDim.y * gridDim.x) {
 #else
@@ -687,7 +689,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_update_row_addrs_kernel(
         : (lxu_cache_weights_addr + (cache_loc_curr * cache_row_bytes));
 
     // Set pointer address
-    for (auto l = segment_start_curr + threadIdx.x; l < segment_end_curr;
+    for (int64_t l = segment_start_curr + threadIdx.x; l < segment_end_curr;
          l += blockDim.x) {
       auto dst = linear_index_inverse_indices_curr[l];
       *reinterpret_cast<uint64_t*>(&ssd_row_addrs_curr[dst]) = ptr_addr;
@@ -762,16 +764,16 @@ __global__ __launch_bounds__(kMaxThreads) void compact_indices_kernel(
     const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> masks,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         count) {
-  const auto N = masks.size(0);
+  const int64_t N = masks.size(0);
   const auto count_ = count[0];
   CUDA_KERNEL_ASSERT(count_ <= N && "compact index count exceeds mask size");
 #ifdef USE_ROCM
   // Cap the grid on ROCm (HIP 2^32 threads-per-launch limit); grid-stride over
   // n (bound N + 1 to preserve the n == count_ side-effect write).
-  for (auto n = blockIdx.x * blockDim.x + threadIdx.x; n < N + 1;
+  for (int64_t n = blockIdx.x * blockDim.x + threadIdx.x; n < N + 1;
        n += blockDim.x * gridDim.x) {
 #else
-  const auto n = blockIdx.x * blockDim.x + threadIdx.x;
+  const int64_t n = blockIdx.x * blockDim.x + threadIdx.x;
 #endif
     if (n == count_) {
       compact_count[0] = offsets[count_];
@@ -807,7 +809,7 @@ void compact_indices_cuda(
       compact_indices.size() == num_tensors,
       "compact_indices and indices must have the same shape");
 
-  for (auto i = 0; i < num_tensors; ++i) {
+  for (size_t i = 0; i < num_tensors; ++i) {
     const auto& indices_ = indices[i];
     const auto& compact_indices_ = compact_indices[i];
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(masks, indices_, compact_indices_);
@@ -822,7 +824,7 @@ void compact_indices_cuda(
 
   const auto offsets = asynchronous_complete_cumsum_gpu(masks);
 
-  for (auto i = 0; i < num_tensors; ++i) {
+  for (size_t i = 0; i < num_tensors; ++i) {
     FBGEMM_DISPATCH_INTEGRAL_TYPES(
         indices[i].scalar_type(),
         "compact_indices",
@@ -878,8 +880,8 @@ __launch_bounds__(kMaxThreads) void ssd_gather_from_row_addresses_kernel(
     pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits> output,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         row_addresses) {
-  const auto N = row_addresses.size(0);
-  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < N;
+  const int64_t N = row_addresses.size(0);
+  for (int64_t n = blockIdx.x * blockDim.y + threadIdx.y; n < N;
        n += blockDim.y * gridDim.x) {
     const auto row_address = row_addresses[n];
     CUDA_KERNEL_ASSERT(row_address != 0 && "SSD row address must be nonzero");
@@ -912,7 +914,7 @@ __global__ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_lookup_kernel(
   const int32_t N = indices.size(0);
   const int32_t C = cache_state.size(0);
   const auto grid_stride = blockDim.x * gridDim.x;
-  for (auto block_start = blockIdx.x * blockDim.x; block_start < N;
+  for (int64_t block_start = blockIdx.x * blockDim.x; block_start < N;
        block_start += grid_stride) {
     const auto n = block_start + threadIdx.x;
     int64_t key = -1;
@@ -973,12 +975,13 @@ __global__ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_kernel(
       "direct-cache insert count exceeds input size");
   const int32_t C = cache_state.size(0);
 
-  for (auto n = blockIdx.x * kWarpsPerBlock + warp; n < N;
+  for (int64_t n = blockIdx.x * kWarpsPerBlock + warp; n < N;
        n += gridDim.x * kWarpsPerBlock) {
     const auto key = static_cast<int64_t>(indices[n]);
     bool lane_has_nonzero = false;
     if (key >= 0) {
-      for (auto d = lane; d < rows.size(1); d += kWarpSize) {
+      for (int64_t d = lane; d < static_cast<int64_t>(rows.size(1));
+           d += kWarpSize) {
         lane_has_nonzero |= rows[n][d] != value_t{0};
       }
     }
@@ -1009,7 +1012,8 @@ __global__ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_kernel(
     if (slot < 0 || !should_publish) {
       continue;
     }
-    for (auto d = lane; d < rows.size(1); d += kWarpSize) {
+    for (int64_t d = lane; d < static_cast<int64_t>(rows.size(1));
+         d += kWarpSize) {
       cache_weights[slot][d] = rows[n][d];
     }
     syncwarp();
@@ -1047,14 +1051,14 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_int8_kernel(
   const int32_t D = rows.size(1);
   const int32_t num_vecs = D / 4;
 
-  for (auto n = blockIdx.x * kWarpsPerBlock + warp; n < N;
+  for (int64_t n = blockIdx.x * kWarpsPerBlock + warp; n < N;
        n += gridDim.x * kWarpsPerBlock) {
     const auto key = static_cast<int64_t>(indices[n]);
     bool lane_has_nonzero = false;
     float row_min = std::numeric_limits<float>::max();
     float row_max = std::numeric_limits<float>::lowest();
     if (key >= 0) {
-      for (auto v = lane; v < num_vecs; v += kWarpSize) {
+      for (int64_t v = lane; v < num_vecs; v += kWarpSize) {
         const Vec4T<float> x(&rows[n][4 * v]);
         lane_has_nonzero |= x.acc.x != 0.0f || x.acc.y != 0.0f ||
             x.acc.z != 0.0f || x.acc.w != 0.0f;
@@ -1090,7 +1094,7 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_int8_kernel(
     const float range = row_max - row_min;
     const float scale = range == 0.0f ? 1.0f : range / 255.0f;
     uint8_t* const dst = &cache_weights[slot][0];
-    for (auto v = lane; v < num_vecs; v += kWarpSize) {
+    for (int64_t v = lane; v < num_vecs; v += kWarpSize) {
       const Vec4T<float> x(&rows[n][4 * v]);
       reinterpret_cast<uint32_t*>(dst)[v] =
           quantize_uint8(x.acc.x, bias, scale) |
@@ -1117,9 +1121,9 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_int8_kernel(
     pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits> output,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         row_addresses) {
-  const auto N = row_addresses.size(0);
+  const int64_t N = row_addresses.size(0);
   const int32_t D = output.size(1);
-  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < N;
+  for (int64_t n = blockIdx.x * blockDim.y + threadIdx.y; n < N;
        n += blockDim.y * gridDim.x) {
     const auto row_address = static_cast<uint64_t>(row_addresses[n]);
     CUDA_KERNEL_ASSERT(row_address != 0 && "row address must be nonzero");
@@ -1129,7 +1133,7 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_int8_kernel(
       const auto* const qparams = reinterpret_cast<const float*>(codes + D);
       const float scale = qparams[0];
       const float bias = qparams[1];
-      for (auto d = threadIdx.x * 4; d < D; d += blockDim.x * 4) {
+      for (int64_t d = threadIdx.x * 4; d < D; d += blockDim.x * 4) {
         const uint32_t q = *reinterpret_cast<const uint32_t*>(codes + d);
         Vec4T<float> x;
         x.acc.x = static_cast<float>(q & 0xFF) * scale + bias;
@@ -1168,9 +1172,9 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_int8_float_kernel(
     pta::PackedTensorAccessor64<float, 2, at::RestrictPtrTraits> output,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         row_addresses) {
-  const auto N = row_addresses.size(0);
+  const int64_t N = row_addresses.size(0);
   const int32_t D = output.size(1);
-  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < N;
+  for (int64_t n = blockIdx.x * blockDim.y + threadIdx.y; n < N;
        n += blockDim.y * gridDim.x) {
     const auto row_address = static_cast<uint64_t>(row_addresses[n]);
     CUDA_KERNEL_ASSERT(row_address != 0 && "row address must be nonzero");
@@ -1180,7 +1184,7 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_int8_float_kernel(
       const auto* const qparams = reinterpret_cast<const float*>(codes + D);
       const float scale = qparams[0];
       const float bias = qparams[1];
-      for (auto d = threadIdx.x * 4; d < D; d += blockDim.x * 4) {
+      for (int64_t d = threadIdx.x * 4; d < D; d += blockDim.x * 4) {
         const uint32_t q = *reinterpret_cast<const uint32_t*>(codes + d);
         Vec4T<float> x;
         x.acc.x =
@@ -1195,7 +1199,7 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_int8_float_kernel(
       }
     } else {
       const auto* const row = reinterpret_cast<const row_t*>(row_address);
-      for (auto d = threadIdx.x * 4; d < D; d += blockDim.x * 4) {
+      for (int64_t d = threadIdx.x * 4; d < D; d += blockDim.x * 4) {
         const Vec4T<row_t> x(&row[d]);
         x.store(&output[n][d]);
       }

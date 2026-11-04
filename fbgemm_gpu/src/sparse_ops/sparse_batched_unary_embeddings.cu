@@ -29,14 +29,15 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
     scalar_t* __restrict__ output // N * B * T
 ) {
   const index_t sum_E = table_offsets[T];
-  const auto t = blockIdx.y;
-  const auto n = blockIdx.z;
+  const int32_t t = static_cast<int32_t>(blockIdx.y);
+  const int32_t n = static_cast<int32_t>(blockIdx.z);
   const index_t table_offset = table_offsets[t];
   // Grid-stride over the b dimension so a capped grid (used on ROCm to avoid
   // the 2^32 launch-side limit) still covers all B elements. blockIdx.y/z are
   // already bounded by T/N <= 65535.
-  for (auto b = blockIdx.x * blockDim.x + threadIdx.x; b < B;
-       b += gridDim.x * blockDim.x) {
+  for (int64_t b = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       b < B;
+       b += static_cast<int64_t>(gridDim.x) * blockDim.x) {
     const auto offsets_index = static_cast<int64_t>(t) * B + b;
     index_t indices_start = offsets[offsets_index];
     index_t indices_end = offsets[offsets_index + 1];
@@ -155,7 +156,7 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     const int32_t* __restrict__ sorted_linear_indices_num_runs,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask) {
-  const auto n = blockIdx.y;
+  const int32_t n = static_cast<int32_t>(blockIdx.y);
   if (n >= N) {
     return;
   }
@@ -166,7 +167,9 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
   // Grid-stride over run_id so a capped grid (used on ROCm to avoid the
   // 2^32 launch-side limit) still covers all runs. blockIdx.y is bounded
   // by N <= 65535 (enforced by the host).
-  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs;
+  for (int64_t run_id =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       run_id < num_runs;
        run_id += gridDim.x * blockDim.x) {
     int64_t linear_index = sorted_linear_indices_run[run_id];
     int32_t segment_start =

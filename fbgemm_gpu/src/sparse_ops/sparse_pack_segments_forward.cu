@@ -269,8 +269,9 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
             const int64_t elements_per_seq = max_length * cell_size;
             const auto vector_layout_compatible =
                 [&](const int64_t vector_bytes) {
-                  if (vector_bytes <= sizeof(scalar_t) ||
-                      vector_bytes % sizeof(scalar_t) != 0) {
+                  if (vector_bytes <= static_cast<int64_t>(sizeof(scalar_t)) ||
+                      vector_bytes % static_cast<int64_t>(sizeof(scalar_t)) !=
+                          0) {
                     return false;
                   }
                   const int64_t elements_per_load =
