@@ -68,7 +68,6 @@ void emitBLoad(x86::Emitter* a, x86::Vec dest, const x86::Gp& basePtr,
 
 template <typename T, inst_set_t instSet>
 funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
-  constexpr int NUM_REGS = simd_info<instSet>::NUM_VEC_REGS;
   constexpr int VEC_BYTES = simd_info<instSet>::WIDTH_BYTES;
   constexpr int VEC_ELEMS = simd_info<instSet>::WIDTH_32BIT_ELEMS;
   constexpr bool is_fp16 = std::is_same_v<T, float16>;
@@ -84,7 +83,7 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
   const int aRegId = 2 * kernel_nrows;
   const int bReg0Id = 2 * kernel_nrows + 1;
   const int bReg1Id = 2 * kernel_nrows + 2;
-  const int betaRegId = NUM_REGS - 1;
+  const int betaRegId = 2 * kernel_nrows + 3;
 
   x86::Vec aReg = makeVec<instSet>(aRegId);
   x86::Vec bReg0 = makeVec<instSet>(bReg0Id);
@@ -103,19 +102,17 @@ funcptr_t<T> generateGemmKernelImpl(int kernel_nrows) {
   FuncFrame frame;
   frame.init(func);
 
-  // Mark all used vector regs as dirty
-  uint32_t dirtyVecRegs = Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
-                          Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15);
-  if constexpr (NUM_REGS > 16) {
-    dirtyVecRegs |= Support::bitMask(16, 17, 18, 19, 20, 21, 22, 23) |
-                    Support::bitMask(24, 25, 26, 27, 28, 29, 30, 31);
+  // Keep small kernels in caller-saved vector registers on Windows.
+  uint32_t dirtyVecRegs = 0;
+  for (int reg = 0; reg <= betaRegId; ++reg) {
+    dirtyVecRegs |= uint32_t{1} << reg;
   }
   frame.setDirtyRegs(RegGroup::kVec, dirtyVecRegs);
 
   // GP registers we use (callee-saved ones need to be declared dirty)
   frame.setDirtyRegs(
       RegGroup::kGp,
-      Support::bitMask(0, 1, 2, 3, 6, 7) |  // rax, rcx, rdx, rbx, rsi, rdi
+      Support::bitMask(0, 1, 2, 3, 7) |  // rax, rcx, rdx, rbx, rdi
           Support::bitMask(8, 9, 10, 11, 12, 13, 14, 15));
 
   // Function argument: GemmParams<T>* in a GP register
