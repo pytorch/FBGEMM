@@ -671,7 +671,9 @@ class KvTensorWrapperTest(TestCase):
                 # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
-    def _create_cu_cache(self, int8_storage: bool, max_D: int = 132) -> Any:
+    def _create_cu_cache(
+        self, int8_storage: bool, max_D: int = 132, packed_storage: bool = False
+    ) -> Any:
         # CU whole rows retain four unused fp16 tail columns for compatibility.
         enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
             enrichment_type=4,  # IN_MEMORY_TEST_ONLY
@@ -679,6 +681,9 @@ class KvTensorWrapperTest(TestCase):
             client_id="",
             enrichment_dim=128,
             response_format=0,
+            serving_qdq_bit_rate=4 if packed_storage else 0,
+            serving_qdq_group_size=8 if packed_storage else 0,
+            packed_storage=packed_storage,
             int8_storage=int8_storage,
         )
         return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
@@ -840,6 +845,67 @@ class KvTensorWrapperTest(TestCase):
         full = self._whole_row_pmt(restored, ids, 160, torch.uint8).narrow(0, 0, n)
         self.assertTrue(torch.equal(full[:, :152], compact))
         self.assertEqual(int(torch.count_nonzero(full[:, 152:])), 0)
+
+    def test_packed_rows_checkpoint_round_trip_through_uint8_pmt(self) -> None:
+        n = 1000
+        ids = torch.arange(n)
+        src = self._create_cu_cache(int8_storage=False, packed_storage=True)
+        self._write_cu_rows(src, n)
+        row_bytes = src.get_raw_row_bytes()
+        self.assertEqual(row_bytes, 16 + 64 + 16 + 4 * 2)
+        self.assertEqual(src.get_int8_row_bytes(), 0)
+
+        saved = self._whole_row_pmt(src, ids, row_bytes, torch.uint8).narrow(0, 0, n)
+        self.assertEqual(saved.shape, torch.Size([n, row_bytes]))
+        self.assertTrue(torch.equal(saved[:, :8].view(torch.int64).view(-1), ids))
+
+        dst = self._create_cu_cache(int8_storage=False, packed_storage=True)
+        load_pmt = self._whole_row_pmt(dst, ids, row_bytes, torch.uint8)
+        load_pmt.wrapped.set_range(0, 0, n, saved.clone())
+
+        self.assertTrue(torch.equal(load_pmt.narrow(0, 0, n), saved))
+        fp16_src = self._whole_row_pmt(src, ids, 8 + 132, torch.float16)
+        fp16_dst = self._whole_row_pmt(dst, ids, 8 + 132, torch.float16)
+        self.assertTrue(
+            torch.equal(
+                fp16_src.narrow(0, 0, n).view(torch.uint8),
+                fp16_dst.narrow(0, 0, n).view(torch.uint8),
+            )
+        )
+        print(f"checkpoint bytes/row: fp16 {(8 + 132) * 2}, INT8 160, g8 {row_bytes}")
+
+    def test_int8_checkpoint_loads_into_packed_rows(self) -> None:
+        n = 500
+        ids = torch.arange(n)
+        int8_db = self._create_cu_cache(int8_storage=True)
+        self._write_cu_rows(int8_db, n)
+        saved = self._whole_row_pmt(
+            int8_db, ids, int8_db.get_int8_row_bytes(), torch.uint8
+        ).narrow(0, 0, n)
+        int8_fp16 = self._whole_row_pmt(int8_db, ids, 8 + 132, torch.float16).narrow(
+            0, 0, n
+        )
+
+        packed_db = self._create_cu_cache(int8_storage=False, packed_storage=True)
+        load_pmt = self._whole_row_pmt(packed_db, ids, saved.size(1), torch.uint8)
+        load_pmt.wrapped.set_range(0, 0, n, saved.clone())
+
+        restored = self._whole_row_pmt(packed_db, ids, 8 + 132, torch.float16).narrow(
+            0, 0, n
+        )
+        self.assertTrue(
+            torch.equal(restored[:, :8], int8_fp16[:, :8]),
+            _metaheader_diff(restored, int8_fp16),
+        )
+        self.assertTrue(torch.equal(restored[:, 136:], int8_fp16[:, 136:]))
+        # The g8 publish of the restored rows reproduces them.
+        emb = restored[:, 8:136].contiguous()
+        published = torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+            torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(emb, 8), 8, 128
+        )
+        self.assertTrue(torch.equal(published, emb))
+        err = (emb.float() - int8_fp16[:, 8:136].float()).abs().max()
+        self.assertLess(float(err), 0.05)
 
     def test_dram_kv_and_rdb_snapshot_check(self) -> None:
         max_D = MAX_D  # max emb dimension seen by rocksDB

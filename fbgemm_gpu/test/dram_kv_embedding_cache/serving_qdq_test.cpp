@@ -1634,6 +1634,74 @@ TEST(ExclusiveHbmTest, GroupedRowDriftOverRepeatedHbmTripsIsBounded) {
   }
 }
 
+TEST(ExclusiveHbmTest, RawPackedCheckpointSavesHbmRowsAsG8Rows) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  const auto ids = at::arange(800, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, grouped_fixed_rows(800, /*seed=*/41));
+  ASSERT_FALSE(moved.empty());
+  const auto dram_rows = read_rows(*cache, ids, kDim);
+  auto saved = at::zeros(
+      {800, cache->get_raw_row_bytes()}, at::TensorOptions(at::kByte));
+  cache->get_kv_from_storage_by_snapshot(ids, saved, nullptr, 0, std::nullopt);
+
+  auto restored = make_cache(kBitRate, kGroupSize, {.packed_storage = true});
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  const auto reread = read_rows(*restored, ids, kDim);
+  const std::unordered_set<int64_t> in_hbm(moved.begin(), moved.end());
+  for (int64_t r = 0; r < 800; ++r) {
+    EXPECT_EQ(FixedBlockPool::get_key(saved[r].data_ptr()), r);
+    // HBM rows come back as the g8 fixed point of their INT8 decode, DRAM
+    // rows unchanged.
+    const auto want = in_hbm.contains(r)
+        ? grouped_fixed_point_ref(hbm.decode(r).data())
+        : std::vector<c10::Half>(
+              row_ptr(dram_rows, r), row_ptr(dram_rows, r) + kDim);
+    EXPECT_TRUE(same_bits(row_ptr(reread, r), want.data(), kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(restored->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(TongxinRowWriteTest, FillOnlyWritesKeepPackedDramAndExclusiveHbmRows) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  const auto existing = at::tensor({11, 12}, at::kLong);
+  write_rows(*cache, existing, grouped_fixed_rows(2, /*seed=*/42));
+  const auto moved = hbm.insert(
+      existing.narrow(0, 0, 1),
+      read_rows(*cache, existing.narrow(0, 0, 1), kDim),
+      static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_EQ(moved, std::vector<int64_t>{11});
+  cache->exclusive_hbm_promote_async(moved);
+  cache->exclusive_hbm_wait();
+  const auto before = read_rows(*cache, existing, kDim);
+  const auto ids = at::tensor({11, 12, 13}, at::kLong);
+  const auto incoming = dex_like_rows(3, /*seed=*/43);
+
+  folly::coro::blockingWait(cache->set_kv_db_async_on_enrichment_executor(
+      ids,
+      incoming,
+      at::tensor({3}, at::kLong),
+      cache->laser_write_epoch(),
+      /*skip_nonzero_rows=*/true));
+  cache->exclusive_hbm_wait();
+
+  const auto stored = read_rows(*cache, ids, kDim);
+  EXPECT_TRUE(same_bits(stored.narrow(0, 0, 2), before));
+  EXPECT_TRUE(same_bits(
+      row_ptr(stored, 2),
+      grouped_fixed_point_ref(row_ptr(incoming, 2)).data(),
+      kDim));
+  EXPECT_EQ(hbm.tag(11), 11);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 1);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[5], 0);
+}
+
 TEST(ExclusiveHbmTest, Fp16RowsLoseOnlyInt8PrecisionOnce) {
   FakeHbm hbm(kHbmSlots);
   auto cache = make_exclusive_cache(hbm);
@@ -2169,6 +2237,214 @@ TEST(Int8StorageTest, Fp16CheckpointLoadsIntoAnInt8Table) {
             int8_row_ptr(restored_codes, r) + 16,
             int8_row_ptr(restored_codes, r) + 16 + kInt8RowBytes),
         encoded);
+  }
+}
+
+// MetaHeader, kDim / 2 code bytes and one e4m3 scale per 8 dims, fp16 tail.
+constexpr int64_t kPackedCheckpointRowBytes =
+    16 + kDim / 2 + kDim / 8 + kTail * static_cast<int64_t>(sizeof(c10::Half));
+
+at::Tensor read_raw_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids) {
+  auto rows = at::zeros({ids.size(0), cache.get_raw_row_bytes()}, at::kByte);
+  cache.get_kv_from_storage_by_snapshot(ids, rows, nullptr, 0, std::nullopt);
+  return rows;
+}
+
+void stamp_rows(at::Tensor& whole_rows, uint32_t first) {
+  for (int64_t r = 0; r < whole_rows.size(0); ++r) {
+    FixedBlockPool::set_timestamp(whole_rows[r].data_ptr(), first + r);
+  }
+}
+
+TEST(PackedStorageTest, RawCheckpointRoundTripIsBitExact) {
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  auto cache = make_packed_cache(whole_row);
+  const auto ids = at::arange(300, at::kLong);
+  write_rows(*cache, ids, fixed_rows_with_tail(300, /*seed=*/80));
+  auto with_ts = read_whole_rows(*cache, ids);
+  stamp_rows(with_ts, 1000000);
+  cache->set_kv_with_metaheader_to_storage(with_ts.clone());
+  ASSERT_EQ(cache->get_raw_row_bytes(), kPackedCheckpointRowBytes);
+  ASSERT_EQ(cache->get_int8_row_bytes(), 0);
+  const auto saved = read_raw_rows(*cache, ids);
+
+  auto restored = make_packed_cache(whole_row);
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  EXPECT_TRUE(same_bits(read_raw_rows(*restored, ids), saved));
+  EXPECT_TRUE(same_bits(read_whole_rows(*restored, ids), with_ts));
+  EXPECT_EQ(restored->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, RawCheckpointPacksRowsKeptAsFp16) {
+  auto cache = make_packed_cache();
+  auto rows = fixed_rows_with_tail(2, /*seed=*/81);
+  rows[0][7] = std::numeric_limits<float>::infinity();
+  const auto ids = at::arange(2, at::kLong);
+  write_rows(*cache, ids, rows);
+  ASSERT_EQ(cache->get_packed_write_counts().second, 1);
+
+  const auto saved = read_raw_rows(*cache, ids);
+  EXPECT_NE(
+      saved[0][16 + kPackedLayout.code_bytes()].item<uint8_t>(),
+      serving_qdq::kFallbackScale);
+  auto restored = make_packed_cache();
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  const auto stored = read_rows(*restored, ids, kPackedMaxD);
+  EXPECT_TRUE(at::isfinite(stored).all().item<bool>());
+  EXPECT_TRUE(same_bits(stored[1], rows[1]));
+  EXPECT_TRUE(same_bits(
+      stored.narrow(1, kDim, kTail).contiguous(),
+      rows.narrow(1, kDim, kTail).contiguous()));
+}
+
+TEST(PackedStorageTest, Fp16AndInt8CheckpointsLoadIntoAPackedTable) {
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  const auto ids = at::arange(300, at::kLong);
+  const auto rows = rows_with_tail(300, /*seed=*/82);
+  const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
+
+  // fp16 checkpoint rows, as saved by the FP16-DRAM job.
+  auto fp16 = make_cache(
+      0, 0, {.max_D = kPackedMaxD, .backend_return_whole_row = true});
+  write_rows(*fp16, ids, rows);
+  auto fp16_saved = read_whole_rows(*fp16, ids);
+  stamp_rows(fp16_saved, 2000000);
+  auto from_fp16 = make_packed_cache(whole_row);
+  from_fp16->set_kv_with_metaheader_to_storage(fp16_saved.clone());
+
+  // Raw INT8 checkpoint rows, as saved by the INT8-DRAM job.
+  auto int8 = make_int8_cache(whole_row);
+  write_rows(*int8, ids, rows);
+  auto int8_whole = read_whole_rows(*int8, ids);
+  stamp_rows(int8_whole, 3000000);
+  int8->set_kv_with_metaheader_to_storage(int8_whole.clone());
+  const auto int8_saved = read_int8_rows(*int8, ids);
+  auto from_int8 = make_packed_cache(whole_row);
+  from_int8->set_range_to_storage(int8_saved.clone(), 0, int8_saved.size(0));
+
+  const auto restored_fp16 = read_whole_rows(*from_fp16, ids);
+  const auto restored_int8 = read_whole_rows(*from_int8, ids);
+  for (int64_t r = 0; r < 300; ++r) {
+    EXPECT_TRUE(
+        same_bits(row_ptr(restored_fp16, r), row_ptr(fp16_saved, r), meta_dim));
+    EXPECT_TRUE(same_bits(
+        row_ptr(restored_fp16, r) + meta_dim,
+        grouped_fixed_point_ref(row_ptr(rows, r)).data(),
+        kDim))
+        << "row " << r;
+    EXPECT_TRUE(
+        same_bits(row_ptr(restored_int8, r), row_ptr(int8_whole, r), meta_dim));
+    EXPECT_TRUE(same_bits(
+        row_ptr(restored_int8, r) + meta_dim,
+        grouped_fixed_point_ref(row_ptr(int8_whole, r) + meta_dim).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_TRUE(same_bits(
+      restored_fp16.narrow(1, meta_dim + kDim, kTail).contiguous(),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_TRUE(same_bits(
+      restored_int8.narrow(1, meta_dim + kDim, kTail).contiguous(),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_EQ(from_int8->get_packed_write_counts().second, 0);
+  EXPECT_GT(from_int8->get_packed_write_counts().first, 0);
+}
+
+TEST(Int8StorageTest, PackedCheckpointLoadsIntoAnInt8Table) {
+  const auto ids = at::arange(300, at::kLong);
+  const auto rows = fixed_rows_with_tail(300, /*seed=*/83);
+  auto packed = make_packed_cache();
+  write_rows(*packed, ids, rows);
+  const auto saved = read_raw_rows(*packed, ids);
+
+  auto int8 = make_int8_cache();
+  int8->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  const auto codes = read_int8_rows(*int8, ids);
+  std::vector<std::uint8_t> encoded(kInt8RowBytes);
+  for (int64_t r = 0; r < 300; ++r) {
+    serving_qdq::encode_int8_row(row_ptr(rows, r), kDim, encoded.data());
+    EXPECT_EQ(
+        std::vector<std::uint8_t>(
+            int8_row_ptr(codes, r) + 16,
+            int8_row_ptr(codes, r) + 16 + kInt8RowBytes),
+        encoded)
+        << "row " << r;
+  }
+  EXPECT_TRUE(same_bits(
+      read_rows(*int8, ids, kTail, /*offset=*/kDim),
+      rows.narrow(1, kDim, kTail).contiguous()));
+}
+
+TEST(PackedStorageTest, RawRowsOfAnotherWidthAreRefused) {
+  auto cache = make_packed_cache({.backend_return_whole_row = true});
+  EXPECT_THROW(
+      cache->set_range_to_storage(at::zeros({1, 17}, at::kByte), 0, 1),
+      c10::Error);
+}
+
+TEST(PackedStorageTest, EveryRawWidthMatchesAtMostOneFormat) {
+  // Own rows are 104 B (kTail = 4 fp16 columns); INT8 dims are 28 columns
+  // wider than packed dims at kDim = 128.
+  auto packed = make_packed_cache({.backend_return_whole_row = true});
+  auto int8 = make_int8_cache({.backend_return_whole_row = true});
+  for (const auto& cache : {packed, int8}) {
+    // The exact widths of both formats with this table's tail.
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(104, false));
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(160, false));
+    // Narrower tails pad; wider ones need load_ckpt_without_opt.
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(156, false));
+    EXPECT_FALSE(cache->accepts_raw_row_bytes(164, false));
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(164, true));
+    // 152 + 56 = 208 B: an INT8 tail of 28 or a packed tail of 56 columns,
+    // both at least the gap, so neither format claims it.
+    EXPECT_FALSE(cache->accepts_raw_row_bytes(208, true));
+    EXPECT_FALSE(cache->accepts_raw_row_bytes(17, true));
+  }
+  // A named source format decides the format: 160 B rows are INT8 rows with
+  // this table's tail; as packed rows their 32-column tail is past the gap.
+  packed->set_raw_source_format("packed");
+  EXPECT_FALSE(packed->accepts_raw_row_bytes(160, true));
+  EXPECT_TRUE(packed->accepts_raw_row_bytes(106, true));
+  packed->set_raw_source_format("int8");
+  EXPECT_TRUE(packed->accepts_raw_row_bytes(160, false));
+  EXPECT_FALSE(packed->accepts_raw_row_bytes(104, true));
+  packed->set_raw_source_format("");
+  EXPECT_TRUE(packed->accepts_raw_row_bytes(104, false));
+  EXPECT_THROW(packed->set_raw_source_format("fp16"), c10::Error);
+}
+
+TEST(TongxinRowWriteTest, FillOnlyWritesPreservePackedRows) {
+  auto cache = make_packed_cache();
+  const auto existing = at::tensor({11, 12}, at::kLong);
+  write_rows(*cache, existing, fixed_rows_with_tail(2, /*seed=*/84));
+  write_rows(
+      *cache,
+      at::tensor({13}, at::kLong),
+      at::zeros({1, kPackedMaxD}, at::kHalf));
+  const auto before = read_rows(*cache, existing, kPackedMaxD);
+  const auto ids = at::tensor({11, 12, 13, 14}, at::kLong);
+  const auto incoming = rows_with_tail(4, /*seed=*/85);
+
+  folly::coro::blockingWait(cache->set_kv_db_async_on_enrichment_executor(
+      ids,
+      incoming,
+      at::tensor({4}, at::kLong),
+      cache->laser_write_epoch(),
+      /*skip_nonzero_rows=*/true));
+
+  const auto stored = read_rows(*cache, ids, kPackedMaxD);
+  EXPECT_TRUE(same_bits(stored.narrow(0, 0, 2), before));
+  for (int64_t r = 2; r < 4; ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(incoming, r)).data(),
+        kDim))
+        << "row " << r;
   }
 }
 

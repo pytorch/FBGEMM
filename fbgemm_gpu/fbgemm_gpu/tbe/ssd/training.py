@@ -1272,6 +1272,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Bytes of a raw INT8 checkpoint row (EnrichmentPolicy.int8_storage);
         # 0 when the backend stores fp16 rows.
         self._int8_row_bytes: int = 0
+        # Bytes of a raw checkpoint row in the stored format (int8_storage or
+        # packed_storage); 0 when the backend stores fp16 rows.
+        self._raw_row_bytes: int = 0
         # set_int8_checkpoint_rows: whole-row checkpoint tensors carry the raw
         # INT8 rows instead of fp16 rows.
         self._int8_checkpoint_rows: bool = False
@@ -2037,6 +2040,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 enrichment_config,  # enrichment_config
             )
             self._int8_row_bytes = self._ssd_db.get_int8_row_bytes()
+            self._raw_row_bytes = self._ssd_db.get_raw_row_bytes()
         elif self.backend_type == BackendType.DRAM_SSD:
             logging.info(
                 f"Logging DRAM_SSD offloading setup, tbe_unique_id:{tbe_unique_id}, "
@@ -5597,40 +5601,52 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     @torch.jit.ignore
     def set_int8_checkpoint_rows(
-        self, enabled: bool, checkpoint_row_bytes: int | None = None
+        self,
+        enabled: bool,
+        checkpoint_row_bytes: int | None = None,
+        source_format: str | None = None,
     ) -> bool:
         """With `enabled`, split_embedding_weights() returns the whole-row
-        weight tensors of an int8_storage table as its raw INT8 rows (uint8:
-        MetaHeader, codes, fp32 scale and bias, fp16 tail) instead of fp16
-        rows, both for saving and for loading a checkpoint. Only the checkpoint
-        path turns this on; publish keeps reading fp16 rows. Returns whether
-        the switch takes effect: this TBE stores INT8 rows and returns whole
-        rows. Otherwise this is a no-op. A saved row width
-        can override the load view when unused fp16 tail columns differ; a
-        wider one (an optimizer tail this table drops) needs
-        load_ckpt_without_opt."""
-        if self._int8_row_bytes == 0 or not self.backend_return_whole_row:
+        weight tensors of an int8_storage or packed_storage table as its raw
+        rows (uint8: MetaHeader, then the INT8 codes with fp32 scale and bias
+        or the group-wise INT4 codes with e4m3 scales, then the fp16 tail)
+        instead of fp16 rows, both for saving and for loading a checkpoint.
+        Only the checkpoint path turns this on; publish keeps reading fp16
+        rows. Returns whether the switch takes effect: this TBE stores raw rows
+        and returns whole rows. Otherwise this is a no-op.
+
+        A saved row width can override the load view when unused fp16 tail
+        columns differ (a wider tail needs load_ckpt_without_opt). Rows load in
+        this table's own raw format unless `source_format` ("int8" or
+        "packed") names the other one, which the backend re-quantizes on load:
+        the format is never inferred from the width alone."""
+        if self._raw_row_bytes == 0 or not self.backend_return_whole_row:
             return False
+        own_format = "int8" if self._int8_row_bytes > 0 else "packed"
+        if source_format not in (None, "int8", "packed"):
+            raise ValueError(
+                f"source_format must be int8 or packed, got {source_format}"
+            )
         row_bytes = (
-            self._int8_row_bytes
+            self._raw_row_bytes
             if checkpoint_row_bytes is None
             else checkpoint_row_bytes
         )
-        required_bytes = 16 + self.max_D + _INT8_ROWWISE_QPARAMS_BYTES
-        if enabled and (
-            row_bytes < required_bytes or (row_bytes - required_bytes) % 2 != 0
-        ):
-            raise ValueError(f"invalid INT8 checkpoint row width {row_bytes}")
-        if (
-            enabled
-            and row_bytes > self._int8_row_bytes
-            and not self.load_ckpt_without_opt
-        ):
-            raise ValueError(
-                f"INT8 checkpoint rows of {row_bytes} bytes are wider than this "
-                f"table's {self._int8_row_bytes}-byte rows; loading them drops "
-                "their optimizer tail, which needs load_ckpt_without_opt"
-            )
+        if enabled:
+            row_format = source_format or own_format
+            self._ssd_db.set_raw_source_format(row_format)
+            if not self._ssd_db.accepts_raw_row_bytes(
+                row_bytes, self.load_ckpt_without_opt
+            ):
+                self._ssd_db.set_raw_source_format("")
+                raise ValueError(
+                    f"raw checkpoint rows of {row_bytes} bytes are not {row_format} "
+                    "rows this table can load (rows with a wider fp16 tail need "
+                    "load_ckpt_without_opt; the other raw format needs "
+                    "source_format)"
+                )
+        else:
+            self._ssd_db.set_raw_source_format("")
         self._int8_checkpoint_rows = enabled
         self._int8_checkpoint_row_bytes = row_bytes if enabled else 0
         return True
@@ -5647,7 +5663,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def _int8_checkpoint_rows_active(self, is_loading_checkpoint: bool) -> bool:
         return (
             self._int8_checkpoint_rows
-            and self._int8_row_bytes > 0
+            and self._raw_row_bytes > 0
             and self.backend_return_whole_row
         )
 

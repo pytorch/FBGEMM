@@ -291,8 +291,9 @@ class EnrichmentPolicy(NamedTuple):
     # (fbgemm.FloatOrHalfToGroupedInt4E4M3); requires serving_qdq_bit_rate 4.
     serving_qdq_group_size: int = 0
     # Store DRAM rows in that group-wise INT4 encoding (dim / 2 code bytes plus
-    # dim / group_size scale bytes) instead of fp16; reads, writes and
-    # checkpoints stay fp16. Requires serving_qdq_bit_rate 4 and
+    # dim / group_size scale bytes) instead of fp16; reads and writes stay
+    # fp16. With SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows,
+    # checkpoints carry these raw rows. Requires serving_qdq_bit_rate 4 and
     # serving_qdq_group_size 8.
     packed_storage: bool = False
     # Exclusive owner-local cache: a row moved into the INT8 HBM cache is
