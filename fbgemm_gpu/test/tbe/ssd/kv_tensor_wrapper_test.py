@@ -683,9 +683,8 @@ class KvTensorWrapperTest(TestCase):
                 # pyrefly: ignore [missing-attribute]
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
-    def _create_cu_cache(self, int8_storage: bool) -> _CuCache:
-        # The CU cache shape: 128-dim enrichment rows plus 4 fp16 optimizer
-        # columns, read and written as whole rows (MetaHeader first).
+    def _create_cu_cache(self, int8_storage: bool, max_D: int = 132) -> _CuCache:
+        # CU whole rows retain four unused fp16 tail columns for compatibility.
         enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
             enrichment_type=4,  # IN_MEMORY_TEST_ONLY
             provider_name="",
@@ -695,13 +694,13 @@ class KvTensorWrapperTest(TestCase):
             int8_storage=int8_storage,
         )
         return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
-            max_D=132,
+            max_D=max_D,
             uniform_init_lower=-0.1,
             uniform_init_upper=0.1,
             num_shards=8,
             num_threads=8,
             row_storage_bitwidth=16,
-            table_dims=torch.tensor([132]),
+            table_dims=torch.tensor([max_D]),
             hash_size_cumsum=torch.tensor([0, 100000]),
             backend_return_whole_row=True,
             disable_random_init=True,
@@ -709,14 +708,21 @@ class KvTensorWrapperTest(TestCase):
         )
 
     def _whole_row_pmt(
-        self, db: _CuCache, ids: torch.Tensor, width: int, dtype: torch.dtype
+        self,
+        db: _CuCache,
+        ids: torch.Tensor,
+        width: int,
+        dtype: torch.dtype,
+        row_offset: int = 0,
+        only_load_weight: bool = False,
     ) -> PartiallyMaterializedTensor:
         kvt = torch.classes.fbgemm.KVTensorWrapper(
             shape=[ids.numel(), width],
             dtype=dtype,
-            row_offset=0,
+            row_offset=row_offset,
             snapshot_handle=None,
             sorted_indices=ids.view(-1, 1),
+            only_load_weight=only_load_weight,
         )
         kvt.set_dram_db_wrapper(db)
         return PartiallyMaterializedTensor(kvt, True)
@@ -798,6 +804,55 @@ class KvTensorWrapperTest(TestCase):
             int8_db, ids, int8_row_bytes, torch.uint8
         ).narrow(0, 0, n)
         self.assertTrue(torch.equal(codes, int8_rows[:, 16 : 16 + 136]))
+
+    def test_int8_checkpoint_load_uses_local_ids_and_keeps_source_bytes(self) -> None:
+        n, offset = 100, 50000
+        ids = torch.arange(n) + offset
+        src = self._create_cu_cache(int8_storage=True)
+        self._write_cu_rows(src, n)
+        saved = self._whole_row_pmt(
+            src, ids, 160, torch.uint8, row_offset=-offset
+        ).narrow(0, 0, n)
+        source_bytes = saved.clone()
+        dst = self._create_cu_cache(int8_storage=True)
+        target = self._whole_row_pmt(dst, ids, 160, torch.uint8, row_offset=-offset)
+
+        target.set_weights_and_ids(saved, ids)
+
+        self.assertTrue(torch.equal(saved, source_bytes))
+        self.assertTrue(torch.equal(target.narrow(0, 0, n), saved))
+        local = self._whole_row_pmt(dst, torch.arange(n), 160, torch.uint8).narrow(
+            0, 0, n
+        )
+        self.assertTrue(
+            torch.equal(
+                local[:, :8].contiguous().view(torch.int64).flatten(), ids - offset
+            )
+        )
+
+    def test_int8_checkpoint_can_omit_or_restore_unused_tail_columns(self) -> None:
+        n = 100
+        ids = torch.arange(n)
+        src = self._create_cu_cache(int8_storage=True)
+        self._write_cu_rows(src, n)
+        saved = self._whole_row_pmt(src, ids, 160, torch.uint8).narrow(0, 0, n)
+        without_tail = self._create_cu_cache(int8_storage=True, max_D=128)
+        loading = self._whole_row_pmt(
+            without_tail, ids, 160, torch.uint8, only_load_weight=True
+        )
+
+        loading.wrapped.set_range(0, 0, n, saved.clone())
+
+        compact = self._whole_row_pmt(without_tail, ids, 152, torch.uint8).narrow(
+            0, 0, n
+        )
+        self.assertTrue(torch.equal(compact, saved[:, :152]))
+        restored = self._create_cu_cache(int8_storage=True)
+        loading_full = self._whole_row_pmt(restored, ids, 152, torch.uint8)
+        loading_full.wrapped.set_range(0, 0, n, compact.clone())
+        full = self._whole_row_pmt(restored, ids, 160, torch.uint8).narrow(0, 0, n)
+        self.assertTrue(torch.equal(full[:, :152], compact))
+        self.assertEqual(int(torch.count_nonzero(full[:, 152:])), 0)
 
     def test_dram_kv_and_rdb_snapshot_check(self) -> None:
         max_D = MAX_D  # max emb dimension seen by rocksDB
