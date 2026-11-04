@@ -1158,7 +1158,8 @@ auto feature_evict_config =
                 int64_t,
                 int64_t,
                 int64_t,
-                bool>(),
+                bool,
+                std::optional<int64_t>>(),
             "",
             {
                 torch::arg("trigger_mode"),
@@ -1183,6 +1184,7 @@ auto feature_evict_config =
                 torch::arg("interval_for_feature_statistics_decay_s") =
                     24 * 3600,
                 torch::arg("enable_ssd_writeback") = false,
+                torch::arg("free_mem_threshold_gb") = std::nullopt,
             });
 
 auto embedding_snapshot_handle_wrapper =
