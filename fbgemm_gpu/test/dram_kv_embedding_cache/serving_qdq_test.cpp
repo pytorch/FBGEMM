@@ -16,10 +16,15 @@
 #include <folly/coro/BlockingWait.h>
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <limits>
+#include <random>
 #include <string>
 #include <thread>
 #include <utility>
@@ -131,7 +136,8 @@ at::Tensor dex_like_rows(int64_t num_rows, uint64_t seed) {
 
 c10::intrusive_ptr<EnrichmentConfig> fake_enrichment_config(
     int64_t serving_qdq_bit_rate,
-    int64_t serving_qdq_group_size) {
+    int64_t serving_qdq_group_size,
+    bool packed_storage = false) {
   return c10::make_intrusive<EnrichmentConfig>(
       static_cast<int64_t>(EnrichmentType::IN_MEMORY_TEST_ONLY),
       /*provider_name=*/"",
@@ -156,21 +162,32 @@ c10::intrusive_ptr<EnrichmentConfig> fake_enrichment_config(
       /*laser_key_suffix=*/"",
       /*laser_key_suffixes=*/std::vector<std::string>{},
       serving_qdq_bit_rate,
-      serving_qdq_group_size);
+      serving_qdq_group_size,
+      packed_storage);
 }
+
+struct CacheOptions {
+  bool packed_storage{false};
+  int64_t num_shards{kNumShards};
+  int64_t max_D{kDim};
+  bool backend_return_whole_row{false};
+  std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config;
+  bool enable_ssd_backend{false};
+};
 
 std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
     int64_t serving_qdq_bit_rate,
-    int64_t serving_qdq_group_size = 0) {
+    int64_t serving_qdq_group_size = 0,
+    const CacheOptions& options = {}) {
   return std::make_shared<DramKVEmbeddingCache<at::Half>>(
-      kDim,
+      options.max_D,
       /*uniform_init_lower=*/-0.1,
       /*uniform_init_upper=*/0.1,
-      /*feature_evict_config=*/std::nullopt,
-      kNumShards,
+      options.feature_evict_config,
+      options.num_shards,
       /*num_threads=*/4,
       /*row_storage_bitwidth=*/16,
-      /*backend_return_whole_row=*/false,
+      options.backend_return_whole_row,
       /*enable_async_update=*/false,
       /*table_dims=*/std::nullopt,
       /*hash_size_cumsum=*/at::tensor({0, 100000}, at::kLong),
@@ -182,7 +199,9 @@ std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
       /*table_names=*/std::vector<std::string>{},
       /*table_offsets=*/std::vector<int64_t>{},
       /*table_sizes=*/std::vector<int64_t>{},
-      fake_enrichment_config(serving_qdq_bit_rate, serving_qdq_group_size));
+      fake_enrichment_config(
+          serving_qdq_bit_rate, serving_qdq_group_size, options.packed_storage),
+      options.enable_ssd_backend);
 }
 
 at::Tensor read_rows(
@@ -419,6 +438,522 @@ TEST(ServingQdqTest, EnrichmentFillStoresGroupedServingValues) {
         << "row " << r;
   }
   EXPECT_FALSE(at::equal(stored, fetched));
+}
+
+constexpr int64_t kTail = 4;
+constexpr int64_t kPackedMaxD = kDim + kTail;
+constexpr serving_qdq::PackedLayout kPackedLayout{kDim, kGroupSize, 0};
+
+at::Tensor grouped_fixed_rows(int64_t num_rows, uint64_t seed) {
+  auto rows = dex_like_rows(num_rows, seed);
+  serving_qdq::round_trip_rows(
+      rows.mutable_data_ptr<at::Half>(), num_rows, kDim, kDim, kGrouped);
+  return rows;
+}
+
+// Grouped fixed points in the first kDim columns, arbitrary fp16 after.
+at::Tensor fixed_rows_with_tail(int64_t num_rows, uint64_t seed) {
+  auto gen = at::make_generator<at::CPUGeneratorImpl>(seed + 1000);
+  return at::cat(
+      {grouped_fixed_rows(num_rows, seed),
+       at::randn({num_rows, kTail}, gen, at::kFloat).to(at::kHalf)},
+      1);
+}
+
+std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_packed_cache(
+    CacheOptions options = {}) {
+  options.packed_storage = true;
+  options.max_D = kPackedMaxD;
+  return make_cache(kBitRate, kGroupSize, options);
+}
+
+void write_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids,
+    const at::Tensor& rows) {
+  folly::coro::blockingWait(
+      cache.set_kv_db_async(ids, rows, at::tensor({ids.size(0)}, at::kLong)));
+}
+
+at::Tensor read_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids,
+    int64_t width,
+    int64_t offset = 0) {
+  auto rows = at::zeros({ids.size(0), width}, at::kHalf);
+  cache.get_kv_from_storage_by_snapshot(ids, rows, nullptr, offset, width);
+  return rows;
+}
+
+at::Tensor read_whole_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids) {
+  const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
+  auto rows = at::zeros({ids.size(0), meta_dim + kPackedMaxD}, at::kHalf);
+  cache.get_kv_with_metaheader_from_storage(ids, rows);
+  return rows;
+}
+
+bool same_bits(const at::Tensor& a, const at::Tensor& b) {
+  return a.sizes() == b.sizes() &&
+      std::memcmp(
+          a.const_data_ptr(),
+          b.const_data_ptr(),
+          a.numel() * a.element_size()) == 0;
+}
+
+std::vector<c10::Half> dequantize_grouped_ref(
+    const std::vector<std::uint8_t>& packed,
+    int64_t dim,
+    int64_t group_size) {
+  std::vector<c10::Half> row(dim);
+  fbgemm_gpu::grouped_int4_e4m3::dequantize_row(
+      packed.data(), dim, group_size, row.data());
+  return row;
+}
+
+TEST(PackedStorageTest, GroupedFixedPointsPackExactly) {
+  auto rows = dex_like_rows(4096, /*seed=*/10);
+  const auto stats = serving_qdq::round_trip_rows(
+      rows.mutable_data_ptr<at::Half>(), rows.size(0), kDim, kDim, kGrouped);
+  ASSERT_GT(stats.multi_pass, 0);
+
+  std::vector<std::uint8_t> payload(kPackedLayout.payload_bytes());
+  std::vector<c10::Half> decoded(kDim);
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    ASSERT_TRUE(
+        serving_qdq::pack_row(row_ptr(rows, r), kPackedLayout, payload.data()))
+        << "row " << r;
+    serving_qdq::unpack_row(payload.data(), kPackedLayout, decoded.data());
+    EXPECT_TRUE(same_bits(decoded.data(), row_ptr(rows, r), kDim))
+        << "row " << r;
+  }
+}
+
+TEST(PackedStorageTest, UnpackMatchesReferenceDecodeForEveryScale) {
+  // 17 groups of 8 exercise the vector loop and its odd tail; group size 16
+  // takes the generic path.
+  for (const auto& [dim, group_size] :
+       std::vector<std::pair<int64_t, int64_t>>{{136, 8}, {128, 16}}) {
+    const serving_qdq::PackedLayout layout{dim, group_size, 0};
+    std::mt19937 rng(static_cast<uint32_t>(dim + group_size));
+    std::vector<std::uint8_t> payload(layout.packed_bytes());
+    std::vector<c10::Half> decoded(dim);
+    const int64_t num_groups = dim / group_size;
+    for (int64_t first_scale = 0; first_scale < 256;
+         first_scale += num_groups) {
+      for (int64_t b = 0; b < layout.code_bytes(); ++b) {
+        payload[b] = static_cast<std::uint8_t>(rng());
+      }
+      for (int64_t g = 0; g < num_groups; ++g) {
+        const auto scale = static_cast<std::uint8_t>((first_scale + g) % 256);
+        // e4m3fn NaN scales never come out of the encoder.
+        payload[layout.code_bytes() + g] = (scale & 0x7F) == 0x7F ? 0 : scale;
+      }
+      serving_qdq::unpack_row(payload.data(), layout, decoded.data());
+      EXPECT_TRUE(same_bits(
+          decoded.data(),
+          dequantize_grouped_ref(payload, dim, group_size).data(),
+          dim))
+          << "dim " << dim << " group_size " << group_size << " scales from "
+          << first_scale;
+    }
+  }
+}
+
+TEST(PackedStorageTest, OnlyServingFixedPointsPackExactly) {
+  const auto rows = dex_like_rows(1024, /*seed=*/11);
+  std::vector<std::uint8_t> payload(kPackedLayout.payload_bytes());
+  int64_t exact = 0;
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    const bool packed =
+        serving_qdq::pack_row(row_ptr(rows, r), kPackedLayout, payload.data());
+    EXPECT_EQ(packed, is_grouped_serving_fixed_point(row_ptr(rows, r)))
+        << "row " << r;
+    exact += packed;
+  }
+  EXPECT_LT(exact, rows.size(0));
+
+  for (const float bad :
+       {std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::quiet_NaN()}) {
+    auto row = grouped_fixed_rows(1, /*seed=*/12);
+    row[0][5] = bad;
+    EXPECT_FALSE(
+        serving_qdq::pack_row(row_ptr(row, 0), kPackedLayout, payload.data()));
+  }
+}
+
+TEST(PackedStorageTest, ZeroRowPacksToZeroBytes) {
+  const auto row = at::zeros({1, kDim}, at::kHalf);
+  std::vector<std::uint8_t> payload(kPackedLayout.payload_bytes(), 0xAB);
+
+  ASSERT_TRUE(
+      serving_qdq::pack_row(row_ptr(row, 0), kPackedLayout, payload.data()));
+
+  EXPECT_EQ(payload, std::vector<std::uint8_t>(payload.size(), 0));
+}
+
+TEST(PackedStorageTest, RowsRoundTripThroughEveryReadWidth) {
+  auto cache = make_packed_cache();
+  const auto rows = fixed_rows_with_tail(512, /*seed=*/13);
+  const auto ids = at::arange(512, at::kLong);
+
+  write_rows(*cache, ids, rows);
+
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kPackedMaxD), rows));
+  EXPECT_TRUE(same_bits(
+      read_rows(*cache, ids, kTail, /*offset=*/kDim),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_TRUE(same_bits(
+      read_rows(*cache, ids, 8, /*offset=*/4),
+      rows.narrow(1, 4, 8).contiguous()));
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, UnquantizedRowsAreStoredAsTheirServingFixedPoints) {
+  auto cache = make_packed_cache();
+  const auto original = dex_like_rows(256, /*seed=*/14);
+  const auto ids = at::arange(256, at::kLong);
+
+  write_rows(*cache, ids, original);
+
+  const auto stored = read_rows(*cache, ids, kDim);
+  int64_t not_fixed = 0;
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    not_fixed += !is_grouped_serving_fixed_point(row_ptr(original, r));
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(not_fixed, 0L));
+  EXPECT_EQ(cache->serving_qdq_existing_rows(), 0);
+}
+
+TEST(PackedStorageTest, RowsWithoutFixedPointAreKeptExactly) {
+  auto cache = make_packed_cache();
+  auto rows = fixed_rows_with_tail(3, /*seed=*/15);
+  rows[0][7] = std::numeric_limits<float>::infinity();
+  rows[1][9] = std::numeric_limits<float>::quiet_NaN();
+  const auto ids = at::arange(3, at::kLong);
+
+  write_rows(*cache, ids, rows);
+
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kPackedMaxD), rows));
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 2L));
+  EXPECT_EQ(cache->serving_qdq_existing_rows(), 0);
+
+  const auto replacement = fixed_rows_with_tail(3, /*seed=*/16);
+  write_rows(*cache, ids, replacement);
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kPackedMaxD), replacement));
+}
+
+TEST(PackedStorageTest, CheckpointRowsInterchangeWithFp16Storage) {
+  const auto ids = at::arange(300, at::kLong);
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  auto packed = make_packed_cache(whole_row);
+  write_rows(*packed, ids, fixed_rows_with_tail(300, /*seed=*/17));
+  auto saved = read_whole_rows(*packed, ids);
+  // Distinct saved timestamps, which a restore must carry over.
+  for (int64_t r = 0; r < saved.size(0); ++r) {
+    FixedBlockPool::set_timestamp(saved[r].data_ptr(), 1000000 + r);
+  }
+
+  auto fp16 = make_cache(
+      kBitRate,
+      kGroupSize,
+      {.max_D = kPackedMaxD, .backend_return_whole_row = true});
+  fp16->set_kv_with_metaheader_to_storage(saved.clone());
+  EXPECT_TRUE(same_bits(read_whole_rows(*fp16, ids), saved));
+
+  auto restored = make_packed_cache(whole_row);
+  restored->set_kv_with_metaheader_to_storage(read_whole_rows(*fp16, ids));
+  EXPECT_TRUE(same_bits(read_whole_rows(*restored, ids), saved));
+  EXPECT_EQ(restored->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, TtlEvictionDropsOnlyExpiredRows) {
+  auto evict_config = c10::make_intrusive<FeatureEvictConfig>(
+      /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MANUAL),
+      /*trigger_strategy=*/
+      static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*ttls_in_mins=*/std::vector<int64_t>{60},
+      /*counter_thresholds=*/std::nullopt,
+      /*counter_decay_rates=*/std::nullopt,
+      /*feature_score_counter_decay_rates=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*training_id_keep_count=*/std::nullopt,
+      /*enable_eviction_for_feature_score_eviction_policy=*/std::nullopt,
+      /*l2_weight_thresholds=*/std::nullopt,
+      /*embedding_dims=*/std::nullopt);
+  auto cache = make_packed_cache(
+      {.backend_return_whole_row = true, .feature_evict_config = evict_config});
+  const auto ids = at::arange(200, at::kLong);
+  write_rows(*cache, ids, fixed_rows_with_tail(200, /*seed=*/18));
+  auto rows = read_whole_rows(*cache, ids);
+  const uint32_t now = FixedBlockPool::current_timestamp();
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    FixedBlockPool::set_timestamp(
+        rows[r].data_ptr(), r % 2 == 0 ? now - 2 * 3600 : now);
+  }
+  cache->set_kv_with_metaheader_to_storage(rows.clone());
+
+  cache->trigger_feature_evict();
+  cache->resume_ongoing_eviction(/*force_resume=*/true);
+  for (int attempt = 0; attempt < 1000 && cache->is_evicting(); ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  cache->wait_until_eviction_done();
+
+  const auto kept = at::arange(1, 200, 2, at::kLong);
+  EXPECT_EQ(cache->get_num_rows(), kept.size(0));
+  EXPECT_TRUE(
+      same_bits(read_whole_rows(*cache, kept), rows.index_select(0, kept)));
+}
+
+TEST(PackedStorageTest, EnrichmentFillStoresGroupedServingValues) {
+  auto cache = make_packed_cache();
+  const std::vector<int64_t> ids = {1, 2, 3, 7};
+  const auto id_tensor = at::tensor(ids, at::kLong);
+  const auto fetched = fake_enrichment_rows(ids);
+
+  cache->set_embedding_cache_enrich_query_id_async(
+      id_tensor, id_tensor, at::tensor({4}, at::kLong));
+  wait_for_enriched_rows(*cache, id_tensor);
+  const auto stored = read_rows(*cache, id_tensor, kPackedMaxD);
+
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(fetched, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, PackedRowsUseFewerBytes) {
+  auto fp16 = make_cache(kBitRate, kGroupSize, {.max_D = kPackedMaxD});
+  auto packed = make_packed_cache();
+  constexpr int64_t kRows = 200000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto rows = fixed_rows_with_tail(kRows, /*seed=*/19);
+
+  write_rows(*fp16, ids, rows);
+  write_rows(*packed, ids, rows);
+
+  // 16-byte MetaHeader + payload: 132 fp16 values vs 64 code bytes, 16 scale
+  // bytes and 4 fp16 tail values.
+  EXPECT_EQ(fp16->get_block_size(), 16 + kPackedMaxD * 2);
+  EXPECT_EQ(packed->get_block_size(), 16 + kDim / 2 + kDim / kGroupSize + 8);
+  const auto per_row = [](size_t bytes) {
+    return static_cast<double>(bytes) / kRows;
+  };
+  std::cout << "bytes/row in pool chunks: fp16="
+            << per_row(fp16->get_map_actual_used_chunk_in_bytes()) << " packed="
+            << per_row(packed->get_map_actual_used_chunk_in_bytes())
+            << "; blocks + map entries: fp16="
+            << per_row(fp16->get_map_used_memsize_in_bytes())
+            << " packed=" << per_row(packed->get_map_used_memsize_in_bytes())
+            << '\n';
+  EXPECT_LT(
+      per_row(packed->get_map_actual_used_chunk_in_bytes()) * 2.5,
+      per_row(fp16->get_map_actual_used_chunk_in_bytes()));
+}
+
+TEST(PackedStorageTest, ConcurrentReadersSeeWholeWrittenRows) {
+  auto cache = make_packed_cache();
+  constexpr int64_t kRows = 2048;
+  const auto ids = at::arange(kRows, at::kLong);
+  const std::array<at::Tensor, 2> versions = {
+      fixed_rows_with_tail(kRows, /*seed=*/20),
+      fixed_rows_with_tail(kRows, /*seed=*/21)};
+  write_rows(*cache, ids, versions[0]);
+
+  std::atomic<bool> stop{false};
+  std::atomic<int64_t> torn{0};
+  std::vector<std::thread> threads;
+  threads.reserve(2);
+  for (int w = 0; w < 2; ++w) {
+    threads.emplace_back([&, w] {
+      for (int iter = 0; !stop.load(); ++iter) {
+        write_rows(*cache, ids, versions[(iter + w) % 2]);
+      }
+    });
+  }
+  for (int r = 0; r < 4; ++r) {
+    threads.emplace_back([&] {
+      while (!stop.load()) {
+        const auto read = read_rows(*cache, ids, kPackedMaxD);
+        for (int64_t i = 0; i < kRows; ++i) {
+          const auto* row = row_ptr(read, i);
+          if (!same_bits(row, row_ptr(versions[0], i), kPackedMaxD) &&
+              !same_bits(row, row_ptr(versions[1], i), kPackedMaxD)) {
+            torn++;
+          }
+        }
+      }
+    });
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  stop = true;
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(torn.load(), 0);
+}
+
+TEST(PackedStorageTest, UnsupportedConfigsAreRefused) {
+  EXPECT_THROW(
+      make_cache(
+          kBitRate, /*serving_qdq_group_size=*/0, {.packed_storage = true}),
+      c10::Error);
+  EXPECT_THROW(make_packed_cache({.enable_ssd_backend = true}), c10::Error);
+  auto l2_config = c10::make_intrusive<FeatureEvictConfig>(
+      /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MANUAL),
+      /*trigger_strategy=*/
+      static_cast<int64_t>(EvictTriggerStrategy::BY_L2WEIGHT),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*ttls_in_mins=*/std::nullopt,
+      /*counter_thresholds=*/std::nullopt,
+      /*counter_decay_rates=*/std::nullopt,
+      /*feature_score_counter_decay_rates=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*training_id_keep_count=*/std::nullopt,
+      /*enable_eviction_for_feature_score_eviction_policy=*/std::nullopt,
+      /*l2_weight_thresholds=*/std::vector<double>{0.1},
+      /*embedding_dims=*/std::vector<int64_t>{kPackedMaxD});
+  EXPECT_THROW(
+      make_packed_cache({.feature_evict_config = l2_config}), c10::Error);
+}
+
+// Throughput of the packed read path; set KVZCH_PACKED_BENCH=1 and build in
+// opt mode.
+TEST(PackedStorageTest, Benchmark) {
+  if (std::getenv("KVZCH_PACKED_BENCH") == nullptr) {
+    GTEST_SKIP() << "set KVZCH_PACKED_BENCH=1";
+  }
+  using Clock = std::chrono::steady_clock;
+  const auto seconds_since = [](Clock::time_point start) {
+    return std::chrono::duration<double>(Clock::now() - start).count();
+  };
+  constexpr int64_t kRows = 1 << 20;
+  const auto rows = fixed_rows_with_tail(kRows, /*seed=*/22);
+
+  // Single-core decode of rows laid out back to back, as in a pool chunk.
+  const int64_t packed_bytes = kPackedLayout.packed_bytes();
+  std::vector<std::uint8_t> packed(kRows * packed_bytes);
+  const auto pack_start = Clock::now();
+  for (int64_t r = 0; r < kRows; ++r) {
+    ASSERT_TRUE(
+        serving_qdq::pack_row(
+            row_ptr(rows, r), kPackedLayout, packed.data() + r * packed_bytes));
+  }
+  std::cout << "1 core, " << kRows << " rows: pack (write path) "
+            << kRows / seconds_since(pack_start) / 1e6 << " M rows/s" << '\n';
+  std::vector<c10::Half> out(kRows * kDim);
+  for (int rep = 0; rep < 3; ++rep) {
+    auto start = Clock::now();
+    for (int64_t r = 0; r < kRows; ++r) {
+      serving_qdq::unpack_row(
+          packed.data() + r * packed_bytes,
+          kPackedLayout,
+          out.data() + r * kDim);
+    }
+    const double decode_s = seconds_since(start);
+    start = Clock::now();
+    for (int64_t r = 0; r < kRows; ++r) {
+      std::memcpy(
+          out.data() + r * kDim, row_ptr(rows, r), kDim * sizeof(c10::Half));
+    }
+    const double copy_s = seconds_since(start);
+    std::cout << "1 core, " << kRows << " rows: decode "
+              << kRows / decode_s / 1e6 << " M rows/s, fp16 memcpy "
+              << kRows / copy_s / 1e6 << " M rows/s" << '\n';
+  }
+  // Same, visiting rows in random order, so every row comes from DRAM.
+  const auto order = at::randperm(kRows, at::kLong);
+  const auto* order_ptr = order.const_data_ptr<int64_t>();
+  for (int rep = 0; rep < 3; ++rep) {
+    auto start = Clock::now();
+    for (int64_t i = 0; i < kRows; ++i) {
+      const int64_t r = order_ptr[i];
+      serving_qdq::unpack_row(
+          packed.data() + r * packed_bytes,
+          kPackedLayout,
+          out.data() + i * kDim);
+    }
+    const double decode_s = seconds_since(start);
+    start = Clock::now();
+    for (int64_t i = 0; i < kRows; ++i) {
+      std::memcpy(
+          out.data() + i * kDim,
+          row_ptr(rows, order_ptr[i]),
+          kDim * sizeof(c10::Half));
+    }
+    const double copy_s = seconds_since(start);
+    start = Clock::now();
+    for (int64_t i = 0; i < kRows; ++i) {
+      if (i + 8 < kRows) {
+        const auto* ahead = packed.data() + order_ptr[i + 8] * packed_bytes;
+        __builtin_prefetch(ahead);
+        __builtin_prefetch(ahead + 64);
+      }
+      serving_qdq::unpack_row(
+          packed.data() + order_ptr[i] * packed_bytes,
+          kPackedLayout,
+          out.data() + i * kDim);
+    }
+    std::cout << "1 core, random order, prefetch 8 ahead: decode "
+              << kRows / seconds_since(start) / 1e6 << " M rows/s" << '\n';
+    std::cout << "1 core, random order: decode " << kRows / decode_s / 1e6
+              << " M rows/s, fp16 memcpy " << kRows / copy_s / 1e6
+              << " M rows/s" << '\n';
+  }
+
+  // End-to-end get() of unique ids in random order, with the read knobs the
+  // mb9 CU cache runs with (KVZCH_CU_CACHE_QPS_ENVS, 32 shards). The opt-in
+  // gate keeps these out of every other test's process.
+  for (const auto& [name, value] :
+       std::vector<std::pair<const char*, const char*>>{
+           {"KVZCH_DRAM_EXECUTOR_THREAD_CAP", "8"},
+           {"KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", "8"},
+           {"KVZCH_DRAM_SEGMENTED_SHARD_READS", "1"},
+           {"KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1"},
+           {"KVZCH_SKIP_DISABLED_INITIALIZERS", "1"},
+           {"KVZCH_SKIP_DRAM_PERF_TIMING", "1"}}) {
+    setenv(name, value, /*overwrite=*/0);
+  }
+  for (const int64_t num_rows : {kRows, int64_t{5'000'000}}) {
+    const auto table =
+        num_rows == kRows ? rows : fixed_rows_with_tail(num_rows, /*seed=*/23);
+    auto fp16 = make_cache(
+        kBitRate, kGroupSize, {.num_shards = 32, .max_D = kPackedMaxD});
+    auto packed_cache = make_packed_cache({.num_shards = 32});
+    const auto ids = at::randperm(num_rows, at::kLong);
+    write_rows(*fp16, ids, table);
+    write_rows(*packed_cache, ids, table);
+    // Faulted in up front, so the timing is the read path alone.
+    auto weights = at::zeros({num_rows, kPackedMaxD}, at::kHalf);
+    for (int rep = 0; rep < 3; ++rep) {
+      for (auto* cache : {fp16.get(), packed_cache.get()}) {
+        const auto lookup = at::randperm(num_rows, at::kLong);
+        const auto start = Clock::now();
+        folly::coro::blockingWait(cache->get_kv_db_async(
+            lookup, weights, at::tensor({num_rows}, at::kLong)));
+        std::cout << (cache == fp16.get() ? "fp16  " : "packed") << " get() of "
+                  << num_rows << " rows (" << cache->get_executor_num_threads()
+                  << " threads, 32 shards): " << seconds_since(start) * 1e3
+                  << " ms" << '\n';
+      }
+    }
+  }
 }
 
 } // namespace
