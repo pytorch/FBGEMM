@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -120,6 +121,29 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
 }
 
 template <typename Dtype, typename index_t = int32_t>
+__device__ __forceinline__ void narrow_broadcast_indices_for_warp(
+    const int64_t warp_id,
+    const int lane_id,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>&
+        cat_ad_offsets,
+    const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>&
+        cat_ad_indices,
+    pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>&
+        reordered_cat_ad_indices,
+    const int num_ads_in_batch) {
+  const auto table_idx = warp_id / num_ads_in_batch;
+  const auto ads_idx = warp_id % num_ads_in_batch;
+  const auto start_offset = cat_ad_offsets[table_idx];
+  const auto end_offset = cat_ad_offsets[table_idx + 1];
+  const auto num_ads = end_offset - start_offset;
+  for (auto i = lane_id; i < num_ads; i += kWarpSize) {
+    reordered_cat_ad_indices
+        [start_offset * num_ads_in_batch + ads_idx * num_ads + i] =
+            cat_ad_indices[start_offset + i];
+  }
+}
+
+template <typename Dtype, typename index_t = int32_t>
 __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_ad_offsets,
@@ -130,19 +154,32 @@ __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
     const int num_ads_in_batch,
     const int reordered_cat_ad_batches) {
   const auto lane_id = threadIdx.x % kWarpSize;
-  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
-  const auto table_idx = warp_id / num_ads_in_batch;
-  const auto ads_idx = warp_id % num_ads_in_batch;
-  const auto start_offset = cat_ad_offsets[table_idx];
-  const auto end_offset = cat_ad_offsets[table_idx + 1];
-  const auto num_ads = end_offset - start_offset;
-  if (warp_id < reordered_cat_ad_batches) {
-    for (auto i = lane_id; i < num_ads; i += kWarpSize) {
-      reordered_cat_ad_indices
-          [start_offset * num_ads_in_batch + ads_idx * num_ads + i] =
-              cat_ad_indices[start_offset + i];
-    }
+#ifdef USE_ROCM
+  for (int64_t warp_id =
+           (static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) /
+           kWarpSize;
+       warp_id < reordered_cat_ad_batches;
+       warp_id += static_cast<int64_t>(gridDim.x) * blockDim.x / kWarpSize) {
+    narrow_broadcast_indices_for_warp(
+        warp_id,
+        lane_id,
+        cat_ad_offsets,
+        cat_ad_indices,
+        reordered_cat_ad_indices,
+        num_ads_in_batch);
   }
+#else
+  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+  if (warp_id < reordered_cat_ad_batches) {
+    narrow_broadcast_indices_for_warp(
+        warp_id,
+        lane_id,
+        cat_ad_offsets,
+        cat_ad_indices,
+        reordered_cat_ad_indices,
+        num_ads_in_batch);
+  }
+#endif
 }
 
 template <typename Dtype, typename index_t = int32_t>
@@ -419,9 +456,13 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
       // for B = 1 broadcast case
       constexpr auto NUM_WARPS = 16;
       const dim3 threads(NUM_WARPS * kWarpSizeHost()); //  16 x 32
-      const dim3 blocks(cuda_calc_xblock_count(
-          reordered_cat_ad_offsets.numel() - 1,
-          NUM_WARPS)); // one warp per sample
+      const dim3 blocks(
+          utils::cuda::cap_grid_dim_x(
+              cuda_calc_xblock_count(
+                  reordered_cat_ad_offsets.numel() - 1,
+                  NUM_WARPS), // one warp per sample
+              threads.x,
+              at::cuda::getCurrentCUDAStream()));
       FBGEMM_DISPATCH_ALL_TYPES(
           cat_ad_indices.scalar_type(),
           "narrow_broadcast_indices_kernel_1",
