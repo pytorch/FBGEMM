@@ -535,6 +535,14 @@ TEST_F(DramSsdKVEmbeddingCacheTest, StopWritebackDuringAsyncBackfill) {
   EXPECT_NO_THROW(composite_->start_writeback_thread());
 }
 
+// Test: restored SSD rows keep their checkpointed timestamps, even with the
+// DRAM tier's restamp opt-in, so the composite reports that it restores them.
+TEST_F(DramSsdKVEmbeddingCacheTest, ReportsThatRestoreKeepsRowTimestamps) {
+  createComposite();
+
+  EXPECT_TRUE(composite_->restores_row_timestamps());
+}
+
 // Test: Delegation of set_kv_zch_eviction_metadata_async
 TEST_F(DramSsdKVEmbeddingCacheTest, DelegatesEvictionMetadata) {
   createComposite();

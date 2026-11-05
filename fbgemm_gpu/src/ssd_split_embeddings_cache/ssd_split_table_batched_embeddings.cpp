@@ -1532,6 +1532,9 @@ auto dram_kv_embedding_cache_wrapper =
         .def(
             "last_eviction_sufficient",
             &DramKVEmbeddingCacheWrapper::last_eviction_sufficient)
+        .def(
+            "restores_row_timestamps",
+            &DramKVEmbeddingCacheWrapper::restores_row_timestamps)
         .def("is_evicting", &DramKVEmbeddingCacheWrapper::is_evicting)
         .def(
             "set_resume_eviction_after_get",
@@ -1745,6 +1748,9 @@ auto dram_ssd_kv_embedding_cache_wrapper =
         .def(
             "last_eviction_sufficient",
             &DramSsdKVEmbeddingCacheWrapper::last_eviction_sufficient)
+        .def(
+            "restores_row_timestamps",
+            &DramSsdKVEmbeddingCacheWrapper::restores_row_timestamps)
         .def("is_evicting", &DramSsdKVEmbeddingCacheWrapper::is_evicting)
         .def(
             "set_resume_eviction_after_get",

@@ -93,10 +93,14 @@ class _FakeBackend:
     def last_eviction_sufficient(self) -> bool:
         return True
 
+    def restores_row_timestamps(self) -> bool:
+        return False
+
 
 class _FakeTBE:
     eviction_insufficient_backoff_batch: int = 1
     eviction_free_mem_floor_bytes: int = 0
+    eviction_ttl_sweep_interval_s: float | None = None
 
     def __init__(
         self,

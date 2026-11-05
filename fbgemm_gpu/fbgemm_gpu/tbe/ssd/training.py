@@ -84,8 +84,9 @@ from .utils.partially_materialized_tensor import PartiallyMaterializedTensor
 # absorbs a thousand batches of growth, so a coarse cadence is safe.
 DEFAULT_EVICTION_CHECK_INTERVAL_BATCH = 1000
 
-# ID_COUNT compares against a target size with no slack, so the cadence is the
-# only thing bounding how far past budget a table drifts between checks.
+# ID_COUNT compares each count-bound table against its own budget with no slack,
+# so the cadence is the only thing bounding how far past budget a table drifts
+# between checks.
 DEFAULT_BUDGETED_EVICTION_CHECK_INTERVAL_BATCH = 20
 
 # MEM_UTIL compares the whole TBE's memory, TTL tables included, against its
@@ -108,6 +109,10 @@ DEFAULT_FREE_MEM_INSUFFICIENT_EVICTION_BACKOFF_CHECKS = 2
 # count-bound tables to their keep count each time.
 DEFAULT_FREE_MEM_MODE_FLOOR_FRACTION = 0.05
 DEFAULT_EVICTION_FREE_MEM_FLOOR_FRACTION = 0.02
+
+# A per-table ID_COUNT TBE sweeps expired TTL rows this many times per shortest
+# TTL, so at most about 1/10 of a TTL's worth of expired rows waits for a round.
+TTL_SWEEPS_PER_TTL = 10
 
 
 def _log_rank() -> int:
@@ -1307,6 +1312,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             * DEFAULT_EVICTION_CHECK_INTERVAL_BATCH
         )
         self.eviction_free_mem_floor_bytes: int = 0
+        self.eviction_ttl_sweep_interval_s: float | None = None
         if self.backend_type == BackendType.SSD:
             logging.info(
                 f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, "
@@ -7173,6 +7179,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             return explicit or DEFAULT_BUDGETED_EVICTION_CHECK_INTERVAL_BATCH
         return explicit or DEFAULT_EVICTION_CHECK_INTERVAL_BATCH
 
+    @staticmethod
+    def _eviction_ttl_sweep_interval_s(eviction_policy: EvictionPolicy) -> float | None:
+        """
+        Seconds between coordinated rounds that sweep expired TTL rows, for a
+        TBE where per-table ID_COUNT ignores the TTL tables: BY_FEATURE_SCORE
+        with both count-bound (ttl == 0) and TTL tables. None otherwise.
+        """
+        ttls = eviction_policy.ttls_in_mins or []
+        if (
+            eviction_policy.eviction_trigger_mode != 4
+            or eviction_policy.eviction_strategy != 5
+            or 0 not in ttls
+        ):
+            return None
+        positive = [ttl for ttl in ttls if ttl > 0]
+        if not positive:
+            return None
+        return min(positive) * 60 / TTL_SWEEPS_PER_TTL
+
     def set_eviction_trigger_config(self, eviction_policy: EvictionPolicy) -> None:
         """
         Record how often this TBE participates in the coordinated eviction
@@ -7208,12 +7233,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.eviction_free_mem_floor_bytes = self._eviction_free_mem_floor_bytes(
             eviction_policy
         )
+        self.eviction_ttl_sweep_interval_s = self._eviction_ttl_sweep_interval_s(
+            eviction_policy
+        )
         if self.eviction_trigger_mode != 0:
             logging.info(
                 f"[KVZCH Eviction] trigger mode: {self.eviction_trigger_mode}, "
                 f"{self.eviction_check_interval_batch=}, "
                 f"{self.eviction_insufficient_backoff_batch=}, "
-                f"{self.eviction_free_mem_floor_bytes=}"
+                f"{self.eviction_free_mem_floor_bytes=}, "
+                f"{self.eviction_ttl_sweep_interval_s=}"
             )
 
     def _maybe_enable_resume_eviction_after_get(self) -> None:

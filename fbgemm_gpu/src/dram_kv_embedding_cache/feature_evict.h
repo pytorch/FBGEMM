@@ -194,23 +194,48 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         const auto& enable_eviction_vec =
             enable_eviction_for_feature_score_eviction_policy_.value();
         const auto& vec = training_id_eviction_trigger_count_.value();
+        // Under BY_FEATURE_SCORE a TTL table sheds rows only once they pass
+        // their TTL, so no trim can bring it back under a count; counting it
+        // would hold the trigger on for the rest of the job. Other strategies
+        // have no per-table row counts, so they -- and TBEs made only of TTL
+        // tables -- keep the summed rule.
+        if (trigger_strategy_ == EvictTriggerStrategy::BY_FEATURE_SCORE &&
+            ttls_in_mins_.has_value() &&
+            ttls_in_mins_.value().size() == vec.size()) {
+          for (size_t i = 0; i < vec.size(); ++i) {
+            if (ttls_in_mins_.value()[i] == 0) {
+              id_count_bound_tables_.push_back(i);
+            }
+          }
+          if (id_count_bound_tables_.empty()) {
+            LOG(WARNING)
+                << "ID_COUNT trigger mode on a TBE whose tables all have a "
+                   "TTL: the summed trigger count is compared against every "
+                   "row, and TTL tables can keep it exceeded. Consider the "
+                   "FREE_MEM trigger mode.";
+          }
+        }
+        const bool per_table = !id_count_bound_tables_.empty();
         eviction_trigger_stats_log = ", training_id_eviction_trigger_count: [";
         total_id_eviction_trigger_count_ = 0;
         for (size_t i = 0; i < vec.size(); ++i) {
-          if (enable_eviction_vec[i] == 0) {
-            throw std::runtime_error(
-                "ID_COUNT trigger mode doesn't not support enable_eviction=False, please use FREE_MEM trigger mode instead");
-          }
-          total_id_eviction_trigger_count_ =
-              total_id_eviction_trigger_count_.value() + vec[i];
-          if (vec[i] <= 0) {
-            throw std::runtime_error(
-                "Invalid training_id_eviction_trigger_count, must be positive if ID_COUNT trigger mode is used");
-          }
           eviction_trigger_stats_log += std::to_string(vec[i]);
           if (i + 1 < vec.size()) {
             eviction_trigger_stats_log += ", ";
           }
+          if (per_table && ttls_in_mins_.value()[i] > 0) {
+            continue;
+          }
+          if (enable_eviction_vec[i] == 0) {
+            throw std::runtime_error(
+                "ID_COUNT trigger mode doesn't not support enable_eviction=False, please use FREE_MEM trigger mode instead");
+          }
+          if (vec[i] <= 0) {
+            throw std::runtime_error(
+                "Invalid training_id_eviction_trigger_count, must be positive if ID_COUNT trigger mode is used");
+          }
+          total_id_eviction_trigger_count_ =
+              total_id_eviction_trigger_count_.value() + vec[i];
         }
         eviction_trigger_stats_log += "]";
         break;
@@ -326,6 +351,10 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
   std::optional<std::vector<int64_t>> training_id_keep_count_;
   std::optional<std::vector<int8_t>>
       enable_eviction_for_feature_score_eviction_policy_;
+  // ID_COUNT only: the tables the trigger compares against their own
+  // training_id_eviction_trigger_count_ (empty under the summed rule), and the
+  // sum of the compared counts for backends that only report a total.
+  std::vector<size_t> id_count_bound_tables_;
   std::optional<int64_t> total_id_eviction_trigger_count_;
   std::optional<std::vector<double>> l2_weight_thresholds_;
   std::optional<std::vector<int64_t>> embedding_dims_;
@@ -342,6 +371,10 @@ struct EvictTriggerInputs {
   int64_t iter{0};
   int64_t used_mem_bytes{0};
   int64_t num_rows{0};
+  // ID_COUNT: rows per table, indexed like training_id_eviction_trigger_count_.
+  // Empty when the backend cannot attribute rows to tables, in which case
+  // num_rows is compared against the summed trigger count.
+  std::vector<int64_t> rows_per_table;
   int64_t free_mem_bytes{0};
 };
 
@@ -360,8 +393,18 @@ inline bool should_trigger(
     case EvictTriggerMode::MEM_UTIL:
       return inputs.used_mem_bytes >
           config.mem_util_threshold_in_GB_.value() * kBytesPerGB;
-    case EvictTriggerMode::ID_COUNT:
-      return inputs.num_rows > config.total_id_eviction_trigger_count_.value();
+    case EvictTriggerMode::ID_COUNT: {
+      if (config.id_count_bound_tables_.empty() ||
+          inputs.rows_per_table.empty()) {
+        return inputs.num_rows >
+            config.total_id_eviction_trigger_count_.value();
+      }
+      const auto& trigger = config.training_id_eviction_trigger_count_.value();
+      CHECK_EQ(inputs.rows_per_table.size(), trigger.size());
+      return std::ranges::any_of(config.id_count_bound_tables_, [&](size_t i) {
+        return inputs.rows_per_table[i] > trigger[i];
+      });
+    }
     case EvictTriggerMode::FREE_MEM:
       // Constructors that predate free_mem_threshold_gb leave it unset; that
       // is no demand, not an error.
@@ -668,6 +711,13 @@ class FeatureEvict {
   bool last_eviction_sufficient() {
     std::unique_lock<std::mutex> lock(mutex_);
     return is_last_eviction_sufficient_.load();
+  }
+
+  // Rows per table for strategies that track them, indexed like
+  // sub_table_hash_cumsum_; empty otherwise. Callers must not be evicting: a
+  // round resets and rebuilds the counts without the shard lock.
+  virtual std::vector<int64_t> count_bound_rows_per_table() {
+    return {};
   }
 
   // wait until eviction round finishes
@@ -1349,6 +1399,19 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       local_buckets_per_shard_per_table_[sub_table_id][shard_id][new_idx]++;
       local_buckets_per_shard_per_table_[sub_table_id][shard_id][old_idx]--;
     }
+  }
+
+  // Only tables without a TTL are counted; TTL tables report 0.
+  std::vector<int64_t> count_bound_rows_per_table() override {
+    std::vector<int64_t> rows(num_tables_, 0);
+    for (int shard_id = 0; shard_id < this->num_shards_; ++shard_id) {
+      auto rlmap = this->kv_store_.by(shard_id).rlock();
+      for (int table_id = 0; table_id < num_tables_; ++table_id) {
+        rows[table_id] += static_cast<int64_t>(
+            local_blocks_num_per_shard_per_table_[table_id][shard_id]);
+      }
+    }
+    return rows;
   }
 
   std::vector<double> get_thresholds() {

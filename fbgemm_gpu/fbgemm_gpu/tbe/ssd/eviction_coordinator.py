@@ -13,6 +13,7 @@ import gc
 import hashlib
 import itertools
 import logging
+import time
 import weakref
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -71,6 +72,9 @@ class _EvictionBackend(Protocol):
     def last_eviction_sufficient(self) -> bool:
         """Whether the last finished round evicted more than 100 rows."""
 
+    def restores_row_timestamps(self) -> bool:
+        """Whether a checkpoint restore keeps the saved row timestamps."""
+
 
 class EvictionParticipant(Protocol):
     @property
@@ -100,6 +104,10 @@ class EvictionParticipant(Protocol):
     @property
     def eviction_free_mem_floor_bytes(self) -> int:
         """Host free memory below which this rank votes urgent; 0 disables it."""
+
+    @property
+    def eviction_ttl_sweep_interval_s(self) -> float | None:
+        """Seconds between TTL sweeps, or None if this TBE needs none."""
 
 
 @dataclass
@@ -142,7 +150,10 @@ class EvictionCoordinator:
     a round on every rank when some rank is urgent, or some rank wants one and
     every rank is idle (or the gate has been closed for
     `MAX_GATE_BLOCKED_CHECKS` checks), unless no rank's last round was
-    sufficient within the backoff.
+    sufficient within the backoff. A rank also wants a round when
+    a member's TTL sweep interval has passed since the domain's last round on
+    this rank, or none has run since the process started: wall-clock time only
+    adds demand, it never gates.
 
     Invariants the collective depends on:
     - every rank enters it on the same steps, with an empty vote when nothing
@@ -164,6 +175,7 @@ class EvictionCoordinator:
         self._urgent_backoff_warned: dict[tuple[dist.ProcessGroup | None, int], int] = (
             {}
         )
+        self._last_round_time: dict[tuple[dist.ProcessGroup | None, int], float] = {}
         # Registration happens at the end of TBE construction, and construction
         # order is identical on every rank, so this sequence is a rank-invariant
         # ordering of members within a domain.
@@ -216,14 +228,17 @@ class EvictionCoordinator:
             else free_mem_bytes if isinstance(free_mem_bytes, int) else 0
         )
 
+        now = time.monotonic()
         local_votes = [0] * VOTE_SLOTS
         local_header = self._header(registered, domains, step, next_check)
         local_votes[:HEADER_SLOTS] = local_header
-        local_decisions: list[tuple[bool, bool, int]] = []
+        local_decisions: list[tuple[bool, bool, int, bool]] = []
         for i, domain in enumerate(domains):
             wants, idle, reading = self._domain_votes(
                 domain.tbes, step, sampled_free_mem_bytes
             )
+            ttl_due = self._ttl_sweep_due((pg, domain.id), domain, now)
+            wants = wants or ttl_due
             sufficient = any(
                 tbe.ssd_db.last_eviction_sufficient() for tbe in domain.tbes
             )
@@ -239,7 +254,7 @@ class EvictionCoordinator:
                 int(sufficient),
                 int(urgent),
             ]
-            local_decisions.append((wants, idle, reading))
+            local_decisions.append((wants, idle, reading, ttl_due))
 
         world_size = dist.get_world_size(pg) if dist.is_initialized() else 1
         votes = torch.tensor(
@@ -266,7 +281,8 @@ class EvictionCoordinator:
                 continue
             for tbe in domain.tbes:
                 tbe.ssd_db.trigger_feature_evict(force=True)
-            local_wants, local_idle, local_read = local_decisions[i]
+            self._last_round_time[(pg, domain.id)] = now
+            local_wants, local_idle, local_read, local_ttl_due = local_decisions[i]
             logger.info(
                 f"[KVZCH Evict] step={step} domain={domain.label} "
                 f"mode={domain.tbes[0].eviction_trigger_mode_id()} "
@@ -275,7 +291,8 @@ class EvictionCoordinator:
                 f"votes_wants={tally.wants}/{world_size} "
                 f"votes_gate={tally.idle}/{world_size} outcome={outcome} "
                 f"votes_sufficient={tally.sufficient}/{world_size} "
-                f"votes_urgent={tally.urgent}/{world_size}"
+                f"votes_urgent={tally.urgent}/{world_size} "
+                f"local_ttl_due={int(local_ttl_due)}"
             )
 
     def _decide(
@@ -365,6 +382,7 @@ class EvictionCoordinator:
             self._last_triggered_step,
             self._blocked_checks,
             self._urgent_backoff_warned,
+            self._last_round_time,
         ):
             for key in [k for k in state if k[0] == pg]:
                 del state[key]
@@ -375,6 +393,32 @@ class EvictionCoordinator:
             for tbe in self._instances_by_pg.get(pg, {})
         }
         return min(((step // i + 1) * i for i in intervals), default=step + 1)
+
+    def _ttl_sweep_due(
+        self,
+        key: tuple[dist.ProcessGroup | None, int],
+        domain: _Domain,
+        now: float,
+    ) -> bool:
+        intervals = [
+            tbe.eviction_ttl_sweep_interval_s
+            for tbe in domain.tbes
+            if tbe.eviction_ttl_sweep_interval_s is not None
+        ]
+        if not intervals:
+            return False
+        last = self._last_round_time.get(key)
+        if last is not None:
+            return now - last >= min(intervals)
+        # The clock lives in memory. If a restore kept the checkpointed row
+        # timestamps, rows may already be past their TTL, and a job restarted
+        # more often than the interval would never sweep them, so the first
+        # check is due. Otherwise every row is younger than this process, none
+        # can expire before a full TTL, and the clock starts now.
+        if any(tbe.ssd_db.restores_row_timestamps() for tbe in domain.tbes):
+            return True
+        self._last_round_time[key] = now
+        return False
 
     @staticmethod
     def _header(
