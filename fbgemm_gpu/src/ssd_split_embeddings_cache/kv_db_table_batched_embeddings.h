@@ -436,7 +436,39 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
-  virtual void trigger_feature_evict();
+  /**
+   * @brief Start a new eviction round.
+   *
+   * @param force skip the backend's local min-interval gate, for a caller
+   * that has already decided across ranks to start the round; re-checking the
+   * local wall clock would let some ranks drop it. A round in flight still
+   * makes the call a no-op.
+   */
+  virtual void trigger_feature_evict(bool force = false);
+
+  /**
+   * @brief Whether this backend wants a new eviction round, whether no round
+   * is in flight, and the reading the decision was made on (step, used bytes,
+   * row count or free bytes; diagnostic only). `step` is the caller's logical
+   * step, not the backend's lookup count.
+   *
+   * Backends that do not self-evict return {false, true, 0}: no demand, and
+   * neutral in the caller's cross-rank AND of `idle`.
+   */
+  virtual std::tuple<bool, bool, int64_t> should_trigger_evict(
+      int64_t /*step*/,
+      int64_t /*free_mem_bytes*/) {
+    return {false, true, 0};
+  }
+
+  /**
+   * @brief Whether the last finished round evicted more than 100 rows. The
+   * training frontend backs off after a round that did not. Backends that do
+   * not self-evict return true, so they never cause a backoff.
+   */
+  virtual bool last_eviction_sufficient() {
+    return true;
+  }
 
   virtual bool is_evicting();
 

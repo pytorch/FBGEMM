@@ -1823,6 +1823,49 @@ TEST(ShouldTriggerTest, ManualAndDisabledNeverSelfTrigger) {
   EXPECT_FALSE(should_trigger(*disabled, saturated));
 }
 
+TEST(FeatureEvictTest, ForcedTriggerBypassesIntervalGate) {
+  static constexpr int NUM_SHARDS = 2;
+  static constexpr int NUM_ROWS = 200;
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {NUM_ROWS};
+  const uint32_t two_hours_ago = FixedBlockPool::current_timestamp() - 7200;
+  for (int i = 0; i < NUM_ROWS; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_count(block, 1);
+    FixedBlockPool::set_timestamp(block, two_hours_ago);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+
+  // TTL 60 min.
+  auto config =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::MANUAL));
+  auto feature_evict = create_feature_evict(
+      config, *kv_store_.get(), sub_table_hash_cumsum, true, TestMode::NORMAL);
+
+  EXPECT_FALSE(feature_evict->last_eviction_sufficient());
+
+  // Every row is past its TTL, so the first round evicts all of them.
+  feature_evict->trigger_evict();
+  EXPECT_TRUE(feature_evict->is_evicting());
+  feature_evict->wait_until_eviction_done();
+  EXPECT_TRUE(feature_evict->last_eviction_sufficient());
+
+  // Within interval_for_sufficient_eviction_s, only a forced round starts.
+  feature_evict->trigger_evict();
+  EXPECT_FALSE(feature_evict->is_evicting());
+
+  feature_evict->trigger_evict(/*force=*/true);
+  EXPECT_TRUE(feature_evict->is_evicting());
+  feature_evict->wait_until_eviction_done();
+  EXPECT_FALSE(feature_evict->last_eviction_sufficient());
+}
+
 namespace {
 
 constexpr int SCORE_TABLE_SHARDS = 4;

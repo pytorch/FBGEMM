@@ -900,6 +900,56 @@ TEST_F(DramKVEmbeddingCacheTest, EmptyGetResumesTriggeredEvictionWhenEnabled) {
 }
 
 // Two hours old: past the 60-minute TTL of makeTrainingCacheWithManualEvict.
+// Test: mid-round, MEM_UTIL reports no demand without reading the memory
+// size, whose shard locks the round holds.
+TEST_F(DramKVEmbeddingCacheTest, MemUtilSkipsReadingMidRound) {
+  auto feature_evict_config = c10::make_intrusive<FeatureEvictConfig>(
+      /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MEM_UTIL),
+      /*trigger_strategy=*/
+      static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/1,
+      /*ttls_in_mins=*/std::vector<int64_t>{60},
+      /*counter_thresholds=*/std::nullopt,
+      /*counter_decay_rates=*/std::nullopt,
+      /*feature_score_counter_decay_rates=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*training_id_keep_count=*/std::nullopt,
+      /*enable_eviction_for_feature_score_eviction_policy=*/std::nullopt,
+      /*l2_weight_thresholds=*/std::nullopt,
+      /*embedding_dims=*/std::nullopt);
+  auto cache = std::make_shared<DramKVEmbeddingCache<float>>(
+      EMBEDDING_DIM,
+      /*uniform_init_lower=*/-0.1,
+      /*uniform_init_upper=*/0.1,
+      feature_evict_config,
+      NUM_SHARDS,
+      /*num_threads=*/4,
+      /*row_storage_bitwidth=*/32,
+      /*backend_return_whole_row=*/false,
+      /*enable_async_update=*/false,
+      /*table_dims=*/std::nullopt,
+      at::tensor({0, 100000}, at::kLong),
+      /*is_training=*/true,
+      /*disable_random_init=*/true);
+  set_kv_db_async(*cache, 1);
+  cache->resume_ongoing_eviction();
+  const auto idle =
+      cache->should_trigger_evict(/*step=*/1, /*free_mem_bytes=*/0);
+  ASSERT_TRUE(std::get<1>(idle));
+  ASSERT_GT(std::get<2>(idle), 0);
+
+  // A triggered round starts paused, so it stays in progress.
+  cache->trigger_feature_evict();
+  ASSERT_TRUE(cache->is_evicting());
+
+  EXPECT_EQ(
+      cache->should_trigger_evict(/*step=*/2, /*free_mem_bytes=*/0),
+      std::make_tuple(false, false, int64_t{0}));
+  cache->resume_ongoing_eviction(/*force_resume=*/true);
+  EXPECT_TRUE(waitForEvictionIdle(*cache, std::chrono::seconds(10)));
+}
+
 constexpr uint32_t kStaleAgeSeconds = 2 * 3600;
 constexpr int64_t kProbeId = 999;
 

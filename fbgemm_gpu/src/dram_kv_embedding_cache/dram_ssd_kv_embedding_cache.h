@@ -448,8 +448,18 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     dram_cache_->maybe_evict();
   }
 
-  void trigger_feature_evict() override {
-    dram_cache_->trigger_feature_evict();
+  void trigger_feature_evict(bool force = false) override {
+    dram_cache_->trigger_feature_evict(force);
+  }
+
+  std::tuple<bool, bool, int64_t> should_trigger_evict(
+      int64_t step,
+      int64_t free_mem_bytes) override {
+    return dram_cache_->should_trigger_evict(step, free_mem_bytes);
+  }
+
+  bool last_eviction_sufficient() override {
+    return dram_cache_->last_eviction_sufficient();
   }
 
   bool is_evicting() override {

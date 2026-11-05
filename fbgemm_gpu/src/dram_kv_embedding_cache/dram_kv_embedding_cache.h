@@ -2596,9 +2596,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   void compact() override {}
 
-  void trigger_feature_evict() {
+  void trigger_feature_evict(bool force = false) override {
     if (feature_evict_) {
-      feature_evict_->trigger_evict();
+      feature_evict_->trigger_evict(force);
     }
   }
 
@@ -2641,6 +2641,53 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       default:
         break;
     }
+  }
+
+  // Only the field this mode reads is computed: get_num_rows() and
+  // get_map_used_memsize_in_bytes() both take an rlock on every shard, which
+  // contends with an in-flight eviction holding the write lock.
+  std::tuple<bool, bool, int64_t> should_trigger_evict(
+      int64_t step,
+      int64_t free_mem_bytes) override {
+    if (!feature_evict_config_.has_value() || !feature_evict_) {
+      return {false, true, 0};
+    }
+    const auto& config = *feature_evict_config_.value();
+    const bool idle = !feature_evict_->is_evicting();
+    kv_mem::EvictTriggerInputs inputs;
+    int64_t reading = 0;
+    switch (config.trigger_mode_) {
+      case kv_mem::EvictTriggerMode::ITERATION:
+        inputs.iter = step;
+        reading = step;
+        break;
+      case kv_mem::EvictTriggerMode::MEM_UTIL:
+        // Mid-round the read would wait on the shard the round is scanning;
+        // the gate is closed then anyway, so report no demand.
+        if (!idle) {
+          break;
+        }
+        inputs.used_mem_bytes =
+            static_cast<int64_t>(get_map_used_memsize_in_bytes());
+        reading = inputs.used_mem_bytes;
+        break;
+      case kv_mem::EvictTriggerMode::ID_COUNT:
+        inputs.num_rows = static_cast<int64_t>(get_num_rows());
+        reading = inputs.num_rows;
+        break;
+      case kv_mem::EvictTriggerMode::FREE_MEM:
+        inputs.free_mem_bytes = free_mem_bytes;
+        reading = free_mem_bytes;
+        break;
+      case kv_mem::EvictTriggerMode::DISABLED:
+      case kv_mem::EvictTriggerMode::MANUAL:
+        break;
+    }
+    return {kv_mem::should_trigger(config, inputs), idle, reading};
+  }
+
+  bool last_eviction_sufficient() override {
+    return !feature_evict_ || feature_evict_->last_eviction_sufficient();
   }
 
   // wait until eviction finishes, if any
