@@ -63,11 +63,15 @@ class EvictionPolicy(NamedTuple):
     interval_for_insufficient_eviction_s: int = (
         # wait at least # seconds before trigger next round of eviction, if last finished eviction is insufficient
         # insufficient means we didn't evict enough rows, so we want to wait longer time to
-        # avoid another insufficient eviction
+        # avoid another insufficient eviction.
+        # Uncoordinated (inference) eviction only; training spaces rounds in
+        # batches, see eviction_insufficient_backoff_batch.
         600
     )
     interval_for_sufficient_eviction_s: int = (
-        # wait at least # seconds before trigger next round of eviction, if last finished eviction is sufficient
+        # wait at least # seconds before trigger next round of eviction, if last finished eviction is sufficient.
+        # Uncoordinated (inference) eviction only; training spaces rounds in
+        # batches, see eviction_check_interval_batch.
         60
     )
     interval_for_feature_statistics_decay_s: int = (
@@ -78,13 +82,24 @@ class EvictionPolicy(NamedTuple):
         None  # Minimum free memory (in GB) required before triggering eviction when using free_mem trigger mode.
     )
     eviction_free_mem_check_interval_batch: int | None = (
-        None  # Number of batches between checks for free memory threshold when using free_mem trigger mode.
+        None  # Deprecated alias of eviction_check_interval_batch, honoured only for free_mem (5) when that is unset.
     )
     enable_eviction_for_feature_score_eviction_policy: list[bool] | None = (
         None  # enable eviction if eviction policy is feature score, false means no eviction
     )
     enable_ssd_writeback: bool = (
         False  # when True, evicted dirty blocks are written back to SSD via callback; when False, eviction deletes blocks directly
+    )
+    # Add new fields at the end only: positional construction and pickles of
+    # earlier versions map values to fields by position.
+    eviction_check_interval_batch: int | None = (
+        None  # Batches between rank-synchronized checks, in every automatic mode. None picks the per-mode default in training.py.
+    )
+    eviction_insufficient_backoff_batch: int | None = (
+        None  # Batches to wait after a round in which no rank evicted more than 100 rows. None picks the per-mode default.
+    )
+    eviction_free_mem_floor_gb: int | None = (
+        None  # Host free memory (GiB) below which a rank votes for an urgent round. None picks the default; 0 disables it.
     )
 
     def validate(self) -> None:
@@ -119,9 +134,8 @@ class EvictionPolicy(NamedTuple):
             assert (
                 self.eviction_free_mem_threshold_gb is not None
             ), "eviction_free_mem_threshold_gb must be set if eviction_trigger_mode is 5"
-            assert (
-                self.eviction_free_mem_check_interval_batch is not None
-            ), "eviction_free_mem_check_interval_batch must be set if eviction_trigger_mode is 5"
+
+        self._validate_coordination_fields()
 
         if self.eviction_strategy == 0:
             assert self.ttls_in_mins is not None, (
@@ -205,6 +219,50 @@ class EvictionPolicy(NamedTuple):
             ), (
                 "feature_score_counter_decay_rates, enable_eviction_for_feature_score_eviction_policy, training_id_keep_count, and training_id_eviction_trigger_count must have the same length, "
                 f"actual {self.training_id_keep_count} vs {self.feature_score_counter_decay_rates} vs {self.enable_eviction_for_feature_score_eviction_policy} vs {self.training_id_eviction_trigger_count}"
+            )
+
+    def _validate_coordination_fields(self) -> None:
+        # Optional: None picks a per-mode default in training.py.
+        assert (
+            self.eviction_check_interval_batch is None
+            or self.eviction_check_interval_batch > 0
+        ), (
+            "eviction_check_interval_batch must be positive, "
+            f"actual {self.eviction_check_interval_batch}"
+        )
+
+        assert (
+            self.eviction_insufficient_backoff_batch is None
+            or self.eviction_insufficient_backoff_batch > 0
+        ), (
+            "eviction_insufficient_backoff_batch must be positive, "
+            f"actual {self.eviction_insufficient_backoff_batch}"
+        )
+
+        assert (
+            self.eviction_free_mem_floor_gb is None
+            or self.eviction_free_mem_floor_gb >= 0
+        ), (
+            "eviction_free_mem_floor_gb must be non-negative, "
+            f"actual {self.eviction_free_mem_floor_gb}"
+        )
+
+        if (
+            self.eviction_trigger_mode == 1
+            and self.eviction_check_interval_batch is not None
+            and self.eviction_step_intervals is not None
+        ):
+            # ITERATION passes through two independent gates: the frontend
+            # cadence and the backend's iter % eviction_step_intervals. If the
+            # cadence does not divide the interval, rounds land on the lcm of
+            # the two and the mode silently under-fires.
+            assert (
+                self.eviction_step_intervals % self.eviction_check_interval_batch == 0
+            ), (
+                "for eviction_trigger_mode 1, eviction_check_interval_batch "
+                f"({self.eviction_check_interval_batch}) must divide "
+                f"eviction_step_intervals ({self.eviction_step_intervals}); "
+                "leave it unset to derive it from eviction_step_intervals"
             )
 
 
@@ -386,8 +444,10 @@ class KVZCHTBEConfig(NamedTuple):
     kvzch_eviction_trigger_mode: int = 2  # mem_util
     # Minimum free memory (in GB) required before triggering eviction when using free_mem trigger mode.
     eviction_free_mem_threshold_gb: int = 200  # 200GB
-    # Number of batches between checks for free memory threshold when using free_mem trigger mode.
-    eviction_free_mem_check_interval_batch: int = 1000
+    # Deprecated alias of eviction_check_interval_batch, honoured only for
+    # free_mem (5). None rather than 1000, so that a config setting it is
+    # distinguishable from one that does not; free_mem still defaults to 1000.
+    eviction_free_mem_check_interval_batch: int | None = None
     # The width of each feature score bucket used for threshold calculation in feature score-based eviction.
     threshold_calculation_bucket_stride: float = 0.2
     # Total number of feature score buckets used for threshold calculation in feature score-based eviction.
@@ -400,6 +460,13 @@ class KVZCHTBEConfig(NamedTuple):
     optimizer_state_dtypes_for_st: frozenset[tuple[str, int]] | None = None
     # Enrichment policy for embedding cache enrichment from external sources (e.g. Laser)
     enrichment_policy: EnrichmentPolicy | None = None
+    # Add new fields at the end only: positional construction and pickles of
+    # earlier versions map values to fields by position.
+    # Eviction timing in batches, passed to EvictionPolicy. None picks the
+    # defaults in training.py.
+    eviction_check_interval_batch: int | None = None
+    eviction_insufficient_backoff_batch: int | None = None
+    eviction_free_mem_floor_gb: int | None = None
 
 
 class BackendType(enum.IntEnum):

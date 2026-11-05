@@ -385,16 +385,6 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   void stream_sync_cuda();
 
   /**
-   * @brief Potentially evict features based on configured strategy.
-   *
-   * This method is called in between get and set to check if feature eviction
-   * should be triggered based on the configured eviction strategy.
-   */
-  virtual void maybe_evict() {
-    FBEXCEPTION("Not implemented");
-  }
-
-  /**
    * @brief Get the memory usage of the map.
    *
    * @return Size of memory used by the map in bytes.
