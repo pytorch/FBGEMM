@@ -293,8 +293,18 @@ class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     impl_->set_backend_return_whole_row(backend_return_whole_row);
   }
 
-  void trigger_feature_evict() {
-    impl_->trigger_feature_evict();
+  void trigger_feature_evict(bool force = false) {
+    impl_->trigger_feature_evict(force);
+  }
+
+  std::tuple<bool, bool, int64_t> should_trigger_evict(
+      int64_t step,
+      int64_t free_mem_bytes) {
+    return impl_->should_trigger_evict(step, free_mem_bytes);
+  }
+
+  bool last_eviction_sufficient() {
+    return impl_->last_eviction_sufficient();
   }
 
   bool is_evicting() {

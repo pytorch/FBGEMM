@@ -537,7 +537,7 @@ void EmbeddingKVDB::set_backend_return_whole_row(
   return;
 }
 
-void EmbeddingKVDB::trigger_feature_evict() {
+void EmbeddingKVDB::trigger_feature_evict(bool /*force*/) {
   return;
 }
 
