@@ -132,7 +132,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
       int64_t interval_for_insufficient_eviction_s = 600, // 10 min
       int64_t interval_for_sufficient_eviction_s = 60, // 1 min
       int64_t interval_for_feature_statistics_decay_s = 24 * 3600, // 1 day
-      bool enable_ssd_writeback = false)
+      bool enable_ssd_writeback = false,
+      std::optional<int64_t> free_mem_threshold_gb = std::nullopt)
       : trigger_mode_(static_cast<EvictTriggerMode>(trigger_mode)),
         trigger_strategy_(static_cast<EvictTriggerStrategy>(trigger_strategy)),
         trigger_step_interval_(trigger_step_interval),
@@ -157,7 +158,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         interval_for_sufficient_eviction_s_(interval_for_sufficient_eviction_s),
         interval_for_feature_statistics_decay_s_(
             interval_for_feature_statistics_decay_s),
-        enable_ssd_writeback_(enable_ssd_writeback) {
+        enable_ssd_writeback_(enable_ssd_writeback),
+        free_mem_threshold_gb_(free_mem_threshold_gb) {
     // verification
     if (trigger_mode_ == EvictTriggerMode::DISABLED) {
       LOG(INFO) << "eviction config, trigger mode is disabled";
@@ -214,6 +216,10 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         break;
       }
       case EvictTriggerMode::FREE_MEM: {
+        eviction_trigger_stats_log = ", free_mem_threshold_gb: " +
+            (free_mem_threshold_gb_.has_value()
+                 ? std::to_string(free_mem_threshold_gb_.value())
+                 : std::string("unset"));
         break;
       }
       default:
@@ -329,7 +335,45 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
   int64_t interval_for_sufficient_eviction_s_;
   int64_t interval_for_feature_statistics_decay_s_;
   bool enable_ssd_writeback_;
+  std::optional<int64_t> free_mem_threshold_gb_;
 };
+
+struct EvictTriggerInputs {
+  int64_t iter{0};
+  int64_t used_mem_bytes{0};
+  int64_t num_rows{0};
+  int64_t free_mem_bytes{0};
+};
+
+// MANUAL and DISABLED never self-trigger. Their callers decide explicitly
+// whether to start a round.
+inline bool should_trigger(
+    const FeatureEvictConfig& config,
+    const EvictTriggerInputs& inputs) {
+  constexpr int64_t kBytesPerGB = 1024 * 1024 * 1024;
+  // The FeatureEvictConfig constructor CHECKs that ITERATION, MEM_UTIL and
+  // ID_COUNT have the field they read here, so their .value() calls are safe.
+  switch (config.trigger_mode_) {
+    case EvictTriggerMode::ITERATION:
+      return config.trigger_step_interval_.value() > 0 &&
+          inputs.iter % config.trigger_step_interval_.value() == 0;
+    case EvictTriggerMode::MEM_UTIL:
+      return inputs.used_mem_bytes >
+          config.mem_util_threshold_in_GB_.value() * kBytesPerGB;
+    case EvictTriggerMode::ID_COUNT:
+      return inputs.num_rows > config.total_id_eviction_trigger_count_.value();
+    case EvictTriggerMode::FREE_MEM:
+      // Constructors that predate free_mem_threshold_gb leave it unset; that
+      // is no demand, not an error.
+      return config.free_mem_threshold_gb_.has_value() &&
+          inputs.free_mem_bytes <
+          config.free_mem_threshold_gb_.value() * kBytesPerGB;
+    case EvictTriggerMode::MANUAL:
+    case EvictTriggerMode::DISABLED:
+      return false;
+  }
+  return false;
+}
 
 struct FeatureEvictMetrics {
   explicit FeatureEvictMetrics(int table_num) {

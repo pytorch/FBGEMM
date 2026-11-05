@@ -1415,6 +1415,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     eviction_policy.interval_for_sufficient_eviction_s,
                     eviction_policy.interval_for_feature_statistics_decay_s,
                     eviction_policy.enable_ssd_writeback,
+                    eviction_policy.eviction_free_mem_threshold_gb,  # free_mem_threshold_gb if trigger mode is free_mem
                 )
             enrichment_config = None
             if (
@@ -1544,6 +1545,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     eviction_policy.interval_for_sufficient_eviction_s,
                     eviction_policy.interval_for_feature_statistics_decay_s,
                     eviction_policy.enable_ssd_writeback,
+                    eviction_policy.eviction_free_mem_threshold_gb,  # free_mem_threshold_gb if trigger mode is free_mem
                 )
             enrichment_config = None
             if (

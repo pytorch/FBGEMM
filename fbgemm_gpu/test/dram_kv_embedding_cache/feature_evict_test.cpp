@@ -1711,6 +1711,120 @@ TEST(FeatureEvictTest, WritebackDisabledByFlag) {
 
 namespace {
 
+constexpr int64_t kGB = 1024 * 1024 * 1024;
+
+// Minimal config carrying just the fields a given trigger mode reads. The
+// BY_TIMESTAMP strategy keeps strategy validation satisfied without affecting
+// the trigger decision.
+c10::intrusive_ptr<FeatureEvictConfig> make_trigger_config(
+    int64_t trigger_mode,
+    std::optional<int64_t> trigger_step_interval = std::nullopt,
+    std::optional<int64_t> mem_util_threshold_in_GB = std::nullopt,
+    std::optional<std::vector<int64_t>> training_id_eviction_trigger_count =
+        std::nullopt,
+    std::optional<int64_t> free_mem_threshold_gb = std::nullopt) {
+  std::optional<std::vector<int8_t>> enable_eviction = std::nullopt;
+  if (training_id_eviction_trigger_count.has_value()) {
+    enable_eviction = std::vector<int8_t>(
+        training_id_eviction_trigger_count.value().size(), 1);
+  }
+  return c10::make_intrusive<FeatureEvictConfig>(
+      trigger_mode,
+      static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+      trigger_step_interval,
+      mem_util_threshold_in_GB,
+      std::vector<int64_t>{60}, // ttls_in_mins
+      std::nullopt, // counter_thresholds
+      std::nullopt, // counter_decay_rates
+      std::nullopt, // feature_score_counter_decay_rates
+      std::move(training_id_eviction_trigger_count),
+      std::nullopt, // training_id_keep_count
+      std::move(enable_eviction),
+      std::nullopt, // l2_weight_thresholds
+      std::nullopt, // embedding_dims
+      0.2,
+      1000000,
+      600,
+      60,
+      24 * 3600,
+      false,
+      free_mem_threshold_gb);
+}
+
+} // namespace
+
+TEST(ShouldTriggerTest, IterationFiresOnMultiplesOfInterval) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::ITERATION),
+      /*trigger_step_interval=*/100);
+
+  EXPECT_TRUE(should_trigger(*config, EvictTriggerInputs{.iter = 200}));
+  EXPECT_FALSE(should_trigger(*config, EvictTriggerInputs{.iter = 199}));
+}
+
+TEST(ShouldTriggerTest, MemUtilFiresStrictlyAboveThreshold) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::MEM_UTIL),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/64);
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.used_mem_bytes = 64 * kGB + 1}));
+  EXPECT_FALSE(
+      should_trigger(*config, EvictTriggerInputs{.used_mem_bytes = 64 * kGB}));
+}
+
+TEST(ShouldTriggerTest, IdCountFiresOnSummedPerTableTriggerCount) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::ID_COUNT),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::vector<int64_t>{30, 20});
+
+  EXPECT_TRUE(should_trigger(*config, EvictTriggerInputs{.num_rows = 51}));
+  EXPECT_FALSE(should_trigger(*config, EvictTriggerInputs{.num_rows = 50}));
+}
+
+TEST(ShouldTriggerTest, FreeMemFiresStrictlyBelowThreshold) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::FREE_MEM),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*free_mem_threshold_gb=*/100);
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.free_mem_bytes = 100 * kGB - 1}));
+  EXPECT_FALSE(
+      should_trigger(*config, EvictTriggerInputs{.free_mem_bytes = 100 * kGB}));
+}
+
+TEST(ShouldTriggerTest, FreeMemWithoutThresholdNeverFires) {
+  auto config =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::FREE_MEM));
+
+  EXPECT_FALSE(
+      should_trigger(*config, EvictTriggerInputs{.free_mem_bytes = 0}));
+}
+
+TEST(ShouldTriggerTest, ManualAndDisabledNeverSelfTrigger) {
+  const EvictTriggerInputs saturated{
+      .iter = 1000,
+      .used_mem_bytes = 1024 * kGB,
+      .num_rows = 1'000'000'000,
+      .free_mem_bytes = 0};
+
+  auto manual =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::MANUAL));
+  EXPECT_FALSE(should_trigger(*manual, saturated));
+
+  auto disabled =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::DISABLED));
+  EXPECT_FALSE(should_trigger(*disabled, saturated));
+}
+
+namespace {
+
 constexpr int SCORE_TABLE_SHARDS = 4;
 
 // A single count-bound feature-score table whose key i has score scores[i].
