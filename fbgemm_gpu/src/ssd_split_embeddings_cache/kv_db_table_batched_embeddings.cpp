@@ -597,8 +597,6 @@ void EmbeddingKVDB::get_impl(
     const at::Tensor& count,
     const std::optional<at::Tensor>& found_mask,
     int64_t sleep_ms) {
-  // trigger evict by trigger_step_interval or mem_util_threshold_GB
-  maybe_evict();
   if (auto num_lookups = get_maybe_uvm_scalar(count); num_lookups <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
         << "[TBE_ID" << unique_id_ << "]skip get_cuda since number lookups is "

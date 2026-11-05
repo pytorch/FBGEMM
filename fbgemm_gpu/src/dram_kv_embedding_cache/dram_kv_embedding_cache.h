@@ -2456,7 +2456,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
-    current_iter_++;
     return get_kv_db_async_impl(indices, weights, count);
   }
 
@@ -2469,7 +2468,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // that row untouched so callers can reuse scratch storage without a full
     // clear; consumers must gate every read of weights on found_mask. Entries
     // at positions >= count remain untouched in both tensors.
-    current_iter_++;
     return get_kv_db_async_impl(
         indices, weights, count, 0, std::nullopt, found_mask);
   }
@@ -2599,47 +2597,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   void trigger_feature_evict(bool force = false) override {
     if (feature_evict_) {
       feature_evict_->trigger_evict(force);
-    }
-  }
-
-  void maybe_evict() override {
-    if (!feature_evict_config_.has_value()) {
-      return;
-    }
-    switch (feature_evict_config_.value()->trigger_mode_) {
-      case EvictTriggerMode::ITERATION: {
-        if (feature_evict_config_.value()->trigger_step_interval_.value() > 0 &&
-            current_iter_ %
-                    feature_evict_config_.value()
-                        ->trigger_step_interval_.value() ==
-                0) {
-          trigger_feature_evict();
-        }
-        break;
-      }
-      case EvictTriggerMode::MEM_UTIL: {
-        auto mem_util = get_map_used_memsize_in_bytes() / (1024 * 1024 * 1024);
-        if (mem_util >
-            feature_evict_config_.value()->mem_util_threshold_in_GB_.value()) {
-          trigger_feature_evict();
-        }
-        break;
-      }
-      case EvictTriggerMode::ID_COUNT: {
-        auto used_id_count = get_num_rows();
-        if (used_id_count > feature_evict_config_.value()
-                                ->total_id_eviction_trigger_count_.value()) {
-          trigger_feature_evict();
-        }
-        break;
-      }
-      case EvictTriggerMode::FREE_MEM: {
-        // For free mem eviction, all conditions checked in frontend, no check
-        // option in backend
-        return;
-      }
-      default:
-        break;
     }
   }
 
@@ -3755,7 +3712,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<int64_t> sub_table_hash_cumsum_;
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
-  std::atomic<int> current_iter_{0};
   const bool is_training_;
 
   // perf stats

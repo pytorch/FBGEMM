@@ -1525,8 +1525,6 @@ class SingleViewKVDB : public kv_db::EmbeddingKVDB {
 
   void compact() override {}
 
-  void maybe_evict() override {}
-
   std::atomic<int64_t> fetches{0};
 
  private:

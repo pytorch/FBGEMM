@@ -16,6 +16,7 @@ Tests cover:
 - EnrichmentPolicy.validate() behavior
 - KVZCHParams.validate() behavior
 - BackendType.from_str() behavior
+- Field order of the config NamedTuples
 """
 
 import unittest
@@ -286,6 +287,73 @@ class KVZCHParamsValidateTest(unittest.TestCase):
         )
         with self.assertRaises(AssertionError):
             params.validate()
+
+
+# Field order before rank-coordinated eviction. NamedTuples are constructed and
+# pickled by position, so these must stay a prefix of the current fields.
+_EVICTION_POLICY_FIELDS_V1: tuple[str, ...] = (
+    "eviction_trigger_mode",
+    "eviction_strategy",
+    "eviction_step_intervals",
+    "eviction_mem_threshold_gb",
+    "counter_thresholds",
+    "ttls_in_mins",
+    "counter_decay_rates",
+    "feature_score_counter_decay_rates",
+    "training_id_eviction_trigger_count",
+    "training_id_keep_count",
+    "l2_weight_thresholds",
+    "threshold_calculation_bucket_stride",
+    "threshold_calculation_bucket_num",
+    "interval_for_insufficient_eviction_s",
+    "interval_for_sufficient_eviction_s",
+    "interval_for_feature_statistics_decay_s",
+    "meta_header_lens",
+    "eviction_free_mem_threshold_gb",
+    "eviction_free_mem_check_interval_batch",
+    "enable_eviction_for_feature_score_eviction_policy",
+    "enable_ssd_writeback",
+)
+_KVZCH_TBE_CONFIG_FIELDS_V1: tuple[str, ...] = (
+    "kvzch_eviction_trigger_mode",
+    "eviction_free_mem_threshold_gb",
+    "eviction_free_mem_check_interval_batch",
+    "threshold_calculation_bucket_stride",
+    "threshold_calculation_bucket_num",
+    "load_ckpt_without_opt",
+    "optimizer_type_for_st",
+    "optimizer_state_dtypes_for_st",
+    "enrichment_policy",
+)
+
+
+class ConfigFieldOrderTest(unittest.TestCase):
+    """New fields are appended, so values stored by position keep their field."""
+
+    def test_earlier_fields_keep_their_positions(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EvictionPolicy, KVZCHTBEConfig
+
+        for cls, v1 in (
+            (EvictionPolicy, _EVICTION_POLICY_FIELDS_V1),
+            (KVZCHTBEConfig, _KVZCH_TBE_CONFIG_FIELDS_V1),
+        ):
+            with self.subTest(cls=cls.__name__):
+                self.assertEqual(cls._fields[: len(v1)], v1)
+
+    def test_a_v1_positional_value_tuple_loads_with_new_fields_defaulted(
+        self,
+    ) -> None:
+        from fbgemm_gpu.tbe.ssd import KVZCHTBEConfig
+
+        v1_defaults = tuple(
+            KVZCHTBEConfig._field_defaults[f] for f in _KVZCH_TBE_CONFIG_FIELDS_V1
+        )
+        # Unpickling a v1 instance constructs it from its values by position.
+        loaded = KVZCHTBEConfig(*v1_defaults)
+        self.assertEqual(loaded.threshold_calculation_bucket_stride, 0.2)
+        self.assertEqual(loaded.threshold_calculation_bucket_num, 1000000)
+        self.assertIsNone(loaded.eviction_insufficient_backoff_batch)
+        self.assertIsNone(loaded.eviction_free_mem_floor_gb)
 
 
 class BackendTypeFromStrTest(unittest.TestCase):
