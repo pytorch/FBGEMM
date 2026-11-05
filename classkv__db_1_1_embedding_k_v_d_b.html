@@ -129,8 +129,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ac7915f47cef0152710d8e819974ae66e" id="r_ac7915f47cef0152710d8e819974ae66e"><td class="memItemLeft">virtual std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ac7915f47cef0152710d8e819974ae66e">fetch_sids_sync</a> (at::Tensor, at::Tensor, at::Tensor)</td></tr>
 <tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
 <tr class="memitem:aa6c61b95631616bb7a5e7ec16586a09b" id="r_aa6c61b95631616bb7a5e7ec16586a09b"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aa6c61b95631616bb7a5e7ec16586a09b">get_cuda_with_found_mask</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const at::Tensor &amp;found_mask)</td></tr>
-<tr class="memitem:a15046e704688bd9fc930567ec176e866" id="r_a15046e704688bd9fc930567ec176e866"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a15046e704688bd9fc930567ec176e866">maybe_evict</a> ()</td></tr>
 <tr class="memitem:a9ef4e4f1a94c7994e58011a3c276c9cf" id="r_a9ef4e4f1a94c7994e58011a3c276c9cf"><td class="memItemLeft">virtual size_t&#160;</td><td class="memItemRight"><a class="el" href="#a9ef4e4f1a94c7994e58011a3c276c9cf">get_map_used_memsize_in_bytes</a> () const</td></tr>
+<tr class="memitem:a9d03e42ff807a393b1045399e6f0819e" id="r_a9d03e42ff807a393b1045399e6f0819e"><td class="memItemLeft">virtual void&#160;</td><td class="memItemRight"><a class="el" href="#a9d03e42ff807a393b1045399e6f0819e">trigger_feature_evict</a> (bool force=false)</td></tr>
+<tr class="memitem:a2346106191f513aefac487c13978ee19" id="r_a2346106191f513aefac487c13978ee19"><td class="memItemLeft">virtual std::tuple&lt; bool, bool, int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a2346106191f513aefac487c13978ee19">should_trigger_evict</a> (int64_t, int64_t)</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft">std::vector&lt; double &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
 <tr class="memitem:a0496498b933dbcb6cfa7a6623df15bc0" id="r_a0496498b933dbcb6cfa7a6623df15bc0"><td class="memItemLeft">virtual bool&#160;</td><td class="memItemRight"><a class="el" href="#a0496498b933dbcb6cfa7a6623df15bc0">l2_eviction_write_back_enabled</a> () const</td></tr>
 <tr class="memitem:aaebbc42c26c398bec2abb2614bfaeffa" id="r_aaebbc42c26c398bec2abb2614bfaeffa"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aaebbc42c26c398bec2abb2614bfaeffa">invalidate_l2_cache</a> ()</td></tr>
@@ -606,36 +607,6 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 
 </div>
 </div>
-<a id="a15046e704688bd9fc930567ec176e866" name="a15046e704688bd9fc930567ec176e866"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a15046e704688bd9fc930567ec176e866">&#9670;&#160;</a></span>maybe_evict()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">virtual void maybe_evict </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>Potentially evict features based on configured strategy. </p>
-<p>This method is called in between get and set to check if feature eviction should be triggered based on the configured eviction strategy. </p>
-
-<p>Reimplemented in <a class="el" href="classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#a089b321f90b6319a7c99cf01406cbd76">DramSsdKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a089b321f90b6319a7c99cf01406cbd76">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
-
-</div>
-</div>
 <a id="aa3aa254d79fa50d50e96756c84c24023" name="aa3aa254d79fa50d50e96756c84c24023"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aa3aa254d79fa50d50e96756c84c24023">&#9670;&#160;</a></span>resize_l2_cache_for_testing()</h2>
 
@@ -758,6 +729,75 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 <p>Writes rows into an embedding cache through its enrichment write path. Only the DRAM KV cache implements it; elsewhere it logs and returns. </p>
 
 <p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a58eb28cfbab45e80e851ce501f8e4406">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a2346106191f513aefac487c13978ee19" name="a2346106191f513aefac487c13978ee19"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2346106191f513aefac487c13978ee19">&#9670;&#160;</a></span>should_trigger_evict()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual std::tuple&lt; bool, bool, int64_t &gt; should_trigger_evict </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em></em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em></em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Whether this backend wants a new eviction round, whether no round is in flight, and the reading the decision was made on (step, used bytes, row count of the fullest count-bound table, or free bytes; diagnostic only). <span class="tt">step</span> is the caller's logical step, not the backend's lookup count. </p>
+<p>Backends that do not self-evict return {false, true, 0}: no demand, and neutral in the caller's cross-rank AND of <span class="tt">idle</span>. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#a0a133e05fcf768611f2cca9f1d84bc67">DramSsdKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a0a133e05fcf768611f2cca9f1d84bc67">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a9d03e42ff807a393b1045399e6f0819e" name="a9d03e42ff807a393b1045399e6f0819e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9d03e42ff807a393b1045399e6f0819e">&#9670;&#160;</a></span>trigger_feature_evict()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void trigger_feature_evict </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>force</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Start a new eviction round. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">force</td><td>skip the backend's local min-interval gate, for a caller that has already decided across ranks to start the round; re-checking the local wall clock would let some ranks drop it. A round in flight still makes the call a no-op. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p>Reimplemented in <a class="el" href="classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#a2cfdd9b35d0899e30e21d9a6d2199925">DramSsdKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a2cfdd9b35d0899e30e21d9a6d2199925">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
 
 </div>
 </div>

@@ -122,7 +122,8 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a8e520bb5547ea9d92b7844678de8ab74" id="r_a8e520bb5547ea9d92b7844678de8ab74"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a8e520bb5547ea9d92b7844678de8ab74">set_range_to_storage</a> (const at::Tensor &amp;weights_with_metaheader, const int64_t, const int64_t) override</td></tr>
 <tr class="memitem:a4713eaf659931b4173b94ae71633facd" id="r_a4713eaf659931b4173b94ae71633facd"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a4713eaf659931b4173b94ae71633facd">set_embedding_cache_enrich_query_id_async</a> (at::Tensor hashed_indices, at::Tensor unhashed_indices, at::Tensor count) override</td></tr>
 <tr class="memitem:aa8c1bbe2a7ab1e8e1d54118019abca60" id="r_aa8c1bbe2a7ab1e8e1d54118019abca60"><td class="memItemLeft">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight"><a class="el" href="#aa8c1bbe2a7ab1e8e1d54118019abca60">fetch_sids_sync</a> (at::Tensor hashed_indices, at::Tensor unhashed_indices, at::Tensor count) override</td></tr>
-<tr class="memitem:a089b321f90b6319a7c99cf01406cbd76" id="r_a089b321f90b6319a7c99cf01406cbd76"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a089b321f90b6319a7c99cf01406cbd76">maybe_evict</a> () override</td></tr>
+<tr class="memitem:a2cfdd9b35d0899e30e21d9a6d2199925" id="r_a2cfdd9b35d0899e30e21d9a6d2199925"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a2cfdd9b35d0899e30e21d9a6d2199925">trigger_feature_evict</a> (bool force=false) override</td></tr>
+<tr class="memitem:a0a133e05fcf768611f2cca9f1d84bc67" id="r_a0a133e05fcf768611f2cca9f1d84bc67"><td class="memItemLeft">std::tuple&lt; bool, bool, int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a0a133e05fcf768611f2cca9f1d84bc67">should_trigger_evict</a> (int64_t step, int64_t free_mem_bytes) override</td></tr>
 <tr class="memitem:ab046b99f3345b44e6ff583b776c4a3d1" id="r_ab046b99f3345b44e6ff583b776c4a3d1"><td class="memItemLeft">size_t&#160;</td><td class="memItemRight"><a class="el" href="#ab046b99f3345b44e6ff583b776c4a3d1">get_map_used_memsize_in_bytes</a> () const override</td></tr>
 <tr class="memitem:abb378d263344dcbb5503538a0bcf1a4d" id="r_abb378d263344dcbb5503538a0bcf1a4d"><td class="memItemLeft">bool&#160;</td><td class="memItemRight"><a class="el" href="#abb378d263344dcbb5503538a0bcf1a4d">get_backend_return_whole_row</a> () override</td></tr>
 <tr class="memitem:ac0b1c78ca6654c816aa9084241ee3e69" id="r_ac0b1c78ca6654c816aa9084241ee3e69"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ac0b1c78ca6654c816aa9084241ee3e69">get_range_from_snapshot</a> (const at::Tensor &amp;weights, const int64_t start, const int64_t length, const ssd::SnapshotHandle *snapshot_handle, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt) override</td></tr>
@@ -476,38 +477,6 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
-<a id="a089b321f90b6319a7c99cf01406cbd76" name="a089b321f90b6319a7c99cf01406cbd76"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a089b321f90b6319a7c99cf01406cbd76">&#9670;&#160;</a></span>maybe_evict()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename weight_type&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">void maybe_evict </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>Potentially evict features based on configured strategy. </p>
-<p>This method is called in between get and set to check if feature eviction should be triggered based on the configured eviction strategy. </p>
-
-<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a15046e704688bd9fc930567ec176e866">EmbeddingKVDB</a>.</p>
-
-</div>
-</div>
 <a id="a04a1e1d229422af61bd46809441b21bd" name="a04a1e1d229422af61bd46809441b21bd"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a04a1e1d229422af61bd46809441b21bd">&#9670;&#160;</a></span>set_after_metadata_snapshot_hook_for_testing()</h2>
 
@@ -611,6 +580,79 @@ template&lt;typename weight_type&gt; </div>
 <p>Checkpoint restore writes directly to SSD, bypassing DRAM allocation. For KVZCH (backend_return_whole_row), the correct linearized IDs are already embedded in the first 8 bytes of each weight row by KVTensorWrapper::set_range() via replace_weights_id(). We extract them here rather than using the <span class="tt">start</span> parameter, which is PMT_offset + row_offset_ and can be very negative for later shards. </p>
 
 <p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="a0a133e05fcf768611f2cca9f1d84bc67" name="a0a133e05fcf768611f2cca9f1d84bc67"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0a133e05fcf768611f2cca9f1d84bc67">&#9670;&#160;</a></span>should_trigger_evict()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::tuple&lt; bool, bool, int64_t &gt; should_trigger_evict </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>step</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>free_mem_bytes</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Whether this backend wants a new eviction round, whether no round is in flight, and the reading the decision was made on (step, used bytes, row count of the fullest count-bound table, or free bytes; diagnostic only). <span class="tt">step</span> is the caller's logical step, not the backend's lookup count. </p>
+<p>Backends that do not self-evict return {false, true, 0}: no demand, and neutral in the caller's cross-rank AND of <span class="tt">idle</span>. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a2346106191f513aefac487c13978ee19">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="a2cfdd9b35d0899e30e21d9a6d2199925" name="a2cfdd9b35d0899e30e21d9a6d2199925"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2cfdd9b35d0899e30e21d9a6d2199925">&#9670;&#160;</a></span>trigger_feature_evict()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void trigger_feature_evict </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>force</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Start a new eviction round. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">force</td><td>skip the backend's local min-interval gate, for a caller that has already decided across ranks to start the round; re-checking the local wall clock would let some ranks drop it. A round in flight still makes the call a no-op. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a9d03e42ff807a393b1045399e6f0819e">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>
