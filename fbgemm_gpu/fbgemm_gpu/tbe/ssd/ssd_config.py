@@ -467,6 +467,12 @@ class KVZCHTBEConfig(NamedTuple):
     eviction_check_interval_batch: int | None = None
     eviction_insufficient_backoff_batch: int | None = None
     eviction_free_mem_floor_gb: int | None = None
+    # Steps between rounds in iteration mode (1); EvictionPolicy.validate()
+    # requires it there.
+    eviction_step_intervals: int | None = None
+    # DRAM usage (GB) above which mem_util (2) triggers. None reuses
+    # l2_cache_size, as before.
+    eviction_mem_threshold_gb: int | None = None
 
 
 class BackendType(enum.IntEnum):
