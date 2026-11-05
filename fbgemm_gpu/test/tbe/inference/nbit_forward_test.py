@@ -151,12 +151,6 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
             "Operator outputs int4 tensors which do not support opcheck tests"
         ),
     ],
-    "test_faketensor__test_nbit_forward_fused_pooled_emb_quant_nan_weighted": [
-        unittest.skip("Operator not implemented for fake tensors"),
-    ],
-    "test_faketensor__test_nbit_forward_nan_zero_fill": [
-        unittest.skip("Operator not implemented for fake tensors"),
-    ],
 }
 
 

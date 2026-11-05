@@ -32,16 +32,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
   m.def("copy_to_shared(Tensor t) -> ()", TORCH_FN(copy_to_shared));
-  m.def(
-      "initialize_nan_shared_mem(int device_index) -> ()",
-      TORCH_FN(initialize_nan_shared_mem));
 
   DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
   DISPATCH_TO_CUDA("new_host_mapped_tensor", new_host_mapped_tensor);
   DISPATCH_TO_CUDA("new_unified_tensor", new_unified_tensor);
   DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
   DISPATCH_TO_CUDA("copy_to_shared", copy_to_shared);
-  DISPATCH_TO_CUDA("initialize_nan_shared_mem", initialize_nan_shared_mem);
   DISPATCH_TO_CUDA("uvm_storage", uvm_storage_cuda);
   DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu_cuda);
   DISPATCH_TO_CUDA("uvm_to_cpu_clone", uvm_to_cpu_clone_cuda);
@@ -51,6 +47,21 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // in which torch will dispatch to CPU, but it should resolve to CUDA/MTIA
   // implementation.
   DISPATCH_TO_CPU("uvm_storage", uvm_storage_cuda);
+}
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
+  m.def("initialize_nan_shared_mem(int device_index) -> ()");
+  m.impl(
+      "initialize_nan_shared_mem",
+      torch::dispatch(
+          c10::DispatchKey::BackendSelect,
+          TORCH_FN(initialize_nan_shared_mem)));
+  DISPATCH_TO_CUDA("initialize_nan_shared_mem", initialize_nan_shared_mem);
 }
 
 } // namespace fbgemm_gpu
