@@ -19,6 +19,7 @@ that domain. A model runs a single trigger mode, so the case that matters is two
 same-mode TBEs with different per-table budgets.
 """
 
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -49,6 +50,7 @@ def _eviction_policy(
     *,
     trigger_count: int = 0,
     free_mem_threshold_gb: int = 1,
+    second_table_ttl_mins: int = 0,
     interval_for_sufficient_eviction_s: int = 60,
     free_mem_floor_gb: int = 0,
 ) -> EvictionPolicy:
@@ -60,7 +62,7 @@ def _eviction_policy(
         training_id_eviction_trigger_count=[trigger_count] * _NUM_TABLES,
         training_id_keep_count=[max(trigger_count // 2, 1)] * _NUM_TABLES,
         feature_score_counter_decay_rates=[0.99] * _NUM_TABLES,
-        ttls_in_mins=[0] * _NUM_TABLES,
+        ttls_in_mins=[0] * (_NUM_TABLES - 1) + [second_table_ttl_mins],
         enable_eviction_for_feature_score_eviction_policy=[True] * _NUM_TABLES,
         interval_for_sufficient_eviction_s=interval_for_sufficient_eviction_s,
         # Off by default so that the isolation tests do not depend on this
@@ -73,7 +75,7 @@ def _eviction_policy(
 @unittest.skipIf(_OPEN_SOURCE, "DRAM KV backend is not built in OSS")
 class EvictionDomainTBETest(unittest.TestCase):
     def _make_tbe(
-        self, trigger_mode: int, **kwargs: int
+        self, trigger_mode: int, backend_return_whole_row: bool = False, **kwargs: int
     ) -> SSDTableBatchedEmbeddingBags:
         return SSDTableBatchedEmbeddingBags(
             embedding_specs=[(_ROWS, _DIM)] * _NUM_TABLES,
@@ -88,13 +90,16 @@ class EvictionDomainTBETest(unittest.TestCase):
             backend_type=BackendType.DRAM,
             kv_zch_params=KVZCHParams(
                 enable_optimizer_offloading=True,
+                backend_return_whole_row=backend_return_whole_row,
                 # pyre-ignore[6]: EvictionPolicy is the expected type here
                 eviction_policy=_eviction_policy(trigger_mode, **kwargs),
             ),
         ).train()
 
-    def _populate(self, tbe: SSDTableBatchedEmbeddingBags, count: int) -> None:
-        indices = torch.arange(count, dtype=torch.long)
+    def _populate(
+        self, tbe: SSDTableBatchedEmbeddingBags, count: int, table: int = 0
+    ) -> None:
+        indices = torch.arange(count, dtype=torch.long) + table * _ROWS
         # Optimizer offloading packs momentum into the same row, so the backend
         # expects cache_row_dim wide rows rather than _DIM wide ones.
         weights = torch.ones(count, tbe.cache_row_dim, dtype=torch.float)
@@ -111,6 +116,37 @@ class EvictionDomainTBETest(unittest.TestCase):
         self.assertEqual(reading, 64)
         self.assertTrue(wants)
         self.assertTrue(gate_open)
+
+    def test_backend_reports_whether_restore_keeps_row_timestamps(self) -> None:
+        # Only the whole-row restore copies the checkpointed timestamps, and
+        # the restamp opt-in overwrites them.
+        for whole_row, restamp, expected in [
+            (True, False, True),
+            (True, True, False),
+            (False, False, False),
+        ]:
+            with self.subTest(whole_row=whole_row, restamp=restamp):
+                with patch.dict(os.environ):
+                    os.environ.pop("KVZCH_RESTAMP_ON_RESTORE", None)
+                    if restamp:
+                        os.environ["KVZCH_RESTAMP_ON_RESTORE"] = "1"
+                    tbe = self._make_tbe(
+                        4, backend_return_whole_row=whole_row, trigger_count=10
+                    )
+                self.assertEqual(tbe.ssd_db.restores_row_timestamps(), expected)
+
+    def test_id_count_ignores_ttl_tables(self) -> None:
+        # Table 1 has a TTL: no count trim can shrink it, so however far past
+        # its trigger count it grows, it must neither demand a round nor show
+        # up in the reading.
+        tbe = self._make_tbe(4, trigger_count=10, second_table_ttl_mins=60)
+        self._populate(tbe, 8, table=0)
+        self._populate(tbe, 64, table=1)
+
+        self.assertEqual(tbe.ssd_db.should_trigger_evict(1, 0), (False, True, 8))
+
+        self._populate(tbe, 11, table=0)
+        self.assertEqual(tbe.ssd_db.should_trigger_evict(2, 0), (True, True, 11))
 
     def test_gate_reopens_when_a_round_finishes(self) -> None:
         # The wall-clock interval only gates uncoordinated rounds; a
