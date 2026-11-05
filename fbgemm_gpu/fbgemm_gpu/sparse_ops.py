@@ -521,6 +521,11 @@ def pruned_hashmap_lookup_meta(
     return torch.empty_like(indices)
 
 
+def initialize_nan_shared_mem_meta(device_index: int) -> None:
+    # Shared-memory poisoning has no effect on symbolic tensor metadata.
+    return None
+
+
 def pruned_array_lookup_meta(
     indices: Tensor,
     offsets: Tensor,
@@ -1616,6 +1621,11 @@ def _setup() -> None:
             direct_mapped_lxu_cache_lookup_meta,
         )
         impl_abstract("fbgemm::pruned_hashmap_lookup", pruned_hashmap_lookup_meta)
+        if hasattr(torch.ops.fbgemm, "initialize_nan_shared_mem"):
+            impl_abstract(
+                "fbgemm::initialize_nan_shared_mem",
+                initialize_nan_shared_mem_meta,
+            )
         impl_abstract("fbgemm::pruned_array_lookup", pruned_array_lookup_meta)
         impl_abstract(
             "fbgemm::int_nbit_split_embedding_codegen_lookup_function",
