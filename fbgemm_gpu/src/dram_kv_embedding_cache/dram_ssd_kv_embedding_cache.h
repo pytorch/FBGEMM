@@ -444,10 +444,6 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
 
   // --- Eviction delegation ---
 
-  void maybe_evict() override {
-    dram_cache_->maybe_evict();
-  }
-
   void trigger_feature_evict(bool force = false) override {
     dram_cache_->trigger_feature_evict(force);
   }
