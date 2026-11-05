@@ -163,9 +163,10 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     // threads-per-launch limit, so we grid-stride to cover the full workload.
     // On CUDA the grid is not capped and the loop body runs once per warp.
 #ifdef USE_ROCM
-    for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    for (int64_t b_t =
+             static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
          b_t < offsets.size(0) - 1;
-         b_t += blockDim.y * gridDim.x) {
+         b_t += static_cast<int64_t>(blockDim.y) * gridDim.x) {
 #else
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     if (b_t >= offsets.size(0) - 1) {
@@ -197,8 +198,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     const auto L = indices_end - indices_start;
     if (feature_requires_grad.size(0) > 0 && !feature_requires_grad[t]) {
         // If the table does not require gradient computation, we set the gradient to zero.
-        for (auto l_start = 0; l_start < L; l_start += kWarpSize) {
-            auto l = l_start + threadIdx.x;
+        for (int64_t l_start = 0; l_start < L; l_start += kWarpSize) {
+            const int64_t l = l_start + threadIdx.x;
             if (l < L) {
                 grad_indice_weights[indices_start + l] = 0.0;
             }
@@ -242,15 +243,16 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- endif %}
 
     Vec4TAcc<cache_t> grad_out[kFixedMaxVecsPerThread];
+    const int32_t thread_idx = static_cast<int32_t>(threadIdx.x);
 
     {%- if use_vec_blocking %}
     const int32_t num_vecs = div_round_up(D, kWarpSize * kVecWidth);
     for (int32_t vec_start = 0;
          vec_start < num_vecs;
          vec_start += kFixedMaxVecsPerThread) {
-        {%- set d = "(kWarpSize * (vec + vec_start) + threadIdx.x) * kVecWidth" %}
+        {%- set d = "(kWarpSize * (vec + vec_start) + thread_idx) * kVecWidth" %}
     {%- else %}
-        {%- set d = "(kWarpSize * vec + threadIdx.x) * kVecWidth" %}
+        {%- set d = "(kWarpSize * vec + thread_idx) * kVecWidth" %}
     {%- endif %} {# /* if use_vec_blocking */ #}
 
         // Load gradients
@@ -263,8 +265,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
             grad_out[vec] = go;
         }
 
-        for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-            auto l = l_start + threadIdx.x;
+        for (int64_t l_start = 0; l_start < L; l_start += kWarpSize) {
+            const int64_t l = l_start + threadIdx.x;
             const auto offset_idx = l < L
                 ? (static_cast<overflow_safe_int_t>(indices[indices_start + l]) * D_emb)
                 : 0;
@@ -303,8 +305,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     const auto weight_row3 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j3], D);
 
                     #pragma unroll kFixedMaxVecsPerThread
-                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + threadIdx.x) * kVecWidth < D; ++vec) {
-                        const int32_t d = (kWarpSize * vec + threadIdx.x) * kVecWidth;
+                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + thread_idx) * kVecWidth < D; ++vec) {
+                        const int32_t d = (kWarpSize * vec + thread_idx) * kVecWidth;
 
                         Vec4T<at::acc_type<cache_t, true>> weight0, weight1, weight2, weight3;
                         weight0 = weight_row0.load(d);
@@ -357,8 +359,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     const auto weight_row3 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j3], D);
 
                     #pragma unroll kFixedMaxVecsPerThread
-                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + threadIdx.x) * kVecWidth < D; ++vec) {
-                        const int32_t d = (kWarpSize * vec + threadIdx.x) * kVecWidth;
+                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + thread_idx) * kVecWidth < D; ++vec) {
+                        const int32_t d = (kWarpSize * vec + thread_idx) * kVecWidth;
 
                         Vec4T<at::acc_type<cache_t, true>> weight0, weight1, weight2, weight3;
                         weight0 = (cache_idx_j0 != kCacheLocationMissing) ?
