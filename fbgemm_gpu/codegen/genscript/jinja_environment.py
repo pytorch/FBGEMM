@@ -142,13 +142,16 @@ def generate_optimized_grad_sum_loop_access(
     smem_blob = blob.format(grad_vec="smem_grad_sum[d_vec]")
     reg_blob = blob.format(grad_vec="grad_sum[vec]")
     gen_blob = """
+    {
+    const int32_t loop_thread_idx = static_cast<int32_t>(threadIdx.x);
     if constexpr (kUseVecBlocking) {
         // max_vecs is not known at compile time
         for (int32_t vec = 0;
             vec < max_vecs &&
-            (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+            (kThreadGroupSize * vec + loop_thread_idx) * VEC_WIDTH < D;
             ++vec) {
-            const int32_t d_vec = vec * kThreadGroupSize + threadIdx.x;
+            const int32_t d_vec =
+                vec * kThreadGroupSize + loop_thread_idx;
             [[maybe_unused]] const int32_t d = d_vec * VEC_WIDTH;
             {smem_blob}
         }
@@ -158,12 +161,14 @@ def generate_optimized_grad_sum_loop_access(
         #pragma unroll kFixedMaxVecsPerThread
         for (int32_t vec = 0;
             vec < kFixedMaxVecsPerThread
-                && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+                && (kThreadGroupSize * vec + loop_thread_idx) * VEC_WIDTH < D;
             ++vec) {
-            const int32_t d_vec = vec * kThreadGroupSize + threadIdx.x;
+            const int32_t d_vec =
+                vec * kThreadGroupSize + loop_thread_idx;
             [[maybe_unused]] const int32_t d = d_vec * VEC_WIDTH;
             {reg_blob}
         }
+    }
     }
     """
     gen_blob = prepare_string_for_formatting(gen_blob, ["smem_blob", "reg_blob"])

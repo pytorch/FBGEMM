@@ -79,9 +79,6 @@ NAN_ZERO_FILL_CASES: list[tuple[str, SparseType, int, SparseType, bool]] = [
 
 # pyre-ignore
 additional_decorators: dict[str, list[Callable[..., Any]]] = {
-    "test_faketensor__test_nbit_forward_uvm_cache": [
-        unittest.skip("CUDA Assert"),
-    ],
     "test_faketensor__test_nbit_forward_cpu": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
@@ -153,12 +150,6 @@ additional_decorators: dict[str, list[Callable[..., Any]]] = {
         unittest.skip(
             "Operator outputs int4 tensors which do not support opcheck tests"
         ),
-    ],
-    "test_faketensor__test_nbit_forward_fused_pooled_emb_quant_nan_weighted": [
-        unittest.skip("Operator not implemented for fake tensors"),
-    ],
-    "test_faketensor__test_nbit_forward_nan_zero_fill": [
-        unittest.skip("Operator not implemented for fake tensors"),
     ],
 }
 
