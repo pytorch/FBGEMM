@@ -458,6 +458,12 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     return dram_cache_->last_eviction_sufficient();
   }
 
+  // Restore writes the checkpointed rows to SSD without restamping them, and a
+  // STREAM write copies an SSD row's metaheader into DRAM.
+  bool restores_row_timestamps() const override {
+    return true;
+  }
+
   bool is_evicting() override {
     return dram_cache_->is_evicting();
   }

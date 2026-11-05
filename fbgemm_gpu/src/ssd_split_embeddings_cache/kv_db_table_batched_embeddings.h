@@ -439,8 +439,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /**
    * @brief Whether this backend wants a new eviction round, whether no round
    * is in flight, and the reading the decision was made on (step, used bytes,
-   * row count or free bytes; diagnostic only). `step` is the caller's logical
-   * step, not the backend's lookup count.
+   * row count of the fullest count-bound table, or free bytes; diagnostic
+   * only). `step` is the caller's logical step, not the backend's lookup count.
    *
    * Backends that do not self-evict return {false, true, 0}: no demand, and
    * neutral in the caller's cross-rank AND of `idle`.
@@ -458,6 +458,16 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
    */
   virtual bool last_eviction_sufficient() {
     return true;
+  }
+
+  /**
+   * @brief Whether a checkpoint restore keeps the row timestamps saved in the
+   * checkpoint. If false, every row in memory after a restore is stamped no
+   * earlier than the restore, so no row can be past its TTL until a full TTL
+   * has elapsed.
+   */
+  virtual bool restores_row_timestamps() const {
+    return false;
   }
 
   virtual bool is_evicting();

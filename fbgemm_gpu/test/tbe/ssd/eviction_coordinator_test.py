@@ -39,6 +39,7 @@ class _FakeBackend:
         self.gate_open = gate_open
         self.reading = reading
         self.sufficient = True
+        self.restores_timestamps = False
         self.trigger_forces: list[bool] = []
         self.checked_inputs: list[tuple[int, int]] = []
 
@@ -53,6 +54,9 @@ class _FakeBackend:
 
     def last_eviction_sufficient(self) -> bool:
         return self.sufficient
+
+    def restores_row_timestamps(self) -> bool:
+        return self.restores_timestamps
 
 
 class _FakeTBE:
@@ -69,11 +73,13 @@ class _FakeTBE:
         backoff: int = 1,
         floor: int = 0,
         name: str | None = None,
+        ttl_sweep_interval_s: float | None = None,
     ) -> None:
         self.ssd_db = _FakeBackend(wants_eviction, gate_open, reading)
         self.check_interval = check_interval
         self.eviction_insufficient_backoff_batch = backoff
         self.eviction_free_mem_floor_bytes = floor
+        self.eviction_ttl_sweep_interval_s = ttl_sweep_interval_s
         self.automatic = automatic
         self.free_memory_trigger = free_memory_trigger
         self.name: str = name or f"fake{next(_FakeTBE._names)}"
@@ -845,6 +851,7 @@ class InsufficientEvictionBackoffTest(unittest.TestCase):
         tbe = types.SimpleNamespace(
             _eviction_check_interval=SSDTableBatchedEmbeddingBags._eviction_check_interval,
             _eviction_free_mem_floor_bytes=SSDTableBatchedEmbeddingBags._eviction_free_mem_floor_bytes,
+            _eviction_ttl_sweep_interval_s=SSDTableBatchedEmbeddingBags._eviction_ttl_sweep_interval_s,
         )
         SSDTableBatchedEmbeddingBags.set_eviction_trigger_config(
             tbe,  # pyre-ignore[6]
@@ -868,6 +875,7 @@ class InsufficientEvictionBackoffTest(unittest.TestCase):
         tbe = types.SimpleNamespace(
             _eviction_check_interval=SSDTableBatchedEmbeddingBags._eviction_check_interval,
             _eviction_free_mem_floor_bytes=SSDTableBatchedEmbeddingBags._eviction_free_mem_floor_bytes,
+            _eviction_ttl_sweep_interval_s=SSDTableBatchedEmbeddingBags._eviction_ttl_sweep_interval_s,
         )
         SSDTableBatchedEmbeddingBags.set_eviction_trigger_config(
             tbe,  # pyre-ignore[6]
@@ -1174,6 +1182,80 @@ class FreeMemoryFloorTest(unittest.TestCase):
                 ),
                 50 * _GB,
             )
+
+
+class TtlSweepTest(unittest.TestCase):
+    def _sweep_times(
+        self, times: list[float], restores_timestamps: bool = False
+    ) -> list[float]:
+        coordinator = EvictionCoordinator()
+        tbe = _FakeTBE(wants_eviction=False, gate_open=True, ttl_sweep_interval_s=60)
+        tbe.ssd_db.restores_timestamps = restores_timestamps
+        coordinator.register(tbe, None)
+        swept = []
+        for step, now in enumerate(times, start=1):
+            before = len(tbe.ssd_db.trigger_forces)
+            with patch("time.monotonic", return_value=now):
+                _check(coordinator, step)
+            if len(tbe.ssd_db.trigger_forces) > before:
+                swept.append(now)
+        return swept
+
+    def test_ttl_sweep_runs_once_per_interval_without_demand(self) -> None:
+        # The first check starts the clock, and each sweep restarts it.
+        self.assertEqual(
+            self._sweep_times([0.0, 59.0, 60.0, 100.0, 119.0, 120.0]),
+            [60.0, 120.0],
+        )
+
+    def test_restarted_job_sweeps_on_its_first_check_if_timestamps_restored(
+        self,
+    ) -> None:
+        # Restored rows may already be past their TTL, and a job preempted more
+        # often than the interval must still sweep them.
+        for _ in range(3):
+            self.assertEqual(
+                self._sweep_times([0.0, 59.0], restores_timestamps=True), [0.0]
+            )
+
+    def test_restarted_job_starts_the_clock_if_restore_restamps(self) -> None:
+        # Every row is younger than the process, so the first check sweeps
+        # nothing and only starts the clock.
+        for _ in range(3):
+            self.assertEqual(self._sweep_times([0.0, 59.0]), [])
+        self.assertEqual(self._sweep_times([0.0, 59.0, 60.0]), [60.0])
+
+    def test_tbe_without_ttl_sweep_never_sweeps(self) -> None:
+        coordinator = EvictionCoordinator()
+        tbe = _FakeTBE(wants_eviction=False, gate_open=True)
+        coordinator.register(tbe, None)
+        for step, now in enumerate([0.0, 1e6], start=1):
+            with patch("time.monotonic", return_value=now):
+                _check(coordinator, step)
+
+        self.assertEqual(tbe.ssd_db.trigger_forces, [])
+
+    def test_sweep_interval_resolution(self) -> None:
+        interval = SSDTableBatchedEmbeddingBags._eviction_ttl_sweep_interval_s
+
+        def policy(mode: int, ttls: list[int]) -> EvictionPolicy:
+            return EvictionPolicy(
+                eviction_trigger_mode=mode,
+                eviction_strategy=5,
+                eviction_free_mem_threshold_gb=100,
+                ttls_in_mins=ttls,
+                training_id_eviction_trigger_count=[10] * len(ttls),
+                training_id_keep_count=[5] * len(ttls),
+                feature_score_counter_decay_rates=[0.99] * len(ttls),
+                enable_eviction_for_feature_score_eviction_policy=[True] * len(ttls),
+            )
+
+        # Shortest TTL 60 min, swept 10 times per TTL.
+        self.assertEqual(interval(policy(4, [0, 60, 1440])), 360.0)
+        # Summed ID_COUNT already counts TTL rows; FREE_MEM is host-wide.
+        self.assertIsNone(interval(policy(4, [60, 1440])))
+        self.assertIsNone(interval(policy(4, [0, 0])))
+        self.assertIsNone(interval(policy(5, [0, 60])))
 
 
 if __name__ == "__main__":

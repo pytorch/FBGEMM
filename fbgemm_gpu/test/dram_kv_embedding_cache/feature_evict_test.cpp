@@ -1751,6 +1751,29 @@ c10::intrusive_ptr<FeatureEvictConfig> make_trigger_config(
       free_mem_threshold_gb);
 }
 
+c10::intrusive_ptr<FeatureEvictConfig> make_feature_score_id_count_config(
+    std::vector<int64_t> ttls_in_mins,
+    std::vector<int64_t> training_id_eviction_trigger_count,
+    std::vector<int8_t> enable_eviction) {
+  const size_t num_tables = ttls_in_mins.size();
+  return c10::make_intrusive<FeatureEvictConfig>(
+      static_cast<int64_t>(EvictTriggerMode::ID_COUNT),
+      static_cast<int64_t>(EvictTriggerStrategy::BY_FEATURE_SCORE),
+      std::nullopt, // trigger_step_interval
+      std::nullopt, // mem_util_threshold_in_GB
+      std::move(ttls_in_mins),
+      std::nullopt, // counter_thresholds
+      std::nullopt, // counter_decay_rates
+      std::vector<double>(num_tables, 0.9),
+      std::move(training_id_eviction_trigger_count),
+      std::vector<int64_t>(num_tables, 1), // training_id_keep_count
+      std::move(enable_eviction),
+      std::nullopt, // l2_weight_thresholds
+      std::nullopt, // embedding_dims
+      0.2,
+      10);
+}
+
 } // namespace
 
 TEST(ShouldTriggerTest, IterationFiresOnMultiplesOfInterval) {
@@ -1783,6 +1806,51 @@ TEST(ShouldTriggerTest, IdCountFiresOnSummedPerTableTriggerCount) {
 
   EXPECT_TRUE(should_trigger(*config, EvictTriggerInputs{.num_rows = 51}));
   EXPECT_FALSE(should_trigger(*config, EvictTriggerInputs{.num_rows = 50}));
+}
+
+TEST(ShouldTriggerTest, IdCountChecksEachCountBoundTableAgainstItsOwnBudget) {
+  // Table 2 has a TTL, so neither its rows nor its trigger count matter.
+  auto config = make_feature_score_id_count_config(
+      /*ttls_in_mins=*/{0, 0, 14 * 24 * 60},
+      /*training_id_eviction_trigger_count=*/{30, 20, 0},
+      /*enable_eviction=*/{1, 1, 0});
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.rows_per_table = {10, 21, 0}}));
+  EXPECT_FALSE(should_trigger(
+      *config, EvictTriggerInputs{.rows_per_table = {30, 20, 1'000'000'000}}));
+  // Without per-table rows, the TBE total is compared against the summed
+  // budget of the count-bound tables.
+  EXPECT_TRUE(should_trigger(*config, EvictTriggerInputs{.num_rows = 51}));
+  EXPECT_FALSE(should_trigger(*config, EvictTriggerInputs{.num_rows = 50}));
+}
+
+TEST(ShouldTriggerTest, IdCountOnTtlOnlyTbeKeepsSummedRule) {
+  auto config = make_feature_score_id_count_config(
+      /*ttls_in_mins=*/{60, 60},
+      /*training_id_eviction_trigger_count=*/{30, 20},
+      /*enable_eviction=*/{1, 1});
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.num_rows = 51, .rows_per_table = {0, 0}}));
+  EXPECT_FALSE(should_trigger(
+      *config,
+      EvictTriggerInputs{.num_rows = 50, .rows_per_table = {100, 100}}));
+}
+
+TEST(ShouldTriggerTest, IdCountRequiresBudgetOnCountBoundTables) {
+  EXPECT_THROW(
+      make_feature_score_id_count_config(
+          /*ttls_in_mins=*/{0, 60},
+          /*training_id_eviction_trigger_count=*/{0, 20},
+          /*enable_eviction=*/{1, 1}),
+      std::runtime_error);
+  EXPECT_THROW(
+      make_feature_score_id_count_config(
+          /*ttls_in_mins=*/{0, 60},
+          /*training_id_eviction_trigger_count=*/{30, 20},
+          /*enable_eviction=*/{0, 1}),
+      std::runtime_error);
 }
 
 TEST(ShouldTriggerTest, FreeMemFiresStrictlyBelowThreshold) {
@@ -1864,6 +1932,37 @@ TEST(FeatureEvictTest, ForcedTriggerBypassesIntervalGate) {
   EXPECT_TRUE(feature_evict->is_evicting());
   feature_evict->wait_until_eviction_done();
   EXPECT_FALSE(feature_evict->last_eviction_sufficient());
+}
+
+TEST(FeatureEvictTest, CountBoundRowsExcludeTtlTables) {
+  static constexpr int NUM_SHARDS = 4;
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {100, 300};
+  auto config = make_feature_score_id_count_config(
+      /*ttls_in_mins=*/{0, 60},
+      /*training_id_eviction_trigger_count=*/{50, 0},
+      /*enable_eviction=*/{1, 1});
+  auto feature_evict = create_feature_evict(
+      config, *kv_store_.get(), sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto* feature_score_evict =
+      dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  ASSERT_NE(feature_score_evict, nullptr);
+
+  for (int i = 0; i < 300; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* block = kv_store_->pool_by(shard_id)->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+    feature_score_evict->update_feature_score_statistics(
+        block, 0, shard_id, /*add_new_block=*/true);
+  }
+
+  EXPECT_EQ(
+      feature_evict->count_bound_rows_per_table(),
+      (std::vector<int64_t>{100, 0}));
 }
 
 namespace {

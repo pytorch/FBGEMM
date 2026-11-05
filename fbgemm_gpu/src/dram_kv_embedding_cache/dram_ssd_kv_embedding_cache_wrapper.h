@@ -307,6 +307,10 @@ class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->last_eviction_sufficient();
   }
 
+  bool restores_row_timestamps() {
+    return impl_->restores_row_timestamps();
+  }
+
   bool is_evicting() {
     return impl_->is_evicting();
   }
