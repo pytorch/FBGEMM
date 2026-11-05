@@ -71,6 +71,7 @@ def fp32_to_mx4(
     rounding_mode: RoundingMode | int | None = RoundingMode.even,
     stochastic_casting: bool = False,
     use_triton: bool = True,
+    out: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Quantize an FP32 tensor to MX4 with triton or native cuda impl.
 
@@ -83,6 +84,8 @@ def fp32_to_mx4(
         Only supported with use_triton=True.
         stochastic_casting (bool): Whether to use stochastic casting when downcasting.
         use_triton (bool): If set, use triton quantization, otherwise cuda.
+        out (torch.Tensor, optional): Flat uint8 tensor to write the result into.
+        The triton cuda kernel writes it directly; other paths copy.
 
     Return:
         output: MX4 tensor packed into int8 values with total elements (M / 2 + M / groupsize)
@@ -91,6 +94,18 @@ def fp32_to_mx4(
     # Operate on flattened input.
     if rounding_mode is None:
         rounding_mode = RoundingMode.even
+
+    if out is not None and not (use_triton and tensor.is_cuda):
+        result = fp32_to_mx4(
+            tensor,
+            group_size,
+            ebits,
+            mbits,
+            rounding_mode,
+            stochastic_casting,
+            use_triton,
+        )
+        return out.copy_(result.view(-1))
 
     if not tensor.is_cuda and not tensor.is_mtia:
         return py_quantize_mx4(
@@ -119,9 +134,11 @@ def fp32_to_mx4(
             mbits=mbits,
             rounding_mode=rounding_mode,
             stochastic_casting=stochastic_casting,
+            # quantize_mx4 may be the python fallback, which has no `out`.
+            **({} if out is None else {"out": out}),
         )
     else:
-        out = torch.ops.fbgemm.quantize_mx_cuda(
+        result = torch.ops.fbgemm.quantize_mx_cuda(
             tensor.flatten(),
             scale_bits=8,
             elem_ebits=2,
@@ -131,7 +148,7 @@ def fp32_to_mx4(
         )
         # Perserve input dimensions.
         output_shape = list(tensor.shape[:-1]) + [-1]
-        return out.view(output_shape)
+        return result.view(output_shape)
 
 
 def mx4_to_fp32(
@@ -163,6 +180,7 @@ def mx4_to_float(
     ebits: int = 2,
     mbits: int = 1,
     output_dtype: SparseType | None = None,
+    divisor: int | None = None,
 ) -> torch.Tensor:
     """Dequantize an MX4 tensor to FP32 or BF16 with triton or native cuda impl.
 
@@ -174,6 +192,8 @@ def mx4_to_float(
         mbits (int): Number of mantissa bits in target mx4 format.
         output_dtype (SparseType | None): Output dtype (FP32 or BF16).
             Defaults to None (FP32) for backward compatibility.
+        divisor (int | None): If set, the output is divided by it, bitwise identical to
+            output.div_(divisor). The triton cuda kernel fuses it; other paths call div_.
 
     Return:
         output: Tensor with dtype matching output_dtype and total elements (M).
@@ -191,6 +211,12 @@ def mx4_to_float(
         output_dtype.as_dtype() if output_dtype is not None else torch.float32
     )
 
+    if divisor is not None and not (use_triton and tensor.is_cuda):
+        result = mx4_to_float(
+            tensor, group_size, use_triton, ebits, mbits, output_dtype
+        )
+        return result.div_(divisor)
+
     # Accelerated MX4 dequantize is only available on cuda, if input is on cpu, use python.
     if not tensor.is_cuda and not tensor.is_mtia:
         result = py_dequantize_mx4(tensor, group_size, ebits=ebits, mbits=mbits)
@@ -201,7 +227,12 @@ def mx4_to_float(
                 tensor, group_size, ebits=ebits, mbits=mbits, output_dtype=target_dtype
             )
         return triton_dequantize_mx4(
-            tensor, group_size, ebits=ebits, mbits=mbits, output_dtype=target_dtype
+            tensor,
+            group_size,
+            ebits=ebits,
+            mbits=mbits,
+            output_dtype=target_dtype,
+            divisor=divisor,
         )
     else:
         output_dtype_int = output_dtype.as_int() if output_dtype is not None else 0
