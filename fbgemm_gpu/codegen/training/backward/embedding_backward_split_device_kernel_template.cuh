@@ -196,14 +196,15 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
     const uint32_t info_B_mask,
     {%- endif %}
     const int32_t segment_start,
-    const int32_t sl_start,
-    const int32_t sl_end,
+    const int64_t sl_start,
+    const int64_t sl_end,
     const unsigned int shfl_sync_mask,
     const int32_t num_vecs
 ) {
     // Copy value to vecs to make num_vecs known at compile time when
     // kUseVecBlocking == false
     const int32_t vecs = kUseVecBlocking ? num_vecs : kFixedMaxVecsPerThread;
+    const int32_t thread_idx = static_cast<int32_t>(threadIdx.x);
     for (int32_t vec_start = 0;
          vec_start < vecs;
          vec_start += kFixedMaxVecsPerThread) {
@@ -217,8 +218,8 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
             grad_sum[vec].acc.w = 0;
         }
 
-        for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
-            auto sl_j = sl + threadIdx.x;
+        for (int64_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
+            const int64_t sl_j = sl + threadIdx.x;
             {%- if not nobag %}
             const auto b_t = sl_j < sl_end
                 ? reinterpret_cast<const uint32_t*>(
@@ -246,14 +247,14 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
             // Process blocks of different sizes with loop unrolling
             if constexpr (sizeof(grad_t) <= 2) {
                 PROCESS_BLOCK(8, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
-                    vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+                    vec_start, kThreadGroupSize, thread_idx, VEC_WIDTH, D, j, sl, sl_end)
             }
             PROCESS_BLOCK(4, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
-                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+                vec_start, kThreadGroupSize, thread_idx, VEC_WIDTH, D, j, sl, sl_end)
             PROCESS_BLOCK(2, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
-                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+                vec_start, kThreadGroupSize, thread_idx, VEC_WIDTH, D, j, sl, sl_end)
             PROCESS_BLOCK(1, kFixedMaxVecsPerThread, grad_sum, grad_output, grad_offset, \
-                vec_start, kThreadGroupSize, threadIdx.x, VEC_WIDTH, D, j, sl, sl_end)
+                vec_start, kThreadGroupSize, thread_idx, VEC_WIDTH, D, j, sl, sl_end)
 
 #undef PROCESS_BLOCK
 #undef GRAD_OFFSET
@@ -291,7 +292,7 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
                 at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
                 {%- endif %}
 
-                {%- set d = "(((vec + vec_start) * kThreadGroupSize + threadIdx.x) * VEC_WIDTH)" %}
+                {%- set d = "(((vec + vec_start) * kThreadGroupSize + thread_idx) * VEC_WIDTH)" %}
 
                 #pragma unroll kFixedMaxVecsPerThread
                 for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
@@ -318,7 +319,7 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
             }
             {%- endif %}
         }
-        {%- set d_vec = "((vec + vec_start) * kThreadGroupSize + threadIdx.x)" %}
+        {%- set d_vec = "((vec + vec_start) * kThreadGroupSize + thread_idx)" %}
 
         if (smem_grad_sum) {
             // Store grad_sum in smem_grad_sum
