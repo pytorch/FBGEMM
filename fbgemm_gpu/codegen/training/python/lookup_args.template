@@ -49,6 +49,8 @@ class VBEMetadata(NamedTuple):
     output_size: int = -1
     vbe_output: Optional[torch.Tensor] = None
     vbe_output_offsets: Optional[torch.Tensor] = None
+    row_output_offsets: Optional[torch.Tensor] = None
+    b_t_map: Optional[torch.Tensor] = None
 
 
 class CommonArgs(NamedTuple):
