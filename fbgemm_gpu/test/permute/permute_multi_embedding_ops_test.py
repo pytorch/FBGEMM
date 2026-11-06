@@ -122,6 +122,77 @@ class PermuteMultiEmbeddingOpsTest(unittest.TestCase):
                 warn_only=deterministic_warn_only_enabled,
             )
 
+    def _regroup_cpu_matches_slicing(self, dtype: torch.dtype) -> None:
+        batch_size = 5
+        keys = [["f1", "f2"], ["f3", "f4", "f5"]]
+        lengths = [[3, 4], [2, 5, 1]]
+        groups = [["f1", "f3"], ["f2", "f5", "f1"], ["f4"]]
+        pooled_embs = [
+            torch.randn(batch_size, sum(kt_lengths), dtype=torch.float32)
+            .to(dtype)
+            .requires_grad_()
+            for kt_lengths in lengths
+        ]
+        permutes, in_shapes, out_shapes, out_lengths = (
+            torch.ops.fbgemm.kt_regroup_arguments(pooled_embs[0], keys, lengths, groups)
+        )
+
+        outputs = torch.ops.fbgemm.permute_multi_embedding(
+            pooled_embs, permutes, in_shapes, out_shapes, out_lengths
+        )
+
+        slices = {}
+        for kt, (kt_keys, kt_lengths) in enumerate(zip(keys, lengths)):
+            offset = 0
+            for key, length in zip(kt_keys, kt_lengths):
+                slices[key] = (kt, offset, length)
+                offset += length
+        expected = [
+            torch.cat(
+                [
+                    pooled_embs[slices[key][0]][
+                        :, slices[key][1] : slices[key][1] + slices[key][2]
+                    ]
+                    for key in group
+                ],
+                dim=1,
+            )
+            for group in groups
+        ]
+        self.assertEqual(len(outputs), len(expected))
+        for output, expected_output in zip(outputs, expected):
+            torch.testing.assert_close(output, expected_output, rtol=0, atol=0)
+
+        grads = [torch.randn_like(output) for output in outputs]
+        actual_grads = torch.autograd.grad(outputs, pooled_embs, grads)
+        expected_grads = torch.autograd.grad(expected, pooled_embs, grads)
+        for actual_grad, expected_grad in zip(actual_grads, expected_grads):
+            torch.testing.assert_close(actual_grad, expected_grad)
+
+    def test_permute_multi_embedding_cpu_matches_slicing_fp32(self) -> None:
+        self._regroup_cpu_matches_slicing(torch.float32)
+
+    def test_permute_multi_embedding_cpu_matches_slicing_fp16(self) -> None:
+        self._regroup_cpu_matches_slicing(torch.float16)
+
+    def test_permute_multi_embedding_cpu_short_input_raises(self) -> None:
+        lengths = [4, 2]
+        permutes = torch.tensor(
+            [
+                [0, 0, 0, 0, 4, -1],
+                [1, 0, 0, 4, 2, -1],
+            ],
+            dtype=PERMUTES_DTYPE,
+        )
+        in_shapes = torch.tensor(lengths, dtype=SHAPES_DTYPE)
+        out_shapes = torch.tensor([6], dtype=SHAPES_DTYPE)
+        pooled_embs = [torch.randn(3, lengths[0]), torch.randn(2, lengths[1])]
+
+        with self.assertRaises(IndexError):
+            torch.ops.fbgemm.permute_multi_embedding(
+                pooled_embs, permutes, in_shapes, out_shapes, [6]
+            )
+
     @unittest.skipIf(*gpu_unavailable)
     def test_permute_multi_embedding_smoke(self) -> None:
         """Small-input correctness regression. Gates the kernel-side
