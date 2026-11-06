@@ -326,6 +326,24 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return half_impl().accepts_raw_row_bytes(row_bytes, drop_tail);
   }
 
+  void write_rows_direct_cuda(
+      at::Tensor indices_cpu,
+      at::Tensor rows_cpu,
+      at::Tensor count_cpu,
+      at::Tensor stored_rows_cpu,
+      at::Tensor stored_cpu) {
+    half_impl().write_rows_direct_cuda(
+        std::move(indices_cpu),
+        std::move(rows_cpu),
+        std::move(count_cpu),
+        std::move(stored_rows_cpu),
+        std::move(stored_cpu));
+  }
+
+  void hold_row_writes_for_test(bool hold) {
+    half_impl().hold_row_writes_for_test(hold);
+  }
+
   void get_int8_payloads_cuda(
       at::Tensor indices_cpu,
       at::Tensor rows_cpu,
