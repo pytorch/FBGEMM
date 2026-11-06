@@ -62,8 +62,8 @@ enum class BoundsCheckMode : uint8_t {
 //   3. Dispatch       dispatch_emb_cache_types() selects that single fnuz
 //                     instantiation.
 //   4. Device         loads/stores reinterpret through the __nv_fp8_e4m3 alias
-//                     (utils/float.cuh), which the HIP headers bind to the
-//                     arch's physical encoding per device-compile pass. The c10
+//                     (utils/float.cuh), which is bound per device-compile pass
+//                     to the encoding step 1 labels that arch with. The c10
 //                     label is discarded here, so a gfx950 kernel does OCP fn
 //                     math no matter which label step 2 applied.
 //
@@ -88,9 +88,10 @@ inline at::ScalarType getNFP8ScalarType(
     [[maybe_unused]] const c10::DeviceIndex device_index = -1) {
 #ifdef USE_ROCM
   // fnuz archs: the gfx94x family (gfx940/941/942, MI300) and gfx90a. The
-  // substring match mirrors split_embedding_configs.py:nfp8_dtype; keep the
-  // two in sync. Query goes through the ATen-cpu CUDA hooks so this header is
-  // safe to compile into the CPU/meta libraries (no ATen/cuda/CUDAContext.h).
+  // substring match mirrors split_embedding_configs.py:nfp8_dtype and the
+  // __nv_fp8_e4m3 alias in utils/float.cuh; keep the three in sync. Query goes
+  // through the ATen-cpu CUDA hooks so this header is safe to compile into the
+  // CPU/meta libraries (no ATen/cuda/CUDAContext.h).
   const auto& cuda_hooks = at::detail::getCUDAHooks();
   if (cuda_hooks.hasCUDA() &&
       cuda_hooks.isGPUArch({"gfx94", "gfx90a"}, device_index)) {

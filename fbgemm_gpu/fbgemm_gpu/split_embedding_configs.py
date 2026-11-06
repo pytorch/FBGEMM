@@ -40,7 +40,8 @@ def nfp8_dtype(device: torch.device | int | None = None) -> torch.dtype:
     explicit CUDA device is resolved per architecture. Without one, or for
     CPU/meta storage on a ROCm host, the current GPU determines the physical
     encoding. Callers without a ROCm GPU use "fn". Mirrors getNFP8ScalarType()
-    in embedding_common.h; keep the mappings in sync. This function is ignored
+    in embedding_common.h and the device __nv_fp8_e4m3 alias in
+    utils/float.cuh; keep the mappings in sync. This function is ignored
     by TorchScript because the device query is not scriptable.
     """
     if torch.version.hip is None:
