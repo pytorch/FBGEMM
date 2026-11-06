@@ -16,12 +16,19 @@
 #include <folly/coro/BlockingWait.h>
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <limits>
+#include <random>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -131,7 +138,9 @@ at::Tensor dex_like_rows(int64_t num_rows, uint64_t seed) {
 
 c10::intrusive_ptr<EnrichmentConfig> fake_enrichment_config(
     int64_t serving_qdq_bit_rate,
-    int64_t serving_qdq_group_size) {
+    int64_t serving_qdq_group_size,
+    bool packed_storage = false,
+    bool int8_storage = false) {
   return c10::make_intrusive<EnrichmentConfig>(
       static_cast<int64_t>(EnrichmentType::IN_MEMORY_TEST_ONLY),
       /*provider_name=*/"",
@@ -156,21 +165,34 @@ c10::intrusive_ptr<EnrichmentConfig> fake_enrichment_config(
       /*laser_key_suffix=*/"",
       /*laser_key_suffixes=*/std::vector<std::string>{},
       serving_qdq_bit_rate,
-      serving_qdq_group_size);
+      serving_qdq_group_size,
+      packed_storage,
+      int8_storage);
 }
+
+struct CacheOptions {
+  bool packed_storage{false};
+  int64_t num_shards{kNumShards};
+  int64_t max_D{kDim};
+  bool backend_return_whole_row{false};
+  std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config;
+  bool enable_ssd_backend{false};
+  bool int8_storage{false};
+};
 
 std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
     int64_t serving_qdq_bit_rate,
-    int64_t serving_qdq_group_size = 0) {
+    int64_t serving_qdq_group_size = 0,
+    const CacheOptions& options = {}) {
   return std::make_shared<DramKVEmbeddingCache<at::Half>>(
-      kDim,
+      options.max_D,
       /*uniform_init_lower=*/-0.1,
       /*uniform_init_upper=*/0.1,
-      /*feature_evict_config=*/std::nullopt,
-      kNumShards,
+      options.feature_evict_config,
+      options.num_shards,
       /*num_threads=*/4,
       /*row_storage_bitwidth=*/16,
-      /*backend_return_whole_row=*/false,
+      options.backend_return_whole_row,
       /*enable_async_update=*/false,
       /*table_dims=*/std::nullopt,
       /*hash_size_cumsum=*/at::tensor({0, 100000}, at::kLong),
@@ -182,7 +204,12 @@ std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
       /*table_names=*/std::vector<std::string>{},
       /*table_offsets=*/std::vector<int64_t>{},
       /*table_sizes=*/std::vector<int64_t>{},
-      fake_enrichment_config(serving_qdq_bit_rate, serving_qdq_group_size));
+      fake_enrichment_config(
+          serving_qdq_bit_rate,
+          serving_qdq_group_size,
+          options.packed_storage,
+          options.int8_storage),
+      options.enable_ssd_backend);
 }
 
 at::Tensor read_rows(
@@ -419,6 +446,2869 @@ TEST(ServingQdqTest, EnrichmentFillStoresGroupedServingValues) {
         << "row " << r;
   }
   EXPECT_FALSE(at::equal(stored, fetched));
+}
+
+constexpr int64_t kTail = 4;
+constexpr int64_t kPackedMaxD = kDim + kTail;
+constexpr serving_qdq::PackedLayout kPackedLayout{kDim, kGroupSize, 0};
+
+at::Tensor grouped_fixed_rows(int64_t num_rows, uint64_t seed) {
+  auto rows = dex_like_rows(num_rows, seed);
+  serving_qdq::round_trip_rows(
+      rows.mutable_data_ptr<at::Half>(), num_rows, kDim, kDim, kGrouped);
+  return rows;
+}
+
+// Grouped fixed points in the first kDim columns, arbitrary fp16 after.
+at::Tensor fixed_rows_with_tail(int64_t num_rows, uint64_t seed) {
+  auto gen = at::make_generator<at::CPUGeneratorImpl>(seed + 1000);
+  return at::cat(
+      {grouped_fixed_rows(num_rows, seed),
+       at::randn({num_rows, kTail}, gen, at::kFloat).to(at::kHalf)},
+      1);
+}
+
+std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_packed_cache(
+    CacheOptions options = {}) {
+  options.packed_storage = true;
+  options.max_D = kPackedMaxD;
+  return make_cache(kBitRate, kGroupSize, options);
+}
+
+void write_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids,
+    const at::Tensor& rows) {
+  folly::coro::blockingWait(
+      cache.set_kv_db_async(ids, rows, at::tensor({ids.size(0)}, at::kLong)));
+}
+
+at::Tensor read_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids,
+    int64_t width,
+    int64_t offset = 0) {
+  auto rows = at::zeros({ids.size(0), width}, at::kHalf);
+  cache.get_kv_from_storage_by_snapshot(ids, rows, nullptr, offset, width);
+  return rows;
+}
+
+at::Tensor read_whole_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids) {
+  const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
+  auto rows = at::zeros({ids.size(0), meta_dim + kPackedMaxD}, at::kHalf);
+  cache.get_kv_with_metaheader_from_storage(ids, rows);
+  return rows;
+}
+
+bool same_bits(const at::Tensor& a, const at::Tensor& b) {
+  return a.sizes() == b.sizes() &&
+      std::memcmp(
+          a.const_data_ptr(),
+          b.const_data_ptr(),
+          a.numel() * a.element_size()) == 0;
+}
+
+std::vector<c10::Half> dequantize_grouped_ref(
+    const std::vector<std::uint8_t>& packed,
+    int64_t dim,
+    int64_t group_size) {
+  std::vector<c10::Half> row(dim);
+  fbgemm_gpu::grouped_int4_e4m3::dequantize_row(
+      packed.data(), dim, group_size, row.data());
+  return row;
+}
+
+TEST(PackedStorageTest, GroupedFixedPointsPackExactly) {
+  auto rows = dex_like_rows(4096, /*seed=*/10);
+  const auto stats = serving_qdq::round_trip_rows(
+      rows.mutable_data_ptr<at::Half>(), rows.size(0), kDim, kDim, kGrouped);
+  ASSERT_GT(stats.multi_pass, 0);
+
+  std::vector<std::uint8_t> payload(kPackedLayout.payload_bytes());
+  std::vector<c10::Half> decoded(kDim);
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    ASSERT_TRUE(
+        serving_qdq::pack_row(row_ptr(rows, r), kPackedLayout, payload.data()))
+        << "row " << r;
+    serving_qdq::unpack_row(payload.data(), kPackedLayout, decoded.data());
+    EXPECT_TRUE(same_bits(decoded.data(), row_ptr(rows, r), kDim))
+        << "row " << r;
+  }
+}
+
+TEST(PackedStorageTest, UnpackMatchesReferenceDecodeForEveryScale) {
+  // 17 groups of 8 exercise the vector loop and its odd tail; group size 16
+  // takes the generic path.
+  for (const auto& [dim, group_size] :
+       std::vector<std::pair<int64_t, int64_t>>{{136, 8}, {128, 16}}) {
+    const serving_qdq::PackedLayout layout{dim, group_size, 0};
+    std::mt19937 rng(static_cast<uint32_t>(dim + group_size));
+    std::vector<std::uint8_t> payload(layout.packed_bytes());
+    std::vector<c10::Half> decoded(dim);
+    const int64_t num_groups = dim / group_size;
+    for (int64_t first_scale = 0; first_scale < 256;
+         first_scale += num_groups) {
+      for (int64_t b = 0; b < layout.code_bytes(); ++b) {
+        payload[b] = static_cast<std::uint8_t>(rng());
+      }
+      for (int64_t g = 0; g < num_groups; ++g) {
+        const auto scale = static_cast<std::uint8_t>((first_scale + g) % 256);
+        // e4m3fn NaN scales never come out of the encoder.
+        payload[layout.code_bytes() + g] = (scale & 0x7F) == 0x7F ? 0 : scale;
+      }
+      serving_qdq::unpack_row(payload.data(), layout, decoded.data());
+      EXPECT_TRUE(same_bits(
+          decoded.data(),
+          dequantize_grouped_ref(payload, dim, group_size).data(),
+          dim))
+          << "dim " << dim << " group_size " << group_size << " scales from "
+          << first_scale;
+    }
+  }
+}
+
+TEST(PackedStorageTest, OnlyServingFixedPointsPackExactly) {
+  const auto rows = dex_like_rows(1024, /*seed=*/11);
+  std::vector<std::uint8_t> payload(kPackedLayout.payload_bytes());
+  int64_t exact = 0;
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    const bool packed =
+        serving_qdq::pack_row(row_ptr(rows, r), kPackedLayout, payload.data());
+    EXPECT_EQ(packed, is_grouped_serving_fixed_point(row_ptr(rows, r)))
+        << "row " << r;
+    exact += packed;
+  }
+  EXPECT_LT(exact, rows.size(0));
+
+  for (const float bad :
+       {std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::quiet_NaN()}) {
+    auto row = grouped_fixed_rows(1, /*seed=*/12);
+    row[0][5] = bad;
+    EXPECT_FALSE(
+        serving_qdq::pack_row(row_ptr(row, 0), kPackedLayout, payload.data()));
+  }
+}
+
+TEST(PackedStorageTest, ZeroRowPacksToZeroBytes) {
+  const auto row = at::zeros({1, kDim}, at::kHalf);
+  std::vector<std::uint8_t> payload(kPackedLayout.payload_bytes(), 0xAB);
+
+  ASSERT_TRUE(
+      serving_qdq::pack_row(row_ptr(row, 0), kPackedLayout, payload.data()));
+
+  EXPECT_EQ(payload, std::vector<std::uint8_t>(payload.size(), 0));
+}
+
+TEST(PackedStorageTest, RowsRoundTripThroughEveryReadWidth) {
+  auto cache = make_packed_cache();
+  const auto rows = fixed_rows_with_tail(512, /*seed=*/13);
+  const auto ids = at::arange(512, at::kLong);
+
+  write_rows(*cache, ids, rows);
+
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kPackedMaxD), rows));
+  EXPECT_TRUE(same_bits(
+      read_rows(*cache, ids, kTail, /*offset=*/kDim),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_TRUE(same_bits(
+      read_rows(*cache, ids, 8, /*offset=*/4),
+      rows.narrow(1, 4, 8).contiguous()));
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, UnquantizedRowsAreStoredAsTheirServingFixedPoints) {
+  auto cache = make_packed_cache();
+  const auto original = dex_like_rows(256, /*seed=*/14);
+  const auto ids = at::arange(256, at::kLong);
+
+  write_rows(*cache, ids, original);
+
+  const auto stored = read_rows(*cache, ids, kDim);
+  int64_t not_fixed = 0;
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    not_fixed += !is_grouped_serving_fixed_point(row_ptr(original, r));
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(not_fixed, 0L));
+  EXPECT_EQ(cache->serving_qdq_existing_rows(), 0);
+}
+
+TEST(PackedStorageTest, RowsWithoutFixedPointAreKeptExactly) {
+  auto cache = make_packed_cache();
+  auto rows = fixed_rows_with_tail(3, /*seed=*/15);
+  rows[0][7] = std::numeric_limits<float>::infinity();
+  rows[1][9] = std::numeric_limits<float>::quiet_NaN();
+  const auto ids = at::arange(3, at::kLong);
+
+  write_rows(*cache, ids, rows);
+
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kPackedMaxD), rows));
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 2L));
+  EXPECT_EQ(cache->serving_qdq_existing_rows(), 0);
+
+  const auto replacement = fixed_rows_with_tail(3, /*seed=*/16);
+  write_rows(*cache, ids, replacement);
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kPackedMaxD), replacement));
+}
+
+TEST(PackedStorageTest, CheckpointRowsInterchangeWithFp16Storage) {
+  const auto ids = at::arange(300, at::kLong);
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  auto packed = make_packed_cache(whole_row);
+  write_rows(*packed, ids, fixed_rows_with_tail(300, /*seed=*/17));
+  auto saved = read_whole_rows(*packed, ids);
+  // Distinct saved timestamps, which a restore must carry over.
+  for (int64_t r = 0; r < saved.size(0); ++r) {
+    FixedBlockPool::set_timestamp(saved[r].data_ptr(), 1000000 + r);
+  }
+
+  auto fp16 = make_cache(
+      kBitRate,
+      kGroupSize,
+      {.max_D = kPackedMaxD, .backend_return_whole_row = true});
+  fp16->set_kv_with_metaheader_to_storage(saved.clone());
+  EXPECT_TRUE(same_bits(read_whole_rows(*fp16, ids), saved));
+
+  auto restored = make_packed_cache(whole_row);
+  restored->set_kv_with_metaheader_to_storage(read_whole_rows(*fp16, ids));
+  EXPECT_TRUE(same_bits(read_whole_rows(*restored, ids), saved));
+  EXPECT_EQ(restored->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, TtlEvictionDropsOnlyExpiredRows) {
+  auto evict_config = c10::make_intrusive<FeatureEvictConfig>(
+      /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MANUAL),
+      /*trigger_strategy=*/
+      static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*ttls_in_mins=*/std::vector<int64_t>{60},
+      /*counter_thresholds=*/std::nullopt,
+      /*counter_decay_rates=*/std::nullopt,
+      /*feature_score_counter_decay_rates=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*training_id_keep_count=*/std::nullopt,
+      /*enable_eviction_for_feature_score_eviction_policy=*/std::nullopt,
+      /*l2_weight_thresholds=*/std::nullopt,
+      /*embedding_dims=*/std::nullopt);
+  auto cache = make_packed_cache(
+      {.backend_return_whole_row = true, .feature_evict_config = evict_config});
+  const auto ids = at::arange(200, at::kLong);
+  write_rows(*cache, ids, fixed_rows_with_tail(200, /*seed=*/18));
+  auto rows = read_whole_rows(*cache, ids);
+  const uint32_t now = FixedBlockPool::current_timestamp();
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    FixedBlockPool::set_timestamp(
+        rows[r].data_ptr(), r % 2 == 0 ? now - 2 * 3600 : now);
+  }
+  cache->set_kv_with_metaheader_to_storage(rows.clone());
+
+  cache->trigger_feature_evict();
+  cache->resume_ongoing_eviction(/*force_resume=*/true);
+  for (int attempt = 0; attempt < 1000 && cache->is_evicting(); ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  cache->wait_until_eviction_done();
+
+  const auto kept = at::arange(1, 200, 2, at::kLong);
+  EXPECT_EQ(cache->get_num_rows(), kept.size(0));
+  EXPECT_TRUE(
+      same_bits(read_whole_rows(*cache, kept), rows.index_select(0, kept)));
+}
+
+TEST(PackedStorageTest, EnrichmentFillStoresGroupedServingValues) {
+  auto cache = make_packed_cache();
+  const std::vector<int64_t> ids = {1, 2, 3, 7};
+  const auto id_tensor = at::tensor(ids, at::kLong);
+  const auto fetched = fake_enrichment_rows(ids);
+
+  cache->set_embedding_cache_enrich_query_id_async(
+      id_tensor, id_tensor, at::tensor({4}, at::kLong));
+  wait_for_enriched_rows(*cache, id_tensor);
+  const auto stored = read_rows(*cache, id_tensor, kPackedMaxD);
+
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(fetched, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, PackedRowsUseFewerBytes) {
+  auto fp16 = make_cache(kBitRate, kGroupSize, {.max_D = kPackedMaxD});
+  auto packed = make_packed_cache();
+  constexpr int64_t kRows = 200000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto rows = fixed_rows_with_tail(kRows, /*seed=*/19);
+
+  write_rows(*fp16, ids, rows);
+  write_rows(*packed, ids, rows);
+
+  // 16-byte MetaHeader + payload: 132 fp16 values vs 64 code bytes, 16 scale
+  // bytes and 4 fp16 tail values.
+  EXPECT_EQ(fp16->get_block_size(), 16 + kPackedMaxD * 2);
+  EXPECT_EQ(packed->get_block_size(), 16 + kDim / 2 + kDim / kGroupSize + 8);
+  const auto per_row = [](size_t bytes) {
+    return static_cast<double>(bytes) / kRows;
+  };
+  std::cout << "bytes/row in pool chunks: fp16="
+            << per_row(fp16->get_map_actual_used_chunk_in_bytes()) << " packed="
+            << per_row(packed->get_map_actual_used_chunk_in_bytes())
+            << "; blocks + map entries: fp16="
+            << per_row(fp16->get_map_used_memsize_in_bytes())
+            << " packed=" << per_row(packed->get_map_used_memsize_in_bytes())
+            << '\n';
+  EXPECT_LT(
+      per_row(packed->get_map_actual_used_chunk_in_bytes()) * 2.5,
+      per_row(fp16->get_map_actual_used_chunk_in_bytes()));
+}
+
+TEST(PackedStorageTest, ConcurrentReadersSeeWholeWrittenRows) {
+  auto cache = make_packed_cache();
+  constexpr int64_t kRows = 2048;
+  const auto ids = at::arange(kRows, at::kLong);
+  const std::array<at::Tensor, 2> versions = {
+      fixed_rows_with_tail(kRows, /*seed=*/20),
+      fixed_rows_with_tail(kRows, /*seed=*/21)};
+  write_rows(*cache, ids, versions[0]);
+
+  std::atomic<bool> stop{false};
+  std::atomic<int64_t> torn{0};
+  std::vector<std::thread> threads;
+  threads.reserve(2);
+  for (int w = 0; w < 2; ++w) {
+    threads.emplace_back([&, w] {
+      for (int iter = 0; !stop.load(); ++iter) {
+        write_rows(*cache, ids, versions[(iter + w) % 2]);
+      }
+    });
+  }
+  for (int r = 0; r < 4; ++r) {
+    threads.emplace_back([&] {
+      while (!stop.load()) {
+        const auto read = read_rows(*cache, ids, kPackedMaxD);
+        for (int64_t i = 0; i < kRows; ++i) {
+          const auto* row = row_ptr(read, i);
+          if (!same_bits(row, row_ptr(versions[0], i), kPackedMaxD) &&
+              !same_bits(row, row_ptr(versions[1], i), kPackedMaxD)) {
+            torn++;
+          }
+        }
+      }
+    });
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  stop = true;
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(torn.load(), 0);
+}
+
+TEST(PackedStorageTest, UnsupportedConfigsAreRefused) {
+  EXPECT_THROW(
+      make_cache(
+          kBitRate, /*serving_qdq_group_size=*/0, {.packed_storage = true}),
+      c10::Error);
+  EXPECT_THROW(make_packed_cache({.enable_ssd_backend = true}), c10::Error);
+  auto l2_config = c10::make_intrusive<FeatureEvictConfig>(
+      /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MANUAL),
+      /*trigger_strategy=*/
+      static_cast<int64_t>(EvictTriggerStrategy::BY_L2WEIGHT),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*ttls_in_mins=*/std::nullopt,
+      /*counter_thresholds=*/std::nullopt,
+      /*counter_decay_rates=*/std::nullopt,
+      /*feature_score_counter_decay_rates=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*training_id_keep_count=*/std::nullopt,
+      /*enable_eviction_for_feature_score_eviction_policy=*/std::nullopt,
+      /*l2_weight_thresholds=*/std::vector<double>{0.1},
+      /*embedding_dims=*/std::vector<int64_t>{kPackedMaxD});
+  EXPECT_THROW(
+      make_packed_cache({.feature_evict_config = l2_config}), c10::Error);
+}
+
+// Throughput of the packed read path; set KVZCH_PACKED_BENCH=1 and build in
+// opt mode.
+TEST(PackedStorageTest, Benchmark) {
+  if (std::getenv("KVZCH_PACKED_BENCH") == nullptr) {
+    GTEST_SKIP() << "set KVZCH_PACKED_BENCH=1";
+  }
+  using Clock = std::chrono::steady_clock;
+  const auto seconds_since = [](Clock::time_point start) {
+    return std::chrono::duration<double>(Clock::now() - start).count();
+  };
+  constexpr int64_t kRows = 1 << 20;
+  const auto rows = fixed_rows_with_tail(kRows, /*seed=*/22);
+
+  // Single-core decode of rows laid out back to back, as in a pool chunk.
+  const int64_t packed_bytes = kPackedLayout.packed_bytes();
+  std::vector<std::uint8_t> packed(kRows * packed_bytes);
+  const auto pack_start = Clock::now();
+  for (int64_t r = 0; r < kRows; ++r) {
+    ASSERT_TRUE(
+        serving_qdq::pack_row(
+            row_ptr(rows, r), kPackedLayout, packed.data() + r * packed_bytes));
+  }
+  std::cout << "1 core, " << kRows << " rows: pack (write path) "
+            << kRows / seconds_since(pack_start) / 1e6 << " M rows/s" << '\n';
+  std::vector<c10::Half> out(kRows * kDim);
+  for (int rep = 0; rep < 3; ++rep) {
+    auto start = Clock::now();
+    for (int64_t r = 0; r < kRows; ++r) {
+      serving_qdq::unpack_row(
+          packed.data() + r * packed_bytes,
+          kPackedLayout,
+          out.data() + r * kDim);
+    }
+    const double decode_s = seconds_since(start);
+    start = Clock::now();
+    for (int64_t r = 0; r < kRows; ++r) {
+      std::memcpy(
+          out.data() + r * kDim, row_ptr(rows, r), kDim * sizeof(c10::Half));
+    }
+    const double copy_s = seconds_since(start);
+    std::cout << "1 core, " << kRows << " rows: decode "
+              << kRows / decode_s / 1e6 << " M rows/s, fp16 memcpy "
+              << kRows / copy_s / 1e6 << " M rows/s" << '\n';
+  }
+  // Same, visiting rows in random order, so every row comes from DRAM.
+  const auto order = at::randperm(kRows, at::kLong);
+  const auto* order_ptr = order.const_data_ptr<int64_t>();
+  for (int rep = 0; rep < 3; ++rep) {
+    auto start = Clock::now();
+    for (int64_t i = 0; i < kRows; ++i) {
+      const int64_t r = order_ptr[i];
+      serving_qdq::unpack_row(
+          packed.data() + r * packed_bytes,
+          kPackedLayout,
+          out.data() + i * kDim);
+    }
+    const double decode_s = seconds_since(start);
+    start = Clock::now();
+    for (int64_t i = 0; i < kRows; ++i) {
+      std::memcpy(
+          out.data() + i * kDim,
+          row_ptr(rows, order_ptr[i]),
+          kDim * sizeof(c10::Half));
+    }
+    const double copy_s = seconds_since(start);
+    start = Clock::now();
+    for (int64_t i = 0; i < kRows; ++i) {
+      if (i + 8 < kRows) {
+        const auto* ahead = packed.data() + order_ptr[i + 8] * packed_bytes;
+        __builtin_prefetch(ahead);
+        __builtin_prefetch(ahead + 64);
+      }
+      serving_qdq::unpack_row(
+          packed.data() + order_ptr[i] * packed_bytes,
+          kPackedLayout,
+          out.data() + i * kDim);
+    }
+    std::cout << "1 core, random order, prefetch 8 ahead: decode "
+              << kRows / seconds_since(start) / 1e6 << " M rows/s" << '\n';
+    std::cout << "1 core, random order: decode " << kRows / decode_s / 1e6
+              << " M rows/s, fp16 memcpy " << kRows / copy_s / 1e6
+              << " M rows/s" << '\n';
+  }
+
+  // End-to-end get() of unique ids in random order, with the read knobs the
+  // mb9 CU cache runs with (KVZCH_CU_CACHE_QPS_ENVS, 32 shards). The opt-in
+  // gate keeps these out of every other test's process.
+  for (const auto& [name, value] :
+       std::vector<std::pair<const char*, const char*>>{
+           {"KVZCH_DRAM_EXECUTOR_THREAD_CAP", "8"},
+           {"KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", "8"},
+           {"KVZCH_DRAM_SEGMENTED_SHARD_READS", "1"},
+           {"KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1"},
+           {"KVZCH_SKIP_DISABLED_INITIALIZERS", "1"},
+           {"KVZCH_SKIP_DRAM_PERF_TIMING", "1"}}) {
+    setenv(name, value, /*overwrite=*/0);
+  }
+  for (const int64_t num_rows : {kRows, int64_t{5'000'000}}) {
+    const auto table =
+        num_rows == kRows ? rows : fixed_rows_with_tail(num_rows, /*seed=*/23);
+    auto fp16 = make_cache(
+        kBitRate, kGroupSize, {.num_shards = 32, .max_D = kPackedMaxD});
+    auto packed_cache = make_packed_cache({.num_shards = 32});
+    const auto ids = at::randperm(num_rows, at::kLong);
+    write_rows(*fp16, ids, table);
+    write_rows(*packed_cache, ids, table);
+    // Faulted in up front, so the timing is the read path alone.
+    auto weights = at::zeros({num_rows, kPackedMaxD}, at::kHalf);
+    for (int rep = 0; rep < 3; ++rep) {
+      for (auto* cache : {fp16.get(), packed_cache.get()}) {
+        const auto lookup = at::randperm(num_rows, at::kLong);
+        const auto start = Clock::now();
+        folly::coro::blockingWait(cache->get_kv_db_async(
+            lookup, weights, at::tensor({num_rows}, at::kLong)));
+        std::cout << (cache == fp16.get() ? "fp16  " : "packed") << " get() of "
+                  << num_rows << " rows (" << cache->get_executor_num_threads()
+                  << " threads, 32 shards): " << seconds_since(start) * 1e3
+                  << " ms" << '\n';
+      }
+    }
+  }
+}
+
+// The exclusive HBM tier with the GPU cache emulated by CPU tensors: tags,
+// rows and last-access seconds. Rows are INT8 (codes then fp32 scale and
+// bias), with a `group_size` the g8 bytes of packed DRAM rows, or with
+// `fp16_rows` the rows' fp16 bytes.
+struct FakeHbm {
+  at::Tensor cache_state;
+  at::Tensor cache_weights;
+  at::Tensor last_access;
+  int64_t dim;
+  int64_t group_size;
+  bool fp16_rows;
+
+  explicit FakeHbm(
+      int64_t slots,
+      int64_t dim = kDim,
+      int64_t group_size = 0,
+      bool fp16_rows = false)
+      : cache_state(at::full({slots, 1}, -1, at::kLong)),
+        cache_weights(
+            at::zeros(
+                {slots, row_bytes_of(dim, group_size, fp16_rows)},
+                at::kByte)),
+        last_access(at::zeros({slots}, at::kInt)),
+        dim(dim),
+        group_size(group_size),
+        fp16_rows(fp16_rows) {}
+
+  static int64_t row_bytes_of(int64_t dim, int64_t group_size, bool fp16_rows) {
+    if (group_size > 0) {
+      return dim / 2 + dim / group_size;
+    }
+    return fp16_rows ? dim * static_cast<int64_t>(sizeof(c10::Half)) : dim + 8;
+  }
+
+  int64_t row_bytes() const {
+    return cache_weights.size(1);
+  }
+
+  const uint8_t* row(int64_t key) const {
+    return cache_weights.const_data_ptr<uint8_t>() + slot(key) * row_bytes();
+  }
+
+  // What the insert writes for a row: raw rows as they are, which
+  // kvzch_exclusive_cache_insert_raw copies (g8 bytes from the DRAM row, all
+  // zero and skipped for a zero row; fp16 rows' bytes); else its INT8
+  // encoding.
+  bool encode(const at::Tensor& values, uint8_t* dst) const {
+    if (fp16_rows) {
+      const auto half = values.to(at::kHalf).contiguous();
+      std::memcpy(dst, half.const_data_ptr(), row_bytes());
+      return std::any_of(
+          dst, dst + row_bytes(), [](uint8_t b) { return b != 0; });
+    }
+    if (group_size > 0) {
+      const auto half = values.to(at::kHalf).contiguous();
+      serving_qdq::pack_row(
+          half.const_data_ptr<at::Half>(), {dim, group_size, 0}, dst);
+      return std::any_of(
+          dst, dst + row_bytes(), [](uint8_t b) { return b != 0; });
+    }
+    const auto row = values.to(at::kFloat).contiguous();
+    const auto* x = row.const_data_ptr<float>();
+    if (std::all_of(x, x + dim, [](float v) { return v == 0.0f; })) {
+      return false;
+    }
+    // fminf/fmaxf, as the kernel reduces: NaN columns are skipped.
+    float row_min = std::numeric_limits<float>::max();
+    float row_max = std::numeric_limits<float>::lowest();
+    for (int64_t d = 0; d < dim; ++d) {
+      row_min = std::fmin(row_min, x[d]);
+      row_max = std::fmax(row_max, x[d]);
+    }
+    const float range = row_max - row_min;
+    const float scale = range == 0.0f ? 1.0f : range / 255.0f;
+    for (int64_t d = 0; d < dim; ++d) {
+      dst[d] = static_cast<uint8_t>(std::fmin(
+          std::fmax(std::rint((x[d] - row_min) / scale), 0.0f), 255.0f));
+    }
+    std::memcpy(dst + dim, &scale, sizeof(float));
+    std::memcpy(dst + dim + 4, &row_min, sizeof(float));
+    return true;
+  }
+
+  static constexpr int64_t kWays = 16;
+
+  // First slot of the key's set (cache_slot() over the set count).
+  int64_t set_base(int64_t key) const {
+    auto h = static_cast<uint64_t>(key);
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdULL;
+    h ^= h >> 33;
+    h *= 0xc4ceb9fe1a85ec53ULL;
+    h ^= h >> 33;
+    return static_cast<int64_t>(
+               h % static_cast<uint32_t>(cache_state.size(0) / kWays)) *
+        kWays;
+  }
+
+  // The slot holding the key, else the first empty slot of its set, else the
+  // set's first slot.
+  int64_t slot(int64_t key) const {
+    const auto base = set_base(key);
+    const auto* tags = cache_state.const_data_ptr<int64_t>();
+    for (int64_t way = 0; way < kWays; ++way) {
+      if (tags[base + way] == key) {
+        return base + way;
+      }
+    }
+    for (int64_t way = 0; way < kWays; ++way) {
+      if (tags[base + way] == -1) {
+        return base + way;
+      }
+    }
+    return base;
+  }
+
+  int64_t tag(int64_t key) const {
+    return cache_state[slot(key)][0].item<int64_t>();
+  }
+
+  int64_t occupied() const {
+    return (cache_state >= 0).sum().item<int64_t>();
+  }
+
+  // kvzch_exclusive_cache_insert_int8 / _g8: claims empty slots only,
+  // returns the claimed keys.
+  std::vector<int64_t>
+  insert(const at::Tensor& keys, const at::Tensor& rows, int32_t now) {
+    std::vector<int64_t> claimed;
+    std::vector<uint8_t> encoded(row_bytes());
+    for (int64_t n = 0; n < keys.size(0); ++n) {
+      const auto key = keys[n].item<int64_t>();
+      if (key < 0 || !encode(rows[n].narrow(0, 0, dim), encoded.data())) {
+        continue;
+      }
+      const auto s = slot(key);
+      auto* tag = cache_state.data_ptr<int64_t>() + s;
+      if (*tag != -1) {
+        continue;
+      }
+      std::memcpy(
+          cache_weights.data_ptr<uint8_t>() + s * row_bytes(),
+          encoded.data(),
+          row_bytes());
+      last_access[s] = now;
+      *tag = key;
+      claimed.push_back(key);
+    }
+    return claimed;
+  }
+
+  // What the GPU gather returns for a resident key.
+  std::vector<c10::Half> decode(int64_t key) const {
+    const auto* src = row(key);
+    std::vector<c10::Half> values(dim);
+    if (fp16_rows) {
+      std::memcpy(values.data(), src, row_bytes());
+      return values;
+    }
+    if (group_size > 0) {
+      serving_qdq::unpack_row(src, {dim, group_size, 0}, values.data());
+      return values;
+    }
+    float scale = 0;
+    float bias = 0;
+    std::memcpy(&scale, src + dim, sizeof(float));
+    std::memcpy(&bias, src + dim + 4, sizeof(float));
+    for (int64_t d = 0; d < dim; ++d) {
+      values[d] = c10::Half(static_cast<float>(src[d]) * scale + bias);
+    }
+    return values;
+  }
+};
+
+// The exclusive HBM tier of a packed_storage table: g8 rows.
+FakeHbm packed_hbm(int64_t slots) {
+  return FakeHbm(slots, kDim, kGroupSize);
+}
+
+// The exclusive HBM tier of an fp16 table holding the rows' fp16 bytes.
+FakeHbm fp16_hbm(int64_t slots) {
+  return FakeHbm(slots, kDim, 0, /*fp16_rows=*/true);
+}
+
+constexpr int64_t kHbmSlots = 1 << 14;
+
+class ScopedEnv {
+ public:
+  ScopedEnv(const char* name, const char* value) : name_(name) {
+    setenv(name, value, /*overwrite=*/1);
+  }
+  ~ScopedEnv() {
+    unsetenv(name_);
+  }
+
+ private:
+  const char* name_;
+};
+
+std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_exclusive_cache(
+    FakeHbm& hbm,
+    int64_t bit_rate = 0,
+    int64_t group_size = 0,
+    CacheOptions options = {}) {
+  auto cache = make_cache(bit_rate, group_size, options);
+  cache->exclusive_hbm_register(
+      hbm.cache_state, hbm.cache_weights, hbm.last_access);
+  return cache;
+}
+
+// Writes `rows` for `ids`, moves every row the HBM tier accepts into it and
+// returns the moved keys.
+std::vector<int64_t> write_and_promote(
+    DramKVEmbeddingCache<at::Half>& cache,
+    FakeHbm& hbm,
+    const at::Tensor& ids,
+    const at::Tensor& rows) {
+  write_rows(cache, ids, rows);
+  auto claimed = hbm.insert(
+      ids, rows, static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  cache.exclusive_hbm_promote_async(claimed);
+  cache.exclusive_hbm_wait();
+  return claimed;
+}
+
+TEST(ExclusiveHbmTest, PromotionMovesTheOnlyCopyIntoHbm) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(2000, at::kLong);
+  const auto rows = dex_like_rows(2000, /*seed=*/30);
+
+  const auto moved = write_and_promote(*cache, hbm, ids, rows);
+
+  ASSERT_GT(static_cast<int64_t>(moved.size()), 1500);
+  EXPECT_EQ(
+      static_cast<int64_t>(cache->get_num_rows()),
+      2000 - static_cast<int64_t>(moved.size()));
+  EXPECT_EQ(
+      cache->exclusive_hbm_stats()[0], static_cast<int64_t>(moved.size()));
+  EXPECT_EQ(hbm.occupied(), static_cast<int64_t>(moved.size()));
+  // Checkpoint reads return the HBM rows as the GPU gather decodes them, and
+  // backend rows unchanged; the key listing covers both tiers.
+  const auto stored = read_rows(*cache, ids, kDim, /*offset=*/0);
+  const std::unordered_set<int64_t> in_hbm(moved.begin(), moved.end());
+  for (int64_t id = 0; id < 2000; ++id) {
+    if (in_hbm.contains(id)) {
+      EXPECT_TRUE(same_bits(row_ptr(stored, id), hbm.decode(id).data(), kDim))
+          << "id " << id;
+    } else {
+      EXPECT_TRUE(same_bits(row_ptr(stored, id), row_ptr(rows, id), kDim))
+          << "id " << id;
+    }
+  }
+  EXPECT_EQ(cache->get_keys_in_range_impl(0, 100000).size(0), 2000);
+  // A training read only reaches the backend for GPU misses; one that finds
+  // a tombstone is counted.
+  read_rows(*cache, at::tensor({moved[0]}, at::kLong));
+  EXPECT_EQ(cache->exclusive_hbm_stats()[7], 1);
+}
+
+TEST(ExclusiveHbmTest, FailedPromotionEmptiesItsSlotsAndRaisesLater) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(100, at::kLong);
+  const auto rows = dex_like_rows(100, /*seed=*/31);
+  write_rows(*cache, ids, rows);
+  const auto claimed = hbm.insert(
+      ids, rows, static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_FALSE(claimed.empty());
+
+  cache->fail_next_hbm_promotion_for_test();
+  cache->exclusive_hbm_promote_async(claimed);
+  EXPECT_THROW(cache->exclusive_hbm_wait(), std::runtime_error);
+
+  // No slot keeps a row the backend lost track of: DRAM still has every row.
+  EXPECT_EQ(hbm.occupied(), 0);
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), 100);
+  EXPECT_TRUE(same_bits(
+      read_rows(*cache, ids, kDim, /*offset=*/0),
+      rows.narrow(1, 0, kDim).contiguous()));
+  // The error is reported once; promotion works again.
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  const auto moved = write_and_promote(*cache, hbm, ids, rows);
+  EXPECT_EQ(
+      cache->exclusive_hbm_stats()[0], static_cast<int64_t>(moved.size()));
+}
+
+TEST(ExclusiveHbmTest, FoundMaskReadsReportHbmRowsWithoutCountingALoss) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(500, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(500, /*seed=*/44));
+  const std::unordered_set<int64_t> in_hbm(moved.begin(), moved.end());
+  // The write-side cache fill reads every written id with a found mask; ids
+  // already in HBM must come back as present-in-HBM, not as missing.
+  auto rows = at::zeros({500, kDim}, at::kHalf);
+  auto found = at::full({500}, 7, at::kByte);
+
+  folly::coro::blockingWait(cache->get_kv_db_async_with_found_mask(
+      ids, rows, at::tensor({500}, at::kLong), found));
+
+  const auto* mask = found.const_data_ptr<uint8_t>();
+  for (int64_t id = 0; id < 500; ++id) {
+    EXPECT_EQ(mask[id], in_hbm.contains(id) ? 2 : 1) << "id " << id;
+  }
+  const auto stats = cache->exclusive_hbm_stats();
+  EXPECT_EQ(stats[7], 0);
+  EXPECT_EQ(stats[8], static_cast<int64_t>(moved.size()));
+}
+
+TEST(ExclusiveHbmTest, FullSetLeavesTheRowInDram) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  // One more key than a set has ways, all in key 0's set.
+  std::vector<int64_t> same_set;
+  for (int64_t key = 0; static_cast<int64_t>(same_set.size()) <= FakeHbm::kWays;
+       ++key) {
+    if (hbm.set_base(key) == hbm.set_base(0)) {
+      same_set.push_back(key);
+    }
+  }
+  const auto ids = at::tensor(same_set, at::kLong);
+  const auto rows = dex_like_rows(ids.size(0), /*seed=*/31);
+
+  const auto moved = write_and_promote(*cache, hbm, ids, rows);
+
+  ASSERT_EQ(moved, std::vector<int64_t>(same_set.begin(), same_set.end() - 1));
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), 1);
+  EXPECT_TRUE(same_bits(
+      row_ptr(read_rows(*cache, ids.narrow(0, FakeHbm::kWays, 1), kDim, 0), 0),
+      row_ptr(rows, FakeHbm::kWays),
+      kDim));
+}
+
+TEST(ExclusiveHbmTest, EvictedRowsLandInDramAsTheirSlotBytes) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(40, at::kLong);
+  const auto rows = dex_like_rows(40, /*seed=*/32);
+  const auto moved = write_and_promote(*cache, hbm, ids, rows);
+  ASSERT_EQ(moved.size(), 40);
+  ASSERT_EQ(cache->get_num_rows(), 0);
+
+  // A GPU insert evicted key 3 (reporting its slot bytes and access time)
+  // and key 4, which a write gave a backend row meanwhile, then refilled
+  // their slots.
+  const std::vector<int64_t> victims = {3, 4};
+  const auto row_bytes = hbm.row_bytes();
+  std::vector<uint8_t> victim_rows(2 * row_bytes);
+  std::memcpy(victim_rows.data(), hbm.row(3), row_bytes);
+  std::memcpy(victim_rows.data() + row_bytes, hbm.row(4), row_bytes);
+  const auto expected = hbm.decode(3);
+  const std::vector<int32_t> access = {123, 456};
+  const auto key4 = at::tensor({int64_t{4}}, at::kLong);
+  const auto written = dex_like_rows(1, /*seed=*/33);
+  write_rows(*cache, key4, written);
+  cache->exclusive_hbm_wait();
+  ASSERT_EQ(cache->get_num_rows(), 1);
+  hbm.cache_state[hbm.slot(3)][0] = 9001;
+
+  cache->hbm_land_victims(victims.data(), access.data(), victim_rows.data(), 2);
+
+  // Key 3 is a backend row again, as the GPU gather decoded it from HBM;
+  // key 4 keeps the written row.
+  EXPECT_EQ(cache->get_num_rows(), 2);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 38);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[9], 1);
+  EXPECT_TRUE(same_bits(
+      row_ptr(
+          read_rows(*cache, at::tensor({int64_t{3}}, at::kLong), kDim, 0), 0),
+      expected.data(),
+      kDim));
+  EXPECT_TRUE(same_bits(
+      row_ptr(read_rows(*cache, key4, kDim, 0), 0), row_ptr(written, 0), kDim));
+}
+
+TEST(ExclusiveHbmTest, PromotionOfAKeyNoLongerInTheSlotIsSkipped) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(4, at::kLong);
+  write_rows(*cache, ids, dex_like_rows(4, /*seed=*/32));
+
+  // Promotions are checked against the slot, so a stale one is a no-op.
+  cache->exclusive_hbm_promote_async({0, 1, 2, 3});
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), 4);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[2], 4);
+}
+
+TEST(ExclusiveHbmTest, PromotionAfterAnInPlaceWriteKeepsTheNewRow) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(200, at::kLong);
+  const auto rows = dex_like_rows(200, /*seed=*/45);
+  write_rows(*cache, ids, rows);
+  // The GPU claims slots for the rows it read...
+  const auto claimed = hbm.insert(
+      ids, rows, static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_GT(claimed.size(), 100);
+  // ...then a write (e.g. a Laser response) updates some of them in place
+  // before the promotion runs.
+  const auto rewritten = at::tensor(
+      std::vector<int64_t>(claimed.begin(), claimed.begin() + 10), at::kLong);
+  const auto fresh = dex_like_rows(10, /*seed=*/46);
+  write_rows(*cache, rewritten, fresh);
+
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+
+  const auto stats = cache->exclusive_hbm_stats();
+  EXPECT_EQ(stats[0], static_cast<int64_t>(claimed.size()) - 10);
+  EXPECT_EQ(stats[2], 10);
+  EXPECT_TRUE(same_bits(read_rows(*cache, rewritten, kDim, 0), fresh));
+  for (int64_t r = 0; r < 10; ++r) {
+    EXPECT_EQ(hbm.tag(claimed[r]), -1);
+  }
+  EXPECT_EQ(hbm.occupied(), stats[0]);
+}
+
+TEST(ExclusiveHbmTest, PromotionOfARowTheBackendNoLongerHasEmptiesItsSlot) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  // The GPU read these rows, then the evictor dropped them from the backend.
+  const auto ids = at::arange(50, at::kLong);
+  const auto claimed = hbm.insert(
+      ids,
+      dex_like_rows(50, /*seed=*/47),
+      static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_FALSE(claimed.empty());
+
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(hbm.occupied(), 0);
+  EXPECT_EQ(cache->get_num_rows(), 0);
+  EXPECT_EQ(cache->get_keys_in_range_impl(0, 100000).size(0), 0);
+}
+
+TEST(ExclusiveHbmTest, FillOnlyWritesSkipHbmRows) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(100, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(100, /*seed=*/48));
+  ASSERT_FALSE(moved.empty());
+  const auto key = at::tensor({moved[0]}, at::kLong);
+  const auto before = hbm.decode(moved[0]);
+
+  folly::coro::blockingWait(cache->set_kv_db_async_on_enrichment_executor(
+      key,
+      at::full({1, kDim}, -7.0, at::kHalf),
+      at::tensor({1}, at::kLong),
+      0,
+      /*skip_nonzero_rows=*/true));
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(hbm.tag(moved[0]), moved[0]);
+  EXPECT_EQ(
+      cache->exclusive_hbm_stats()[0], static_cast<int64_t>(moved.size()));
+  EXPECT_TRUE(same_bits(
+      row_ptr(read_rows(*cache, key, kDim, 0), 0), before.data(), kDim));
+}
+
+TEST(ExclusiveHbmTest, IdCountEvictionCountsHbmRows) {
+  // ID_COUNT trigger at 600 rows, keep 500, all rows past their TTL.
+  auto evict_config = c10::make_intrusive<FeatureEvictConfig>(
+      /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::ID_COUNT),
+      /*trigger_strategy=*/
+      static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*ttls_in_mins=*/std::vector<int64_t>{60},
+      /*counter_thresholds=*/std::nullopt,
+      /*counter_decay_rates=*/std::nullopt,
+      /*feature_score_counter_decay_rates=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::vector<int64_t>{600},
+      /*training_id_keep_count=*/std::vector<int64_t>{500},
+      /*enable_eviction_for_feature_score_eviction_policy=*/
+      std::vector<int8_t>{1},
+      /*l2_weight_thresholds=*/std::nullopt,
+      /*embedding_dims=*/std::nullopt);
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(
+      hbm,
+      0,
+      0,
+      {.backend_return_whole_row = true, .feature_evict_config = evict_config});
+  const auto ids = at::arange(550, at::kLong);
+  write_rows(*cache, ids, dex_like_rows(550, /*seed=*/51));
+  auto rows = read_whole_rows(*cache, ids);
+  const uint32_t old = FixedBlockPool::current_timestamp() - 2 * 3600;
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    FixedBlockPool::set_timestamp(rows[r].data_ptr(), old);
+  }
+  cache->set_kv_with_metaheader_to_storage(rows.clone());
+  // Move ~200 rows into HBM, then add rows so that DRAM alone stays under
+  // the trigger while DRAM + HBM passes it.
+  const auto hot = at::arange(200, at::kLong);
+  cache->exclusive_hbm_promote_async(hbm.insert(
+      hot,
+      read_rows(*cache, hot),
+      static_cast<int32_t>(FixedBlockPool::current_timestamp())));
+  cache->exclusive_hbm_wait();
+  const auto in_hbm = cache->exclusive_hbm_stats()[0];
+  ASSERT_GT(in_hbm, 150);
+  const auto more = at::arange(550, 650, at::kLong);
+  write_rows(*cache, more, dex_like_rows(100, /*seed=*/52));
+  auto more_rows = read_whole_rows(*cache, more);
+  for (int64_t r = 0; r < more_rows.size(0); ++r) {
+    FixedBlockPool::set_timestamp(more_rows[r].data_ptr(), old);
+  }
+  cache->set_kv_with_metaheader_to_storage(more_rows.clone());
+  // DRAM alone (650 - in_hbm) is under the trigger; DRAM + HBM is not.
+  ASSERT_LT(static_cast<int64_t>(cache->get_num_rows()), 600);
+
+  // The trigger reads DRAM + HBM rows (650), past 600.
+  const auto [trigger, idle, reading] =
+      cache->should_trigger_evict(/*step=*/1, /*free_mem_bytes=*/0);
+  ASSERT_TRUE(trigger);
+  EXPECT_EQ(reading, 650);
+  cache->trigger_feature_evict();
+  cache->resume_ongoing_eviction(/*force_resume=*/true);
+  for (int attempt = 0; attempt < 1000 && cache->is_evicting(); ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  cache->wait_until_eviction_done();
+
+  // Eviction (DRAM rows only) brings DRAM + HBM down to the keep count.
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], in_hbm);
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()) + in_hbm, 500);
+}
+
+TEST(ExclusiveHbmTest, MetadataOfAKeyInNeitherTierIsZero) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(100, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(100, /*seed=*/49));
+  ASSERT_FALSE(moved.empty());
+  // A key listed for a checkpoint can leave both tiers before its metadata
+  // read (a TTL drop); that read must not abort the trainer.
+  const auto metadata = cache->get_kv_zch_eviction_metadata_impl(
+      at::tensor({moved[0], int64_t{99999}}, at::kLong),
+      at::tensor({2}, at::kLong));
+  EXPECT_NE(metadata[0].item<int64_t>(), 0);
+  EXPECT_EQ(metadata[1].item<int64_t>(), 0);
+}
+
+TEST(ExclusiveHbmTest, PeriodicSweepDemotesExpiredRowsInChunks) {
+  ScopedEnv ttl("KVZCH_EXCLUSIVE_HBM_TTL_MINS", "1");
+  ScopedEnv sweep("KVZCH_EXCLUSIVE_HBM_SWEEP_S", "1");
+  ScopedEnv chunk("KVZCH_EXCLUSIVE_HBM_CHUNK_ROWS", "16");
+  FakeHbm hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, 0, 0, {.backend_return_whole_row = true});
+  const auto ids = at::arange(500, at::kLong);
+  write_rows(*cache, ids, dex_like_rows(500, /*seed=*/55));
+  auto rows = read_whole_rows(*cache, ids);
+  const uint32_t old = FixedBlockPool::current_timestamp() - 2 * 3600;
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    FixedBlockPool::set_timestamp(rows[r].data_ptr(), old);
+  }
+  cache->set_kv_with_metaheader_to_storage(rows.clone());
+  // Rows idle for two hours, in HBM and in the backend.
+  const auto hot = at::arange(300, at::kLong);
+  cache->exclusive_hbm_promote_async(
+      hbm.insert(hot, read_rows(*cache, hot), static_cast<int32_t>(old)));
+  cache->exclusive_hbm_wait();
+  const auto in_hbm = cache->exclusive_hbm_stats()[0];
+  ASSERT_GT(in_hbm, 16);
+  std::vector<std::vector<c10::Half>> decoded;
+  std::vector<int64_t> moved;
+  for (int64_t key = 0; key < 300; ++key) {
+    if (hbm.tag(key) == key) {
+      moved.push_back(key);
+      decoded.push_back(hbm.decode(key));
+    }
+  }
+
+  // The scheduler runs a pass every second, in tasks of 16 rows.
+  for (int attempt = 0; attempt < 500 && cache->exclusive_hbm_stats()[0] > 0;
+       ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[3], in_hbm);
+  EXPECT_EQ(hbm.occupied(), 0);
+  const auto stored = read_rows(*cache, ids);
+  for (size_t i = 0; i < moved.size(); ++i) {
+    EXPECT_TRUE(same_bits(row_ptr(stored, moved[i]), decoded[i].data(), kDim));
+  }
+}
+
+TEST(ExclusiveHbmTest, MetadataOfAKeyDemotedMidReadComesFromTheBackend) {
+  ScopedEnv ttl("KVZCH_EXCLUSIVE_HBM_TTL_MINS", "1");
+  ScopedEnv sweep("KVZCH_EXCLUSIVE_HBM_SWEEP_S", "0");
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto moved = write_and_promote(
+      *cache, hbm, at::arange(100, at::kLong), dex_like_rows(100, /*seed=*/53));
+  ASSERT_FALSE(moved.empty());
+  const auto key = moved[0];
+  int64_t other = 100000;
+  while (hbm.set_base(other) != hbm.set_base(key)) {
+    ++other;
+  }
+  // After the first pass listed `key` as an HBM row: it is demoted, and
+  // another key of its set, with a much later access time, takes a slot.
+  const int32_t other_access = FixedBlockPool::current_timestamp() + 100000;
+  cache->set_hbm_metadata_pass_hook_for_test([&] {
+    cache->exclusive_hbm_sweep(FixedBlockPool::current_timestamp() + 120);
+    ASSERT_EQ(
+        hbm.insert(
+               at::tensor({other}, at::kLong),
+               dex_like_rows(1, /*seed=*/54),
+               other_access)
+            .size(),
+        1);
+  });
+
+  const auto ids = at::tensor({key}, at::kLong);
+  const auto count = at::tensor({1}, at::kLong);
+  const auto metadata = cache->get_kv_zch_eviction_metadata_impl(ids, count);
+  EXPECT_EQ(
+      metadata[0].item<int64_t>(),
+      cache->get_kv_zch_eviction_metadata_impl(ids, count)[0].item<int64_t>());
+}
+
+TEST(ExclusiveHbmTest, DemoteAllMovesEveryRowBackWithItsTimestamp) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, 0, 0, {.backend_return_whole_row = true});
+  const auto ids = at::arange(1000, at::kLong);
+  const auto rows = dex_like_rows(1000, /*seed=*/33);
+  const auto moved = write_and_promote(*cache, hbm, ids, rows);
+  // A GPU hit after promotion is newer than the row's backend timestamp.
+  const int32_t hit_time = FixedBlockPool::current_timestamp() + 1000;
+  hbm.last_access[hbm.slot(moved[0])] = hit_time;
+  std::vector<std::vector<c10::Half>> decoded;
+  decoded.reserve(moved.size());
+  for (const auto key : moved) {
+    decoded.push_back(hbm.decode(key));
+  }
+
+  EXPECT_EQ(
+      cache->exclusive_hbm_demote_all(), static_cast<int64_t>(moved.size()));
+
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), 1000);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(hbm.occupied(), 0);
+  const auto stored = read_rows(*cache, ids);
+  for (size_t i = 0; i < moved.size(); ++i) {
+    EXPECT_TRUE(same_bits(row_ptr(stored, moved[i]), decoded[i].data(), kDim));
+  }
+  const auto metadata = cache->get_kv_zch_eviction_metadata_impl(
+      at::tensor({moved[0]}, at::kLong), at::tensor({1}, at::kLong));
+  EXPECT_EQ(
+      static_cast<uint32_t>(metadata[0].item<int64_t>() & 0xFFFFFFFF),
+      static_cast<uint32_t>(hit_time));
+}
+
+TEST(ExclusiveHbmTest, WriteToAnHbmRowMovesItBackAndEmptiesTheSlot) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(200, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(200, /*seed=*/34));
+  const auto key = at::tensor({moved[0]}, at::kLong);
+  const auto fresh = dex_like_rows(1, /*seed=*/35);
+
+  write_rows(*cache, key, fresh);
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(hbm.tag(moved[0]), -1);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[5], 1);
+  EXPECT_EQ(
+      static_cast<int64_t>(cache->get_num_rows()),
+      200 - static_cast<int64_t>(moved.size()) + 1);
+  EXPECT_TRUE(same_bits(
+      row_ptr(read_rows(*cache, key, kDim, 0), 0), row_ptr(fresh, 0), kDim));
+}
+
+TEST(ExclusiveHbmTest, EnrichmentDoesNotRefetchHbmRows) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(1, 65, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(64, /*seed=*/36));
+  const auto rows_before = static_cast<int64_t>(cache->get_num_rows());
+  const auto moved_ids = at::tensor(moved, at::kLong);
+
+  cache->set_embedding_cache_enrich_query_id_async(
+      moved_ids, moved_ids, at::tensor({moved_ids.size(0)}, at::kLong));
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), rows_before);
+  EXPECT_EQ(
+      cache->exclusive_hbm_stats()[0], static_cast<int64_t>(moved.size()));
+  for (const auto key : moved) {
+    EXPECT_EQ(hbm.tag(key), key);
+  }
+}
+
+TEST(ExclusiveHbmTest, TtlSweepMovesBackOnlyRowsIdleLongerThanTheTtl) {
+  ScopedEnv ttl("KVZCH_EXCLUSIVE_HBM_TTL_MINS", "1");
+  ScopedEnv sweep("KVZCH_EXCLUSIVE_HBM_SWEEP_S", "0");
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(500, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(500, /*seed=*/37));
+  const int64_t later = FixedBlockPool::current_timestamp() + 600;
+  std::unordered_set<int64_t> hot;
+  for (size_t i = 0; i < moved.size(); i += 2) {
+    hot.insert(moved[i]);
+    hbm.last_access[hbm.slot(moved[i])] = static_cast<int32_t>(later - 5);
+  }
+
+  const auto left = cache->exclusive_hbm_sweep(later);
+
+  EXPECT_EQ(
+      left,
+      static_cast<int64_t>(moved.size()) - static_cast<int64_t>(hot.size()));
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], static_cast<int64_t>(hot.size()));
+  EXPECT_EQ(
+      static_cast<int64_t>(cache->get_num_rows()),
+      500 - static_cast<int64_t>(hot.size()));
+  for (const auto key : moved) {
+    EXPECT_EQ(hbm.tag(key), hot.contains(key) ? key : -1) << "key " << key;
+  }
+}
+
+TEST(ExclusiveHbmTest, TtlSweepCanDropFromBothTiers) {
+  ScopedEnv ttl("KVZCH_EXCLUSIVE_HBM_TTL_MINS", "1");
+  ScopedEnv demote("KVZCH_EXCLUSIVE_HBM_TTL_DEMOTE", "0");
+  ScopedEnv sweep("KVZCH_EXCLUSIVE_HBM_SWEEP_S", "0");
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(300, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(300, /*seed=*/38));
+
+  EXPECT_EQ(
+      cache->exclusive_hbm_sweep(FixedBlockPool::current_timestamp() + 600),
+      static_cast<int64_t>(moved.size()));
+
+  EXPECT_EQ(
+      static_cast<int64_t>(cache->get_num_rows()),
+      300 - static_cast<int64_t>(moved.size()));
+  EXPECT_EQ(
+      cache->exclusive_hbm_stats()[4], static_cast<int64_t>(moved.size()));
+  EXPECT_EQ(hbm.occupied(), 0);
+}
+
+TEST(ExclusiveHbmTest, CheckpointRoundTripRestoresHbmRowsIntoDram) {
+  FakeHbm hbm(kHbmSlots);
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  auto cache = make_exclusive_cache(hbm, 0, 0, whole_row);
+  const auto ids = at::arange(800, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(800, /*seed=*/39));
+  const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
+  const auto keys = cache->get_keys_in_range_impl(0, 100000).view(-1);
+  ASSERT_EQ(keys.size(0), 800);
+
+  auto saved = at::zeros({800, meta_dim + kDim}, at::kHalf);
+  cache->get_kv_from_storage_by_snapshot(keys, saved, nullptr, 0, std::nullopt);
+  auto restored = make_cache(0, 0, whole_row);
+  restored->set_kv_with_metaheader_to_storage(saved.clone());
+
+  EXPECT_EQ(static_cast<int64_t>(restored->get_num_rows()), 800);
+  auto reread = at::zeros_like(saved);
+  restored->get_kv_from_storage_by_snapshot(
+      keys, reread, nullptr, 0, std::nullopt);
+  EXPECT_TRUE(same_bits(reread, saved));
+  const std::unordered_set<int64_t> in_hbm(moved.begin(), moved.end());
+  const auto* key_ptr = keys.const_data_ptr<int64_t>();
+  for (int64_t r = 0; r < 800; ++r) {
+    EXPECT_EQ(FixedBlockPool::get_key(saved[r].data_ptr()), key_ptr[r]);
+    if (in_hbm.contains(key_ptr[r])) {
+      EXPECT_TRUE(same_bits(
+          row_ptr(saved, r) + meta_dim, hbm.decode(key_ptr[r]).data(), kDim));
+    }
+  }
+}
+
+TEST(ExclusiveHbmTest, GroupedRowsDoNotDriftOverRepeatedHbmTrips) {
+  auto hbm = packed_hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  constexpr int64_t kRows = 4000;
+  constexpr int kCycles = 8;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto original = grouped_fixed_rows(kRows, /*seed=*/50);
+  write_rows(*cache, ids, original);
+  for (int cycle = 0; cycle < kCycles; ++cycle) {
+    // Every row goes to HBM as its g8 bytes, and comes back.
+    cache->exclusive_hbm_promote_async(hbm.insert(
+        ids,
+        read_rows(*cache, ids),
+        static_cast<int32_t>(FixedBlockPool::current_timestamp())));
+    cache->exclusive_hbm_wait();
+    ASSERT_GT(cache->exclusive_hbm_stats()[0] * 10, kRows * 8);
+    cache->exclusive_hbm_demote_all();
+    EXPECT_TRUE(same_bits(read_rows(*cache, ids, kDim, 0), original))
+        << "trip " << cycle;
+  }
+  EXPECT_EQ(cache->exclusive_hbm_stats()[6], 0);
+}
+
+// Turns the exclusive HBM checkpoint-fill flags (read when the tier is
+// registered) on or off for the scope.
+class ScopedHbmFillFlags {
+ public:
+  explicit ScopedHbmFillFlags(bool on) {
+    for (const auto* name : kNames) {
+      setenv(name, on ? "1" : "0", 1);
+    }
+    setenv("KVZCH_EXCLUSIVE_HBM_FILL_THREADS", "4", 1);
+  }
+  ~ScopedHbmFillFlags() {
+    for (const auto* name : kNames) {
+      unsetenv(name);
+    }
+    unsetenv("KVZCH_EXCLUSIVE_HBM_FILL_THREADS");
+  }
+
+ private:
+  static constexpr std::array<const char*, 3> kNames{
+      "KVZCH_EXCLUSIVE_HBM_SNAPSHOT_FILLS",
+      "KVZCH_EXCLUSIVE_HBM_BATCHED_FILLS",
+      "KVZCH_EXCLUSIVE_HBM_SKIP_TAIL_FILL"};
+};
+
+// FakeHbm::insert for many keys: the same claim rule and encoding, without
+// per-key tensor indexing.
+std::vector<int64_t>
+bulk_insert(FakeHbm& hbm, const at::Tensor& keys, const at::Tensor& rows) {
+  const auto* key_ptr = keys.const_data_ptr<int64_t>();
+  auto* tags = hbm.cache_state.data_ptr<int64_t>();
+  auto* weights = hbm.cache_weights.data_ptr<uint8_t>();
+  auto* access = hbm.last_access.data_ptr<int32_t>();
+  const auto now = static_cast<int32_t>(FixedBlockPool::current_timestamp());
+  const auto row_bytes = hbm.row_bytes();
+  std::vector<uint8_t> encoded(row_bytes);
+  std::vector<int64_t> claimed;
+  for (int64_t n = 0; n < keys.size(0); ++n) {
+    const auto s = hbm.slot(key_ptr[n]);
+    if (tags[s] != -1 || !hbm.encode(rows[n], encoded.data())) {
+      continue;
+    }
+    std::memcpy(weights + s * row_bytes, encoded.data(), row_bytes);
+    access[s] = now;
+    tags[s] = key_ptr[n];
+    claimed.push_back(key_ptr[n]);
+  }
+  return claimed;
+}
+
+struct HbmFillResults {
+  at::Tensor raw;
+  at::Tensor fp16;
+  at::Tensor tail;
+  at::Tensor metadata;
+};
+
+HbmFillResults read_for_checkpoint(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids) {
+  HbmFillResults out;
+  out.raw = at::zeros({ids.size(0), cache.get_raw_row_bytes()}, at::kByte);
+  cache.get_kv_from_storage_by_snapshot(ids, out.raw, nullptr, 0, std::nullopt);
+  out.fp16 = read_rows(cache, ids, kPackedMaxD);
+  out.tail = read_rows(cache, ids, kTail, /*offset=*/kDim);
+  out.metadata = cache.get_kv_zch_eviction_metadata_impl(
+      ids, at::tensor({ids.size(0)}, at::kLong));
+  return out;
+}
+
+// Raw rows with the MetaHeader timestamp (the write time in seconds) zeroed.
+at::Tensor without_timestamps(const at::Tensor& raw) {
+  auto out = raw.clone();
+  out.narrow(
+         1, offsetof(FixedBlockPool::MetaHeader, timestamp), sizeof(uint32_t))
+      .zero_();
+  return out;
+}
+
+// Promotes `keys` with `rows` (kPackedMaxD wide) into a packed cache's HBM.
+std::vector<int64_t> write_and_promote_packed(
+    DramKVEmbeddingCache<at::Half>& cache,
+    FakeHbm& hbm,
+    const at::Tensor& keys,
+    const at::Tensor& rows) {
+  write_rows(cache, keys, rows);
+  auto claimed = bulk_insert(hbm, keys, read_rows(cache, keys, kDim));
+  cache.exclusive_hbm_promote_async(claimed);
+  cache.exclusive_hbm_wait();
+  return claimed;
+}
+
+TEST(ExclusiveHbmTest, VictimLandingBenchmark) {
+  if (std::getenv("KVZCH_EXCLUSIVE_HBM_BENCH") == nullptr) {
+    GTEST_SKIP() << "set KVZCH_EXCLUSIVE_HBM_BENCH=1";
+  }
+  // One promotion's worth of victims at OT scale (promote_max_rows): the
+  // rows the promote host callback writes back to DRAM before the next
+  // lookup.
+  constexpr int64_t kVictims = 262144;
+  FakeHbm hbm(4 * kVictims);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(kVictims, at::kLong);
+  write_rows(*cache, ids, dex_like_rows(kVictims, /*seed=*/60));
+  const auto claimed = bulk_insert(hbm, ids, read_rows(*cache, ids, kDim));
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+  const auto n = static_cast<int64_t>(claimed.size());
+  ASSERT_EQ(cache->exclusive_hbm_stats()[0], n);
+  const auto row_bytes = hbm.row_bytes();
+  std::vector<int32_t> access(n, 7);
+  std::vector<uint8_t> rows(n * row_bytes);
+  for (int64_t i = 0; i < n; ++i) {
+    std::memcpy(rows.data() + i * row_bytes, hbm.row(claimed[i]), row_bytes);
+  }
+
+  const auto start = std::chrono::steady_clock::now();
+  cache->hbm_land_victims(claimed.data(), access.data(), rows.data(), n);
+  const auto ms = std::chrono::duration<double, std::milli>(
+                      std::chrono::steady_clock::now() - start)
+                      .count();
+
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), n);
+  std::cout << "hbm_land_victims: " << n << " INT8 victims in " << ms << " ms ("
+            << ms * 1e3 / n << " us/row)" << '\n';
+}
+
+TEST(ExclusiveHbmTest, FastCheckpointFillsMatchTheDefaultFills) {
+  constexpr int64_t kRows = 20000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto rows = fixed_rows_with_tail(kRows, /*seed=*/90);
+  const auto rewritten = at::arange(0, kRows, 3, at::kLong);
+  const auto fresh = fixed_rows_with_tail(rewritten.size(0), /*seed=*/91);
+  std::vector<HbmFillResults> before;
+  std::vector<HbmFillResults> after;
+  std::vector<std::shared_ptr<DramKVEmbeddingCache<at::Half>>> caches;
+  std::vector<std::unique_ptr<FakeHbm>> hbms;
+  const auto start = std::chrono::steady_clock::now();
+  for (const bool fast : {false, true}) {
+    SCOPED_TRACE(testing::Message() << "fast=" << fast);
+    const ScopedHbmFillFlags flags(fast);
+    hbms.push_back(std::make_unique<FakeHbm>(1 << 16, kDim, kGroupSize));
+    auto& hbm = *hbms.back();
+    caches.push_back(make_exclusive_cache(
+        hbm,
+        kBitRate,
+        kGroupSize,
+        {.packed_storage = true, .max_D = kPackedMaxD}));
+    auto& cache = *caches.back();
+    const auto moved = write_and_promote_packed(cache, hbm, ids, rows);
+    ASSERT_GT(static_cast<int64_t>(moved.size()), kRows / 2);
+    before.push_back(read_for_checkpoint(cache, ids));
+    // Rows that leave HBM and come back with new values after the fast
+    // path's snapshot was taken.
+    cache.exclusive_hbm_demote_all();
+    write_and_promote_packed(cache, hbm, rewritten, fresh);
+    after.push_back(read_for_checkpoint(cache, ids));
+  }
+  // The two caches are written in turn, so their write timestamps differ by
+  // up to the run's wall time (seconds under ASAN); every other byte matches.
+  const int64_t max_skew_s = 1 +
+      std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::steady_clock::now() - start)
+          .count();
+  for (const auto* results : {&before, &after}) {
+    EXPECT_TRUE(same_bits(
+        without_timestamps((*results)[0].raw),
+        without_timestamps((*results)[1].raw)));
+    EXPECT_TRUE(same_bits((*results)[0].fp16, (*results)[1].fp16));
+    EXPECT_TRUE(same_bits((*results)[0].tail, (*results)[1].tail));
+    EXPECT_LE(
+        ((*results)[1].metadata - (*results)[0].metadata)
+            .abs()
+            .max()
+            .item<int64_t>(),
+        max_skew_s);
+  }
+  // The HBM rows' new values are what the fast path read after the rewrite.
+  const auto fresh_read = read_rows(*caches[0], rewritten, kDim);
+  EXPECT_TRUE(same_bits(
+      after[1].fp16.index_select(0, rewritten).narrow(1, 0, kDim).contiguous(),
+      fresh_read));
+
+  // Restoring the fast path's raw rows gives back the rows it read.
+  auto restored = make_cache(
+      kBitRate, kGroupSize, {.packed_storage = true, .max_D = kPackedMaxD});
+  restored->set_range_to_storage(after[1].raw.clone(), 0, kRows);
+  EXPECT_TRUE(same_bits(read_rows(*restored, ids, kPackedMaxD), after[1].fp16));
+}
+
+TEST(ExclusiveHbmTest, BenchmarkCheckpointFills) {
+  if (std::getenv("KVZCH_HBM_CKPT_BENCH") == nullptr) {
+    GTEST_SKIP() << "set KVZCH_HBM_CKPT_BENCH=1";
+  }
+  using Clock = std::chrono::steady_clock;
+  const auto seconds_since = [](Clock::time_point start) {
+    return std::chrono::duration<double>(Clock::now() - start).count();
+  };
+  const char* rows_env = std::getenv("KVZCH_HBM_CKPT_BENCH_ROWS");
+  const int64_t rows_total = rows_env ? std::atoll(rows_env) : 2000000;
+  // Checkpoint reads go through KVTensorWrapper::narrow in chunks.
+  constexpr int64_t kChunk = 1 << 20;
+  const auto ids = at::arange(rows_total, at::kLong);
+  const auto rows = fixed_rows_with_tail(rows_total, /*seed=*/92);
+  std::vector<HbmFillResults> results;
+  for (const bool fast : {false, true}) {
+    const ScopedHbmFillFlags flags(fast);
+    auto hbm = packed_hbm(rows_total);
+    auto cache = make_exclusive_cache(
+        hbm,
+        kBitRate,
+        kGroupSize,
+        {.packed_storage = true, .max_D = kPackedMaxD});
+    const auto moved = write_and_promote_packed(*cache, hbm, ids, rows);
+    std::vector<at::Tensor> raw, fp16, tail, metadata;
+    double raw_s = 0, fp16_s = 0, tail_s = 0, metadata_s = 0;
+    for (int64_t begin = 0; begin < rows_total; begin += kChunk) {
+      const auto chunk =
+          ids.narrow(0, begin, std::min(kChunk, rows_total - begin));
+      auto start = Clock::now();
+      raw.push_back(
+          at::zeros({chunk.size(0), cache->get_raw_row_bytes()}, at::kByte));
+      cache->get_kv_from_storage_by_snapshot(
+          chunk, raw.back(), nullptr, 0, std::nullopt);
+      raw_s += seconds_since(start);
+      start = Clock::now();
+      fp16.push_back(read_rows(*cache, chunk, kPackedMaxD));
+      fp16_s += seconds_since(start);
+      start = Clock::now();
+      tail.push_back(read_rows(*cache, chunk, kTail, /*offset=*/kDim));
+      tail_s += seconds_since(start);
+      start = Clock::now();
+      metadata.push_back(cache->get_kv_zch_eviction_metadata_impl(
+          chunk, at::tensor({chunk.size(0)}, at::kLong)));
+      metadata_s += seconds_since(start);
+    }
+    std::cout << "checkpoint fills, fast=" << fast << ": " << rows_total
+              << " rows, " << moved.size() << " in HBM; raw g8 " << raw_s
+              << " s, fp16 " << fp16_s << " s, tail " << tail_s
+              << " s, metadata " << metadata_s << " s, total "
+              << raw_s + fp16_s + tail_s + metadata_s << " s" << '\n';
+    results.push_back(
+        {at::cat(raw), at::cat(fp16), at::cat(tail), at::cat(metadata)});
+  }
+  // The two caches were written seconds apart, so only the MetaHeader
+  // timestamps (and the metadata built from them) may differ.
+  const int64_t meta_bytes = sizeof(FixedBlockPool::MetaHeader);
+  const auto payload = [&](const at::Tensor& rows) {
+    return rows.narrow(1, meta_bytes, rows.size(1) - meta_bytes).contiguous();
+  };
+  EXPECT_TRUE(same_bits(payload(results[0].raw), payload(results[1].raw)));
+  EXPECT_TRUE(same_bits(results[0].fp16, results[1].fp16));
+  EXPECT_TRUE(same_bits(results[0].tail, results[1].tail));
+}
+
+TEST(ExclusiveHbmTest, Fp16RowsLoseOnlyInt8PrecisionOnce) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  constexpr int64_t kRows = 4000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto original = dex_like_rows(kRows, /*seed=*/41);
+  const auto moved = write_and_promote(*cache, hbm, ids, original);
+  cache->exclusive_hbm_demote_all();
+  const auto once = read_rows(*cache, ids, kDim, 0);
+
+  // A second trip changes nothing: an INT8 grid row re-quantizes to itself.
+  const auto moved_again = write_and_promote(*cache, hbm, ids, once);
+  cache->exclusive_hbm_demote_all();
+  const auto twice = read_rows(*cache, ids, kDim, 0);
+
+  float max_abs = 0;
+  float max_rel = 0;
+  for (const auto key : moved) {
+    const auto err = (once[key].to(at::kFloat) - original[key].to(at::kFloat))
+                         .abs()
+                         .max()
+                         .item<float>();
+    const auto range = (original[key].max() - original[key].min())
+                           .to(at::kFloat)
+                           .item<float>();
+    max_abs = std::max(max_abs, err);
+    max_rel = std::max(max_rel, err / range);
+  }
+  int64_t stable = 0;
+  for (const auto key : moved_again) {
+    stable += same_bits(row_ptr(twice, key), row_ptr(once, key), kDim);
+  }
+  std::cout << "fp16 rows through INT8 HBM: max abs err " << max_abs
+            << ", max err / row range " << max_rel << "; second trip " << stable
+            << "/" << static_cast<int64_t>(moved_again.size()) << " unchanged"
+            << '\n';
+  EXPECT_LE(max_rel, 0.5f / 255.0f + 1e-3f);
+  EXPECT_EQ(stable, static_cast<int64_t>(moved_again.size()));
+}
+
+// The row a key has after one trip through the INT8 HBM tier.
+std::vector<c10::Half> int8_trip(const c10::Half* row) {
+  FakeHbm one(FakeHbm::kWays);
+  auto rows = at::empty({1, kDim}, at::kHalf);
+  std::memcpy(rows.data_ptr(), row, kDim * sizeof(c10::Half));
+  const auto claimed = one.insert(at::zeros({1}, at::kLong), rows, 0);
+  return claimed.empty() ? std::vector<c10::Half>(row, row + kDim)
+                         : one.decode(0);
+}
+
+TEST(ExclusiveHbmTest, ConcurrentWritesPromotionsAndDemotionsLoseNoRow) {
+  ScopedEnv ttl("KVZCH_EXCLUSIVE_HBM_TTL_MINS", "1");
+  ScopedEnv sweep("KVZCH_EXCLUSIVE_HBM_SWEEP_S", "0");
+  FakeHbm hbm(1 << 12);
+  auto cache = make_exclusive_cache(hbm);
+  constexpr int64_t kKeys = 3000;
+  const auto all = at::arange(kKeys, at::kLong);
+  // Key-derived rows: the last row written to each key, which the key must
+  // hold at the end (as written, or after an INT8 trip through HBM).
+  std::vector<at::Tensor> last(kKeys);
+  {
+    const auto initial = dex_like_rows(kKeys, /*seed=*/42);
+    write_rows(*cache, all, initial);
+    for (int64_t k = 0; k < kKeys; ++k) {
+      last[k] = initial[k].clone();
+    }
+  }
+
+  std::atomic<bool> stop{false};
+  std::thread writer([&] {
+    for (int iter = 0; !stop.load(); ++iter) {
+      // Distinct ids, so the batch's last write to a key is unambiguous.
+      const auto ids = at::randperm(kKeys, at::kLong).narrow(0, 0, 64);
+      const auto rows = dex_like_rows(64, /*seed=*/1000 + iter);
+      write_rows(*cache, ids, rows);
+      for (int64_t r = 0; r < 64; ++r) {
+        last[ids[r].item<int64_t>()] = rows[r].clone();
+      }
+    }
+  });
+  // Every HBM row is past the TTL at now + 120 s, so each pass demotes all.
+  std::thread demoter([&] {
+    while (!stop.load()) {
+      cache->exclusive_hbm_sweep(FixedBlockPool::current_timestamp() + 120);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+  });
+  // Checkpoint reads run alongside: no key is ever in neither tier, so no
+  // row may read back as zero.
+  std::atomic<int64_t> zero_reads{0};
+  std::thread checkpointer([&] {
+    while (!stop.load()) {
+      const auto stored = read_rows(*cache, all, kDim, 0);
+      zero_reads += (stored.abs().amax({1}) == 0).sum().item<int64_t>();
+    }
+  });
+  // The "GPU": promotes rows it reads from the backend, like read-populate.
+  // Only this thread claims slots; the executor alone empties them.
+  for (int iter = 0; iter < 200; ++iter) {
+    const auto ids = at::randint(kKeys, {64}, at::kLong);
+    const auto rows = read_rows(*cache, ids);
+    cache->exclusive_hbm_promote_async(hbm.insert(
+        ids, rows, static_cast<int32_t>(FixedBlockPool::current_timestamp())));
+    if (iter % 50 == 49) {
+      cache->exclusive_hbm_wait();
+      cache->exclusive_hbm_demote_all();
+    }
+  }
+  stop = true;
+  writer.join();
+  demoter.join();
+  checkpointer.join();
+  cache->exclusive_hbm_wait();
+
+  // Every key is in exactly one tier, and every tombstone holds its slot.
+  const auto stats = cache->exclusive_hbm_stats();
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()) + stats[0], kKeys);
+  EXPECT_EQ(hbm.occupied(), stats[0]);
+  EXPECT_GT(stats[3], 0);
+  EXPECT_EQ(zero_reads.load(), 0);
+  const auto stored = read_rows(*cache, all, kDim, 0);
+  int64_t lost = 0;
+  for (int64_t k = 0; k < kKeys; ++k) {
+    const auto* expected = last[k].const_data_ptr<at::Half>();
+    lost += !same_bits(row_ptr(stored, k), expected, kDim) &&
+        !same_bits(row_ptr(stored, k), int8_trip(expected).data(), kDim);
+  }
+  EXPECT_EQ(lost, 0);
+}
+
+TEST(ExclusiveHbmTest, ColumnsPastTheHbmRowReadBackAsZero) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm, 0, 0, {.max_D = kPackedMaxD});
+  const auto ids = at::arange(300, at::kLong);
+  const auto rows = at::cat(
+      {dex_like_rows(300, /*seed=*/43), at::ones({300, kTail}, at::kHalf)}, 1);
+  write_rows(*cache, ids, rows);
+  cache->exclusive_hbm_promote_async(hbm.insert(
+      ids,
+      rows.narrow(1, 0, kDim).contiguous(),
+      static_cast<int32_t>(FixedBlockPool::current_timestamp())));
+  cache->exclusive_hbm_wait();
+  ASSERT_GT(cache->exclusive_hbm_stats()[0], 0);
+  // The HBM rows, before demotion empties their slots.
+  std::vector<std::vector<c10::Half>> hbm_rows(300);
+  for (int64_t id = 0; id < 300; ++id) {
+    if (hbm.tag(id) == id) {
+      hbm_rows[id] = hbm.decode(id);
+    }
+  }
+
+  cache->exclusive_hbm_demote_all();
+
+  const auto stored = read_rows(*cache, ids, kPackedMaxD, 0);
+  for (int64_t id = 0; id < 300; ++id) {
+    const bool was_in_hbm = !hbm_rows[id].empty();
+    EXPECT_EQ(
+        was_in_hbm,
+        stored[id].narrow(0, kDim, kTail).abs().sum().item<float>() == 0);
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, id),
+        was_in_hbm ? hbm_rows[id].data() : row_ptr(rows, id),
+        kDim));
+  }
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), 300);
+}
+
+TEST(ExclusiveHbmTest, PromotionOfAKeyMissingFromDramEmptiesItsSlot) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto key = at::tensor({21}, at::kLong);
+  const auto now = static_cast<int32_t>(FixedBlockPool::current_timestamp());
+
+  // A slot claimed for a key DRAM does not hold creates no tombstone.
+  const auto claimed = hbm.insert(key, dex_like_rows(1, /*seed=*/46), now);
+  ASSERT_EQ(claimed.size(), 1);
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(hbm.tag(21), -1);
+}
+
+TEST(ExclusiveHbmTest, WrittenRowsPromotedFromWriteKeepTheirHbmRow) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto now = static_cast<int32_t>(FixedBlockPool::current_timestamp());
+  // Keys written straight into HBM: 31 has no DRAM row, 32 a zero row (its
+  // DRAM write carried zeros), 33 another writer's nonzero row.
+  write_rows(
+      *cache,
+      at::tensor({int64_t{32}}, at::kLong),
+      at::zeros({1, kDim}, at::kHalf));
+  const auto other = dex_like_rows(1, /*seed=*/48);
+  write_rows(*cache, at::tensor({int64_t{33}}, at::kLong), other);
+  const auto keys =
+      at::tensor({int64_t{31}, int64_t{32}, int64_t{33}}, at::kLong);
+  const auto written = hbm.insert(keys, dex_like_rows(3, /*seed=*/49), now);
+  ASSERT_EQ(written.size(), 3);
+
+  cache->exclusive_hbm_promote_async(written, /*from_write=*/true);
+  cache->exclusive_hbm_wait();
+
+  // 31 and 32 live only in HBM; 33's DRAM row wins and its slot is emptied.
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 2);
+  EXPECT_EQ(hbm.tag(31), 31);
+  EXPECT_EQ(hbm.tag(32), 32);
+  EXPECT_NE(hbm.tag(33), 33);
+  EXPECT_EQ(cache->get_num_rows(), 1);
+  EXPECT_TRUE(same_bits(
+      row_ptr(
+          read_rows(*cache, at::tensor({int64_t{33}}, at::kLong), kDim, 0), 0),
+      row_ptr(other, 0),
+      kDim));
+}
+
+TEST(ExclusiveHbmTest, UnsupportedConfigsAreRefused) {
+  FakeHbm narrow(kHbmSlots, kDim - 4);
+  EXPECT_THROW(make_exclusive_cache(narrow), c10::Error);
+  FakeHbm hbm(kHbmSlots);
+  auto ssd = make_cache(0, 0, {.enable_ssd_backend = true});
+  EXPECT_THROW(
+      ssd->exclusive_hbm_register(
+          hbm.cache_state, hbm.cache_weights, hbm.last_access),
+      c10::Error);
+}
+
+constexpr int64_t kInt8RowBytes = kDim + 8;
+constexpr int64_t kInt8CheckpointRowBytes =
+    16 + kInt8RowBytes + kTail * static_cast<int64_t>(sizeof(c10::Half));
+
+// The INT8 publish (torch.ops.quantized.embedding_bag_byte_prepack) through
+// fbgemm's scalar reference: dim codes, then fp32 scale and bias.
+std::vector<std::uint8_t> int8_publish_ref(const c10::Half* row) {
+  std::vector<std::uint8_t> packed(kInt8RowBytes);
+  fbgemm::FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<fbgemm::float16>(
+      reinterpret_cast<const fbgemm::float16*>(row), 1, kDim, packed.data());
+  return packed;
+}
+
+std::vector<std::uint8_t> int8_publish_of_float_ref(const c10::Half* row) {
+  std::vector<float> values(kDim);
+  for (int64_t d = 0; d < kDim; ++d) {
+    values[d] = static_cast<float>(row[d]);
+  }
+  std::vector<std::uint8_t> packed(kInt8RowBytes);
+  fbgemm::FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<float>(
+      values.data(), 1, kDim, packed.data());
+  return packed;
+}
+
+std::vector<c10::Half> int8_decode_ref(const std::uint8_t* packed) {
+  float scale = 0;
+  float bias = 0;
+  std::memcpy(&scale, packed + kDim, sizeof(float));
+  std::memcpy(&bias, packed + kDim + 4, sizeof(float));
+  std::vector<c10::Half> row(kDim);
+  for (int64_t d = 0; d < kDim; ++d) {
+    row[d] = c10::Half(static_cast<float>(packed[d]) * scale + bias);
+  }
+  return row;
+}
+
+// DEX-like rows in the first kDim columns, arbitrary fp16 after.
+at::Tensor rows_with_tail(int64_t num_rows, uint64_t seed) {
+  auto gen = at::make_generator<at::CPUGeneratorImpl>(seed + 2000);
+  return at::cat(
+      {dex_like_rows(num_rows, seed),
+       at::randn({num_rows, kTail}, gen, at::kFloat).to(at::kHalf)},
+      1);
+}
+
+std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_int8_cache(
+    CacheOptions options = {}) {
+  options.int8_storage = true;
+  options.max_D = kPackedMaxD;
+  return make_cache(0, 0, options);
+}
+
+at::Tensor read_int8_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids) {
+  auto rows = at::zeros({ids.size(0), kInt8CheckpointRowBytes}, at::kByte);
+  cache.get_kv_from_storage_by_snapshot(ids, rows, nullptr, 0, std::nullopt);
+  return rows;
+}
+
+const std::uint8_t* int8_row_ptr(const at::Tensor& rows, int64_t r) {
+  return rows.const_data_ptr<std::uint8_t>() + r * rows.size(1);
+}
+
+TEST(TongxinRowWriteTest, FillOnlyWritesPreserveDramAndExclusiveHbmRows) {
+  for (const bool int8_storage : {false, true}) {
+    for (const bool exclusive : {false, true}) {
+      SCOPED_TRACE(
+          testing::Message()
+          << "int8_storage=" << int8_storage << ", exclusive=" << exclusive);
+      FakeHbm hbm(kHbmSlots);
+      auto cache = make_cache(0, 0, {.int8_storage = int8_storage});
+      const auto existing = at::tensor({11, 12}, at::kLong);
+      const auto initial = dex_like_rows(2, /*seed=*/71);
+      write_rows(*cache, existing, initial);
+      write_rows(
+          *cache, at::tensor({13}, at::kLong), at::zeros({1, kDim}, at::kHalf));
+      if (exclusive) {
+        cache->exclusive_hbm_register(
+            hbm.cache_state, hbm.cache_weights, hbm.last_access);
+        const auto moved = hbm.insert(
+            existing.narrow(0, 0, 1),
+            read_rows(*cache, existing.narrow(0, 0, 1)),
+            static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+        ASSERT_EQ(moved, std::vector<int64_t>{11});
+        cache->exclusive_hbm_promote_async(moved);
+        cache->exclusive_hbm_wait();
+      }
+      const auto before = read_rows(*cache, existing, kDim);
+      const auto ids = at::tensor({11, 12, 13, 14}, at::kLong);
+      auto incoming = at::full({4, kDim}, -7.0, at::kHalf);
+      incoming[2].fill_(0.25);
+      incoming[3].fill_(0.5);
+
+      folly::coro::blockingWait(cache->set_kv_db_async_on_enrichment_executor(
+          ids,
+          incoming,
+          at::tensor({4}, at::kLong),
+          cache->laser_write_epoch(),
+          /*skip_nonzero_rows=*/true));
+      cache->exclusive_hbm_wait();
+
+      const auto stored = read_rows(*cache, ids, kDim);
+      EXPECT_TRUE(same_bits(stored.narrow(0, 0, 2), before));
+      EXPECT_TRUE(same_bits(stored.narrow(0, 2, 2), incoming.narrow(0, 2, 2)));
+      if (exclusive) {
+        EXPECT_EQ(hbm.tag(11), 11);
+        EXPECT_EQ(cache->exclusive_hbm_stats()[0], 1);
+        EXPECT_EQ(cache->exclusive_hbm_stats()[5], 0);
+        EXPECT_EQ(cache->get_num_rows(), 3);
+      }
+    }
+  }
+}
+
+TEST(TongxinRowWriteTest, RowWritesAreSnappedLikeLaserFillsWithServingQdq) {
+  for (const bool packed : {false, true}) {
+    SCOPED_TRACE(testing::Message() << "packed=" << packed);
+    auto cache =
+        packed ? make_packed_cache() : make_cache(kBitRate, kGroupSize);
+    const auto ids = at::tensor({90001, 90002}, at::kLong);
+    const auto rows = dex_like_rows(2, /*seed=*/72);
+    const auto before = rows.clone();
+
+    cache->set_embedding_cache_rows_async(
+        ids, rows, at::tensor({2}, at::kLong));
+    const auto stored = wait_for_enriched_rows(*cache, ids);
+
+    EXPECT_TRUE(same_bits(rows, before));
+    // The g8 fixed point a Laser fill of the same rows stores
+    // (apply_serving_qdq's round trip).
+    auto filled = before.clone();
+    serving_qdq::round_trip_rows(
+        filled.mutable_data_ptr<at::Half>(), 2, kDim, kDim, kGrouped);
+    for (int64_t r = 0; r < 2; ++r) {
+      EXPECT_TRUE(same_bits(row_ptr(stored, r), row_ptr(filled, r), kDim));
+      EXPECT_TRUE(same_bits(
+          row_ptr(stored, r),
+          grouped_fixed_point_ref(row_ptr(before, r)).data(),
+          kDim));
+    }
+  }
+}
+
+TEST(TongxinRowWriteTest, RowWritesUseTheTablesServingFormat) {
+  // Row-wise INT4 (group size 0): stored rows are row-wise serving fixed
+  // points.
+  auto rowwise = make_cache(kBitRate, 0);
+  const auto ids = at::tensor({90011, 90012}, at::kLong);
+  const auto rows = dex_like_rows(2, /*seed=*/73);
+  rowwise->set_embedding_cache_rows_async(
+      ids, rows, at::tensor({2}, at::kLong));
+  const auto stored = wait_for_enriched_rows(*rowwise, ids);
+  for (int64_t r = 0; r < 2; ++r) {
+    EXPECT_TRUE(is_serving_fixed_point(row_ptr(stored, r)));
+    EXPECT_FALSE(same_bits(row_ptr(stored, r), row_ptr(rows, r), kDim));
+  }
+}
+
+TEST(TongxinRowWriteTest, RowWritesStayRawWithoutServingQdq) {
+  auto cache = make_cache(0);
+  const auto ids = at::tensor({90021, 90022}, at::kLong);
+  const auto rows = dex_like_rows(2, /*seed=*/74);
+  cache->set_embedding_cache_rows_async(ids, rows, at::tensor({2}, at::kLong));
+  const auto stored = wait_for_enriched_rows(*cache, ids);
+  EXPECT_TRUE(same_bits(stored, rows));
+}
+
+TEST(TongxinRowWriteTest, EncodedWrittenRowsAreTheBytesDramStores) {
+  const std::vector<
+      std::pair<const char*, std::shared_ptr<DramKVEmbeddingCache<at::Half>>>>
+      tables = {
+          {"fp16", make_cache(0)},
+          {"fp16 with row-wise serving QDQ", make_cache(kBitRate, 0)},
+          {"int8_storage", make_int8_cache()},
+          {"packed_storage", make_packed_cache()},
+      };
+  constexpr int64_t kRows = 256;
+  const auto ids = at::arange(90100, 90100 + kRows, at::kLong);
+  auto rows = dex_like_rows(kRows, /*seed=*/75);
+  // A row with no serving fixed point: a packed table keeps it as fp16 outside
+  // its block, and its encoding is zero.
+  rows[0][3] = std::numeric_limits<float>::quiet_NaN();
+  for (const auto& [name, cache] : tables) {
+    SCOPED_TRACE(name);
+    cache->set_embedding_cache_rows_async(
+        ids, rows, at::tensor({kRows}, at::kLong));
+    cache->wait_row_writes_done();
+    auto encoded = at::ones({kRows, cache->hbm_written_row_bytes()}, at::kByte);
+    cache->encode_written_rows(rows, encoded, at::tensor({kRows}, at::kLong));
+    if (cache->get_raw_row_bytes() > 0) {
+      auto stored = at::ones_like(encoded);
+      cache->get_int8_payloads(ids, stored, at::tensor({kRows}, at::kLong));
+      EXPECT_TRUE(same_bits(encoded, stored));
+    } else {
+      EXPECT_TRUE(same_bits(
+          encoded.view(at::kHalf).view({kRows, kDim}),
+          read_rows(*cache, ids, kDim)));
+    }
+  }
+}
+
+TEST(Int8StorageTest, EncodedRowsAreFixedPointsOfTheInt8Publish) {
+  const auto rows = dex_like_rows(4096, /*seed=*/50);
+  std::vector<std::uint8_t> encoded(kInt8RowBytes);
+  int64_t multi_pass = 0;
+  float max_rel = 0;
+  for (int64_t r = 0; r < rows.size(0); ++r) {
+    const auto result =
+        serving_qdq::encode_int8_row(row_ptr(rows, r), kDim, encoded.data());
+    ASSERT_NE(result, serving_qdq::Int8Result::kNotConverged) << "row " << r;
+    multi_pass += result == serving_qdq::Int8Result::kMultiPass;
+    auto decoded = int8_decode_ref(encoded.data());
+    // Publishing the stored row (fp16 or widened to fp32) re-derives its codes,
+    // scale and bias bit for bit.
+    EXPECT_EQ(int8_publish_ref(decoded.data()), encoded) << "row " << r;
+    EXPECT_EQ(int8_publish_of_float_ref(decoded.data()), encoded)
+        << "row " << r;
+    const auto original = rows[r].to(at::kFloat);
+    const auto error =
+        (at::from_blob(decoded.data(), {kDim}, at::kHalf).to(at::kFloat) -
+         original)
+            .abs()
+            .max()
+            .item<float>();
+    const auto range = (original.max() - original.min()).item<float>();
+    max_rel = std::max(max_rel, error / range);
+  }
+  std::cout << "FP16 -> INT8 -> FP16: max err / row range " << max_rel
+            << "; rows needing a second re-quantization " << multi_pass << "/"
+            << rows.size(0) << '\n';
+  // Half an INT8 step plus fp16 rounding of the decode.
+  EXPECT_LE(max_rel, 0.5f / 255.0f + 1e-3f);
+}
+
+TEST(Int8StorageTest, ZeroRowEncodesToZeroBytes) {
+  const auto row = at::zeros({1, kDim}, at::kHalf);
+  std::vector<std::uint8_t> encoded(kInt8RowBytes, 0xAB);
+
+  serving_qdq::encode_int8_row(row_ptr(row, 0), kDim, encoded.data());
+
+  EXPECT_EQ(encoded, std::vector<std::uint8_t>(kInt8RowBytes, 0));
+}
+
+TEST(Int8StorageTest, ReadsReturnTheInt8DecodeAtEveryWidth) {
+  auto cache = make_int8_cache();
+  const auto rows = rows_with_tail(512, /*seed=*/51);
+  const auto ids = at::arange(512, at::kLong);
+
+  write_rows(*cache, ids, rows);
+
+  const auto stored = read_rows(*cache, ids, kPackedMaxD);
+  std::vector<std::uint8_t> encoded(kInt8RowBytes);
+  for (int64_t r = 0; r < 512; ++r) {
+    serving_qdq::encode_int8_row(row_ptr(rows, r), kDim, encoded.data());
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r), int8_decode_ref(encoded.data()).data(), kDim))
+        << "row " << r;
+  }
+  EXPECT_TRUE(same_bits(
+      stored.narrow(1, kDim, kTail).contiguous(),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_TRUE(same_bits(
+      read_rows(*cache, ids, 8, /*offset=*/4),
+      stored.narrow(1, 4, 8).contiguous()));
+  EXPECT_TRUE(same_bits(
+      read_rows(*cache, ids, kTail, /*offset=*/kDim),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  // Rewriting what was read stores the same row: no drift.
+  write_rows(*cache, ids, stored);
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kPackedMaxD), stored));
+  EXPECT_EQ(cache->get_int8_write_counts()[2], 0);
+}
+
+TEST(Int8StorageTest, NarrowWritesKeepTheRestOfTheRow) {
+  auto cache = make_int8_cache();
+  const auto ids = at::arange(16, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(16, /*seed=*/52));
+  const auto before = read_rows(*cache, ids, kPackedMaxD);
+  const auto head = dex_like_rows(16, /*seed=*/53).narrow(1, 0, 8).contiguous();
+
+  write_rows(*cache, ids, head);
+
+  const auto after = read_rows(*cache, ids, kPackedMaxD);
+  EXPECT_TRUE(same_bits(
+      after.narrow(1, kDim, kTail).contiguous(),
+      before.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_LT(
+      (after.narrow(1, 0, 8).to(at::kFloat) - head.to(at::kFloat))
+          .abs()
+          .max()
+          .item<float>(),
+      0.01f);
+}
+
+TEST(Int8StorageTest, NonFiniteValuesAreClampedAndCounted) {
+  auto cache = make_int8_cache();
+  auto rows = rows_with_tail(2, /*seed=*/54);
+  rows[0][3] = std::numeric_limits<float>::quiet_NaN();
+  rows[1][5] = std::numeric_limits<float>::infinity();
+  const auto ids = at::arange(2, at::kLong);
+
+  write_rows(*cache, ids, rows);
+
+  const auto stored = read_rows(*cache, ids, kPackedMaxD);
+  EXPECT_TRUE(at::isfinite(stored).all().item<bool>());
+  EXPECT_EQ(cache->get_int8_write_counts()[1], 2);
+}
+
+TEST(Int8StorageTest, Int8CheckpointRoundTripIsBitExact) {
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  auto cache = make_int8_cache(whole_row);
+  const auto ids = at::arange(300, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(300, /*seed=*/55));
+  // Distinct saved timestamps, which the restore must carry over.
+  auto with_ts = read_whole_rows(*cache, ids);
+  for (int64_t r = 0; r < with_ts.size(0); ++r) {
+    FixedBlockPool::set_timestamp(with_ts[r].data_ptr(), 1000000 + r);
+  }
+  cache->set_kv_with_metaheader_to_storage(with_ts.clone());
+  const auto saved = read_int8_rows(*cache, ids);
+  ASSERT_EQ(cache->get_int8_row_bytes(), kInt8CheckpointRowBytes);
+
+  auto restored = make_int8_cache(whole_row);
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  EXPECT_TRUE(same_bits(read_int8_rows(*restored, ids), saved));
+  EXPECT_TRUE(same_bits(read_whole_rows(*restored, ids), with_ts));
+  for (int64_t r = 0; r < saved.size(0); ++r) {
+    EXPECT_EQ(FixedBlockPool::get_key(saved[r].data_ptr()), r);
+    EXPECT_EQ(
+        FixedBlockPool::get_timestamp(saved[r].data_ptr()),
+        static_cast<uint32_t>(1000000 + r));
+  }
+}
+
+TEST(Int8StorageTest, RawRestoreRestampsWithKvzchRestampOnRestore) {
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  auto cache = make_int8_cache(whole_row);
+  const auto ids = at::arange(100, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(100, /*seed=*/57));
+  auto saved = read_int8_rows(*cache, ids);
+  for (int64_t r = 0; r < saved.size(0); ++r) {
+    FixedBlockPool::set_timestamp(saved[r].data_ptr(), 1000);
+  }
+
+  ScopedEnv restamp("KVZCH_RESTAMP_ON_RESTORE", "1");
+  auto restored = make_int8_cache(whole_row);
+  const auto before = FixedBlockPool::current_timestamp();
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  const auto reread = read_int8_rows(*restored, ids);
+  for (int64_t r = 0; r < reread.size(0); ++r) {
+    EXPECT_GE(FixedBlockPool::get_timestamp(reread[r].data_ptr()), before);
+    // Only the timestamp changes: key, codes, qparams and tail are restored.
+    EXPECT_EQ(FixedBlockPool::get_key(reread[r].data_ptr()), r);
+    EXPECT_EQ(
+        std::memcmp(
+            int8_row_ptr(reread, r) + sizeof(FixedBlockPool::MetaHeader),
+            int8_row_ptr(saved, r) + sizeof(FixedBlockPool::MetaHeader),
+            kInt8CheckpointRowBytes - sizeof(FixedBlockPool::MetaHeader)),
+        0);
+  }
+}
+
+TEST(Int8StorageTest, Fp16CheckpointLoadsIntoAnInt8Table) {
+  const auto ids = at::arange(300, at::kLong);
+  const auto rows = rows_with_tail(300, /*seed=*/56);
+  auto fp16 = make_cache(
+      0, 0, {.max_D = kPackedMaxD, .backend_return_whole_row = true});
+  write_rows(*fp16, ids, rows);
+  auto saved = read_whole_rows(*fp16, ids);
+  for (int64_t r = 0; r < saved.size(0); ++r) {
+    FixedBlockPool::set_timestamp(saved[r].data_ptr(), 2000000 + r);
+  }
+
+  auto int8 = make_int8_cache({.backend_return_whole_row = true});
+  int8->set_kv_with_metaheader_to_storage(saved.clone());
+
+  const auto restored = read_whole_rows(*int8, ids);
+  const auto restored_codes = read_int8_rows(*int8, ids);
+  const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
+  std::vector<std::uint8_t> encoded(kInt8RowBytes);
+  for (int64_t r = 0; r < 300; ++r) {
+    EXPECT_TRUE(same_bits(row_ptr(restored, r), row_ptr(saved, r), meta_dim));
+    serving_qdq::encode_int8_row(row_ptr(rows, r), kDim, encoded.data());
+    EXPECT_TRUE(same_bits(
+        row_ptr(restored, r) + meta_dim,
+        int8_decode_ref(encoded.data()).data(),
+        kDim))
+        << "row " << r;
+    EXPECT_TRUE(same_bits(
+        row_ptr(restored, r) + meta_dim + kDim,
+        row_ptr(saved, r) + meta_dim + kDim,
+        kTail));
+    EXPECT_EQ(
+        std::vector<std::uint8_t>(
+            int8_row_ptr(restored_codes, r) + 16,
+            int8_row_ptr(restored_codes, r) + 16 + kInt8RowBytes),
+        encoded);
+  }
+}
+
+// MetaHeader, kDim / 2 code bytes and one e4m3 scale per 8 dims, fp16 tail.
+constexpr int64_t kPackedCheckpointRowBytes =
+    16 + kDim / 2 + kDim / 8 + kTail * static_cast<int64_t>(sizeof(c10::Half));
+
+at::Tensor read_raw_rows(
+    DramKVEmbeddingCache<at::Half>& cache,
+    const at::Tensor& ids) {
+  auto rows = at::zeros({ids.size(0), cache.get_raw_row_bytes()}, at::kByte);
+  cache.get_kv_from_storage_by_snapshot(ids, rows, nullptr, 0, std::nullopt);
+  return rows;
+}
+
+void stamp_rows(at::Tensor& whole_rows, uint32_t first) {
+  for (int64_t r = 0; r < whole_rows.size(0); ++r) {
+    FixedBlockPool::set_timestamp(whole_rows[r].data_ptr(), first + r);
+  }
+}
+
+// The g8 bytes of a raw packed checkpoint row (after its MetaHeader).
+const uint8_t* g8_bytes(const at::Tensor& raw, int64_t r) {
+  return raw.const_data_ptr<uint8_t>() + r * raw.size(1) +
+      sizeof(FixedBlockPool::MetaHeader);
+}
+
+TEST(ExclusiveHbmTest, PackedRowsMoveThroughHbmAsTheirG8Bytes) {
+  auto hbm = packed_hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  constexpr int64_t kRows = 4000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto original = grouped_fixed_rows(kRows, /*seed=*/40);
+  write_rows(*cache, ids, original);
+  const auto dram_raw = read_raw_rows(*cache, ids);
+  const auto dram_fp16 = read_rows(*cache, ids, kDim);
+
+  const auto moved = bulk_insert(hbm, ids, original);
+  cache->exclusive_hbm_promote_async(moved);
+  cache->exclusive_hbm_wait();
+  ASSERT_GT(static_cast<int64_t>(moved.size()), kRows / 2);
+  EXPECT_EQ(
+      cache->exclusive_hbm_stats()[0], static_cast<int64_t>(moved.size()));
+  for (const auto key : moved) {
+    EXPECT_EQ(
+        std::memcmp(
+            hbm.row(key),
+            g8_bytes(dram_raw, key),
+            kPackedLayout.packed_bytes()),
+        0)
+        << "key " << key;
+  }
+  // Reads of the rows now in HBM decode exactly as their DRAM rows did.
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kDim), dram_fp16));
+
+  cache->exclusive_hbm_demote_all();
+
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  const auto demoted_raw = read_raw_rows(*cache, ids);
+  for (int64_t r = 0; r < kRows; ++r) {
+    EXPECT_EQ(
+        std::memcmp(
+            g8_bytes(demoted_raw, r),
+            g8_bytes(dram_raw, r),
+            kPackedLayout.packed_bytes()),
+        0)
+        << "row " << r;
+  }
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kDim), original));
+  // No row was re-quantized on the way in or out.
+  EXPECT_EQ(cache->exclusive_hbm_stats()[6], 0);
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(ExclusiveHbmTest, RawPackedCheckpointSavesHbmRowsAsTheirG8Bytes) {
+  auto hbm = packed_hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  const auto ids = at::arange(800, at::kLong);
+  const auto original = grouped_fixed_rows(800, /*seed=*/41);
+  const auto moved = write_and_promote(*cache, hbm, ids, original);
+  ASSERT_FALSE(moved.empty());
+  const auto saved = read_raw_rows(*cache, ids);
+
+  for (const auto key : moved) {
+    EXPECT_EQ(FixedBlockPool::get_key(saved[key].data_ptr()), key);
+    EXPECT_EQ(
+        std::memcmp(
+            g8_bytes(saved, key), hbm.row(key), kPackedLayout.packed_bytes()),
+        0)
+        << "key " << key;
+  }
+  auto restored = make_cache(kBitRate, kGroupSize, {.packed_storage = true});
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+  EXPECT_TRUE(same_bits(read_rows(*restored, ids, kDim), original));
+  EXPECT_EQ(cache->exclusive_hbm_stats()[6], 0);
+  EXPECT_EQ(restored->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(ExclusiveHbmTest, PromotionLeavesAPackedFp16FallbackRowInDram) {
+  auto hbm = packed_hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  // A row with no serving fixed point is kept as fp16 outside its block.
+  const auto key = at::tensor({7}, at::kLong);
+  auto nan_row = grouped_fixed_rows(1, /*seed=*/41);
+  nan_row[0][3] = std::numeric_limits<float>::quiet_NaN();
+  write_rows(*cache, key, nan_row);
+  EXPECT_EQ(cache->packed_fallback_stats(), (std::vector<int64_t>{1, 0}));
+  const auto before = read_rows(*cache, key, kDim);
+
+  // Promotion reads its raw payload as zero, which the GPU insert skips.
+  auto payload = at::ones({1, kPackedLayout.packed_bytes()}, at::kByte);
+  cache->get_int8_payloads(key, payload, at::tensor({1}, at::kLong));
+  EXPECT_EQ(payload.count_nonzero().item<int64_t>(), 0);
+
+  // A slot claimed with other bytes does not match the block, so the
+  // promotion empties it and the row stays in DRAM.
+  const auto claimed = hbm.insert(
+      key, nan_row, static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_EQ(claimed.size(), 1);
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(hbm.tag(7), -1);
+  EXPECT_EQ(cache->packed_fallback_stats(), (std::vector<int64_t>{1, 0}));
+  EXPECT_TRUE(same_bits(read_rows(*cache, key, kDim), before));
+}
+
+TEST(ExclusiveHbmTest, RawPayloadsOfPackedRowsAreTheirG8Bytes) {
+  auto hbm = packed_hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  const auto ids = at::tensor({3, 4, 5}, at::kLong);
+  write_rows(*cache, ids.narrow(0, 0, 2), grouped_fixed_rows(2, /*seed=*/44));
+  const auto raw = read_raw_rows(*cache, ids);
+
+  auto payloads = at::ones({3, kPackedLayout.packed_bytes()}, at::kByte);
+  cache->get_int8_payloads(ids, payloads, at::tensor({3}, at::kLong));
+
+  for (int64_t r = 0; r < 2; ++r) {
+    EXPECT_EQ(
+        std::memcmp(
+            payloads[r].const_data_ptr<uint8_t>(),
+            g8_bytes(raw, r),
+            kPackedLayout.packed_bytes()),
+        0);
+  }
+  // A missing row reads as zero.
+  EXPECT_EQ(payloads[2].count_nonzero().item<int64_t>(), 0);
+}
+
+TEST(ExclusiveHbmTest, Fp16RowsMoveThroughHbmAsTheirBytes) {
+  auto hbm = fp16_hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  constexpr int64_t kRows = 4000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto original = dex_like_rows(kRows, /*seed=*/45);
+  write_rows(*cache, ids, original);
+
+  const auto moved = bulk_insert(hbm, ids, original);
+  cache->exclusive_hbm_promote_async(moved);
+  cache->exclusive_hbm_wait();
+  ASSERT_GT(static_cast<int64_t>(moved.size()), kRows / 2);
+  EXPECT_EQ(
+      cache->exclusive_hbm_stats()[0], static_cast<int64_t>(moved.size()));
+  for (const auto key : moved) {
+    EXPECT_TRUE(same_bits(
+        reinterpret_cast<const c10::Half*>(hbm.row(key)),
+        row_ptr(original, key),
+        kDim))
+        << "key " << key;
+  }
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kDim), original));
+
+  cache->exclusive_hbm_demote_all();
+
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_TRUE(same_bits(read_rows(*cache, ids, kDim), original));
+  EXPECT_EQ(cache->exclusive_hbm_stats()[6], 0);
+}
+
+TEST(ExclusiveHbmTest, PackedTablesNeedG8HbmRows) {
+  FakeHbm int8_rows(kHbmSlots);
+  EXPECT_THROW(
+      make_exclusive_cache(
+          int8_rows, kBitRate, kGroupSize, {.packed_storage = true}),
+      c10::Error);
+}
+
+TEST(TongxinRowWriteTest, FillOnlyWritesKeepPackedDramAndExclusiveHbmRows) {
+  auto hbm = packed_hbm(kHbmSlots);
+  auto cache =
+      make_exclusive_cache(hbm, kBitRate, kGroupSize, {.packed_storage = true});
+  const auto existing = at::tensor({11, 12}, at::kLong);
+  write_rows(*cache, existing, grouped_fixed_rows(2, /*seed=*/42));
+  const auto moved = hbm.insert(
+      existing.narrow(0, 0, 1),
+      read_rows(*cache, existing.narrow(0, 0, 1), kDim),
+      static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_EQ(moved, std::vector<int64_t>{11});
+  cache->exclusive_hbm_promote_async(moved);
+  cache->exclusive_hbm_wait();
+  const auto before = read_rows(*cache, existing, kDim);
+  const auto ids = at::tensor({11, 12, 13}, at::kLong);
+  const auto incoming = dex_like_rows(3, /*seed=*/43);
+
+  folly::coro::blockingWait(cache->set_kv_db_async_on_enrichment_executor(
+      ids,
+      incoming,
+      at::tensor({3}, at::kLong),
+      cache->laser_write_epoch(),
+      /*skip_nonzero_rows=*/true));
+  cache->exclusive_hbm_wait();
+
+  const auto stored = read_rows(*cache, ids, kDim);
+  EXPECT_TRUE(same_bits(stored.narrow(0, 0, 2), before));
+  EXPECT_TRUE(same_bits(
+      row_ptr(stored, 2),
+      grouped_fixed_point_ref(row_ptr(incoming, 2)).data(),
+      kDim));
+  EXPECT_EQ(hbm.tag(11), 11);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 1);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[5], 0);
+}
+
+TEST(PackedStorageTest, RawCheckpointRoundTripIsBitExact) {
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  auto cache = make_packed_cache(whole_row);
+  const auto ids = at::arange(300, at::kLong);
+  write_rows(*cache, ids, fixed_rows_with_tail(300, /*seed=*/80));
+  auto with_ts = read_whole_rows(*cache, ids);
+  stamp_rows(with_ts, 1000000);
+  cache->set_kv_with_metaheader_to_storage(with_ts.clone());
+  ASSERT_EQ(cache->get_raw_row_bytes(), kPackedCheckpointRowBytes);
+  ASSERT_EQ(cache->get_int8_row_bytes(), 0);
+  const auto saved = read_raw_rows(*cache, ids);
+
+  auto restored = make_packed_cache(whole_row);
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  EXPECT_TRUE(same_bits(read_raw_rows(*restored, ids), saved));
+  EXPECT_TRUE(same_bits(read_whole_rows(*restored, ids), with_ts));
+  EXPECT_EQ(restored->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, RawCheckpointPacksRowsKeptAsFp16) {
+  auto cache = make_packed_cache();
+  auto rows = fixed_rows_with_tail(2, /*seed=*/81);
+  rows[0][7] = std::numeric_limits<float>::infinity();
+  const auto ids = at::arange(2, at::kLong);
+  write_rows(*cache, ids, rows);
+  ASSERT_EQ(cache->get_packed_write_counts().second, 1);
+
+  const auto saved = read_raw_rows(*cache, ids);
+  EXPECT_NE(
+      saved[0][16 + kPackedLayout.code_bytes()].item<uint8_t>(),
+      serving_qdq::kFallbackScale);
+  auto restored = make_packed_cache();
+  restored->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  const auto stored = read_rows(*restored, ids, kPackedMaxD);
+  EXPECT_TRUE(at::isfinite(stored).all().item<bool>());
+  EXPECT_TRUE(same_bits(stored[1], rows[1]));
+  EXPECT_TRUE(same_bits(
+      stored.narrow(1, kDim, kTail).contiguous(),
+      rows.narrow(1, kDim, kTail).contiguous()));
+}
+
+TEST(PackedStorageTest, Fp16AndInt8CheckpointsLoadIntoAPackedTable) {
+  const CacheOptions whole_row{.backend_return_whole_row = true};
+  const auto ids = at::arange(300, at::kLong);
+  const auto rows = rows_with_tail(300, /*seed=*/82);
+  const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
+
+  // fp16 checkpoint rows, as saved by the FP16-DRAM job.
+  auto fp16 = make_cache(
+      0, 0, {.max_D = kPackedMaxD, .backend_return_whole_row = true});
+  write_rows(*fp16, ids, rows);
+  auto fp16_saved = read_whole_rows(*fp16, ids);
+  stamp_rows(fp16_saved, 2000000);
+  auto from_fp16 = make_packed_cache(whole_row);
+  from_fp16->set_kv_with_metaheader_to_storage(fp16_saved.clone());
+
+  // Raw INT8 checkpoint rows, as saved by the INT8-DRAM job.
+  auto int8 = make_int8_cache(whole_row);
+  write_rows(*int8, ids, rows);
+  auto int8_whole = read_whole_rows(*int8, ids);
+  stamp_rows(int8_whole, 3000000);
+  int8->set_kv_with_metaheader_to_storage(int8_whole.clone());
+  const auto int8_saved = read_int8_rows(*int8, ids);
+  auto from_int8 = make_packed_cache(whole_row);
+  from_int8->set_range_to_storage(int8_saved.clone(), 0, int8_saved.size(0));
+
+  const auto restored_fp16 = read_whole_rows(*from_fp16, ids);
+  const auto restored_int8 = read_whole_rows(*from_int8, ids);
+  for (int64_t r = 0; r < 300; ++r) {
+    EXPECT_TRUE(
+        same_bits(row_ptr(restored_fp16, r), row_ptr(fp16_saved, r), meta_dim));
+    EXPECT_TRUE(same_bits(
+        row_ptr(restored_fp16, r) + meta_dim,
+        grouped_fixed_point_ref(row_ptr(rows, r)).data(),
+        kDim))
+        << "row " << r;
+    EXPECT_TRUE(
+        same_bits(row_ptr(restored_int8, r), row_ptr(int8_whole, r), meta_dim));
+    EXPECT_TRUE(same_bits(
+        row_ptr(restored_int8, r) + meta_dim,
+        grouped_fixed_point_ref(row_ptr(int8_whole, r) + meta_dim).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_TRUE(same_bits(
+      restored_fp16.narrow(1, meta_dim + kDim, kTail).contiguous(),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_TRUE(same_bits(
+      restored_int8.narrow(1, meta_dim + kDim, kTail).contiguous(),
+      rows.narrow(1, kDim, kTail).contiguous()));
+  EXPECT_EQ(from_int8->get_packed_write_counts().second, 0);
+  EXPECT_GT(from_int8->get_packed_write_counts().first, 0);
+}
+
+TEST(Int8StorageTest, PackedCheckpointLoadsIntoAnInt8Table) {
+  const auto ids = at::arange(300, at::kLong);
+  const auto rows = fixed_rows_with_tail(300, /*seed=*/83);
+  auto packed = make_packed_cache();
+  write_rows(*packed, ids, rows);
+  const auto saved = read_raw_rows(*packed, ids);
+
+  auto int8 = make_int8_cache();
+  int8->set_range_to_storage(saved.clone(), 0, saved.size(0));
+
+  const auto codes = read_int8_rows(*int8, ids);
+  std::vector<std::uint8_t> encoded(kInt8RowBytes);
+  for (int64_t r = 0; r < 300; ++r) {
+    serving_qdq::encode_int8_row(row_ptr(rows, r), kDim, encoded.data());
+    EXPECT_EQ(
+        std::vector<std::uint8_t>(
+            int8_row_ptr(codes, r) + 16,
+            int8_row_ptr(codes, r) + 16 + kInt8RowBytes),
+        encoded)
+        << "row " << r;
+  }
+  EXPECT_TRUE(same_bits(
+      read_rows(*int8, ids, kTail, /*offset=*/kDim),
+      rows.narrow(1, kDim, kTail).contiguous()));
+}
+
+TEST(PackedStorageTest, RawRowsOfAnotherWidthAreRefused) {
+  auto cache = make_packed_cache({.backend_return_whole_row = true});
+  EXPECT_THROW(
+      cache->set_range_to_storage(at::zeros({1, 17}, at::kByte), 0, 1),
+      c10::Error);
+}
+
+TEST(PackedStorageTest, EveryRawWidthMatchesAtMostOneFormat) {
+  // Own rows are 104 B (kTail = 4 fp16 columns); INT8 dims are 28 columns
+  // wider than packed dims at kDim = 128.
+  auto packed = make_packed_cache({.backend_return_whole_row = true});
+  auto int8 = make_int8_cache({.backend_return_whole_row = true});
+  for (const auto& cache : {packed, int8}) {
+    // The exact widths of both formats with this table's tail.
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(104, false));
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(160, false));
+    // Narrower tails pad; wider ones need load_ckpt_without_opt.
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(156, false));
+    EXPECT_FALSE(cache->accepts_raw_row_bytes(164, false));
+    EXPECT_TRUE(cache->accepts_raw_row_bytes(164, true));
+    // 152 + 56 = 208 B: an INT8 tail of 28 or a packed tail of 56 columns,
+    // both at least the gap, so neither format claims it.
+    EXPECT_FALSE(cache->accepts_raw_row_bytes(208, true));
+    EXPECT_FALSE(cache->accepts_raw_row_bytes(17, true));
+  }
+  // A named source format decides the format: 160 B rows are INT8 rows with
+  // this table's tail; as packed rows their 32-column tail is past the gap.
+  packed->set_raw_source_format("packed");
+  EXPECT_FALSE(packed->accepts_raw_row_bytes(160, true));
+  EXPECT_TRUE(packed->accepts_raw_row_bytes(106, true));
+  packed->set_raw_source_format("int8");
+  EXPECT_TRUE(packed->accepts_raw_row_bytes(160, false));
+  EXPECT_FALSE(packed->accepts_raw_row_bytes(104, true));
+  packed->set_raw_source_format("");
+  EXPECT_TRUE(packed->accepts_raw_row_bytes(104, false));
+  EXPECT_THROW(packed->set_raw_source_format("fp16"), c10::Error);
+}
+
+TEST(TongxinRowWriteTest, FillOnlyWritesPreservePackedRows) {
+  auto cache = make_packed_cache();
+  const auto existing = at::tensor({11, 12}, at::kLong);
+  write_rows(*cache, existing, fixed_rows_with_tail(2, /*seed=*/84));
+  write_rows(
+      *cache,
+      at::tensor({13}, at::kLong),
+      at::zeros({1, kPackedMaxD}, at::kHalf));
+  const auto before = read_rows(*cache, existing, kPackedMaxD);
+  const auto ids = at::tensor({11, 12, 13, 14}, at::kLong);
+  const auto incoming = rows_with_tail(4, /*seed=*/85);
+
+  folly::coro::blockingWait(cache->set_kv_db_async_on_enrichment_executor(
+      ids,
+      incoming,
+      at::tensor({4}, at::kLong),
+      cache->laser_write_epoch(),
+      /*skip_nonzero_rows=*/true));
+
+  const auto stored = read_rows(*cache, ids, kPackedMaxD);
+  EXPECT_TRUE(same_bits(stored.narrow(0, 0, 2), before));
+  for (int64_t r = 2; r < 4; ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(incoming, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+}
+
+TEST(Int8StorageTest, PublishOfStoredRowsReproducesTheStoredCodes) {
+  auto cache = make_int8_cache();
+  const auto ids = at::arange(2000, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(2000, /*seed=*/57));
+  const auto codes = read_int8_rows(*cache, ids);
+
+  // Publish reads the live table as fp16 and quantizes it.
+  const auto published = read_rows(*cache, ids, kDim, 0);
+
+  for (int64_t r = 0; r < 2000; ++r) {
+    const std::vector<std::uint8_t> stored(
+        int8_row_ptr(codes, r) + 16,
+        int8_row_ptr(codes, r) + 16 + kInt8RowBytes);
+    EXPECT_EQ(int8_publish_ref(row_ptr(published, r)), stored) << "row " << r;
+  }
+}
+
+TEST(Int8StorageTest, HbmPromotionAndDemotionMoveBytesWithoutLoss) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(
+      hbm, 0, 0, {.max_D = kPackedMaxD, .int8_storage = true});
+  constexpr int64_t kRows = 3000;
+  const auto ids = at::arange(kRows, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(kRows, /*seed=*/58));
+  const auto before = read_int8_rows(*cache, ids);
+  const auto values_before = read_rows(*cache, ids, kDim, 0);
+
+  // The GPU quantizes the fp16 rows it reads from the backend.
+  auto claimed = hbm.insert(
+      ids,
+      values_before,
+      static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+  ASSERT_GT(static_cast<int64_t>(claimed.size()), 2000);
+
+  int64_t same_hbm_bytes = 0;
+  for (const auto key : claimed) {
+    same_hbm_bytes += std::memcmp(
+                          hbm.cache_weights.const_data_ptr<std::uint8_t>() +
+                              hbm.slot(key) * kInt8RowBytes,
+                          int8_row_ptr(before, key) + 16,
+                          kInt8RowBytes) == 0;
+  }
+  // A checkpoint of the HBM rows carries the HBM bytes.
+  const auto during = read_int8_rows(*cache, ids);
+  cache->exclusive_hbm_demote_all();
+  const auto after = read_int8_rows(*cache, ids);
+  const auto values_after = read_rows(*cache, ids, kDim, 0);
+
+  std::cout << "INT8 DRAM rows promoted to HBM: " << same_hbm_bytes << "/"
+            << static_cast<int64_t>(claimed.size())
+            << " HBM rows byte-identical to the DRAM row" << '\n';
+  EXPECT_EQ(same_hbm_bytes, static_cast<int64_t>(claimed.size()));
+  EXPECT_TRUE(same_bits(values_after, values_before));
+  for (int64_t r = 0; r < kRows; ++r) {
+    // Codes, scale and bias come back unchanged; HBM rows carry no tail.
+    EXPECT_EQ(
+        std::memcmp(
+            int8_row_ptr(after, r) + 16,
+            int8_row_ptr(before, r) + 16,
+            kInt8RowBytes),
+        0)
+        << "row " << r;
+    EXPECT_EQ(
+        std::memcmp(
+            int8_row_ptr(during, r) + 16,
+            int8_row_ptr(before, r) + 16,
+            kInt8RowBytes),
+        0)
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->exclusive_hbm_stats()[6], 0);
+}
+
+TEST(Int8StorageTest, RawPromotionReadsPayloadBytesAndSkipsMissingRows) {
+  auto cache = make_int8_cache();
+  const auto ids = at::arange(32, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(32, /*seed=*/65));
+  const auto saved = read_int8_rows(*cache, ids);
+  const auto query = at::tensor({7, -1, 99, 0, 31}, at::kLong);
+  auto payload = at::full({query.numel(), kInt8RowBytes}, 0xAB, at::kByte);
+  const auto count = at::tensor({query.numel() - 1}, at::kLong);
+
+  cache->get_int8_payloads(query, payload, count);
+
+  EXPECT_TRUE(payload[1].eq(0).all().item<bool>());
+  EXPECT_TRUE(payload[2].eq(0).all().item<bool>());
+  EXPECT_TRUE(payload[4].eq(0xAB).all().item<bool>());
+  EXPECT_TRUE(payload[0].equal(saved[7].slice(0, 16, 16 + kInt8RowBytes)));
+  EXPECT_TRUE(payload[3].equal(saved[0].slice(0, 16, 16 + kInt8RowBytes)));
+  // A count past the keys given (a promotion capped at promote_max_rows)
+  // reads just those keys.
+  cache->get_int8_payloads(query, payload, at::tensor({6}, at::kLong));
+  EXPECT_TRUE(payload[4].equal(saved[31].slice(0, 16, 16 + kInt8RowBytes)));
+}
+
+TEST(Int8StorageTest, AWriteBeforePromotionKeepsTheNewDramRow) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(
+      hbm, 0, 0, {.max_D = kPackedMaxD, .int8_storage = true});
+  const auto ids = at::arange(100, at::kLong);
+  write_rows(*cache, ids, rows_with_tail(100, /*seed=*/66));
+  const auto old_rows = read_rows(*cache, ids, kDim, 0);
+  const auto claimed = hbm.insert(
+      ids, old_rows, static_cast<int32_t>(FixedBlockPool::current_timestamp()));
+  ASSERT_GT(claimed.size(), 80);
+  write_rows(*cache, ids, rows_with_tail(100, /*seed=*/67));
+  const auto latest = read_int8_rows(*cache, ids);
+
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[2], claimed.size());
+  EXPECT_EQ(cache->get_num_rows(), ids.numel());
+  EXPECT_TRUE(read_int8_rows(*cache, ids).equal(latest));
+  EXPECT_TRUE(hbm.cache_state.eq(-1).all().item<bool>());
+}
+
+TEST(Int8StorageTest, Int8RowsUseFewerBytes) {
+  auto fp16 = make_cache(0, 0, {.max_D = kPackedMaxD});
+  auto int8 = make_int8_cache();
+  constexpr int64_t kRows = 200000;
+  const auto ids = at::arange(kRows, at::kLong);
+  const auto rows = rows_with_tail(kRows, /*seed=*/59);
+
+  write_rows(*fp16, ids, rows);
+  write_rows(*int8, ids, rows);
+
+  // 16-byte MetaHeader + payload: 132 fp16 values vs 128 codes, fp32 scale
+  // and bias and 4 fp16 tail values.
+  EXPECT_EQ(fp16->get_block_size(), 16 + kPackedMaxD * 2);
+  EXPECT_EQ(int8->get_block_size(), kInt8CheckpointRowBytes);
+  const auto per_row = [](size_t bytes) {
+    return static_cast<double>(bytes) / kRows;
+  };
+  const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<at::Half>();
+  const auto fp16_ckpt_row_bytes = (meta_dim + kPackedMaxD) * 2;
+  kv_mem::SynchronizedShardedMap<int64_t, at::Half*> index(
+      kNumShards, int8->get_block_size(), alignof(at::Half));
+  size_t index_bytes = 0;
+  for (int shard = 0; shard < kNumShards; ++shard) {
+    auto map = index.by(shard).wlock();
+    for (int64_t key = 0; key < kRows; ++key) {
+      if (kv_db_utils::hash_shard(key, kNumShards) == shard) {
+        map->emplace(key, nullptr);
+      }
+    }
+    index_bytes += map->getAllocatedMemorySize();
+  }
+  std::cout << "bytes/row in pool chunks: fp16="
+            << per_row(fp16->get_map_actual_used_chunk_in_bytes())
+            << " int8=" << per_row(int8->get_map_actual_used_chunk_in_bytes())
+            << "; blocks + map entries: fp16="
+            << per_row(fp16->get_map_used_memsize_in_bytes())
+            << " int8=" << per_row(int8->get_map_used_memsize_in_bytes())
+            << "; allocated F14 index=" << per_row(index_bytes)
+            << "; pool chunks + allocated index: fp16="
+            << per_row(fp16->get_map_actual_used_chunk_in_bytes() + index_bytes)
+            << " int8="
+            << per_row(int8->get_map_actual_used_chunk_in_bytes() + index_bytes)
+            << "; checkpoint bytes/row: fp16=" << fp16_ckpt_row_bytes
+            << " int8=" << int8->get_int8_row_bytes() << '\n';
+  EXPECT_LT(
+      per_row(int8->get_map_actual_used_chunk_in_bytes()) * 1.6,
+      per_row(fp16->get_map_actual_used_chunk_in_bytes()));
+  EXPECT_LT(int8->get_int8_row_bytes() * 1.7, fp16_ckpt_row_bytes);
+}
+
+TEST(Int8StorageTest, ConcurrentReadersSeeWholeWrittenRows) {
+  auto cache = make_int8_cache();
+  constexpr int64_t kRows = 2048;
+  const auto ids = at::arange(kRows, at::kLong);
+  // Rows already on the INT8 grid read back exactly.
+  write_rows(*cache, ids, rows_with_tail(kRows, /*seed=*/60));
+  const auto first = read_rows(*cache, ids, kPackedMaxD);
+  write_rows(*cache, ids, rows_with_tail(kRows, /*seed=*/61));
+  const auto second = read_rows(*cache, ids, kPackedMaxD);
+  const std::array<at::Tensor, 2> versions = {first, second};
+
+  std::atomic<bool> stop{false};
+  std::atomic<int64_t> torn{0};
+  std::vector<std::thread> threads;
+  threads.reserve(2);
+  for (int w = 0; w < 2; ++w) {
+    threads.emplace_back([&, w] {
+      for (int iter = 0; !stop.load(); ++iter) {
+        write_rows(*cache, ids, versions[(iter + w) % 2]);
+      }
+    });
+  }
+  for (int r = 0; r < 4; ++r) {
+    threads.emplace_back([&] {
+      while (!stop.load()) {
+        const auto read = read_rows(*cache, ids, kPackedMaxD);
+        for (int64_t i = 0; i < kRows; ++i) {
+          const auto* row = row_ptr(read, i);
+          if (!same_bits(row, row_ptr(versions[0], i), kPackedMaxD) &&
+              !same_bits(row, row_ptr(versions[1], i), kPackedMaxD)) {
+            torn++;
+          }
+        }
+      }
+    });
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  stop = true;
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(torn.load(), 0);
+}
+
+TEST(Int8StorageTest, UnsupportedConfigsAreRefused) {
+  EXPECT_THROW(
+      make_cache(
+          kBitRate,
+          kGroupSize,
+          {.packed_storage = true, .max_D = kPackedMaxD, .int8_storage = true}),
+      c10::Error);
+  EXPECT_THROW(
+      make_cache(kBitRate, 0, {.max_D = kPackedMaxD, .int8_storage = true}),
+      c10::Error);
+  EXPECT_THROW(make_int8_cache({.enable_ssd_backend = true}), c10::Error);
+  // Without int8_storage, uint8 rows are not INT8 rows.
+  auto fp16 = make_cache(0, 0, {.max_D = kPackedMaxD});
+  EXPECT_EQ(fp16->get_int8_row_bytes(), 0);
+  auto bytes = at::zeros({1, kInt8CheckpointRowBytes}, at::kByte);
+  EXPECT_THROW(fp16->set_int8_rows_with_metaheader(bytes), c10::Error);
 }
 
 } // namespace

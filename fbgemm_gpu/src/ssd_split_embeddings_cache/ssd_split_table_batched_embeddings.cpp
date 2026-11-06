@@ -56,7 +56,9 @@ Tensor kvzch_direct_cache_insert_cuda(
     Tensor cache_weights,
     Tensor indices,
     Tensor rows,
-    const std::optional<Tensor>& count);
+    const std::optional<Tensor>& count,
+    const std::optional<Tensor>& last_access,
+    const int64_t now);
 
 Tensor kvzch_direct_cache_lookup_int8_cuda(
     Tensor indices,
@@ -72,7 +74,9 @@ Tensor kvzch_direct_cache_insert_int8_cuda(
     Tensor cache_weights,
     Tensor indices,
     Tensor rows,
-    const std::optional<Tensor>& count);
+    const std::optional<Tensor>& count,
+    const std::optional<Tensor>& last_access,
+    const int64_t now);
 
 Tensor kvzch_direct_cache_gather_int8_cuda(
     Tensor output,
@@ -80,11 +84,69 @@ Tensor kvzch_direct_cache_gather_int8_cuda(
     at::ScalarType row_dtype,
     const int64_t max_ctas);
 
+Tensor kvzch_exclusive_cache_insert_int8_cuda(
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor last_access,
+    Tensor indices,
+    Tensor rows,
+    const std::optional<Tensor>& count,
+    Tensor promoted_keys,
+    Tensor promoted_count,
+    const int64_t now,
+    const bool input_is_packed,
+    const std::optional<Tensor>& victim_keys,
+    const std::optional<Tensor>& victim_access,
+    const std::optional<Tensor>& victim_rows,
+    const std::optional<Tensor>& victim_count);
+
+Tensor kvzch_exclusive_cache_touch_cuda(
+    Tensor row_addresses,
+    Tensor cache_weights,
+    Tensor last_access,
+    const int64_t now);
+
 Tensor kvzch_direct_cache_gather_int8_float_cuda(
     Tensor output,
     Tensor row_addresses,
     at::ScalarType row_dtype,
     const int64_t max_ctas);
+
+Tensor kvzch_direct_cache_lookup_raw_cuda(
+    Tensor indices,
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor action_indices,
+    Tensor actions_count,
+    Tensor inserted_rows,
+    Tensor row_addresses);
+
+Tensor kvzch_direct_cache_gather_raw_cuda(
+    Tensor output,
+    Tensor row_addresses,
+    at::ScalarType row_dtype,
+    const int64_t group_size,
+    const int64_t max_ctas);
+
+Tensor kvzch_exclusive_cache_insert_raw_cuda(
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor last_access,
+    Tensor indices,
+    Tensor rows,
+    const std::optional<Tensor>& count,
+    Tensor promoted_keys,
+    Tensor promoted_count,
+    const int64_t now,
+    const std::optional<Tensor>& victim_keys,
+    const std::optional<Tensor>& victim_access,
+    const std::optional<Tensor>& victim_rows,
+    const std::optional<Tensor>& victim_count);
+
+Tensor kvzch_owner_cache_clear_tags_cuda(
+    Tensor cache_state,
+    Tensor slots,
+    Tensor keys);
 
 /// @ingroup embedding-ssd
 ///
@@ -452,6 +514,25 @@ inline at::Tensor prepare_whole_row_weights(
   return whole_rows;
 }
 
+// Whether a KVTensorWrapper reads and writes the backend's raw rows: uint8
+// rows on a backend that stores rows as INT8 or packed INT4 (DRAM int8_storage
+// or packed_storage). Their width is in bytes, bounded by the widest raw row
+// the backend accepts.
+inline bool is_int8_rows(
+    kv_db::EmbeddingKVDB& db,
+    const at::TensorOptions& options) {
+  return options.dtype() == at::kByte && db.get_raw_row_bytes() > 0;
+}
+
+// Upper bound of a row's width (MetaHeader included) in the wrapper's dtype.
+inline int64_t max_row_width(
+    kv_db::EmbeddingKVDB& db,
+    const at::TensorOptions& options) {
+  return is_int8_rows(db, options)
+      ? db.get_max_raw_row_bytes()
+      : db.get_max_D() + db.get_metaheader_width_in_front();
+}
+
 SnapshotHandle::SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
   auto num_shards = db->num_shards();
   CHECK_GT(num_shards, 0);
@@ -753,12 +834,38 @@ void KVTensorWrapper::logss() {
   XLOG(INFO) << "readonly_db_ is valid: " << (readonly_db_ != nullptr);
   XLOG(INFO) << "read_only_: " << read_only_;
 }
+c10::intrusive_ptr<KVTensorWrapper> KVTensorWrapper::fp16_publish_view() const {
+  if (!db_ || !is_int8_rows(*db_, options_) ||
+      !db_->get_backend_return_whole_row() || width_offset_ != 0) {
+    return nullptr;
+  }
+  TORCH_CHECK(
+      shape_[1] == db_->get_raw_row_bytes(),
+      "Publishing requires complete raw rows, including metadata and tail");
+  auto view = c10::make_intrusive<KVTensorWrapper>(
+      std::vector<int64_t>{
+          shape_[0], db_->get_max_D() + db_->get_metaheader_width_in_front()},
+      static_cast<int64_t>(at::kHalf),
+      row_offset_,
+      snapshot_handle_,
+      sorted_indices_,
+      0,
+      checkpoint_handle_,
+      /*read_only=*/true);
+  view->db_ = db_;
+  view->rocksdb_for_serialization_ = rocksdb_for_serialization_;
+  return view;
+}
+
+bool KVTensorWrapper::stores_raw_rows() const {
+  return db_ && db_->get_raw_row_bytes() > 0;
+}
+
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   if (db_) {
     CHECK_TRUE(db_ != nullptr);
-    CHECK_GE(
-        db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+    CHECK_GE(max_row_width(*db_, options_), shape_[1]);
     TORCH_CHECK(
         (snapshot_handle_ != nullptr) ==
             (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_) != nullptr ||
@@ -830,10 +937,14 @@ void KVTensorWrapper::set_range(
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   if (!only_load_weight_) {
-    CHECK_GE(
-        db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+    CHECK_GE(max_row_width(*db_, options_), shape_[1]);
   }
   if (length == 0) {
+    return;
+  }
+
+  if (is_int8_rows(*db_, options_)) {
+    set_raw_rows(weights, ids_in_checkpoint(weights));
     return;
   }
 
@@ -922,9 +1033,15 @@ void KVTensorWrapper::set_weights_and_ids_impl(
   TORCH_CHECK(
       ids.numel() == weights.size(0),
       "ids and weights must have the same number of rows");
-  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+  if (!is_int8_rows(*db_, options_) || !only_load_weight_) {
+    CHECK_GE(max_row_width(*db_, options_), shape_[1]);
+  }
   auto checkpoint_view_ids =
       ids.to(at::ScalarType::Long).reshape({-1}).contiguous();
+  if (is_int8_rows(*db_, options_)) {
+    set_raw_rows(weights, checkpoint_view_ids);
+    return;
+  }
   if (db_->get_backend_return_whole_row()) {
     const int64_t metadata_width = db_->get_metaheader_width_in_front();
     if (!weights_include_metadata) {
@@ -984,6 +1101,30 @@ void KVTensorWrapper::set_weights_and_ids_impl(
         padded_weights.size(1));
     db_->set_kv_to_storage(storage_ids, padded_weights);
   }
+}
+
+void KVTensorWrapper::set_raw_rows(
+    const at::Tensor& rows,
+    const at::Tensor& view_ids) {
+  TORCH_CHECK(
+      rows.scalar_type() == at::kByte && rows.size(1) == shape_[1],
+      "INT8 rows must be uint8 with ",
+      shape_[1],
+      " bytes per row");
+  const auto present_rows =
+      rows_present_in_checkpoint(rows, sizeof(FixedBlockPool::MetaHeader));
+  if (present_rows.numel() == 0) {
+    return;
+  }
+  auto raw_rows = rows.index_select(0, present_rows);
+  const auto checkpoint_view_ids = view_ids.index_select(0, present_rows);
+  TORCH_CHECK(
+      at::equal(checkpoint_view_ids, ids_in_checkpoint(raw_rows)),
+      "caller-provided checkpoint view IDs must match embedded row IDs");
+  const auto storage_ids =
+      storage_ids_from_view_ids(checkpoint_view_ids, row_offset_);
+  replace_weights_id(raw_rows, storage_ids);
+  db_->set_kv_to_storage(storage_ids, raw_rows);
 }
 
 void to_json(ssd::json& j, const KVTensorWrapper& kvt) {
@@ -1074,10 +1215,8 @@ void from_json(const ssd::json& j, KVTensorWrapper& kvt) {
 
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
   CHECK_TRUE(db_ != nullptr);
-  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
-  CHECK_GE(
-      db_->get_max_D() + db_->get_metaheader_width_in_front(),
-      shape_[1] + width_offset_);
+  CHECK_GE(max_row_width(*db_, options_), shape_[1]);
+  CHECK_GE(max_row_width(*db_, options_), shape_[1] + width_offset_);
   TORCH_CHECK(
       (snapshot_handle_ != nullptr) ==
           (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_) != nullptr ||
@@ -1416,7 +1555,9 @@ auto enrichment_config =
                 std::string,
                 std::vector<std::string>,
                 int64_t,
-                int64_t>(),
+                int64_t,
+                bool,
+                bool>(),
             "",
             {
                 torch::arg("enrichment_type"),
@@ -1443,6 +1584,8 @@ auto enrichment_config =
                 torch::arg("laser_key_suffixes") = std::vector<std::string>{},
                 torch::arg("serving_qdq_bit_rate") = 0,
                 torch::arg("serving_qdq_group_size") = 0,
+                torch::arg("packed_storage") = false,
+                torch::arg("int8_storage") = false,
             });
 
 auto dram_kv_embedding_cache_wrapper =
@@ -1614,6 +1757,72 @@ auto dram_kv_embedding_cache_wrapper =
         .def(
             "serving_qdq_existing_rows",
             &DramKVEmbeddingCacheWrapper::serving_qdq_existing_rows)
+        .def(
+            "exclusive_hbm_register",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_register)
+        .def(
+            "exclusive_hbm_promote_cuda",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_promote_cuda,
+            "",
+            {
+                torch::arg("promoted_keys_cpu"),
+                torch::arg("promoted_count_cpu"),
+                torch::arg("victim_keys_cpu") = std::nullopt,
+                torch::arg("victim_access_cpu") = std::nullopt,
+                torch::arg("victim_rows_cpu") = std::nullopt,
+                torch::arg("victim_count_cpu") = std::nullopt,
+                torch::arg("from_write") = false,
+            })
+        .def(
+            "exclusive_hbm_demote_all",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_demote_all)
+        .def(
+            "exclusive_hbm_sweep",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_sweep,
+            "",
+            {torch::arg("now") = -1})
+        .def(
+            "exclusive_hbm_wait",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_wait)
+        .def(
+            "wait_row_writes_done",
+            &DramKVEmbeddingCacheWrapper::wait_row_writes_done)
+        .def(
+            "exclusive_hbm_stats",
+            &DramKVEmbeddingCacheWrapper::exclusive_hbm_stats)
+        .def(
+            "get_int8_row_bytes",
+            &DramKVEmbeddingCacheWrapper::get_int8_row_bytes)
+        .def(
+            "get_raw_row_bytes",
+            &DramKVEmbeddingCacheWrapper::get_raw_row_bytes)
+        .def(
+            "accepts_raw_row_bytes",
+            &DramKVEmbeddingCacheWrapper::accepts_raw_row_bytes)
+        .def(
+            "set_raw_source_format",
+            &DramKVEmbeddingCacheWrapper::set_raw_source_format)
+        .def(
+            "get_int8_payloads_cuda",
+            &DramKVEmbeddingCacheWrapper::get_int8_payloads_cuda)
+        .def(
+            "encode_written_rows_cuda",
+            &DramKVEmbeddingCacheWrapper::encode_written_rows_cuda)
+        .def(
+            "encode_written_rows",
+            &DramKVEmbeddingCacheWrapper::encode_written_rows)
+        .def(
+            "hbm_written_row_bytes",
+            &DramKVEmbeddingCacheWrapper::hbm_written_row_bytes)
+        .def(
+            "hold_row_writes_for_test",
+            &DramKVEmbeddingCacheWrapper::hold_row_writes_for_test)
+        .def(
+            "get_int8_payloads",
+            &DramKVEmbeddingCacheWrapper::get_int8_payloads)
+        .def(
+            "get_int8_write_counts",
+            &DramKVEmbeddingCacheWrapper::get_int8_write_counts)
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",
@@ -1917,6 +2126,7 @@ auto kv_tensor_wrapper =
             "set_prefixed_weights_and_ids",
             &KVTensorWrapper::set_prefixed_weights_and_ids)
         .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
+        .def("stores_raw_rows", &KVTensorWrapper::stores_raw_rows)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property("device_str", &KVTensorWrapper::device_str)
         .def_property("layout_str", &KVTensorWrapper::layout_str)
@@ -1979,8 +2189,36 @@ Tensor kvzch_direct_cache_insert_meta(
     Tensor cache_weights,
     Tensor /*indices*/,
     Tensor /*rows*/,
-    const std::optional<Tensor>& /*count*/) {
+    const std::optional<Tensor>& /*count*/,
+    const std::optional<Tensor>& /*last_access*/,
+    const int64_t /*now*/) {
   return cache_weights;
+}
+
+Tensor kvzch_exclusive_cache_insert_int8_meta(
+    Tensor /*cache_state*/,
+    Tensor /*cache_weights*/,
+    Tensor /*last_access*/,
+    Tensor /*indices*/,
+    Tensor /*rows*/,
+    const std::optional<Tensor>& /*count*/,
+    Tensor /*promoted_keys*/,
+    Tensor promoted_count,
+    const int64_t /*now*/,
+    const bool /*input_is_packed*/,
+    const std::optional<Tensor>& /*victim_keys*/,
+    const std::optional<Tensor>& /*victim_access*/,
+    const std::optional<Tensor>& /*victim_rows*/,
+    const std::optional<Tensor>& /*victim_count*/) {
+  return promoted_count;
+}
+
+Tensor kvzch_exclusive_cache_touch_meta(
+    Tensor /*row_addresses*/,
+    Tensor /*cache_weights*/,
+    Tensor last_access,
+    const int64_t /*now*/) {
+  return last_access;
 }
 
 Tensor kvzch_direct_cache_gather_int8_meta(
@@ -2001,6 +2239,39 @@ Tensor kvzch_direct_cache_gather_int8_float_meta(
     at::ScalarType /*row_dtype*/,
     const int64_t /*max_ctas*/) {
   return output;
+}
+
+Tensor kvzch_direct_cache_gather_raw_meta(
+    Tensor output,
+    Tensor /*row_addresses*/,
+    at::ScalarType /*row_dtype*/,
+    const int64_t /*group_size*/,
+    const int64_t /*max_ctas*/) {
+  return output;
+}
+
+Tensor kvzch_exclusive_cache_insert_raw_meta(
+    Tensor /*cache_state*/,
+    Tensor /*cache_weights*/,
+    Tensor /*last_access*/,
+    Tensor /*indices*/,
+    Tensor /*rows*/,
+    const std::optional<Tensor>& /*count*/,
+    Tensor /*promoted_keys*/,
+    Tensor promoted_count,
+    const int64_t /*now*/,
+    const std::optional<Tensor>& /*victim_keys*/,
+    const std::optional<Tensor>& /*victim_access*/,
+    const std::optional<Tensor>& /*victim_rows*/,
+    const std::optional<Tensor>& /*victim_count*/) {
+  return promoted_count;
+}
+
+Tensor kvzch_owner_cache_clear_tags_meta(
+    Tensor cache_state,
+    Tensor /*slots*/,
+    Tensor /*keys*/) {
+  return cache_state;
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -2032,7 +2303,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor(b!) cache_weights, "
       "    Tensor indices, "
       "    Tensor rows, "
-      "    Tensor? count=None"
+      "    Tensor? count=None, "
+      "    Tensor(c!)? last_access=None, "
+      "    int now=0"
       ") -> Tensor(b!)");
   DISPATCH_TO_CUDA("kvzch_direct_cache_insert", kvzch_direct_cache_insert_cuda);
   DISPATCH_TO_META("kvzch_direct_cache_insert", kvzch_direct_cache_insert_meta);
@@ -2056,7 +2329,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor(b!) cache_weights, "
       "    Tensor indices, "
       "    Tensor rows, "
-      "    Tensor? count=None"
+      "    Tensor? count=None, "
+      "    Tensor(c!)? last_access=None, "
+      "    int now=0"
       ") -> Tensor(b!)");
   DISPATCH_TO_CUDA(
       "kvzch_direct_cache_insert_int8", kvzch_direct_cache_insert_int8_cuda);
@@ -2086,6 +2361,98 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_META(
       "kvzch_direct_cache_gather_int8_float",
       kvzch_direct_cache_gather_int8_float_meta);
+  m.def(
+      "kvzch_exclusive_cache_insert_int8("
+      "    Tensor(a!) cache_state, "
+      "    Tensor(b!) cache_weights, "
+      "    Tensor(c!) last_access, "
+      "    Tensor indices, "
+      "    Tensor rows, "
+      "    Tensor? count, "
+      "    Tensor(d!) promoted_keys, "
+      "    Tensor(e!) promoted_count, "
+      "    int now, "
+      "    bool input_is_packed=False, "
+      "    Tensor(f!)? victim_keys=None, "
+      "    Tensor(g!)? victim_access=None, "
+      "    Tensor(h!)? victim_rows=None, "
+      "    Tensor(i!)? victim_count=None"
+      ") -> Tensor(e!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_exclusive_cache_insert_int8",
+      kvzch_exclusive_cache_insert_int8_cuda);
+  DISPATCH_TO_META(
+      "kvzch_exclusive_cache_insert_int8",
+      kvzch_exclusive_cache_insert_int8_meta);
+  m.def(
+      "kvzch_exclusive_cache_touch("
+      "    Tensor row_addresses, "
+      "    Tensor cache_weights, "
+      "    Tensor(a!) last_access, "
+      "    int now"
+      ") -> Tensor(a!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_exclusive_cache_touch", kvzch_exclusive_cache_touch_cuda);
+  DISPATCH_TO_META(
+      "kvzch_exclusive_cache_touch", kvzch_exclusive_cache_touch_meta);
+  m.def(
+      "kvzch_direct_cache_lookup_raw("
+      "    Tensor indices, "
+      "    Tensor cache_state, "
+      "    Tensor cache_weights, "
+      "    Tensor(b!) action_indices, "
+      "    Tensor(c!) actions_count, "
+      "    Tensor inserted_rows, "
+      "    Tensor(d!) row_addresses"
+      ") -> Tensor(d!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_direct_cache_lookup_raw", kvzch_direct_cache_lookup_raw_cuda);
+  DISPATCH_TO_META(
+      "kvzch_direct_cache_lookup_raw", kvzch_direct_cache_lookup_meta);
+  m.def(
+      "kvzch_direct_cache_gather_raw("
+      "    Tensor(a!) output, "
+      "    Tensor row_addresses, "
+      "    ScalarType row_dtype, "
+      "    int group_size, "
+      "    int max_ctas=0"
+      ") -> Tensor(a!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_direct_cache_gather_raw", kvzch_direct_cache_gather_raw_cuda);
+  DISPATCH_TO_META(
+      "kvzch_direct_cache_gather_raw", kvzch_direct_cache_gather_raw_meta);
+  m.def(
+      "kvzch_exclusive_cache_insert_raw("
+      "    Tensor(a!) cache_state, "
+      "    Tensor(b!) cache_weights, "
+      "    Tensor(c!) last_access, "
+      "    Tensor indices, "
+      "    Tensor rows, "
+      "    Tensor? count, "
+      "    Tensor(d!) promoted_keys, "
+      "    Tensor(e!) promoted_count, "
+      "    int now, "
+      "    Tensor(f!)? victim_keys=None, "
+      "    Tensor(g!)? victim_access=None, "
+      "    Tensor(h!)? victim_rows=None, "
+      "    Tensor(i!)? victim_count=None"
+      ") -> Tensor(e!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_exclusive_cache_insert_raw",
+      kvzch_exclusive_cache_insert_raw_cuda);
+  DISPATCH_TO_META(
+      "kvzch_exclusive_cache_insert_raw",
+      kvzch_exclusive_cache_insert_raw_meta);
+  m.def(
+      "kvzch_owner_cache_clear_tags("
+      "    Tensor(a!) cache_state, "
+      "    Tensor slots, "
+      "    Tensor keys"
+      ") -> Tensor(a!)");
+  DISPATCH_TO_CUDA(
+      "kvzch_owner_cache_clear_tags", kvzch_owner_cache_clear_tags_cuda);
+  DISPATCH_TO_META(
+      "kvzch_owner_cache_clear_tags", kvzch_owner_cache_clear_tags_meta);
 
   m.def(
       "create_kv_tensor_wrapper_from_serialized("

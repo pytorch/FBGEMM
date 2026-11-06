@@ -21,6 +21,15 @@ from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
 
 MAX_EXAMPLES = 20
+# Ways per set of the owner-local direct caches (kOwnerCacheWays).
+OWNER_CACHE_WAYS = 16
+
+
+def owner_cache_set_base(key: int, num_slots: int) -> int:
+    """First slot of `key`'s set, which an insert into an empty set takes."""
+    return OWNER_CACHE_WAYS * int(
+        torch.ops.fbgemm.lxu_cache_slot(key, num_slots // OWNER_CACHE_WAYS)
+    )
 
 
 # pyrefly: ignore [bad-argument-type]
@@ -168,22 +177,14 @@ class SSDUtilsTest(unittest.TestCase):
     def test_kvzch_direct_cache_lookup(self) -> None:
         device = torch.accelerator.current_accelerator()
         embedding_dim = 4
-        cache_sets = 4
-        first_id_by_slot: dict[int, int] = {}
-        collision_keys: list[int] = []
-        for key in range(100):
-            slot = torch.ops.fbgemm.lxu_cache_slot(key, cache_sets)
-            if slot in first_id_by_slot:
-                collision_keys = [first_id_by_slot[slot], key]
-                break
-            first_id_by_slot[slot] = key
-        self.assertEqual(len(collision_keys), 2)
-        hit_key, miss_key = collision_keys
-        slot = torch.ops.fbgemm.lxu_cache_slot(hit_key, cache_sets)
-        cache_state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
+        # One set: every key maps to it, and a hit may sit in any way.
+        num_slots = OWNER_CACHE_WAYS
+        hit_key, miss_key = 3, 5
+        slot = 11
+        cache_state = torch.full((num_slots, 1), -1, dtype=torch.int64, device=device)
         cache_state[slot][0] = hit_key
         cache_weights = torch.zeros(
-            (cache_sets, embedding_dim), dtype=torch.float32, device=device
+            (num_slots, embedding_dim), dtype=torch.float32, device=device
         )
         cache_weights[slot] = torch.arange(
             1, embedding_dim + 1, dtype=torch.float32, device=device
@@ -225,94 +226,92 @@ class SSDUtilsTest(unittest.TestCase):
     def test_kvzch_direct_cache_insert(self) -> None:
         device = torch.accelerator.current_accelerator()
         embedding_dim = 4
-        cache_sets = 4
-        first_id_by_slot: dict[int, int] = {}
-        collision_keys: list[int] = []
-        for key in range(100):
-            slot = torch.ops.fbgemm.lxu_cache_slot(key, cache_sets)
-            if slot in first_id_by_slot:
-                collision_keys = [first_id_by_slot[slot], key]
-                break
-            first_id_by_slot[slot] = key
-        self.assertEqual(len(collision_keys), 2)
-        first_key, replacement_key = collision_keys
-        slot = torch.ops.fbgemm.lxu_cache_slot(first_key, cache_sets)
-        cache_state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
+        num_slots = 2 * OWNER_CACHE_WAYS
+        # One more key than a set has ways, all in the first key's set.
+        base = owner_cache_set_base(0, num_slots)
+        same_set = [
+            k for k in range(1000) if owner_cache_set_base(k, num_slots) == base
+        ][: OWNER_CACHE_WAYS + 1]
+        self.assertEqual(len(same_set), OWNER_CACHE_WAYS + 1)
+        first_key = same_set[0]
+        cache_state = torch.full((num_slots, 1), -1, dtype=torch.int64, device=device)
         cache_weights = torch.zeros(
-            (cache_sets, embedding_dim), dtype=torch.float32, device=device
+            (num_slots, embedding_dim), dtype=torch.float32, device=device
         )
+        last_access = torch.zeros(num_slots, dtype=torch.int32, device=device)
         first_row = torch.arange(
             1, embedding_dim + 1, dtype=torch.float32, device=device
         ).view(1, -1)
 
-        torch.ops.fbgemm.kvzch_direct_cache_insert(
-            cache_state,
-            cache_weights,
-            torch.tensor([first_key], dtype=torch.int64, device=device),
-            first_row,
-        )
-        self.assertEqual(int(cache_state[slot][0].item()), first_key)
-        torch.testing.assert_close(cache_weights[slot], first_row[0])
+        def insert(
+            keys: list[int],
+            rows: torch.Tensor,
+            count: torch.Tensor | None = None,
+            now: int | None = None,
+        ) -> None:
+            torch.ops.fbgemm.kvzch_direct_cache_insert(
+                cache_state,
+                cache_weights,
+                torch.tensor(keys, dtype=torch.int64, device=device),
+                rows,
+                count,
+                None if now is None else last_access,
+                0 if now is None else now,
+            )
 
-        zero_key = next(
-            key
-            for key in range(100, 200)
-            if torch.ops.fbgemm.lxu_cache_slot(key, cache_sets) != slot
-        )
-        zero_slot = torch.ops.fbgemm.lxu_cache_slot(zero_key, cache_sets)
-        torch.ops.fbgemm.kvzch_direct_cache_insert(
-            cache_state,
-            cache_weights,
-            torch.tensor([zero_key], dtype=torch.int64, device=device),
-            torch.zeros_like(first_row),
-        )
-        self.assertEqual(int(cache_state[zero_slot][0].item()), -1)
+        # An empty set's first way takes the key; a zero row is no row.
+        insert([first_key], first_row)
+        self.assertEqual(int(cache_state[base][0].item()), first_key)
+        torch.testing.assert_close(cache_weights[base], first_row[0])
+        insert([same_set[1]], torch.zeros_like(first_row))
+        self.assertEqual(int((cache_state == same_set[1]).sum()), 0)
 
+        # Only the first `count` rows are inserted.
         cache_state.fill_(-1)
-        cache_weights.zero_()
-        prefix_count = torch.tensor([1], dtype=torch.int32, device=device)
-        torch.ops.fbgemm.kvzch_direct_cache_insert(
-            cache_state,
-            cache_weights,
-            torch.tensor([first_key, zero_key], dtype=torch.int64, device=device),
+        insert(
+            [first_key, same_set[1]],
             torch.cat((first_row, first_row + 20)),
-            prefix_count,
+            torch.tensor([1], dtype=torch.int32, device=device),
         )
-        self.assertEqual(int(cache_state[slot][0].item()), first_key)
-        self.assertEqual(int(cache_state[zero_slot][0].item()), -1)
-        torch.testing.assert_close(cache_weights[slot], first_row[0])
+        self.assertEqual(int((cache_state >= 0).sum()), 1)
 
-        replacement_row = first_row + 10
-        torch.ops.fbgemm.kvzch_direct_cache_insert(
-            cache_state,
-            cache_weights,
-            torch.tensor([replacement_key], dtype=torch.int64, device=device),
-            replacement_row,
-        )
-        self.assertEqual(int(cache_state[slot][0].item()), replacement_key)
-        torch.testing.assert_close(cache_weights[slot], replacement_row[0])
+        # A key already in its set keeps its row.
+        insert([first_key], first_row + 10)
+        torch.testing.assert_close(cache_weights[base], first_row[0])
 
-        cache_state.fill_(-1)
-        cache_weights.zero_()
-        collision_rows = torch.cat((first_row, replacement_row))
-        torch.ops.fbgemm.kvzch_direct_cache_insert(
-            cache_state,
-            cache_weights,
-            torch.tensor(collision_keys, dtype=torch.int64, device=device),
-            collision_rows,
+        # A full set takes no key without access times.
+        rows = torch.cat([first_row + k for k in range(len(same_set))])
+        insert(same_set[1:OWNER_CACHE_WAYS], rows[1:OWNER_CACHE_WAYS])
+        self.assertEqual(
+            set(cache_state[base : base + OWNER_CACHE_WAYS, 0].tolist()),
+            set(same_set[:OWNER_CACHE_WAYS]),
         )
-        winning_key = int(cache_state[slot][0].item())
-        self.assertIn(winning_key, collision_keys)
-        winning_row = collision_rows[collision_keys.index(winning_key)]
-        torch.testing.assert_close(cache_weights[slot], winning_row)
+        insert(same_set[-1:], rows[-1:])
+        self.assertEqual(int((cache_state == same_set[-1]).sum()), 0)
+
+        # With access times, it evicts the least recently used way that was
+        # not touched now; with every way touched now, nothing.
+        last_access[base : base + OWNER_CACHE_WAYS] = 100
+        insert(same_set[-1:], rows[-1:], now=100)
+        self.assertEqual(int((cache_state == same_set[-1]).sum()), 0)
+        oldest = base + 5
+        victim = int(cache_state[oldest][0].item())
+        last_access[oldest] = 50
+        insert(same_set[-1:], rows[-1:], now=100)
+        self.assertEqual(int(cache_state[oldest][0].item()), same_set[-1])
+        self.assertEqual(int((cache_state == victim).sum()), 0)
+        torch.testing.assert_close(cache_weights[oldest], rows[-1])
+        self.assertEqual(int(last_access[oldest].item()), 100)
 
     @staticmethod
-    def _unique_slot_keys(cache_sets: int, num_keys: int, start: int = 0) -> list[int]:
+    def _unique_slot_keys(num_slots: int, num_keys: int, start: int = 0) -> list[int]:
+        """Keys in distinct sets: inserted into an empty cache, each takes the
+        first slot of its set (owner_cache_set_base)."""
         used_slots: set[int] = set()
         keys: list[int] = []
         key = start
         while len(keys) < num_keys:
-            slot = torch.ops.fbgemm.lxu_cache_slot(key, cache_sets)
+            slot = owner_cache_set_base(key, num_slots)
             if slot not in used_slots:
                 used_slots.add(slot)
                 keys.append(key)
@@ -348,18 +347,16 @@ class SSDUtilsTest(unittest.TestCase):
     def test_kvzch_direct_cache_int8_roundtrip(self) -> None:
         device = torch.accelerator.current_accelerator()
         embedding_dim = 128
-        cache_sets = 64
+        cache_sets = 64 * OWNER_CACHE_WAYS
         num_resident = 16
         keys = self._unique_slot_keys(cache_sets, num_resident + 8)
         resident_keys, absent_keys = keys[:num_resident], keys[num_resident:]
-        resident_slots = {
-            torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) for k in resident_keys
-        }
+        resident_slots = {owner_cache_set_base(k, cache_sets) for k in resident_keys}
         absent_keys.append(
             next(
                 k
                 for k in range(1000, 2000)
-                if torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) in resident_slots
+                if owner_cache_set_base(k, cache_sets) in resident_slots
             )
         )
         for dtype in (torch.float16, torch.bfloat16, torch.float32):
@@ -393,9 +390,7 @@ class SSDUtilsTest(unittest.TestCase):
             expected_scale = torch.where(
                 row_range == 0, torch.ones_like(row_range), row_range / 255
             )
-            slots = [
-                torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) for k in resident_keys
-            ]
+            slots = [owner_cache_set_base(k, cache_sets) for k in resident_keys]
             qparams = int8_weights[slots, embedding_dim:].clone().view(torch.float32)
             torch.testing.assert_close(qparams[:, 0], expected_scale)
             torch.testing.assert_close(qparams[:, 1], row_min, rtol=0, atol=0)
@@ -471,8 +466,8 @@ class SSDUtilsTest(unittest.TestCase):
         row_dtype = torch.float16
         source = torch.tensor([[0.25, -0.5, 1.0, 3.0]], dtype=row_dtype, device=device)
         indices = torch.tensor([3], dtype=torch.int64, device=device)
-        state = torch.full((2, 1), -1, dtype=torch.int64, device=device)
-        weights = torch.empty((2, 12), dtype=torch.uint8, device=device)
+        state = torch.full((OWNER_CACHE_WAYS, 1), -1, dtype=torch.int64, device=device)
+        weights = torch.empty((OWNER_CACHE_WAYS, 12), dtype=torch.uint8, device=device)
         _, count, inserted, addresses = self._run_direct_cache_lookup(
             torch.ops.fbgemm.kvzch_direct_cache_lookup_int8,
             indices,
@@ -502,7 +497,7 @@ class SSDUtilsTest(unittest.TestCase):
 
     def test_kvzch_direct_cache_gather_int8_float(self) -> None:
         device = torch.accelerator.current_accelerator()
-        cache_sets = 4096
+        cache_sets = 4096 * OWNER_CACHE_WAYS
         for embedding_dim in (64, 128):
             resident_keys = self._unique_slot_keys(cache_sets, 2048)
             absent_keys = self._unique_slot_keys(cache_sets, 512, start=10**6)
@@ -566,10 +561,7 @@ class SSDUtilsTest(unittest.TestCase):
                 # the GPU; float64 holds the 8-bit x 24-bit product exactly.
                 is_hit = (addresses & 1).bool().cpu()
                 slots = torch.tensor(
-                    [
-                        torch.ops.fbgemm.lxu_cache_slot(k, cache_sets)
-                        for k in indices.tolist()
-                    ]
+                    [owner_cache_set_base(k, cache_sets) for k in indices.tolist()]
                 )
                 cache_cpu = int8_weights.cpu()
                 codes = cache_cpu[slots, :embedding_dim].double()
@@ -604,7 +596,7 @@ class SSDUtilsTest(unittest.TestCase):
     def test_direct_cache_gathers_with_max_ctas(self) -> None:
         device = torch.accelerator.current_accelerator()
         embedding_dim = 128
-        cache_sets = 4096
+        cache_sets = 4096 * OWNER_CACHE_WAYS
         dtype = torch.float16
         resident_keys = self._unique_slot_keys(cache_sets, 2048)
         absent_keys = self._unique_slot_keys(cache_sets, 512, start=10**6)
@@ -688,7 +680,7 @@ class SSDUtilsTest(unittest.TestCase):
     def test_kvzch_direct_cache_insert_int8_skips(self) -> None:
         device = torch.accelerator.current_accelerator()
         embedding_dim = 64
-        cache_sets = 16
+        cache_sets = 16 * OWNER_CACHE_WAYS
         keys = self._unique_slot_keys(cache_sets, 3)
         cache_state = torch.full((cache_sets, 1), -1, dtype=torch.int64, device=device)
         cache_weights = torch.zeros(
@@ -711,7 +703,7 @@ class SSDUtilsTest(unittest.TestCase):
         torch.ops.fbgemm.kvzch_direct_cache_insert_int8(
             cache_state, cache_weights, indices, rows
         )
-        slots = [torch.ops.fbgemm.lxu_cache_slot(k, cache_sets) for k in keys]
+        slots = [owner_cache_set_base(k, cache_sets) for k in keys]
         self.assertEqual(int(cache_state[slots[0]][0].item()), keys[0])
         self.assertEqual(int(cache_state[slots[1]][0].item()), -1)
         self.assertTrue(bool((cache_weights[slots[1]] == 0).all()))
