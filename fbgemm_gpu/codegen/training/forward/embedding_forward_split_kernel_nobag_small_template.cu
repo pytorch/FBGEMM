@@ -10,6 +10,79 @@
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
+{%- set supports_chunked = not dense and not ssd and not is_index_select %}
+
+{%- macro nobag_small_lookup(chunked) %}
+    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
+        auto l = l_start + threadIdx.x;
+        int64_t idx = l < L ? indices[indices_start + l] : 0;
+        {%- if chunked %}
+        const int64_t row_offset = tbe_chunked_row_rel_offset(chunk_header, idx, D_emb);
+        {%- endif %}
+        {%- if not dense %}
+        const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} =
+          (placement == PlacementType::MANAGED_CACHING && l < L)
+            ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
+        {%- endif %}
+        for (auto j = group_start; j < group_end && l_start + j < L; ++j) {
+            {%- if chunked %}
+            const int64_t row_offset_j = shfl_sync(row_offset, j);
+            {%- else %}
+            int64_t idx_j = shfl_sync(idx, j);
+            {%- endif %}
+            {%- if is_index_select %}
+            int64_t output_j = L_start + l_start + j;
+            {%- else %}
+            int64_t output_j = indices_start + l_start + j;
+            {%- endif %}
+            {%- if not dense %}
+            const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j =
+              shfl_sync({{ locs_or_addrs_idx }}, j);
+            {%- endif %}
+
+            auto weight_row_emb = WeightRowAccessor<emb_t, cache_t>(
+                {%- if chunked %}
+                &weights[row_offset_j],
+                {%- else %}
+                &weights[idx_j * D_emb],
+                {%- endif %}
+                D
+            );
+
+            if (d < D) {
+                {%- if not dense %}
+                if (placement == PlacementType::MANAGED_CACHING &&
+                    {{ locs_or_addrs_idx }}_j != kCacheLocationMissing) {
+                    const cache_t* cache_weights;
+                    {%- if ssd %}
+                    cache_weights = reinterpret_cast<const cache_t*>(
+                        *reinterpret_cast<const uint64_t*>(&{{ locs_or_addrs_idx }}_j));
+                    {%- else %}
+                    cache_weights = reinterpret_cast<const cache_t*>(
+                        &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][0]);
+                    {%- endif  %}
+
+                    auto weight_row_cache = WeightRowAccessor<cache_t, cache_t>(cache_weights, D);
+                    Vec4T<cache_t> weight = weight_row_cache.load(d);
+                    weight.store(&output[output_j][d]);
+                } else {
+                    Vec4T<cache_t> weight = weight_row_emb.load(d);
+                    weight.store(&output[output_j][d]);
+                }
+                {%- else %}
+                    Vec4T<cache_t> weight = weight_row_emb.load(d);
+                    {%- if is_index_select %}
+                    // output is 1D (because the stride can be irregular)
+                    weight.store(&output[output_offset + output_j * output_stride + d]);
+                    {%- else %}
+                    // output is 2D
+                    weight.store(&output[output_j][d]);
+                    {%- endif %}
+                {%- endif %}
+            }
+        }
+    }
+{%- endmacro %}
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 
@@ -22,8 +95,17 @@ template <
     typename output_t,
     typename index_t,
     size_t kThreadGroupSize
+    {%- if supports_chunked %},
+    bool kChunked = false
+    {%- endif %}
     >
+{%- if supports_chunked %}
+// Chunked kernels are held to 40 registers so they keep 3 blocks per SM. D = 4
+// already fits in fewer, and capping it lets ptxas grow it out of 4 blocks
+__launch_bounds__(kForwardMaxThreads, kChunked && kThreadGroupSize > 1 ? 3 : 0) __global__ void
+{%- else %}
 __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- endif %}
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_small_kernel(
 {%- else %}
@@ -119,7 +201,13 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
+        {%- if supports_chunked %}
+        weights = kChunked
+            ? tbe_weights_table_ptr(&dev_weights[0], weights_offset)
+            : &dev_weights[weights_offset];
+        {%- else %}
         weights = &dev_weights[weights_offset];
+        {%- endif %}
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset]" }};
     }
@@ -136,64 +224,21 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     const int32_t group_end = group_start + kThreadGroupSize;
     const auto d = threadIdx.x % kThreadGroupSize * 4;
 
-    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-        auto l = l_start + threadIdx.x;
-        int64_t idx = l < L ? indices[indices_start + l] : 0;
-        {%- if not dense %}
-        const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} =
-          (placement == PlacementType::MANAGED_CACHING && l < L)
-            ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
-        {%- endif %}
-        for (auto j = group_start; j < group_end && l_start + j < L; ++j) {
-            int64_t idx_j = shfl_sync(idx, j);
-            {%- if is_index_select %}
-            int64_t output_j = L_start + l_start + j;
-            {%- else %}
-            int64_t output_j = indices_start + l_start + j;
-            {%- endif %}
-            {%- if not dense %}
-            const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j =
-              shfl_sync({{ locs_or_addrs_idx }}, j);
-            {%- endif %}
-
-            auto weight_row_emb = WeightRowAccessor<emb_t, cache_t>(
-                &weights[idx_j * D_emb],
-                D
-            );
-
-            if (d < D) {
-                {%- if not dense %}
-                if (placement == PlacementType::MANAGED_CACHING &&
-                    {{ locs_or_addrs_idx }}_j != kCacheLocationMissing) {
-                    const cache_t* cache_weights;
-                    {%- if ssd %}
-                    cache_weights = reinterpret_cast<const cache_t*>(
-                        *reinterpret_cast<const uint64_t*>(&{{ locs_or_addrs_idx }}_j));
-                    {%- else %}
-                    cache_weights = reinterpret_cast<const cache_t*>(
-                        &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][0]);
-                    {%- endif  %}
-
-                    auto weight_row_cache = WeightRowAccessor<cache_t, cache_t>(cache_weights, D);
-                    Vec4T<cache_t> weight = weight_row_cache.load(d);
-                    weight.store(&output[output_j][d]);
-                } else {
-                    Vec4T<cache_t> weight = weight_row_emb.load(d);
-                    weight.store(&output[output_j][d]);
-                }
-                {%- else %}
-                    Vec4T<cache_t> weight = weight_row_emb.load(d);
-                    {%- if is_index_select %}
-                    // output is 1D (because the stride can be irregular)
-                    weight.store(&output[output_offset + output_j * output_stride + d]);
-                    {%- else %}
-                    // output is 2D
-                    weight.store(&output[output_j][d]);
-                    {%- endif %}
-                {%- endif %}
-            }
-        }
+    {%- if supports_chunked %}
+    // Chunked DEVICE tables (see chunked_weights.cuh) only exist in the
+    // kChunked instantiations, which keep a separate copy of the loop for them.
+    // Flat tables in those instantiations use an identity chunk header
+    if constexpr (kChunked) {
+        const int64_t* chunk_header = weights_offset < 0
+            ? tbe_chunk_header(weights_offset)
+            : tbe_flat_chunk_header();
+        {{ nobag_small_lookup(true) }}
+    } else {
+        {{ nobag_small_lookup(false) }}
     }
+    {%- else %}
+{{ nobag_small_lookup(false) }}
+    {%- endif %}
     {%- if not is_index_select %}
 #ifdef USE_ROCM
     } // for b_t (grid-stride loop, ROCm only)
@@ -212,8 +257,14 @@ batch_index_select_dim0_codegen_forward_small_kernel(
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for kEmbeddingSize in [4, 8, 16, 32] %}
 {%- for index_type in ['int32_t', 'int64_t'] %}
+{#-/* Chunked weights are FP32/FP16 only */#}
+{%- for chunked in ([False, True] if supports_chunked and emb_type in ['float', 'at::Half'] else [False]) %}
 
+{%- if supports_chunked %}
+template __launch_bounds__(kForwardMaxThreads, {{ 3 if chunked and kEmbeddingSize > 4 else 0 }}) __global__ void
+{%- else %}
 template __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- endif %}
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_small_kernel
 {%- else %}
@@ -225,6 +276,9 @@ batch_index_select_dim0_codegen_forward_small_kernel
   {{ output_type }},
   {{ index_type }},
   {{ kEmbeddingSize // 4 }}
+  {%- if chunked %},
+  true
+  {%- endif %}
 > (
     const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -254,6 +308,7 @@ batch_index_select_dim0_codegen_forward_small_kernel
     {%- endif %}
     pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
 
+{%- endfor %}
 {%- endfor %}
 {%- endfor %}
 {%- endfor %}

@@ -36,12 +36,13 @@ enum SAVED_PARAMS {
   P_offsets,
   P_num_offsets,
   P_load_D,
-  P_total_load_D
+  P_total_load_D,
+  P_weights_offset
 };
 {%- if weighted %}
-constexpr uint32_t SAVED_PARAMS_CNT = 8;
+constexpr uint32_t SAVED_PARAMS_CNT = 9;
 {%- else %}
-constexpr uint32_t SAVED_PARAMS_CNT = 7;
+constexpr uint32_t SAVED_PARAMS_CNT = 8;
 {%- endif %}
 enum LXU_CACHE_PARAMS {
   P_lxu_cache_weights = SAVED_PARAMS_CNT,
@@ -158,9 +159,11 @@ __inline__ __device__ void process_all_indices_no_pooling(
   {%- endif %}
   const auto load_D = static_cast<uint32_t>(smem[params_offset + SAVED_PARAMS::P_load_D]);
   const auto total_load_D = static_cast<uint32_t>(smem[params_offset + SAVED_PARAMS::P_total_load_D]);
+  const int64_t weights_offset = smem[params_offset + SAVED_PARAMS::P_weights_offset];
 
   // Each thread loads a separate weight ptr
-  const auto weight_ptrs = reinterpret_cast<uintptr_t>(&weights[indices[threadIdx.x] * load_D]);
+  const auto weight_ptrs = reinterpret_cast<uintptr_t>(&weights[
+      tbe_weights_row_rel_vec_offset<emb_t, emb_vec_t>(weights_offset, indices[threadIdx.x], load_D)]);
 
   // Assuming kWarpSize is a multiple of STEP
   for (uint32_t l_start = 0; l_start < TOTAL_L; l_start += STEP) {
@@ -354,6 +357,7 @@ __noinline__ __device__ void process_all_indices_small_Ls(
       const auto* __restrict__ weights =
         *reinterpret_cast<emb_vec_t**>(&smem[params_offset + SAVED_PARAMS::P_weights]);
       const auto load_D = static_cast<uint32_t>(smem[params_offset + SAVED_PARAMS::P_load_D]);
+      const int64_t weights_offset = smem[params_offset + SAVED_PARAMS::P_weights_offset];
 
       syncwarp(); // Ensure that all warps read the previous value before overwriting it
       if (USE_CACHE_WEIGHTS) {
@@ -364,7 +368,8 @@ __noinline__ __device__ void process_all_indices_small_Ls(
             reinterpret_cast<const cache_t*>(smem[params_offset + LXU_CACHE_PARAMS::P_lxu_cache_weights]);
           SMEM_GENERIC_PTR[threadIdx.x] = cache_idx != kCacheLocationMissing ?
             reinterpret_cast<uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
-            reinterpret_cast<uintptr_t>(&weights[indices[l] * load_D]);
+            reinterpret_cast<uintptr_t>(&weights[
+                tbe_weights_row_rel_vec_offset<emb_t, emb_vec_t>(weights_offset, indices[l], load_D)]);
         }
         if constexpr (!std::is_same_v<emb_t, cache_t>) {
           cache_look_up_bits = ballot_sync(cache_idx != kCacheLocationMissing);
@@ -372,7 +377,8 @@ __noinline__ __device__ void process_all_indices_small_Ls(
       }
       else {
         SMEM_EMB_WEIGHT_PTR[threadIdx.x] = (l < total_L) ?
-          reinterpret_cast<const emb_vec_t*>(&weights[indices[l] * load_D]) : nullptr;
+          reinterpret_cast<const emb_vec_t*>(&weights[
+              tbe_weights_row_rel_vec_offset<emb_t, emb_vec_t>(weights_offset, indices[l], load_D)]) : nullptr;
       }
       syncwarp(); // Ensure that all weight pointers are written
     }
@@ -581,6 +587,7 @@ __noinline__ __device__ void process_all_indices_large_Ls(
       const auto* __restrict__ weights =
         *reinterpret_cast<emb_vec_t**>(&smem[params_offset + SAVED_PARAMS::P_weights]);
       const auto load_D = static_cast<uint32_t>(smem[params_offset + SAVED_PARAMS::P_load_D]);
+      const int64_t weights_offset = smem[params_offset + SAVED_PARAMS::P_weights_offset];
 
       syncwarp(); // Ensure that all warps read the previous value before overwriting it
       if (USE_CACHE_WEIGHTS) {
@@ -591,7 +598,8 @@ __noinline__ __device__ void process_all_indices_large_Ls(
             reinterpret_cast<const cache_t*>(smem[params_offset + LXU_CACHE_PARAMS::P_lxu_cache_weights]);
           SMEM_GENERIC_PTR[threadIdx.x] = cache_idx != kCacheLocationMissing ?
             reinterpret_cast<uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
-            reinterpret_cast<uintptr_t>(&weights[indices[l] * load_D]);
+            reinterpret_cast<uintptr_t>(&weights[
+                tbe_weights_row_rel_vec_offset<emb_t, emb_vec_t>(weights_offset, indices[l], load_D)]);
         }
         if constexpr (!std::is_same_v<emb_t, cache_t>) {
           cache_look_up_bits = ballot_sync(cache_idx != kCacheLocationMissing);
@@ -601,7 +609,8 @@ __noinline__ __device__ void process_all_indices_large_Ls(
       }
       else {
         SMEM_EMB_WEIGHT_PTR[threadIdx.x] = (l < L) ?
-          reinterpret_cast<const emb_vec_t*>(&weights[indices[l] * load_D]) : nullptr;
+          reinterpret_cast<const emb_vec_t*>(&weights[
+              tbe_weights_row_rel_vec_offset<emb_t, emb_vec_t>(weights_offset, indices[l], load_D)]) : nullptr;
       }
       syncwarp(); // Ensure that all weight pointers are written
     }
@@ -880,9 +889,10 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
         const auto placement = static_cast<PlacementType>(weights_placements[t]);
         const auto weight_offset = weights_offsets[t];
         const emb_t* weight = placement == PlacementType::DEVICE ?
-          &dev_weights[weight_offset] : &uvm_weights[weight_offset];
+          tbe_weights_table_ptr(&dev_weights[0], weight_offset) : &uvm_weights[weight_offset];
         *reinterpret_cast<const emb_vec_t**>(&smem[params_offset + SAVED_PARAMS::P_weights]) =
           reinterpret_cast<const emb_vec_t*>(weight) + load_d;
+        smem[params_offset + SAVED_PARAMS::P_weights_offset] = weight_offset;
         *reinterpret_cast<output_vec_t**>(&smem[params_offset + SAVED_PARAMS::P_outputs]) =
           reinterpret_cast<output_vec_t*>(output) + D_start + b * total_load_D + load_d;
         {%- if weighted %}
@@ -982,8 +992,9 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
           }
           else {
             const auto* weight = reinterpret_cast<const emb_vec_t*>(placement == PlacementType::DEVICE ?
-                &dev_weights[weight_offset] : &uvm_weights[weight_offset]);
-            const auto weight_vec_offset = load_d + indices[row_start] * load_D + threadIdx.x;
+                tbe_weights_table_ptr(&dev_weights[0], weight_offset) : &uvm_weights[weight_offset]);
+            const auto weight_vec_offset = load_d + threadIdx.x +
+                tbe_weights_row_rel_vec_offset<emb_t, emb_vec_t>(weight_offset, indices[row_start], load_D);
             // Load and store data
             ACC_ADD_OR_FMA(weight + weight_vec_offset, index_weight)
           }
