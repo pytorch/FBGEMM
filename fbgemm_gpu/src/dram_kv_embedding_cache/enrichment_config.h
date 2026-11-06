@@ -65,6 +65,9 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
   /// @param serving_qdq_group_size 0 for the rowwise publish (fp16 scale and
   /// bias); else the group size of a group-wise INT4 publish with
   /// float8_e4m3fn scales (requires serving_qdq_bit_rate 4).
+  /// @param packed_storage Store rows in DRAM in that group-wise INT4 encoding
+  /// instead of fp16 (requires serving_qdq_group_size); reads still return
+  /// fp16.
   explicit EnrichmentConfig(
       int64_t enrichment_type,
       std::string provider_name,
@@ -89,7 +92,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
       std::string laser_key_suffix = "",
       std::vector<std::string> laser_key_suffixes = {},
       int64_t serving_qdq_bit_rate = 0,
-      int64_t serving_qdq_group_size = 0)
+      int64_t serving_qdq_group_size = 0,
+      bool packed_storage = false)
       : enrichment_type_(static_cast<EnrichmentType>(enrichment_type)),
         provider_name_(std::move(provider_name)),
         client_id_(std::move(client_id)),
@@ -117,7 +121,8 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
                 ? std::vector<std::string>{laser_key_suffix_}
                 : std::move(laser_key_suffixes)),
         serving_qdq_bit_rate_(serving_qdq_bit_rate),
-        serving_qdq_group_size_(serving_qdq_group_size) {}
+        serving_qdq_group_size_(serving_qdq_group_size),
+        packed_storage_(packed_storage) {}
 
   EnrichmentType enrichment_type_;
   std::string provider_name_;
@@ -164,6 +169,9 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
 
   // Group size of a group-wise INT4 (e4m3 scales) publish; 0 = rowwise
   int64_t serving_qdq_group_size_;
+
+  // Store rows packed in the group-wise INT4 publish encoding
+  bool packed_storage_;
 };
 
 } // namespace kv_mem
