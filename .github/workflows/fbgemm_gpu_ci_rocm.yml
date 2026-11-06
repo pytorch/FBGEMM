@@ -62,7 +62,8 @@ jobs:
       with-xpu: disable
       with-cuda: disable
       with-rocm: enable
-      build-python-only: "disable"
+      # Single oldest Python from test-infra's channel list (auto-bumps).
+      build-python-only: "enable"
 
   filter-rocm-versions:
     if: ${{ github.repository_owner == 'pytorch' }}
@@ -75,11 +76,11 @@ jobs:
       - id: filter
         run: |
           set -euo pipefail
-          # Unique ROCm versions + first Python from the nightly binary matrix.
+          # Unique ROCm versions; Python already limited by build-python-only.
           rocm_versions=$(echo '${{ needs.generate-rocm-binary-matrix.outputs.matrix }}' \
             | jq -r '[.include[].gpu_arch_version] | unique | sort_by(split(".") | map(tonumber)) | join(",")')
           python_versions=$(echo '${{ needs.generate-rocm-binary-matrix.outputs.matrix }}' \
-            | jq -r '[.include[].python_version] | unique | .[0]')
+            | jq -r '[.include[].python_version] | unique | join(",")')
           echo "rocm-versions=${rocm_versions}" >> "$GITHUB_OUTPUT"
           echo "python-versions=${python_versions}" >> "$GITHUB_OUTPUT"
           echo "ROCm versions: ${rocm_versions}"
