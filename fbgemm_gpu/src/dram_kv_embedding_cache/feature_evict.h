@@ -132,7 +132,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
       int64_t interval_for_insufficient_eviction_s = 600, // 10 min
       int64_t interval_for_sufficient_eviction_s = 60, // 1 min
       int64_t interval_for_feature_statistics_decay_s = 24 * 3600, // 1 day
-      bool enable_ssd_writeback = false)
+      bool enable_ssd_writeback = false,
+      std::optional<int64_t> free_mem_threshold_gb = std::nullopt)
       : trigger_mode_(static_cast<EvictTriggerMode>(trigger_mode)),
         trigger_strategy_(static_cast<EvictTriggerStrategy>(trigger_strategy)),
         trigger_step_interval_(trigger_step_interval),
@@ -157,7 +158,8 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         interval_for_sufficient_eviction_s_(interval_for_sufficient_eviction_s),
         interval_for_feature_statistics_decay_s_(
             interval_for_feature_statistics_decay_s),
-        enable_ssd_writeback_(enable_ssd_writeback) {
+        enable_ssd_writeback_(enable_ssd_writeback),
+        free_mem_threshold_gb_(free_mem_threshold_gb) {
     // verification
     if (trigger_mode_ == EvictTriggerMode::DISABLED) {
       LOG(INFO) << "eviction config, trigger mode is disabled";
@@ -192,28 +194,57 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
         const auto& enable_eviction_vec =
             enable_eviction_for_feature_score_eviction_policy_.value();
         const auto& vec = training_id_eviction_trigger_count_.value();
+        // Under BY_FEATURE_SCORE a TTL table sheds rows only once they pass
+        // their TTL, so no trim can bring it back under a count; counting it
+        // would hold the trigger on for the rest of the job. Other strategies
+        // have no per-table row counts, so they -- and TBEs made only of TTL
+        // tables -- keep the summed rule.
+        if (trigger_strategy_ == EvictTriggerStrategy::BY_FEATURE_SCORE &&
+            ttls_in_mins_.has_value() &&
+            ttls_in_mins_.value().size() == vec.size()) {
+          for (size_t i = 0; i < vec.size(); ++i) {
+            if (ttls_in_mins_.value()[i] == 0) {
+              id_count_bound_tables_.push_back(i);
+            }
+          }
+          if (id_count_bound_tables_.empty()) {
+            LOG(WARNING)
+                << "ID_COUNT trigger mode on a TBE whose tables all have a "
+                   "TTL: the summed trigger count is compared against every "
+                   "row, and TTL tables can keep it exceeded. Consider the "
+                   "FREE_MEM trigger mode.";
+          }
+        }
+        const bool per_table = !id_count_bound_tables_.empty();
         eviction_trigger_stats_log = ", training_id_eviction_trigger_count: [";
         total_id_eviction_trigger_count_ = 0;
         for (size_t i = 0; i < vec.size(); ++i) {
-          if (enable_eviction_vec[i] == 0) {
-            throw std::runtime_error(
-                "ID_COUNT trigger mode doesn't not support enable_eviction=False, please use FREE_MEM trigger mode instead");
-          }
-          total_id_eviction_trigger_count_ =
-              total_id_eviction_trigger_count_.value() + vec[i];
-          if (vec[i] <= 0) {
-            throw std::runtime_error(
-                "Invalid training_id_eviction_trigger_count, must be positive if ID_COUNT trigger mode is used");
-          }
           eviction_trigger_stats_log += std::to_string(vec[i]);
           if (i + 1 < vec.size()) {
             eviction_trigger_stats_log += ", ";
           }
+          if (per_table && ttls_in_mins_.value()[i] > 0) {
+            continue;
+          }
+          if (enable_eviction_vec[i] == 0) {
+            throw std::runtime_error(
+                "ID_COUNT trigger mode doesn't not support enable_eviction=False, please use FREE_MEM trigger mode instead");
+          }
+          if (vec[i] <= 0) {
+            throw std::runtime_error(
+                "Invalid training_id_eviction_trigger_count, must be positive if ID_COUNT trigger mode is used");
+          }
+          total_id_eviction_trigger_count_ =
+              total_id_eviction_trigger_count_.value() + vec[i];
         }
         eviction_trigger_stats_log += "]";
         break;
       }
       case EvictTriggerMode::FREE_MEM: {
+        eviction_trigger_stats_log = ", free_mem_threshold_gb: " +
+            (free_mem_threshold_gb_.has_value()
+                 ? std::to_string(free_mem_threshold_gb_.value())
+                 : std::string("unset"));
         break;
       }
       default:
@@ -320,6 +351,10 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
   std::optional<std::vector<int64_t>> training_id_keep_count_;
   std::optional<std::vector<int8_t>>
       enable_eviction_for_feature_score_eviction_policy_;
+  // ID_COUNT only: the tables the trigger compares against their own
+  // training_id_eviction_trigger_count_ (empty under the summed rule), and the
+  // sum of the compared counts for backends that only report a total.
+  std::vector<size_t> id_count_bound_tables_;
   std::optional<int64_t> total_id_eviction_trigger_count_;
   std::optional<std::vector<double>> l2_weight_thresholds_;
   std::optional<std::vector<int64_t>> embedding_dims_;
@@ -329,7 +364,59 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
   int64_t interval_for_sufficient_eviction_s_;
   int64_t interval_for_feature_statistics_decay_s_;
   bool enable_ssd_writeback_;
+  std::optional<int64_t> free_mem_threshold_gb_;
 };
+
+struct EvictTriggerInputs {
+  int64_t iter{0};
+  int64_t used_mem_bytes{0};
+  int64_t num_rows{0};
+  // ID_COUNT: rows per table, indexed like training_id_eviction_trigger_count_.
+  // Empty when the backend cannot attribute rows to tables, in which case
+  // num_rows is compared against the summed trigger count.
+  std::vector<int64_t> rows_per_table;
+  int64_t free_mem_bytes{0};
+};
+
+// MANUAL and DISABLED never self-trigger. Their callers decide explicitly
+// whether to start a round.
+inline bool should_trigger(
+    const FeatureEvictConfig& config,
+    const EvictTriggerInputs& inputs) {
+  constexpr int64_t kBytesPerGB = 1024 * 1024 * 1024;
+  // The FeatureEvictConfig constructor CHECKs that ITERATION, MEM_UTIL and
+  // ID_COUNT have the field they read here, so their .value() calls are safe.
+  switch (config.trigger_mode_) {
+    case EvictTriggerMode::ITERATION:
+      return config.trigger_step_interval_.value() > 0 &&
+          inputs.iter % config.trigger_step_interval_.value() == 0;
+    case EvictTriggerMode::MEM_UTIL:
+      return inputs.used_mem_bytes >
+          config.mem_util_threshold_in_GB_.value() * kBytesPerGB;
+    case EvictTriggerMode::ID_COUNT: {
+      if (config.id_count_bound_tables_.empty() ||
+          inputs.rows_per_table.empty()) {
+        return inputs.num_rows >
+            config.total_id_eviction_trigger_count_.value();
+      }
+      const auto& trigger = config.training_id_eviction_trigger_count_.value();
+      CHECK_EQ(inputs.rows_per_table.size(), trigger.size());
+      return std::ranges::any_of(config.id_count_bound_tables_, [&](size_t i) {
+        return inputs.rows_per_table[i] > trigger[i];
+      });
+    }
+    case EvictTriggerMode::FREE_MEM:
+      // Constructors that predate free_mem_threshold_gb leave it unset; that
+      // is no demand, not an error.
+      return config.free_mem_threshold_gb_.has_value() &&
+          inputs.free_mem_bytes <
+          config.free_mem_threshold_gb_.value() * kBytesPerGB;
+    case EvictTriggerMode::MANUAL:
+    case EvictTriggerMode::DISABLED:
+      return false;
+  }
+  return false;
+}
 
 struct FeatureEvictMetrics {
   explicit FeatureEvictMetrics(int table_num) {
@@ -498,12 +585,14 @@ class FeatureEvict {
   // Trigger asynchronous eviction.
   // If there is an ongoing task, return directly to prevent multiple
   // triggers. If there is no ongoing task, initialize the task state.
-  void trigger_evict() {
+  // `force` skips only the local interval gate, for a caller that has already
+  // decided across ranks to start a round; an ongoing task still returns.
+  void trigger_evict(bool force = false) {
     std::unique_lock<std::mutex> lock(mutex_);
     if (trigger_suspensions_ > 0) {
       return;
     }
-    if (!reach_interval_to_trigger_new_round()) {
+    if (!force && !reach_interval_to_trigger_new_round()) {
       return;
     }
 
@@ -615,6 +704,20 @@ class FeatureEvict {
   bool is_evicting() {
     std::unique_lock<std::mutex> lock(mutex_);
     return evict_state_.load() != EvictState::Idle;
+  }
+
+  // Whether the last finished round evicted more than 100 rows. False before
+  // the first round.
+  bool last_eviction_sufficient() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return is_last_eviction_sufficient_.load();
+  }
+
+  // Rows per table for strategies that track them, indexed like
+  // sub_table_hash_cumsum_; empty otherwise. Callers must not be evicting: a
+  // round resets and rebuilds the counts without the shard lock.
+  virtual std::vector<int64_t> count_bound_rows_per_table() {
+    return {};
   }
 
   // wait until eviction round finishes
@@ -1258,6 +1361,8 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
     thresholds_.resize(sub_table_hash_cumsum.size(), 0.0);
     evict_modes_.resize(num_tables_);
+    boundary_buckets_.resize(num_tables_, 0);
+    boundary_evict_fractions_.resize(num_tables_, 0.0);
   }
 
   void update_feature_statistics(weight_type* block) override {
@@ -1296,6 +1401,19 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
     }
   }
 
+  // Only tables without a TTL are counted; TTL tables report 0.
+  std::vector<int64_t> count_bound_rows_per_table() override {
+    std::vector<int64_t> rows(num_tables_, 0);
+    for (int shard_id = 0; shard_id < this->num_shards_; ++shard_id) {
+      auto rlmap = this->kv_store_.by(shard_id).rlock();
+      for (int table_id = 0; table_id < num_tables_; ++table_id) {
+        rows[table_id] += static_cast<int64_t>(
+            local_blocks_num_per_shard_per_table_[table_id][shard_id]);
+      }
+    }
+    return rows;
+  }
+
   std::vector<double> get_thresholds() {
     return thresholds_;
   }
@@ -1320,26 +1438,17 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       return current_time - FixedBlockPool::get_timestamp(block) >
           ttls_threshold * 60;
     }
-    double threshold = thresholds_[sub_table_id];
-
-    if (this->should_decay_) {
-      double ratio = FixedBlockPool::get_feature_score_rate(block);
-      double decay_rate = decay_rates_[sub_table_id];
-      double new_ratio = ratio * decay_rate;
-      FixedBlockPool::set_feature_score_rate(block, new_ratio);
-    }
-    double overall_ratio = FixedBlockPool::get_feature_score_rate(block);
-    constexpr double EPSILON = 1e-9;
+    // Decide on the pre-decay score: the boundary was computed from the
+    // pre-decay histogram.
+    const double ratio = FixedBlockPool::get_feature_score_rate(block);
     bool should_evict = false;
     switch (evict_modes_[sub_table_id]) {
       case EvictMode::NONE:
         should_evict = false;
         break;
       case EvictMode::ONLY_ZERO:
-        should_evict = std::abs(overall_ratio) < EPSILON;
-        break;
       case EvictMode::THRESHOLD:
-        should_evict = overall_ratio <= threshold;
+        should_evict = below_eviction_boundary(block, ratio, sub_table_id);
         break;
       default:
         LOG(ERROR) << "Invalid evict mode";
@@ -1347,6 +1456,10 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         break;
     }
 
+    if (!should_evict && this->should_decay_) {
+      FixedBlockPool::set_feature_score_rate(
+          block, ratio * decay_rates_[sub_table_id]);
+    }
     return should_evict;
   }
 
@@ -1398,7 +1511,42 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
     return idx;
   }
 
+  static uint64_t mix64(uint64_t x) {
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+  }
+
+  // Scores are discrete (many rows share one exact value), so evicting the
+  // whole boundary bucket can overshoot the keep count several times over.
+  // Instead, a per-round key hash evicts just the needed fraction of it.
+  bool
+  below_eviction_boundary(weight_type* block, double ratio, int sub_table_id) {
+    const int64_t idx = get_bucket_id_from_ratio(ratio);
+    const int64_t boundary = boundary_buckets_[sub_table_id];
+    if (idx != boundary) {
+      return idx < boundary;
+    }
+    const uint64_t h = mix64(
+        static_cast<uint64_t>(FixedBlockPool::get_key(block)) ^ round_salt_);
+    return static_cast<double>(h >> 11) * 0x1.0p-53 <
+        boundary_evict_fractions_[sub_table_id];
+  }
+
+  void set_eviction_boundary(
+      size_t table_id,
+      int64_t bucket,
+      int64_t below_count,
+      int64_t bucket_count,
+      int64_t evict_count) {
+    boundary_buckets_[table_id] = bucket;
+    boundary_evict_fractions_[table_id] = bucket_count > 0
+        ? static_cast<double>(evict_count - below_count) / bucket_count
+        : 0.0;
+  }
+
   void compute_thresholds_from_buckets() {
+    round_salt_ = mix64(++round_count_);
     for (size_t table_id = 0; table_id < num_tables_; ++table_id) {
       int8_t enable_eviction =
           enable_eviction_for_feature_score_eviction_policy_[table_id];
@@ -1442,25 +1590,46 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         // Case 2: If bucket 0 alone contains sufficient blocks to satisfy
         // the eviction demand, restrict eviction only to bucket 0 (blocks
         // with score == 0).
+        threshold_bucket = 0;
+        acc_count = evict_count;
+        set_eviction_boundary(table_id, 0, 0, bucket0_count, evict_count);
         thresholds_[table_id] = 0.0;
         evict_modes_[table_id] = EvictMode::ONLY_ZERO;
       } else {
         // Case 3: Need to evict across multiple buckets.
         // Accumulate candidate blocks from bucket 0 and higher until the
         // eviction quota is met.
-        acc_count = bucket0_count;
+        int64_t below_count = bucket0_count;
+        int64_t boundary_count = 0;
         bool found_threshold_bucket = false;
         for (int bucket_id = 1; bucket_id < num_buckets_; ++bucket_id) {
+          boundary_count = 0;
           for (int shard_id = 0; shard_id < this->num_shards_; ++shard_id) {
-            acc_count += local_buckets_per_shard_per_table_[table_id][shard_id]
-                                                           [bucket_id];
-            if (acc_count >= evict_count && !found_threshold_bucket) {
-              threshold_bucket = bucket_id;
-              found_threshold_bucket = true;
-            }
+            boundary_count +=
+                local_buckets_per_shard_per_table_[table_id][shard_id]
+                                                  [bucket_id];
           }
-          if (found_threshold_bucket)
+          if (below_count + boundary_count >= evict_count) {
+            threshold_bucket = bucket_id;
+            found_threshold_bucket = true;
             break;
+          }
+          below_count += boundary_count;
+        }
+        if (found_threshold_bucket) {
+          acc_count = evict_count;
+          set_eviction_boundary(
+              table_id,
+              threshold_bucket,
+              below_count,
+              boundary_count,
+              evict_count);
+        } else {
+          // The histogram can't cover the demand (it is rebuilt concurrently
+          // with training updates); keep the top bucket rather than evicting
+          // everything.
+          acc_count = below_count - boundary_count;
+          set_eviction_boundary(table_id, num_buckets_ - 1, 0, 0, 0);
         }
 
         double threshold =
@@ -1471,7 +1640,9 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       LOG(INFO) << "[Dry Run Result]table " << table_id
                 << " threshold: " << thresholds_[table_id]
                 << " threshold bucket: " << threshold_bucket
-                << " actual evict count: " << acc_count
+                << " boundary evict fraction: "
+                << boundary_evict_fractions_[table_id]
+                << " planned evict count: " << acc_count
                 << " target evict count: " << evict_count
                 << " total count: " << total
                 << " evict mode: " << to_string(evict_modes_[table_id]);
@@ -1506,6 +1677,15 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
   const int num_tables_ = static_cast<int>(this->sub_table_hash_cumsum_.size());
   const std::vector<double>& decay_rates_; // Decay rate for the block count.
   std::vector<double> thresholds_; // Threshold for eviction.
+  // Rows in buckets below boundary_buckets_ are evicted; rows inside it are
+  // evicted with probability boundary_evict_fractions_.
+  std::vector<int64_t> boundary_buckets_;
+  std::vector<double> boundary_evict_fractions_;
+  // Seeded from the clock so that a restarted job does not repeat the salts,
+  // and with them the keys spared, of its previous run.
+  uint64_t round_count_{static_cast<uint64_t>(
+      std::chrono::system_clock::now().time_since_epoch().count())};
+  uint64_t round_salt_{0};
 
   const std::vector<int64_t>&
       training_id_eviction_trigger_count_; // training id num for trigger

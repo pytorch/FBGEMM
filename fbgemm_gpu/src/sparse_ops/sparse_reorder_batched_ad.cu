@@ -183,8 +183,8 @@ __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
 }
 
 template <typename Dtype, typename index_t = int32_t>
-__global__
-__launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
+__device__ __forceinline__ void narrow_batched_broadcast_indices_for_warp(
+    const int64_t warp_id,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_ad_offsets,
     const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
@@ -198,9 +198,6 @@ __launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
     const int32_t T) {
   const auto B = batch_offsets.size(0) - 1;
   const auto num_ads_in_batch = static_cast<uint32_t>(batch_offsets[B]);
-  // calculate table_id and batch_id for this warp
-  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) /
-      static_cast<uint32_t>(kWarpSize);
   const auto table_id = warp_id / num_ads_in_batch;
   const auto warp_id_in_table = warp_id % num_ads_in_batch;
   // warps in a table equally splited for each B
@@ -229,6 +226,38 @@ __launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
       reordered_cat_ad_indices[output_segment_start + i * num_elements + j] =
           cat_ad_indices[input_segment_start + j];
     }
+  }
+}
+
+template <typename Dtype, typename index_t = int32_t>
+__global__
+__launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        cat_ad_offsets,
+    const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        cat_ad_indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        reordered_cat_ad_offsets,
+    pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        reordered_cat_ad_indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        batch_offsets,
+    const int32_t T) {
+  const auto B = batch_offsets.size(0) - 1;
+  const auto num_ads_in_batch = static_cast<int64_t>(batch_offsets[B]);
+  for (int64_t warp_id =
+           (static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) /
+           kWarpSize;
+       warp_id < static_cast<int64_t>(T) * num_ads_in_batch;
+       warp_id += static_cast<int64_t>(gridDim.x) * blockDim.x / kWarpSize) {
+    narrow_batched_broadcast_indices_for_warp(
+        warp_id,
+        cat_ad_offsets,
+        cat_ad_indices,
+        reordered_cat_ad_offsets,
+        reordered_cat_ad_indices,
+        batch_offsets,
+        T);
   }
 }
 
@@ -489,9 +518,13 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
       // for B > 1 and B < 64 broadcast case
       constexpr auto NUM_WARPS = 16;
       const dim3 threads(NUM_WARPS * kWarpSizeHost()); //  16 x 32
-      const dim3 blocks(cuda_calc_xblock_count(
-          T * num_ads_in_batch,
-          NUM_WARPS)); // num_ads_in_batch warps for all Bs
+      const dim3 blocks(
+          utils::cuda::cap_grid_dim_x(
+              cuda_calc_xblock_count(
+                  T * num_ads_in_batch,
+                  NUM_WARPS), // num_ads_in_batch warps for all Bs
+              threads.x,
+              at::cuda::getCurrentCUDAStream()));
       FBGEMM_DISPATCH_ALL_TYPES(
           cat_ad_indices.scalar_type(),
           "narrow_batched_broadcast_indices_kernel_1",

@@ -449,14 +449,17 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
   // hash_size_cumsum = {0, 100000} -> a single sub-table, so the per-sub-table
   // vectors are size 1.
   std::shared_ptr<DramKVEmbeddingCache<float>> makeCacheWithFeatureScoreEvict(
-      bool enable_ssd_backend) {
+      bool enable_ssd_backend,
+      int64_t ttl_in_mins = 1,
+      std::optional<c10::intrusive_ptr<EnrichmentConfig>> enrichment_config =
+          std::nullopt) {
     auto feature_evict_config = c10::make_intrusive<FeatureEvictConfig>(
         /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MANUAL),
         /*trigger_strategy=*/
         static_cast<int64_t>(EvictTriggerStrategy::BY_FEATURE_SCORE),
         /*trigger_step_interval=*/std::nullopt,
         /*mem_util_threshold_in_GB=*/std::nullopt,
-        /*ttls_in_mins=*/std::vector<int64_t>{1},
+        /*ttls_in_mins=*/std::vector<int64_t>{ttl_in_mins},
         /*counter_thresholds=*/std::nullopt,
         /*counter_decay_rates=*/std::nullopt,
         /*feature_score_counter_decay_rates=*/std::vector<double>{0.5},
@@ -487,7 +490,7 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
         /*table_names=*/std::vector<std::string>{},
         /*table_offsets=*/std::vector<int64_t>{},
         /*table_sizes=*/std::vector<int64_t>{},
-        /*enrichment_config=*/std::nullopt,
+        std::move(enrichment_config),
         /*enable_ssd_backend=*/enable_ssd_backend);
   }
 
@@ -900,6 +903,56 @@ TEST_F(DramKVEmbeddingCacheTest, EmptyGetResumesTriggeredEvictionWhenEnabled) {
 }
 
 // Two hours old: past the 60-minute TTL of makeTrainingCacheWithManualEvict.
+// Test: mid-round, MEM_UTIL reports no demand without reading the memory
+// size, whose shard locks the round holds.
+TEST_F(DramKVEmbeddingCacheTest, MemUtilSkipsReadingMidRound) {
+  auto feature_evict_config = c10::make_intrusive<FeatureEvictConfig>(
+      /*trigger_mode=*/static_cast<int64_t>(EvictTriggerMode::MEM_UTIL),
+      /*trigger_strategy=*/
+      static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/1,
+      /*ttls_in_mins=*/std::vector<int64_t>{60},
+      /*counter_thresholds=*/std::nullopt,
+      /*counter_decay_rates=*/std::nullopt,
+      /*feature_score_counter_decay_rates=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*training_id_keep_count=*/std::nullopt,
+      /*enable_eviction_for_feature_score_eviction_policy=*/std::nullopt,
+      /*l2_weight_thresholds=*/std::nullopt,
+      /*embedding_dims=*/std::nullopt);
+  auto cache = std::make_shared<DramKVEmbeddingCache<float>>(
+      EMBEDDING_DIM,
+      /*uniform_init_lower=*/-0.1,
+      /*uniform_init_upper=*/0.1,
+      feature_evict_config,
+      NUM_SHARDS,
+      /*num_threads=*/4,
+      /*row_storage_bitwidth=*/32,
+      /*backend_return_whole_row=*/false,
+      /*enable_async_update=*/false,
+      /*table_dims=*/std::nullopt,
+      at::tensor({0, 100000}, at::kLong),
+      /*is_training=*/true,
+      /*disable_random_init=*/true);
+  set_kv_db_async(*cache, 1);
+  cache->resume_ongoing_eviction();
+  const auto idle =
+      cache->should_trigger_evict(/*step=*/1, /*free_mem_bytes=*/0);
+  ASSERT_TRUE(std::get<1>(idle));
+  ASSERT_GT(std::get<2>(idle), 0);
+
+  // A triggered round starts paused, so it stays in progress.
+  cache->trigger_feature_evict();
+  ASSERT_TRUE(cache->is_evicting());
+
+  EXPECT_EQ(
+      cache->should_trigger_evict(/*step=*/2, /*free_mem_bytes=*/0),
+      std::make_tuple(false, false, int64_t{0}));
+  cache->resume_ongoing_eviction(/*force_resume=*/true);
+  EXPECT_TRUE(waitForEvictionIdle(*cache, std::chrono::seconds(10)));
+}
+
 constexpr uint32_t kStaleAgeSeconds = 2 * 3600;
 constexpr int64_t kProbeId = 999;
 
@@ -1046,6 +1099,7 @@ TEST_F(DramKVEmbeddingCacheTest, RestoreRestampsTimestampWhenEnabled) {
   restoreRowWithTimestamp(*cache, id, before_restore - kStaleAgeSeconds);
 
   EXPECT_GE(getTimestamp(*cache, id), before_restore);
+  EXPECT_FALSE(cache->restores_row_timestamps());
 }
 
 // Test: without the opt-in, a restored row keeps the checkpointed timestamp.
@@ -1060,6 +1114,41 @@ TEST_F(DramKVEmbeddingCacheTest, RestoreKeepsCheckpointTimestampByDefault) {
   restoreRowWithTimestamp(*cache, id, stale);
 
   EXPECT_EQ(getTimestamp(*cache, id), stale);
+  EXPECT_TRUE(cache->restores_row_timestamps());
+}
+
+// Test: a restore without the whole row has no saved timestamp to copy, so
+// restored rows carry the restore time.
+TEST_F(DramKVEmbeddingCacheTest, WeightsOnlyRestoreStampsRestoreTime) {
+  folly::test::EnvVarSaver env_saver;
+  unsetenv("KVZCH_RESTAMP_ON_RESTORE");
+  auto cache =
+      makeTrainingCacheWithManualEvict(/*backend_return_whole_row=*/false);
+  constexpr int64_t id = 31;
+  const uint32_t before_restore = FixedBlockPool::current_timestamp();
+
+  cache->set_range_to_storage(
+      at::ones({1, EMBEDDING_DIM}, at::kFloat), id, /*length=*/1);
+
+  EXPECT_GE(getTimestamp(*cache, id), before_restore);
+  EXPECT_FALSE(cache->restores_row_timestamps());
+}
+
+// Test: rows written by enrichment count toward the per-table row count that
+// the ID_COUNT trigger reads.
+TEST_F(DramKVEmbeddingCacheTest, EnrichmentWritesCountTowardBoundRows) {
+  auto cache = makeCacheWithFeatureScoreEvict(
+      /*enable_ssd_backend=*/false,
+      /*ttl_in_mins=*/0,
+      makeTestEnrichmentConfig());
+  const std::vector<int64_t> ids{11, 12, 13};
+
+  for (const auto id : ids) {
+    ASSERT_TRUE(waitForEnrichedRow(*cache, id, std::chrono::seconds(10)));
+  }
+
+  const std::vector<int64_t> expected{static_cast<int64_t>(ids.size())};
+  EXPECT_EQ(cache->get_feature_evict()->count_bound_rows_per_table(), expected);
 }
 
 // Test: the write-locked refresh re-finds every row: a row evicted after the
@@ -1218,6 +1307,7 @@ TEST_F(DramKVEmbeddingCacheTest, NonTrainingCacheKeepsTimestamps) {
   constexpr int64_t restored_id = 52;
   restoreRowWithTimestamp(*restore_cache, restored_id, stale);
   EXPECT_EQ(getTimestamp(*restore_cache, restored_id), stale);
+  EXPECT_TRUE(restore_cache->restores_row_timestamps());
 }
 
 TEST_F(DramKVEmbeddingCacheTest, PipelinedReadMatchesLegacy) {

@@ -77,6 +77,23 @@ class _HoldStreamBeforeFill(TorchFunctionMode):
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDCheckpointTest(unittest.TestCase):
+    # pyre-ignore[2]: the backend is a torch.classes.fbgemm custom class
+    def coordinated_maybe_evict(
+        self, backend, step: int = 0, free_mem_bytes: int = 0
+    ) -> None:
+        """
+        Single-rank stand-in for `EvictionCoordinator.maybe_trigger()`.
+
+        The backend no longer self-triggers from `get()`: training drives
+        eviction from the frontend so every rank starts a round on the same
+        step. These tests exercise the backend directly, so they have to play
+        the coordinator's part -- consult the same predicate, then force the
+        round the way a globally agreed decision does.
+        """
+        wants, gate_open, _reading = backend.should_trigger_evict(step, free_mem_bytes)
+        if wants and gate_open:
+            backend.trigger_feature_evict(force=True)
+
     def generate_fbgemm_kv_backend(
         self,
         max_D: int,
@@ -229,6 +246,16 @@ class SSDCheckpointTest(unittest.TestCase):
                 l2_cache_size_gb=0,
                 flushing_block_size=flushing_block_size,
             )
+
+    def test_dram_should_trigger_evict_without_policy_is_neutral(self) -> None:
+        backend = self.generate_fbgemm_kv_backend(
+            max_D=4,
+            weight_precision=SparseType.FP32,
+            enable_l2=False,
+            backend_type=BackendType.DRAM,
+        )
+
+        self.assertEqual(backend.should_trigger_evict(7, 0), (False, True, 0))
 
     def generate_fbgemm_kv_tbe(
         self,
@@ -1445,6 +1472,11 @@ class SSDCheckpointTest(unittest.TestCase):
             eviction_policy=eviction_policy,
         )
 
+        # The frontend's logical step, not backend reads, controls ITERATION.
+        # ITERATION reports the frontend step it judged, as the third value.
+        self.assertEqual(dram_kv_backend.should_trigger_evict(1, 0), (False, True, 1))
+        self.assertEqual(dram_kv_backend.should_trigger_evict(2, 0), (True, True, 2))
+
         # stimulating training for 10 iterations
 
         indices = torch.as_tensor(
@@ -1471,6 +1503,7 @@ class SSDCheckpointTest(unittest.TestCase):
             exec_duration_ms,
         )
         for _ in range(10):
+            self.coordinated_maybe_evict(dram_kv_backend)
             dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
             dram_kv_backend.set(indices, weights, count)
             time.sleep(0.01)  # 20ms, stimulate training forward time
@@ -1493,6 +1526,7 @@ class SSDCheckpointTest(unittest.TestCase):
         for _ in range(10):
             # E+1 is a new indices, doesn't interference with the existing setup, just use it to decay count
             # and evict everything
+            self.coordinated_maybe_evict(dram_kv_backend)
             dram_kv_backend.get(
                 torch.tensor([E + 1]), weights_out[0].view(1, -1), torch.tensor([1])
             )
@@ -1548,11 +1582,12 @@ class SSDCheckpointTest(unittest.TestCase):
                 20,
                 19,
             ],
+            # Each table's 10 zero-score rows are exactly the 25 - 15 to evict.
             training_id_keep_count=[
-                18,
-                18,
-                18,
-                18,
+                15,
+                15,
+                15,
+                15,
             ],
             ttls_in_mins=[
                 0,
@@ -1656,6 +1691,7 @@ class SSDCheckpointTest(unittest.TestCase):
         eviction_threshold_with_dry_run = torch.zeros(T, dtype=torch.float)
 
         # trigger evict
+        self.coordinated_maybe_evict(dram_kv_backend)
         dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
 
         dram_kv_backend.wait_until_eviction_done()  # pyre-ignore
@@ -1750,6 +1786,7 @@ class SSDCheckpointTest(unittest.TestCase):
         dram_kv_backend.set_cuda(indices, weights, count, 1, True)  # pyre-ignore
         time.sleep(5)
         # trigger evict
+        self.coordinated_maybe_evict(dram_kv_backend)
         dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
 
         dram_kv_backend.wait_until_eviction_done()  # pyre-ignore

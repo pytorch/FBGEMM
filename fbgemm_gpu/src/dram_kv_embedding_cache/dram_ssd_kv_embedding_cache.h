@@ -444,12 +444,24 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
 
   // --- Eviction delegation ---
 
-  void maybe_evict() override {
-    dram_cache_->maybe_evict();
+  void trigger_feature_evict(bool force = false) override {
+    dram_cache_->trigger_feature_evict(force);
   }
 
-  void trigger_feature_evict() override {
-    dram_cache_->trigger_feature_evict();
+  std::tuple<bool, bool, int64_t> should_trigger_evict(
+      int64_t step,
+      int64_t free_mem_bytes) override {
+    return dram_cache_->should_trigger_evict(step, free_mem_bytes);
+  }
+
+  bool last_eviction_sufficient() override {
+    return dram_cache_->last_eviction_sufficient();
+  }
+
+  // Restore writes the checkpointed rows to SSD without restamping them, and a
+  // STREAM write copies an SSD row's metaheader into DRAM.
+  bool restores_row_timestamps() const override {
+    return true;
   }
 
   bool is_evicting() override {

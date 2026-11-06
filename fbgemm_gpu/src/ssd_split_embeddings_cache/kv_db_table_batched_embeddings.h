@@ -385,16 +385,6 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   void stream_sync_cuda();
 
   /**
-   * @brief Potentially evict features based on configured strategy.
-   *
-   * This method is called in between get and set to check if feature eviction
-   * should be triggered based on the configured eviction strategy.
-   */
-  virtual void maybe_evict() {
-    FBEXCEPTION("Not implemented");
-  }
-
-  /**
    * @brief Get the memory usage of the map.
    *
    * @return Size of memory used by the map in bytes.
@@ -436,7 +426,49 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
-  virtual void trigger_feature_evict();
+  /**
+   * @brief Start a new eviction round.
+   *
+   * @param force skip the backend's local min-interval gate, for a caller
+   * that has already decided across ranks to start the round; re-checking the
+   * local wall clock would let some ranks drop it. A round in flight still
+   * makes the call a no-op.
+   */
+  virtual void trigger_feature_evict(bool force = false);
+
+  /**
+   * @brief Whether this backend wants a new eviction round, whether no round
+   * is in flight, and the reading the decision was made on (step, used bytes,
+   * row count of the fullest count-bound table, or free bytes; diagnostic
+   * only). `step` is the caller's logical step, not the backend's lookup count.
+   *
+   * Backends that do not self-evict return {false, true, 0}: no demand, and
+   * neutral in the caller's cross-rank AND of `idle`.
+   */
+  virtual std::tuple<bool, bool, int64_t> should_trigger_evict(
+      int64_t /*step*/,
+      int64_t /*free_mem_bytes*/) {
+    return {false, true, 0};
+  }
+
+  /**
+   * @brief Whether the last finished round evicted more than 100 rows. The
+   * training frontend backs off after a round that did not. Backends that do
+   * not self-evict return true, so they never cause a backoff.
+   */
+  virtual bool last_eviction_sufficient() {
+    return true;
+  }
+
+  /**
+   * @brief Whether a checkpoint restore keeps the row timestamps saved in the
+   * checkpoint. If false, every row in memory after a restore is stamped no
+   * earlier than the restore, so no row can be past its TTL until a full TTL
+   * has elapsed.
+   */
+  virtual bool restores_row_timestamps() const {
+    return false;
+  }
 
   virtual bool is_evicting();
 

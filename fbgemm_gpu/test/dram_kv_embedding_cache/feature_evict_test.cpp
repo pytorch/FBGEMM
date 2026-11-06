@@ -14,6 +14,7 @@
 #include <future>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <set>
 
 #include <fmt/format.h>
@@ -220,7 +221,8 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   }
   LOG(INFO) << feature_score_evict->get_thresholds();
   LOG(INFO) << "remaining: " << remaining;
-  ASSERT_EQ(remaining, 1100);
+  // Keep counts 900 + 800; the boundary buckets are split by key hash.
+  EXPECT_NEAR(static_cast<double>(remaining), 1700.0, 70.0);
 
   // Test feature score based eviction for ttl
   auto kv_store_with_ttl_ =
@@ -428,7 +430,8 @@ TEST(FeatureEvictTest, FeatureScoreBasedWithNoEviction) {
   }
   LOG(INFO) << feature_score_evict->get_thresholds();
   LOG(INFO) << "remaining: " << remaining;
-  ASSERT_EQ(remaining, 2100);
+  // Keep counts 900 + 800, plus table 3's 1000 rows.
+  EXPECT_NEAR(static_cast<double>(remaining), 2700.0, 70.0);
 }
 
 TEST(FeatureEvictTest, TimeBasedEviction) {
@@ -1704,6 +1707,392 @@ TEST(FeatureEvictTest, WritebackDisabledByFlag) {
   feature_evict->wait_until_eviction_done();
 
   EXPECT_FALSE(callback_invoked);
+}
+
+namespace {
+
+constexpr int64_t kGB = 1024 * 1024 * 1024;
+
+// Minimal config carrying just the fields a given trigger mode reads. The
+// BY_TIMESTAMP strategy keeps strategy validation satisfied without affecting
+// the trigger decision.
+c10::intrusive_ptr<FeatureEvictConfig> make_trigger_config(
+    int64_t trigger_mode,
+    std::optional<int64_t> trigger_step_interval = std::nullopt,
+    std::optional<int64_t> mem_util_threshold_in_GB = std::nullopt,
+    std::optional<std::vector<int64_t>> training_id_eviction_trigger_count =
+        std::nullopt,
+    std::optional<int64_t> free_mem_threshold_gb = std::nullopt) {
+  std::optional<std::vector<int8_t>> enable_eviction = std::nullopt;
+  if (training_id_eviction_trigger_count.has_value()) {
+    enable_eviction = std::vector<int8_t>(
+        training_id_eviction_trigger_count.value().size(), 1);
+  }
+  return c10::make_intrusive<FeatureEvictConfig>(
+      trigger_mode,
+      static_cast<int64_t>(EvictTriggerStrategy::BY_TIMESTAMP),
+      trigger_step_interval,
+      mem_util_threshold_in_GB,
+      std::vector<int64_t>{60}, // ttls_in_mins
+      std::nullopt, // counter_thresholds
+      std::nullopt, // counter_decay_rates
+      std::nullopt, // feature_score_counter_decay_rates
+      std::move(training_id_eviction_trigger_count),
+      std::nullopt, // training_id_keep_count
+      std::move(enable_eviction),
+      std::nullopt, // l2_weight_thresholds
+      std::nullopt, // embedding_dims
+      0.2,
+      1000000,
+      600,
+      60,
+      24 * 3600,
+      false,
+      free_mem_threshold_gb);
+}
+
+c10::intrusive_ptr<FeatureEvictConfig> make_feature_score_id_count_config(
+    std::vector<int64_t> ttls_in_mins,
+    std::vector<int64_t> training_id_eviction_trigger_count,
+    std::vector<int8_t> enable_eviction) {
+  const size_t num_tables = ttls_in_mins.size();
+  return c10::make_intrusive<FeatureEvictConfig>(
+      static_cast<int64_t>(EvictTriggerMode::ID_COUNT),
+      static_cast<int64_t>(EvictTriggerStrategy::BY_FEATURE_SCORE),
+      std::nullopt, // trigger_step_interval
+      std::nullopt, // mem_util_threshold_in_GB
+      std::move(ttls_in_mins),
+      std::nullopt, // counter_thresholds
+      std::nullopt, // counter_decay_rates
+      std::vector<double>(num_tables, 0.9),
+      std::move(training_id_eviction_trigger_count),
+      std::vector<int64_t>(num_tables, 1), // training_id_keep_count
+      std::move(enable_eviction),
+      std::nullopt, // l2_weight_thresholds
+      std::nullopt, // embedding_dims
+      0.2,
+      10);
+}
+
+} // namespace
+
+TEST(ShouldTriggerTest, IterationFiresOnMultiplesOfInterval) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::ITERATION),
+      /*trigger_step_interval=*/100);
+
+  EXPECT_TRUE(should_trigger(*config, EvictTriggerInputs{.iter = 200}));
+  EXPECT_FALSE(should_trigger(*config, EvictTriggerInputs{.iter = 199}));
+}
+
+TEST(ShouldTriggerTest, MemUtilFiresStrictlyAboveThreshold) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::MEM_UTIL),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/64);
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.used_mem_bytes = 64 * kGB + 1}));
+  EXPECT_FALSE(
+      should_trigger(*config, EvictTriggerInputs{.used_mem_bytes = 64 * kGB}));
+}
+
+TEST(ShouldTriggerTest, IdCountFiresOnSummedPerTableTriggerCount) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::ID_COUNT),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::vector<int64_t>{30, 20});
+
+  EXPECT_TRUE(should_trigger(*config, EvictTriggerInputs{.num_rows = 51}));
+  EXPECT_FALSE(should_trigger(*config, EvictTriggerInputs{.num_rows = 50}));
+}
+
+TEST(ShouldTriggerTest, IdCountChecksEachCountBoundTableAgainstItsOwnBudget) {
+  // Table 2 has a TTL, so neither its rows nor its trigger count matter.
+  auto config = make_feature_score_id_count_config(
+      /*ttls_in_mins=*/{0, 0, 14 * 24 * 60},
+      /*training_id_eviction_trigger_count=*/{30, 20, 0},
+      /*enable_eviction=*/{1, 1, 0});
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.rows_per_table = {10, 21, 0}}));
+  EXPECT_FALSE(should_trigger(
+      *config, EvictTriggerInputs{.rows_per_table = {30, 20, 1'000'000'000}}));
+  // Without per-table rows, the TBE total is compared against the summed
+  // budget of the count-bound tables.
+  EXPECT_TRUE(should_trigger(*config, EvictTriggerInputs{.num_rows = 51}));
+  EXPECT_FALSE(should_trigger(*config, EvictTriggerInputs{.num_rows = 50}));
+}
+
+TEST(ShouldTriggerTest, IdCountOnTtlOnlyTbeKeepsSummedRule) {
+  auto config = make_feature_score_id_count_config(
+      /*ttls_in_mins=*/{60, 60},
+      /*training_id_eviction_trigger_count=*/{30, 20},
+      /*enable_eviction=*/{1, 1});
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.num_rows = 51, .rows_per_table = {0, 0}}));
+  EXPECT_FALSE(should_trigger(
+      *config,
+      EvictTriggerInputs{.num_rows = 50, .rows_per_table = {100, 100}}));
+}
+
+TEST(ShouldTriggerTest, IdCountRequiresBudgetOnCountBoundTables) {
+  EXPECT_THROW(
+      make_feature_score_id_count_config(
+          /*ttls_in_mins=*/{0, 60},
+          /*training_id_eviction_trigger_count=*/{0, 20},
+          /*enable_eviction=*/{1, 1}),
+      std::runtime_error);
+  EXPECT_THROW(
+      make_feature_score_id_count_config(
+          /*ttls_in_mins=*/{0, 60},
+          /*training_id_eviction_trigger_count=*/{30, 20},
+          /*enable_eviction=*/{0, 1}),
+      std::runtime_error);
+}
+
+TEST(ShouldTriggerTest, FreeMemFiresStrictlyBelowThreshold) {
+  auto config = make_trigger_config(
+      static_cast<int64_t>(EvictTriggerMode::FREE_MEM),
+      /*trigger_step_interval=*/std::nullopt,
+      /*mem_util_threshold_in_GB=*/std::nullopt,
+      /*training_id_eviction_trigger_count=*/std::nullopt,
+      /*free_mem_threshold_gb=*/100);
+
+  EXPECT_TRUE(should_trigger(
+      *config, EvictTriggerInputs{.free_mem_bytes = 100 * kGB - 1}));
+  EXPECT_FALSE(
+      should_trigger(*config, EvictTriggerInputs{.free_mem_bytes = 100 * kGB}));
+}
+
+TEST(ShouldTriggerTest, FreeMemWithoutThresholdNeverFires) {
+  auto config =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::FREE_MEM));
+
+  EXPECT_FALSE(
+      should_trigger(*config, EvictTriggerInputs{.free_mem_bytes = 0}));
+}
+
+TEST(ShouldTriggerTest, ManualAndDisabledNeverSelfTrigger) {
+  const EvictTriggerInputs saturated{
+      .iter = 1000,
+      .used_mem_bytes = 1024 * kGB,
+      .num_rows = 1'000'000'000,
+      .free_mem_bytes = 0};
+
+  auto manual =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::MANUAL));
+  EXPECT_FALSE(should_trigger(*manual, saturated));
+
+  auto disabled =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::DISABLED));
+  EXPECT_FALSE(should_trigger(*disabled, saturated));
+}
+
+TEST(FeatureEvictTest, ForcedTriggerBypassesIntervalGate) {
+  static constexpr int NUM_SHARDS = 2;
+  static constexpr int NUM_ROWS = 200;
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {NUM_ROWS};
+  const uint32_t two_hours_ago = FixedBlockPool::current_timestamp() - 7200;
+  for (int i = 0; i < NUM_ROWS; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_count(block, 1);
+    FixedBlockPool::set_timestamp(block, two_hours_ago);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+
+  // TTL 60 min.
+  auto config =
+      make_trigger_config(static_cast<int64_t>(EvictTriggerMode::MANUAL));
+  auto feature_evict = create_feature_evict(
+      config, *kv_store_.get(), sub_table_hash_cumsum, true, TestMode::NORMAL);
+
+  EXPECT_FALSE(feature_evict->last_eviction_sufficient());
+
+  // Every row is past its TTL, so the first round evicts all of them.
+  feature_evict->trigger_evict();
+  EXPECT_TRUE(feature_evict->is_evicting());
+  feature_evict->wait_until_eviction_done();
+  EXPECT_TRUE(feature_evict->last_eviction_sufficient());
+
+  // Within interval_for_sufficient_eviction_s, only a forced round starts.
+  feature_evict->trigger_evict();
+  EXPECT_FALSE(feature_evict->is_evicting());
+
+  feature_evict->trigger_evict(/*force=*/true);
+  EXPECT_TRUE(feature_evict->is_evicting());
+  feature_evict->wait_until_eviction_done();
+  EXPECT_FALSE(feature_evict->last_eviction_sufficient());
+}
+
+TEST(FeatureEvictTest, CountBoundRowsExcludeTtlTables) {
+  static constexpr int NUM_SHARDS = 4;
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {100, 300};
+  auto config = make_feature_score_id_count_config(
+      /*ttls_in_mins=*/{0, 60},
+      /*training_id_eviction_trigger_count=*/{50, 0},
+      /*enable_eviction=*/{1, 1});
+  auto feature_evict = create_feature_evict(
+      config, *kv_store_.get(), sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto* feature_score_evict =
+      dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  ASSERT_NE(feature_score_evict, nullptr);
+
+  for (int i = 0; i < 300; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* block = kv_store_->pool_by(shard_id)->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+    feature_score_evict->update_feature_score_statistics(
+        block, 0, shard_id, /*add_new_block=*/true);
+  }
+
+  EXPECT_EQ(
+      feature_evict->count_bound_rows_per_table(),
+      (std::vector<int64_t>{100, 0}));
+}
+
+namespace {
+
+constexpr int SCORE_TABLE_SHARDS = 4;
+
+// A single count-bound feature-score table whose key i has score scores[i].
+struct ScoreTable {
+  std::unique_ptr<SynchronizedShardedMap<int64_t, float*>> kv_store;
+  // FeatureEvict holds references into these two.
+  c10::intrusive_ptr<FeatureEvictConfig> config;
+  std::unique_ptr<std::vector<int64_t>> sub_table_hash_cumsum;
+  std::unique_ptr<FeatureEvict<float>> feature_evict;
+};
+
+ScoreTable make_score_table(
+    const std::vector<float>& scores,
+    int64_t keep_count,
+    double decay_rate = 1.0,
+    int64_t decay_interval_s = 100000) {
+  const auto num_rows = static_cast<int64_t>(scores.size());
+  ScoreTable t;
+  t.kv_store = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(
+      SCORE_TABLE_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  t.config = c10::make_intrusive<FeatureEvictConfig>(
+      static_cast<int64_t>(EvictTriggerMode::ID_COUNT),
+      static_cast<int64_t>(EvictTriggerStrategy::BY_FEATURE_SCORE),
+      std::nullopt, // trigger_step_interval
+      std::nullopt, // mem_util_threshold_in_GB
+      std::vector<int64_t>{0}, // ttls_in_mins
+      std::nullopt, // counter_thresholds
+      std::nullopt, // counter_decay_rates
+      std::vector<double>{decay_rate},
+      std::vector<int64_t>{num_rows}, // training_id_eviction_trigger_count
+      std::vector<int64_t>{keep_count},
+      std::vector<int8_t>{1},
+      std::nullopt, // l2_weight_thresholds
+      std::nullopt, // embedding_dims
+      0.2, // threshold_calculation_bucket_stride
+      20, // threshold_calculation_bucket_num
+      0, // interval_for_insufficient_eviction_s
+      0, // interval_for_sufficient_eviction_s
+      decay_interval_s);
+  t.sub_table_hash_cumsum = std::make_unique<std::vector<int64_t>>(1, num_rows);
+  t.feature_evict = create_feature_evict(
+      t.config, *t.kv_store, *t.sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto* feature_score_evict =
+      dynamic_cast<FeatureScoreBasedEvict<float>*>(t.feature_evict.get());
+  CHECK(feature_score_evict != nullptr);
+  for (int64_t i = 0; i < num_rows; ++i) {
+    const int shard_id = static_cast<int>(i % SCORE_TABLE_SHARDS);
+    auto wlock = t.kv_store->by(shard_id).wlock();
+    auto* block = t.kv_store->pool_by(shard_id)->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::set_used(block, true);
+    FixedBlockPool::set_feature_score_rate(block, scores[i]);
+    wlock->insert({i, block});
+    feature_score_evict->update_feature_score_statistics(
+        block, 0, shard_id, /*add_new_block=*/true);
+  }
+  return t;
+}
+
+// Runs one eviction round and returns the score of each surviving key.
+std::map<int64_t, float> evict_one_round(ScoreTable& t) {
+  t.feature_evict->trigger_evict();
+  t.feature_evict->wait_until_eviction_done();
+  std::map<int64_t, float> survivors;
+  for (int shard_id = 0; shard_id < SCORE_TABLE_SHARDS; ++shard_id) {
+    auto rlock = t.kv_store->by(shard_id).rlock();
+    for (const auto& [key, block] : *rlock) {
+      survivors[key] = FixedBlockPool::get_feature_score_rate(block);
+    }
+  }
+  return survivors;
+}
+
+std::vector<float> concat_scores(
+    std::initializer_list<std::pair<int, float>> runs) {
+  std::vector<float> scores;
+  for (const auto& [count, score] : runs) {
+    scores.insert(scores.end(), count, score);
+  }
+  return scores;
+}
+
+} // namespace
+
+TEST(FeatureEvictTest, FeatureScoreEvictSplitsTiedBoundaryBucket) {
+  // 0.0 takes the ONLY_ZERO path; 0.5 takes THRESHOLD.
+  for (const float low_score : {0.0f, 0.5f}) {
+    SCOPED_TRACE(low_score);
+    auto t = make_score_table(
+        concat_scores({{1000, low_score}, {1000, 1.0f}}),
+        /*keep_count=*/1500);
+    const auto survivors = evict_one_round(t);
+    // Half of the 1000 tied rows go; the binomial sd is about 16.
+    EXPECT_NEAR(static_cast<double>(survivors.size()), 1500.0, 80.0);
+    for (int64_t key = 1000; key < 2000; ++key) {
+      EXPECT_TRUE(survivors.contains(key)) << key;
+    }
+  }
+}
+
+TEST(FeatureEvictTest, FeatureScoreEvictKeepsRowsOnBucketEdge) {
+  // 1.9 falls in bucket 10 and 2.0 in bucket 11, but 2.0 equals bucket 10's
+  // upper edge (10 * stride).
+  auto t = make_score_table(
+      concat_scores({{400, 1.9f}, {600, 2.0f}}), /*keep_count=*/600);
+  const auto survivors = evict_one_round(t);
+  EXPECT_EQ(survivors.size(), 600);
+  for (const auto& [key, score] : survivors) {
+    EXPECT_EQ(score, 2.0f) << key;
+  }
+}
+
+TEST(FeatureEvictTest, FeatureScoreEvictDecidesOnPreDecayScore) {
+  // Halving 1.1 gives 0.55, which is in the boundary bucket of the pre-decay
+  // histogram (bucket 3, holding the 0.5 rows).
+  auto t = make_score_table(
+      concat_scores({{500, 0.5f}, {500, 1.1f}}),
+      /*keep_count=*/500,
+      /*decay_rate=*/0.5,
+      /*decay_interval_s=*/0);
+  const auto survivors = evict_one_round(t);
+  EXPECT_EQ(survivors.size(), 500);
+  for (const auto& [key, score] : survivors) {
+    EXPECT_GE(key, 500);
+    EXPECT_FLOAT_EQ(score, 1.1f * 0.5f) << key;
+  }
 }
 
 } // namespace kv_mem

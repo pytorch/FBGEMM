@@ -989,6 +989,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               }
                               FixedBlockPool::set_key(block, id);
                               wlmap->insert({id, block});
+                              if (is_eviction_enabled()) {
+                                auto* feature_score_evict = dynamic_cast<
+                                    FeatureScoreBasedEvict<weight_type>*>(
+                                    feature_evict_.get());
+                                if (feature_score_evict) {
+                                  feature_score_evict
+                                      ->update_feature_score_statistics(
+                                          block, 0, shard_id, true);
+                                }
+                              }
                             }
                             auto* data_ptr =
                                 FixedBlockPool::data_ptr<weight_type>(block);
@@ -2456,7 +2466,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
-    current_iter_++;
     return get_kv_db_async_impl(indices, weights, count);
   }
 
@@ -2469,7 +2478,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // that row untouched so callers can reuse scratch storage without a full
     // clear; consumers must gate every read of weights on found_mask. Entries
     // at positions >= count remain untouched in both tensors.
-    current_iter_++;
     return get_kv_db_async_impl(
         indices, weights, count, 0, std::nullopt, found_mask);
   }
@@ -2596,51 +2604,75 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   void compact() override {}
 
-  void trigger_feature_evict() {
+  void trigger_feature_evict(bool force = false) override {
     if (feature_evict_) {
-      feature_evict_->trigger_evict();
+      feature_evict_->trigger_evict(force);
     }
   }
 
-  void maybe_evict() override {
-    if (!feature_evict_config_.has_value()) {
-      return;
+  // Only the field this mode reads is computed: get_num_rows() and
+  // get_map_used_memsize_in_bytes() both take an rlock on every shard, which
+  // contends with an in-flight eviction holding the write lock.
+  std::tuple<bool, bool, int64_t> should_trigger_evict(
+      int64_t step,
+      int64_t free_mem_bytes) override {
+    if (!feature_evict_config_.has_value() || !feature_evict_) {
+      return {false, true, 0};
     }
-    switch (feature_evict_config_.value()->trigger_mode_) {
-      case EvictTriggerMode::ITERATION: {
-        if (feature_evict_config_.value()->trigger_step_interval_.value() > 0 &&
-            current_iter_ %
-                    feature_evict_config_.value()
-                        ->trigger_step_interval_.value() ==
-                0) {
-          trigger_feature_evict();
+    const auto& config = *feature_evict_config_.value();
+    const bool idle = !feature_evict_->is_evicting();
+    kv_mem::EvictTriggerInputs inputs;
+    int64_t reading = 0;
+    switch (config.trigger_mode_) {
+      case kv_mem::EvictTriggerMode::ITERATION:
+        inputs.iter = step;
+        reading = step;
+        break;
+      case kv_mem::EvictTriggerMode::MEM_UTIL:
+        // Mid-round the read would wait on the shard the round is scanning;
+        // the gate is closed then anyway, so report no demand.
+        if (!idle) {
+          break;
+        }
+        inputs.used_mem_bytes =
+            static_cast<int64_t>(get_map_used_memsize_in_bytes());
+        reading = inputs.used_mem_bytes;
+        break;
+      case kv_mem::EvictTriggerMode::ID_COUNT:
+        // Mid-round the per-table counts are being rebuilt, so report no
+        // demand; the gate is closed either way.
+        if (!idle) {
+          break;
+        }
+        if (!config.id_count_bound_tables_.empty()) {
+          inputs.rows_per_table = feature_evict_->count_bound_rows_per_table();
+        }
+        if (inputs.rows_per_table.empty()) {
+          inputs.num_rows = static_cast<int64_t>(get_num_rows());
+          reading = inputs.num_rows;
+        } else {
+          reading = fullest_count_bound_table_rows(config, inputs);
         }
         break;
-      }
-      case EvictTriggerMode::MEM_UTIL: {
-        auto mem_util = get_map_used_memsize_in_bytes() / (1024 * 1024 * 1024);
-        if (mem_util >
-            feature_evict_config_.value()->mem_util_threshold_in_GB_.value()) {
-          trigger_feature_evict();
-        }
+      case kv_mem::EvictTriggerMode::FREE_MEM:
+        inputs.free_mem_bytes = free_mem_bytes;
+        reading = free_mem_bytes;
         break;
-      }
-      case EvictTriggerMode::ID_COUNT: {
-        auto used_id_count = get_num_rows();
-        if (used_id_count > feature_evict_config_.value()
-                                ->total_id_eviction_trigger_count_.value()) {
-          trigger_feature_evict();
-        }
-        break;
-      }
-      case EvictTriggerMode::FREE_MEM: {
-        // For free mem eviction, all conditions checked in frontend, no check
-        // option in backend
-        return;
-      }
-      default:
+      case kv_mem::EvictTriggerMode::DISABLED:
+      case kv_mem::EvictTriggerMode::MANUAL:
         break;
     }
+    return {kv_mem::should_trigger(config, inputs), idle, reading};
+  }
+
+  bool last_eviction_sufficient() override {
+    return !feature_evict_ || feature_evict_->last_eviction_sufficient();
+  }
+
+  // Only the whole-row restore copies the saved metaheader; the other restore
+  // path allocates fresh blocks.
+  bool restores_row_timestamps() const override {
+    return backend_return_whole_row_ && !(restamp_on_restore_ && is_training_);
   }
 
   // wait until eviction finishes, if any
@@ -2998,6 +3030,24 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         feature_evict_config_.value()->trigger_mode_ !=
         EvictTriggerMode::DISABLED &&
         feature_evict_;
+  }
+
+  // Rows of the count-bound table closest to (or furthest past) its trigger.
+  static int64_t fullest_count_bound_table_rows(
+      const kv_mem::FeatureEvictConfig& config,
+      const kv_mem::EvictTriggerInputs& inputs) {
+    const auto& trigger = config.training_id_eviction_trigger_count_.value();
+    int64_t rows = 0;
+    double max_fill = -1.0;
+    for (size_t i : config.id_count_bound_tables_) {
+      double fill = static_cast<double>(inputs.rows_per_table[i]) /
+          static_cast<double>(trigger[i]);
+      if (fill > max_fill) {
+        max_fill = fill;
+        rows = inputs.rows_per_table[i];
+      }
+    }
+    return rows;
   }
 
   int64_t get_dim_from_index(int64_t weight_idx) const {
@@ -3708,7 +3758,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<int64_t> sub_table_hash_cumsum_;
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
-  std::atomic<int> current_iter_{0};
   const bool is_training_;
 
   // perf stats
