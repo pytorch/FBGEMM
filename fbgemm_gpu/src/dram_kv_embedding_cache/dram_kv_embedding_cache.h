@@ -1652,128 +1652,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         .ensure([this]() { row_write_in_progress_.store(false); });
   }
 
-  /// KVZCH_ROW_WRITE_DIRECT_HBM: set_embedding_cache_rows_async run in place,
-  /// so an HBM insert stream-ordered after it can copy exactly the rows DRAM
-  /// stored. Of the first `count` rows it sets stored[i] (uint8) for each it
-  /// wrote, under the same rules and drops as the async write, and puts into
-  /// stored_rows[i] the row as written (serving-QDQ snapped), zero for the
-  /// others. It does not yield to forward and backward reads, which wait on
-  /// the HBM insert, and is dropped while a stream write runs.
-  void write_rows_direct(
-      const at::Tensor& indices,
-      const at::Tensor& rows,
-      const at::Tensor& count,
-      const at::Tensor& stored_rows,
-      const at::Tensor& stored) {
-    const int64_t n = count.item<int64_t>();
-    TORCH_CHECK(
-        indices.device().is_cpu() && indices.is_contiguous() &&
-            indices.scalar_type() == at::kLong && indices.numel() >= n,
-        "direct write indices must be a contiguous CPU int64 tensor");
-    TORCH_CHECK(
-        rows.device().is_cpu() && rows.is_contiguous() && rows.dim() == 2 &&
-            rows.size(0) >= n,
-        "direct write rows must be a contiguous 2D CPU tensor");
-    TORCH_CHECK(
-        stored_rows.device().is_cpu() && stored_rows.is_contiguous() &&
-            stored_rows.scalar_type() == rows.scalar_type() &&
-            stored_rows.dim() == 2 && stored_rows.size(0) >= n &&
-            stored_rows.size(1) <= rows.size(1),
-        "direct write stored rows must be a contiguous CPU [n, <= row width] "
-        "tensor of the rows' dtype");
-    TORCH_CHECK(
-        stored.device().is_cpu() && stored.is_contiguous() &&
-            stored.scalar_type() == at::kByte && stored.numel() >= n,
-        "direct write mask must be a contiguous CPU uint8 tensor");
-    auto* stored_data = stored.data_ptr<uint8_t>();
-    std::memset(stored_data, 0, n);
-    stored_rows.narrow(0, 0, n).zero_();
-    if (!enrichment_config_.has_value() || n == 0) {
-      return;
-    }
-    bool expected = false;
-    if (!row_write_in_progress_.compare_exchange_strong(expected, true)) {
-      XLOG(INFO)
-          << "[EmbeddingCacheEnrich] skipping direct row write - previous row write in progress";
-      return;
-    }
-    SCOPE_EXIT {
-      row_write_in_progress_.store(false);
-    };
-    auto weights = rows.narrow(0, 0, n).clone();
-    apply_serving_qdq(weights, n);
-    if (!begin_direct_row_write()) {
-      return;
-    }
-    SCOPE_EXIT {
-      end_laser_write();
-    };
-    const auto* ids = indices.const_data_ptr<int64_t>();
-    const auto* src = weights.const_data_ptr<weight_type>();
-    const int64_t stride = weights.size(1);
-    for (const auto& [shard_id, indexes] : shard_input(indices, count)) {
-      auto wlmap = kv_store_.by(shard_id).wlock();
-      auto* pool = kv_store_.pool_by(shard_id);
-      for (const auto i : indexes) {
-        stored_data[i] = write_enrichment_row_locked(
-            shard_id,
-            *wlmap,
-            pool,
-            ids[i],
-            src + i * stride,
-            stride,
-            /*skip_nonzero_rows=*/true);
-      }
-      hbm_post_invalidations_locked(shard_id);
-    }
-    const int64_t width = stored_rows.size(1);
-    auto* out = stored_rows.data_ptr<weight_type>();
-    for (int64_t i = 0; i < n; ++i) {
-      if (stored_data[i]) {
-        std::memcpy(
-            out + i * width, src + i * stride, width * sizeof(weight_type));
-      }
-    }
-  }
-
-  /// write_rows_direct once earlier work on the current stream is done:
-  /// `stored_rows_cpu` and `stored_cpu` are host views of host-mapped buffers
-  /// a later GPU insert reads.
-  void write_rows_direct_cuda(
-      at::Tensor indices_cpu,
-      at::Tensor rows_cpu,
-      at::Tensor count_cpu,
-      at::Tensor stored_rows_cpu,
-      at::Tensor stored_cpu) {
-    hbm_rethrow_async_error();
-    auto functor = std::make_unique<std::function<void()>>(
-        [self =
-             std::static_pointer_cast<DramKVEmbeddingCache>(shared_from_this()),
-         indices = std::move(indices_cpu),
-         rows = std::move(rows_cpu),
-         count = std::move(count_cpu),
-         stored_rows = std::move(stored_rows_cpu),
-         stored = std::move(stored_cpu)]() mutable {
-          self->hbm_run_async([&] {
-            try {
-              self->write_rows_direct(
-                  indices, rows, count, stored_rows, stored);
-            } catch (...) {
-              // Rows not marked stored are not inserted.
-              stored.zero_();
-              stored_rows.zero_();
-              throw;
-            }
-          });
-        });
-    AT_CUDA_CHECK(cudaLaunchHostFunc(
-        at::cuda::getCurrentCUDAStream(),
-        kv_db_utils::cuda_host_func,
-        functor.get()));
-    // The callback owns it once launched.
-    functor.release();
-  }
-
   /// Drops every row write until released, as one in flight would.
   void hold_row_writes_for_test(bool hold) {
     row_write_in_progress_.store(hold);
@@ -3161,17 +3039,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return true;
   }
 
-  /// begin_laser_write for write_rows_direct: never waits for forward and
-  /// backward, and fails while a stream write runs.
-  bool begin_direct_row_write() {
-    std::scoped_lock lock(laser_write_mutex_);
-    if (stream_laser_suspensions_ > 0) {
-      return false;
-    }
-    ++active_laser_writers_;
-    return true;
-  }
-
   void end_laser_write() {
     std::scoped_lock lock(laser_write_mutex_);
     CHECK_GT(active_laser_writers_, 0);
@@ -3314,13 +3181,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         *raw_tail_cols(own, static_cast<int64_t>(payload_end_bytes()));
   }
 
-  /// Raw payloads for HBM promotion. Missing rows are zero-filled. All tensors
-  /// must be CPU views, including host-mapped workspaces used by CUDA callers.
+  /// Raw payloads for HBM promotion: the INT8 rows of an int8_storage table,
+  /// or the g8 bytes of a packed_storage table's rows. Missing rows, and
+  /// packed rows kept as fp16 outside their block (which therefore stay in
+  /// DRAM), are zero-filled. All tensors must be CPU views, including
+  /// host-mapped workspaces used by CUDA callers.
   void get_int8_payloads(
       const at::Tensor& indices,
       const at::Tensor& rows,
       const at::Tensor& count) {
-    TORCH_CHECK(int8_, "INT8 DRAM storage is disabled");
+    TORCH_CHECK(int8_ || packed_, "INT8 or packed DRAM storage is disabled");
     check_int8_payload_args(indices, rows, count);
     // A promotion capped at promote_max_rows passes only that many keys with
     // the uncapped miss count.
@@ -3332,7 +3202,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     const auto ids = indices.to(at::kLong);
     const auto* keys = ids.const_data_ptr<int64_t>();
     auto* dst = rows.data_ptr<uint8_t>();
-    const int64_t row_bytes = int8_->row_bytes();
+    const int64_t row_bytes = raw_hbm_row_bytes();
     std::memset(dst, 0, n * row_bytes);
     auto by_shard = shard_input(ids, at::tensor({n}, at::kLong));
     std::vector<folly::Future<folly::Unit>> futures;
@@ -3343,12 +3213,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                 const auto lock = kv_store_.by(shard_id).rlock();
                 for (const auto pos : positions) {
                   const auto it = lock->find(keys[pos]);
-                  if (it != lock->end()) {
-                    std::memcpy(
-                        dst + pos * row_bytes,
-                        FixedBlockPool::data_ptr<weight_type>(it->second),
-                        row_bytes);
+                  if (it == lock->end()) {
+                    continue;
                   }
+                  const auto* payload = reinterpret_cast<const uint8_t*>(
+                      FixedBlockPool::data_ptr<weight_type>(it->second));
+                  if (packed_ &&
+                      payload[packed_->code_bytes()] ==
+                          serving_qdq::kFallbackScale) {
+                    continue;
+                  }
+                  std::memcpy(dst + pos * row_bytes, payload, row_bytes);
                 }
               }));
     }
@@ -3361,7 +3236,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       at::Tensor indices_cpu,
       at::Tensor rows_cpu,
       at::Tensor count_cpu) {
-    TORCH_CHECK(int8_, "INT8 DRAM storage is disabled");
+    TORCH_CHECK(int8_ || packed_, "INT8 or packed DRAM storage is disabled");
     hbm_rethrow_async_error();
     // Checked here: the host callback cannot raise.
     check_int8_payload_args(indices_cpu, rows_cpu, count_cpu);
@@ -3389,6 +3264,111 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     functor.release();
   }
 
+  /// Bytes of an HBM row holding a written row: what DRAM stores for it, in
+  /// the storage format (g8 bytes, INT8 row, or the first enrichment-dim fp16
+  /// columns).
+  int64_t hbm_written_row_bytes() const {
+    if (int8_ || packed_) {
+      return raw_hbm_row_bytes();
+    }
+    return enrichment_config_.value()->enrichment_dim_ *
+        static_cast<int64_t>(sizeof(weight_type));
+  }
+
+  /// The first `count` rows of a trainer row write (CPU fp16 `rows`) as the
+  /// bytes DRAM stores for them, into `out` ([n, hbm_written_row_bytes()]
+  /// uint8): snapped to the serving fixed point like set_embedding_cache_rows,
+  /// then encoded with the storage format's write path. A row DRAM would keep
+  /// as fp16 outside its packed block reads as zero, which inserts skip.
+  void encode_written_rows(
+      const at::Tensor& rows,
+      const at::Tensor& out,
+      const at::Tensor& count) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      TORCH_CHECK(
+          enrichment_config_.has_value(), "written rows need enrichment");
+      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+      const int64_t n = count.item<int64_t>();
+      TORCH_CHECK(
+          rows.device().is_cpu() && rows.is_contiguous() &&
+              rows.scalar_type() == at::kHalf && rows.dim() == 2 &&
+              rows.size(1) >= dim && rows.size(0) >= n,
+          "written rows must be a contiguous CPU fp16 [n, >= dim] tensor");
+      TORCH_CHECK(
+          out.device().is_cpu() && out.is_contiguous() &&
+              out.scalar_type() == at::kByte && out.dim() == 2 &&
+              out.size(0) >= n && out.size(1) == hbm_written_row_bytes(),
+          "encoded rows must be a contiguous CPU uint8 [n, ",
+          hbm_written_row_bytes(),
+          "] tensor");
+      const auto format = serving_qdq_format();
+      const int64_t out_bytes = out.size(1);
+      auto* dst = out.data_ptr<uint8_t>();
+      std::memset(dst, 0, n * out_bytes);
+      serving_qdq::Scratch scratch;
+      std::vector<weight_type> row(dim);
+      std::vector<weight_type> fixed(dim);
+      for (int64_t r = 0; r < n; ++r) {
+        const auto* src = rows.const_data_ptr<at::Half>() + r * rows.size(1);
+        std::copy(src, src + dim, row.data());
+        if (format.bit_rate != 0) {
+          serving_qdq::round_trip_row(row.data(), dim, format, scratch);
+        }
+        auto* encoded = dst + r * out_bytes;
+        if (int8_) {
+          serving_qdq::encode_int8_row(row.data(), dim, encoded);
+        } else if (packed_) {
+          // As write_packed_dims: the row, else its fixed point; a row with
+          // no exact fixed point stays zero.
+          if (!serving_qdq::pack_row(row.data(), *packed_, encoded)) {
+            fixed = row;
+            const auto result =
+                serving_qdq::round_trip_row(fixed.data(), dim, format, scratch);
+            if (result == serving_qdq::RowResult::kNonFinite ||
+                result == serving_qdq::RowResult::kNotConverged ||
+                !serving_qdq::pack_row(fixed.data(), *packed_, encoded)) {
+              std::memset(encoded, 0, out_bytes);
+            }
+          }
+        } else {
+          std::memcpy(encoded, row.data(), dim * sizeof(weight_type));
+        }
+      }
+    }
+  }
+
+  /// encode_written_rows once earlier work on the current stream is done, as
+  /// get_int8_payloads_cuda: `out_cpu` is the host view of a host-mapped
+  /// buffer a later GPU insert reads.
+  void encode_written_rows_cuda(
+      at::Tensor rows_cpu,
+      at::Tensor out_cpu,
+      at::Tensor count_cpu) {
+    hbm_rethrow_async_error();
+    auto functor = std::make_unique<std::function<void()>>(
+        [self =
+             std::static_pointer_cast<DramKVEmbeddingCache>(shared_from_this()),
+         rows = std::move(rows_cpu),
+         out = std::move(out_cpu),
+         count = std::move(count_cpu)]() mutable {
+          self->hbm_run_async([&] {
+            try {
+              self->encode_written_rows(rows, out, count);
+            } catch (...) {
+              // Zero rows are skipped by the inserts.
+              out.zero_();
+              throw;
+            }
+          });
+        });
+    AT_CUDA_CHECK(cudaLaunchHostFunc(
+        at::cuda::getCurrentCUDAStream(),
+        kv_db_utils::cuda_host_func,
+        functor.get()));
+    // The callback owns it once launched.
+    functor.release();
+  }
+
   void check_int8_payload_args(
       const at::Tensor& indices,
       const at::Tensor& rows,
@@ -3401,24 +3381,33 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         rows.device().is_cpu() && rows.is_contiguous() &&
             rows.scalar_type() == at::kByte && rows.dim() == 2 &&
             rows.size(0) == indices.numel() &&
-            rows.size(1) == int8_->row_bytes(),
+            rows.size(1) == raw_hbm_row_bytes(),
         "INT8 payload rows must be a contiguous CPU uint8 [n, ",
-        int8_->row_bytes(),
+        raw_hbm_row_bytes(),
         "] tensor matching the indices");
     TORCH_CHECK(
         count.device().is_cpu() && count.numel() == 1,
         "INT8 payload count must be a one-element CPU tensor");
   }
 
-  /// Exclusive HBM tier: the owner-local cache's INT8 copy is the only copy of
-  /// a promoted row. The backend keeps the row's MetaHeader word (timestamp,
+  /// Bytes of a raw HBM row: INT8 codes with fp32 scale and bias, or the g8
+  /// encoding of a packed row (its tail columns stay out of HBM).
+  int64_t raw_hbm_row_bytes() const {
+    return int8_ ? int8_->row_bytes() : packed_->packed_bytes();
+  }
+
+  /// Exclusive HBM tier: the owner-local cache's copy is the only copy of a
+  /// promoted row. The backend keeps the row's MetaHeader word (timestamp,
   /// count) as a tombstone in hbm_rows_ instead of a block, so lookups through
   /// the GPU cache, enrichment, eviction counts and checkpoints still see it.
-  /// `cache_state` ([C, 1] int64 tags), `cache_weights` ([C, dim + 8] uint8
-  /// codes then fp32 scale and bias; columns past the enrichment dim, unused
-  /// optimizer state in an embedding cache, may be left out and then read back
-  /// as zero) and `last_access` ([C] int32 seconds) are
-  /// the GPU cache's tensors (CPU tensors in tests).
+  /// `cache_state` ([C, 1] int64 tags), `cache_weights` (uint8 rows in the
+  /// DRAM storage format: [C, packed_bytes] g8 bytes for a packed_storage
+  /// table, [C, dim + 8] INT8 codes then fp32 scale and bias for an
+  /// int8_storage table, [C, dim * 2] fp16 columns for an fp16 table, which
+  /// may instead use INT8 rows; columns past the enrichment dim, unused
+  /// optimizer state in an embedding cache, are left out and read back as
+  /// zero) and `last_access` ([C] int32 seconds) are the GPU cache's tensors
+  /// (CPU tensors in tests).
   ///
   /// Invariant: a tombstone exists only while the cache slot of its key holds
   /// that key. GPU inserts only claim empty slots, and every other tag change
@@ -3455,14 +3444,34 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     TORCH_CHECK(
         cache_state.dim() == 2 && cache_state.size(1) == 1 &&
         cache_state.scalar_type() == at::kLong);
-    // hbm_slot() hashes into a uint32_t slot count, as cache_slot() does.
+    // hbm_slot() hashes into a uint32_t set count, as cache_slot() does.
     TORCH_CHECK(
         cache_state.size(0) <= std::numeric_limits<uint32_t>::max(),
         "exclusive HBM tier supports at most 2^32 - 1 slots");
     TORCH_CHECK(
+        cache_state.size(0) % kHbmWays == 0,
+        "exclusive HBM tier slots must fill whole sets of ",
+        kHbmWays);
+    TORCH_CHECK(
         cache_weights.dim() == 2 && cache_weights.scalar_type() == at::kByte &&
         cache_weights.size(0) == cache_state.size(0));
-    const int64_t hbm_dim = cache_weights.size(1) - kHbmQparamsBytes;
+    TORCH_CHECK(
+        !packed_ || cache_weights.size(1) == packed_->packed_bytes(),
+        "packed DRAM rows need exclusive HBM rows of their ",
+        packed_->packed_bytes(),
+        " packed bytes, got ",
+        cache_weights.size(1));
+    // fp16 DRAM rows are held as their first `fp16_dim` fp16 columns when the
+    // rows are that wide, else as INT8 rows.
+    const int64_t fp16_dim = enrichment_config_.has_value()
+        ? enrichment_config_.value()->enrichment_dim_
+        : max_D_;
+    const bool fp16_rows = !packed_ && !int8_ &&
+        cache_weights.size(1) ==
+            fp16_dim * static_cast<int64_t>(sizeof(weight_type));
+    const int64_t hbm_dim = packed_ ? packed_->dim
+        : fp16_rows                 ? fp16_dim
+                                    : cache_weights.size(1) - kHbmQparamsBytes;
     TORCH_CHECK(
         !int8_ || hbm_dim == int8_->dim,
         "INT8 DRAM and exclusive HBM must hold the same embedding dimension");
@@ -3485,7 +3494,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         std::move(cache_weights),
         std::move(last_access),
         std::nullopt,
-        hbm_dim};
+        hbm_dim,
+        fp16_rows};
     if (hbm_->cache_state.is_cuda()) {
       hbm_->stream = at::cuda::getStreamFromPool(
           /*isHighPriority=*/false, hbm_->cache_state.device().index());
@@ -3523,6 +3533,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       hbm_scheduler_.start();
     }
     LOG(INFO) << "KVZCH exclusive HBM tier: slots=" << hbm_->cache_state.size(0)
+              << " slot_format=" << hbm_slot_format()
               << " row_bytes=" << hbm_->cache_weights.size(1)
               << " chunk_rows=" << hbm_chunk_rows_ << " ttl_s=" << hbm_ttl_s_
               << " ttl_demote=" << hbm_ttl_demote_ << " sweep_s=" << sweep_s
@@ -3552,11 +3563,42 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// work on the current stream is done, a host callback copies the first
   /// `promoted_count_cpu[0]` keys of `promoted_keys_cpu` (host views of the
   /// insert's host-mapped outputs) and hands them to hbm_executor_.
+  ///
+  /// With the insert's victim outputs, the callback first writes the rows it
+  /// evicted from full sets back to the backend (hbm_land_victims), so a
+  /// lookup ordered after the callback finds them there.
+  ///
+  /// With `from_write`, the keys come from a trainer row write inserted
+  /// straight into HBM (KVZCH_ROW_WRITE_DIRECT_HBM): see hbm_promote.
   void exclusive_hbm_promote_cuda(
       at::Tensor promoted_keys_cpu,
-      at::Tensor promoted_count_cpu) {
+      at::Tensor promoted_count_cpu,
+      std::optional<at::Tensor> victim_keys_cpu = std::nullopt,
+      std::optional<at::Tensor> victim_access_cpu = std::nullopt,
+      std::optional<at::Tensor> victim_rows_cpu = std::nullopt,
+      std::optional<at::Tensor> victim_count_cpu = std::nullopt,
+      bool from_write = false) {
     TORCH_CHECK(hbm_, "exclusive HBM tier is not registered");
     hbm_rethrow_async_error();
+    const bool victims = victim_keys_cpu.has_value();
+    TORCH_CHECK(
+        victims == victim_access_cpu.has_value() &&
+            victims == victim_rows_cpu.has_value() &&
+            victims == victim_count_cpu.has_value(),
+        "victims need keys, access times, rows and a count");
+    if (victims) {
+      TORCH_CHECK(
+          victim_keys_cpu->is_cpu() && victim_access_cpu->is_cpu() &&
+              victim_rows_cpu->is_cpu() && victim_count_cpu->is_cpu() &&
+              victim_keys_cpu->scalar_type() == at::kLong &&
+              victim_access_cpu->scalar_type() == at::kInt &&
+              victim_rows_cpu->scalar_type() == at::kByte &&
+              victim_count_cpu->scalar_type() == at::kInt &&
+              victim_rows_cpu->dim() == 2 &&
+              victim_rows_cpu->size(1) == hbm_row_bytes() &&
+              victim_rows_cpu->is_contiguous(),
+          "victims must be CPU views of the insert's victim outputs");
+    }
     // Checked here: the host callback cannot raise.
     TORCH_CHECK(
         promoted_keys_cpu.is_cpu() &&
@@ -3573,13 +3615,29 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         [self =
              std::static_pointer_cast<DramKVEmbeddingCache>(shared_from_this()),
          keys = std::move(promoted_keys_cpu),
-         count = std::move(promoted_count_cpu)]() {
+         count = std::move(promoted_count_cpu),
+         victim_keys = std::move(victim_keys_cpu),
+         victim_access = std::move(victim_access_cpu),
+         victim_rows = std::move(victim_rows_cpu),
+         victim_count = std::move(victim_count_cpu),
+         from_write]() {
+          self->hbm_run_async([&] {
+            if (victim_keys) {
+              self->hbm_land_victims(
+                  victim_keys->const_data_ptr<int64_t>(),
+                  victim_access->const_data_ptr<int32_t>(),
+                  victim_rows->const_data_ptr<uint8_t>(),
+                  std::min<int64_t>(
+                      *victim_count->const_data_ptr<int32_t>(),
+                      victim_keys->numel()));
+            }
+          });
           self->hbm_run_async([&] {
             const auto n = std::min<int64_t>(
                 *count.const_data_ptr<int32_t>(), keys.numel());
             const auto* data = keys.const_data_ptr<int64_t>();
             self->exclusive_hbm_promote_async(
-                std::vector<int64_t>(data, data + n));
+                std::vector<int64_t>(data, data + n), from_write);
           });
         });
     AT_CUDA_CHECK(cudaLaunchHostFunc(
@@ -3590,17 +3648,61 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     functor.release();
   }
 
-  void exclusive_hbm_promote_async(std::vector<int64_t> keys) {
+  /// Writes the rows a GPU insert evicted from full sets back to the backend
+  /// before the next lookup can miss them in HBM: each victim still
+  /// tombstoned gets its block (from the evicted slot bytes `rows`) and loses
+  /// its tombstone. A victim without a tombstone kept its backend row (its
+  /// promotion had not run yet), so nothing is written.
+  void hbm_land_victims(
+      const int64_t* keys,
+      const int32_t* last_access,
+      const uint8_t* rows,
+      int64_t count) {
+    const int64_t row_bytes = hbm_row_bytes();
+    std::vector<std::vector<int64_t>> by_shard(num_shards_);
+    for (int64_t i = 0; i < count; ++i) {
+      by_shard[kv_db_utils::hash_shard(keys[i], num_shards_)].push_back(i);
+    }
+    std::vector<weight_type> row;
+    for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
+      if (by_shard[shard_id].empty()) {
+        continue;
+      }
+      auto wlmap = kv_store_.by(shard_id).wlock();
+      auto* pool = kv_store_.pool_by(shard_id);
+      auto& tombstones = hbm_rows_[shard_id];
+      for (const auto i : by_shard[shard_id]) {
+        const auto it = tombstones.find(keys[i]);
+        if (it == tombstones.end()) {
+          continue;
+        }
+        hbm_restore_block_locked(
+            shard_id,
+            *wlmap,
+            pool,
+            keys[i],
+            it->second,
+            static_cast<uint32_t>(last_access[i]),
+            rows + i * row_bytes,
+            row);
+        tombstones.erase(it);
+        hbm_evicted_++;
+      }
+    }
+  }
+  void exclusive_hbm_promote_async(
+      std::vector<int64_t> keys,
+      bool from_write = false) {
     if (keys.empty()) {
       return;
     }
-    hbm_executor_->add([this, keys = std::move(keys)]() mutable {
+    hbm_executor_->add([this, keys = std::move(keys), from_write]() mutable {
       hbm_run_async([&] {
         // Promotions run every step, so an expired snapshot is released even
         // when no TTL sweep is scheduled.
         hbm_drop_expired_snapshot();
         try {
-          hbm_promote(keys);
+          hbm_promote(keys, from_write);
         } catch (...) {
           // A claimed slot without a tombstone would serve a stale row forever.
           hbm_clear_untombstoned_slots(keys);
@@ -3664,15 +3766,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// reads that found only a tombstone (reported as kFoundOnlyInHbm)]
   std::vector<int64_t> exclusive_hbm_stats() {
     hbm_rethrow_async_error();
-    int64_t rows = 0;
-    if (hbm_) {
-      for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
-        const auto lock = kv_store_.by(shard_id).rlock();
-        rows += static_cast<int64_t>(hbm_rows_[shard_id].size());
-      }
-    }
     return {
-        rows,
+        static_cast<int64_t>(hbm_row_count()),
         hbm_promoted_.load(),
         hbm_promote_skipped_.load(),
         hbm_demoted_.load(),
@@ -3680,7 +3775,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         hbm_invalidated_.load(),
         hbm_requantized_.load(),
         hbm_tombstone_reads_.load(),
-        hbm_tombstone_mask_reads_.load()};
+        hbm_tombstone_mask_reads_.load(),
+        hbm_evicted_.load()};
   }
 
   int64_t serving_qdq_existing_rows() override {
@@ -4238,19 +4334,22 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // Columns an HBM row holds. Columns past it, up to max_D_ (optimizer state,
     // which embedding-cache rows never use), read back as zero.
     int64_t dim;
+    // Rows are the first `dim` fp16 columns of fp16 DRAM rows, else INT8 rows
+    // (or, for a packed table, g8 rows).
+    bool fp16_rows{false};
   };
 
   /// What the HBM tier holds at a batch of slots, read in one pass.
   struct HbmSlots {
     std::vector<int64_t> tags;
     std::vector<int32_t> last_access;
-    at::Tensor rows; // [n, dim + 8] uint8, CPU; undefined unless requested
+    at::Tensor rows; // [n, row bytes] uint8, CPU; undefined unless requested
   };
 
   struct HbmSnapshot {
     at::Tensor tags; // [slots] int64, CPU
     at::Tensor last_access; // [slots] int32, CPU
-    at::Tensor rows; // [slots, dim + 8] uint8, CPU
+    at::Tensor rows; // [slots, row bytes] uint8, CPU
     std::chrono::steady_clock::time_point taken;
     // Keys promoted after the copy: their snapshot bytes may predate the
     // HBM row. Written on hbm_executor_.
@@ -4292,7 +4391,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         config.ttls_in_mins_->begin(), config.ttls_in_mins_->end());
   }
 
-  /// Slot of `key`; must match cache_slot() in split_embeddings_cache_cuda.cuh.
+  /// Ways per set of the HBM tier; must match kOwnerCacheWays in
+  /// ssd_split_embeddings_cache_cuda.cu.
+  static constexpr int64_t kHbmWays = 16;
+
+  /// Index of `key` among `num_slots`; must match cache_slot() in
+  /// split_embeddings_cache_cuda.cuh.
   static int64_t hbm_slot(int64_t key, int64_t num_slots) {
     auto h = static_cast<uint64_t>(key);
     h ^= h >> 33;
@@ -4303,8 +4407,55 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return static_cast<int64_t>(h % static_cast<uint32_t>(num_slots));
   }
 
-  int64_t hbm_slot(int64_t key) const {
-    return hbm_slot(key, hbm_->cache_state.size(0));
+  /// First slot of `key`'s set.
+  int64_t hbm_set_base(int64_t key) const {
+    return hbm_slot(key, hbm_->cache_state.size(0) / kHbmWays) * kHbmWays;
+  }
+
+  /// The slot in `tags` (all slots' tags) that holds `key`, else the first
+  /// slot of its set (whose tag then does not match).
+  int64_t hbm_find_slot_in(const int64_t* tags, int64_t key) const {
+    const auto base = hbm_set_base(key);
+    for (int64_t way = 0; way < kHbmWays; ++way) {
+      if (tags[base + way] == key) {
+        return base + way;
+      }
+    }
+    return base;
+  }
+
+  /// hbm_find_slot_in for `keys`, reading their sets' tags from the tier.
+  std::vector<int64_t> hbm_find_slots(const std::vector<int64_t>& keys) {
+    std::vector<int64_t> slots(keys.size());
+    if (keys.empty()) {
+      return slots;
+    }
+    std::vector<int64_t> ways;
+    ways.reserve(keys.size() * kHbmWays);
+    for (size_t i = 0; i < keys.size(); ++i) {
+      slots[i] = hbm_set_base(keys[i]);
+      for (int64_t way = 0; way < kHbmWays; ++way) {
+        ways.push_back(slots[i] + way);
+      }
+    }
+    const auto index = at::tensor(ways, at::kLong);
+    at::Tensor tags;
+    on_hbm_stream([&] {
+      tags = hbm_->cache_state
+                 .index_select(0, index.to(hbm_->cache_state.device()))
+                 .view(-1)
+                 .cpu();
+    });
+    const auto* tag = tags.const_data_ptr<int64_t>();
+    for (size_t i = 0; i < keys.size(); ++i) {
+      for (int64_t way = 0; way < kHbmWays; ++way) {
+        if (tag[i * kHbmWays + way] == keys[i]) {
+          slots[i] += way;
+          break;
+        }
+      }
+    }
+    return slots;
   }
 
   static uint32_t meta_timestamp(uint64_t meta) {
@@ -4313,6 +4464,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   static uint64_t with_timestamp(uint64_t meta, uint32_t timestamp) {
     return (meta & ~0xFFFFFFFFULL) | timestamp;
+  }
+
+  /// MetaHeader word (timestamp, count, used) of a row first seen in HBM: a
+  /// row write inserted straight into the exclusive tier.
+  static uint64_t fresh_meta(uint32_t timestamp) {
+    FixedBlockPool::MetaHeader header{};
+    header.timestamp = timestamp;
+    header.count = 0;
+    header.used = true;
+    return FixedBlockPool::get_metaheader_raw(&header);
   }
 
   /// Runs a host-callback or hbm_executor_ task body: an exception there
@@ -4343,15 +4504,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// promotion), so no slot keeps a row the backend does not account for.
   void hbm_clear_untombstoned_slots(const std::vector<int64_t>& keys) noexcept {
     try {
-      std::vector<int64_t> slots;
+      std::vector<int64_t> untombstoned;
       for (const auto key : keys) {
         const auto shard_id = kv_db_utils::hash_shard(key, num_shards_);
         const auto lock = kv_store_.by(shard_id).rlock();
         if (!hbm_rows_[shard_id].contains(key)) {
-          slots.push_back(hbm_slot(key));
+          untombstoned.push_back(key);
         }
       }
-      hbm_clear_slots(slots);
+      hbm_clear_slots(hbm_find_slots(untombstoned), untombstoned);
     } catch (...) {
       XLOG(ERR) << "[ExclusiveHBM] clearing slots after a failed promotion: "
                 << folly::exceptionStr(std::current_exception());
@@ -4400,14 +4561,35 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return out;
   }
 
-  void hbm_clear_slots(const std::vector<int64_t>& slots) {
+  /// Empties each of `slots` that still holds its key in `keys`. A GPU insert
+  /// may evict and refill a slot meanwhile, so the GPU tier clears by
+  /// compare-and-swap (kvzch_owner_cache_clear_tags).
+  void hbm_clear_slots(
+      const std::vector<int64_t>& slots,
+      const std::vector<int64_t>& keys) {
+    TORCH_CHECK_EQ(slots.size(), keys.size());
     if (slots.empty()) {
       return;
     }
-    const auto index = at::tensor(slots, at::kLong);
     on_hbm_stream([&] {
-      hbm_->cache_state.index_fill_(
-          0, index.to(hbm_->cache_state.device()), int64_t{-1});
+      auto& cache_state = hbm_->cache_state;
+      if (!cache_state.is_cuda()) {
+        auto* tags = cache_state.template data_ptr<int64_t>();
+        for (size_t i = 0; i < slots.size(); ++i) {
+          if (tags[slots[i]] == keys[i]) {
+            tags[slots[i]] = -1;
+          }
+        }
+        return;
+      }
+      static const auto clear_tags =
+          c10::Dispatcher::singleton()
+              .findSchemaOrThrow("fbgemm::kvzch_owner_cache_clear_tags", "")
+              .typed<at::Tensor(at::Tensor, at::Tensor, at::Tensor)>();
+      clear_tags.call(
+          cache_state,
+          at::tensor(slots, at::kLong).to(cache_state.device()),
+          at::tensor(keys, at::kLong).to(cache_state.device()));
     });
   }
 
@@ -4421,11 +4603,22 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return keys;
   }
 
-  /// Decodes an HBM row as the GPU gather does (code * scale + bias, rounded
-  /// to fp16), then, for a table stored at its serving precision, as its
-  /// serving fixed point, so a row leaving HBM is a valid backend row.
+  /// Decodes an HBM row as the GPU gather does. An fp16 or g8 row decodes
+  /// exactly as its DRAM row would. An INT8 row decodes as code * scale + bias
+  /// rounded to fp16, then, for a table stored at its serving precision, as
+  /// its serving fixed point, so a row leaving HBM is a valid backend row.
   void hbm_decode_row(const uint8_t* src, weight_type* dst) {
     if constexpr (std::is_same_v<weight_type, at::Half>) {
+      if (hbm_rows_are_packed_rows()) {
+        serving_qdq::unpack_row(src, *packed_, dst);
+        std::fill(dst + packed_->dim, dst + max_D_, weight_type(0));
+        return;
+      }
+      if (hbm_->fp16_rows) {
+        std::memcpy(dst, src, hbm_->dim * sizeof(weight_type));
+        std::fill(dst + hbm_->dim, dst + max_D_, weight_type(0));
+        return;
+      }
       const int64_t hbm_dim = hbm_->dim;
       const auto* qparams = reinterpret_cast<const float*>(src + hbm_dim);
       const float scale = qparams[0];
@@ -4500,16 +4693,53 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return int8_.has_value() && hbm_->dim == int8_->dim;
   }
 
-  /// Stores an HBM row's codes, scale and bias as a block's payload; the tail
-  /// columns, which HBM rows do not hold, read back as zero.
-  void copy_hbm_row_to_int8_block(const uint8_t* hbm_row, weight_type* block) {
+  /// Whether HBM rows are the g8 bytes of packed DRAM rows (always so for a
+  /// packed table, see exclusive_hbm_register).
+  bool hbm_rows_are_packed_rows() const {
+    return packed_.has_value();
+  }
+
+  /// Whether HBM rows are byte for byte the leading bytes of a backend row's
+  /// payload, so they move between the tiers without re-quantizing.
+  bool hbm_rows_are_raw_rows() const {
+    return hbm_rows_are_int8_rows() || hbm_rows_are_packed_rows() ||
+        hbm_->fp16_rows;
+  }
+
+  const char* hbm_slot_format() const {
+    if (hbm_rows_are_packed_rows()) {
+      return "g8";
+    }
+    if (hbm_rows_are_int8_rows()) {
+      return "int8_raw";
+    }
+    return hbm_->fp16_rows ? "fp16" : "int8";
+  }
+
+  int64_t hbm_row_bytes() const {
+    return hbm_->cache_weights.size(1);
+  }
+
+  /// Stores a raw HBM row as a block's payload; the tail columns, which HBM
+  /// rows do not hold, read back as zero.
+  void copy_hbm_row_to_raw_block(const uint8_t* hbm_row, weight_type* block) {
     auto* payload = reinterpret_cast<uint8_t*>(
         FixedBlockPool::data_ptr<weight_type>(block));
-    std::memcpy(payload, hbm_row, int8_->row_bytes());
+    const auto row_bytes = static_cast<size_t>(hbm_row_bytes());
+    std::memcpy(payload, hbm_row, row_bytes);
     std::memset(
-        payload + int8_->row_bytes(),
+        payload + row_bytes,
         0,
-        int8_->payload_bytes() - int8_->row_bytes());
+        payload_end_bytes() - sizeof(FixedBlockPool::MetaHeader) - row_bytes);
+  }
+
+  /// Whether the columns an HBM row holds are zero in `block` (a write may
+  /// leave the bytes past them as the reused block had them).
+  bool hbm_columns_are_zero(const weight_type* block) const {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(
+        FixedBlockPool::data_ptr<weight_type>(block));
+    return std::all_of(
+        bytes, bytes + hbm_row_bytes(), [](uint8_t b) { return b == 0; });
   }
 
   /// While forward/backward has paused backend writes, waits up to
@@ -4527,7 +4757,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         });
   }
 
-  void hbm_promote(std::vector<int64_t>& keys) {
+  /// Gives each key whose slot holds it a tombstone, dropping its backend
+  /// row. A promoted row must still be its backend row; with `from_write`
+  /// the slot holds a trainer row written straight into HBM, which is the
+  /// key's only copy unless another writer gave it a nonzero backend row,
+  /// which wins.
+  void hbm_promote(std::vector<int64_t>& keys, bool from_write = false) {
     if (hbm_fail_next_promotion_.exchange(false)) {
       throw std::runtime_error("injected HBM promotion failure");
     }
@@ -4537,14 +4772,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
          begin += static_cast<size_t>(hbm_chunk_rows_)) {
       const auto end =
           std::min(keys.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
-      std::vector<int64_t> slots;
-      slots.reserve(end - begin);
-      for (auto i = begin; i < end; ++i) {
-        slots.push_back(hbm_slot(keys[i]));
-      }
-      const bool raw_int8 = hbm_rows_are_int8_rows();
+      const auto slots = hbm_find_slots(
+          std::vector<int64_t>(
+              keys.begin() + static_cast<int64_t>(begin),
+              keys.begin() + static_cast<int64_t>(end)));
+      const bool raw = hbm_rows_are_raw_rows();
       const auto held = hbm_read_slots(slots, /*rows=*/true);
-      const int64_t row_bytes = hbm_->dim + kHbmQparamsBytes;
+      const auto row_bytes = static_cast<size_t>(hbm_row_bytes());
       std::vector<std::vector<size_t>> by_shard(num_shards_);
       for (auto i = begin; i < end; ++i) {
         if (held.tags[i - begin] == keys[i]) {
@@ -4555,6 +4789,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         }
       }
       std::vector<int64_t> stale_slots;
+      std::vector<int64_t> stale_keys;
       for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
         if (by_shard[shard_id].empty()) {
           continue;
@@ -4581,19 +4816,32 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               continue;
             }
             const auto it = wlmap->find(key);
+            if (from_write && it == wlmap->end()) {
+              if (hbm_snapshot_) {
+                hbm_snapshot_->promoted_since.insert(key);
+              }
+              tombstones[key] = fresh_meta(FixedBlockPool::current_timestamp());
+              hbm_promoted_++;
+              continue;
+            }
             const auto* slot_row =
                 held.rows.template const_data_ptr<uint8_t>() + j * row_bytes;
             // No backend row: the evictor dropped it after the GPU read. A
-            // backend row that changed after that read supersedes the slot.
+            // backend row that changed after that read supersedes the slot,
+            // and a packed row kept as fp16 outside its block never matches
+            // its raw bytes. A written row's backend row is zero (its DRAM
+            // write carries zeros), or another writer's, which wins.
             if (it == wlmap->end() ||
-                (raw_int8
-                     ? std::memcmp(
-                           FixedBlockPool::data_ptr<weight_type>(it->second),
-                           slot_row,
-                           row_bytes) != 0
-                     : !hbm_slot_matches_block(
-                           shard_id, it->second, slot_row))) {
+                (from_write ? !hbm_columns_are_zero(it->second)
+                            : (raw ? std::memcmp(
+                                         FixedBlockPool::data_ptr<weight_type>(
+                                             it->second),
+                                         slot_row,
+                                         row_bytes) != 0
+                                   : !hbm_slot_matches_block(
+                                         shard_id, it->second, slot_row)))) {
               stale_slots.push_back(slots[j]);
+              stale_keys.push_back(key);
               hbm_promote_skipped_++;
               continue;
             }
@@ -4611,13 +4859,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           }
         }
       }
-      hbm_clear_slots(stale_slots);
+      hbm_clear_slots(stale_slots, stale_keys);
     }
     XLOG_EVERY_MS(INFO, 60000)
-        << "[ExclusiveHBM] promoted=" << hbm_promoted_.load()
+        << "[ExclusiveHBM] slot_format=" << hbm_slot_format()
+        << " row_bytes=" << hbm_row_bytes()
+        << " slots=" << hbm_->cache_state.size(0) << " rows=" << hbm_row_count()
+        << " promoted=" << hbm_promoted_.load()
         << " skipped=" << hbm_promote_skipped_.load()
         << " demoted=" << hbm_demoted_.load()
         << " dropped=" << hbm_dropped_.load()
+        << " evicted=" << hbm_evicted_.load()
         << " invalidated=" << hbm_invalidated_.load()
         << " requantized=" << hbm_requantized_.load()
         << " tombstone_reads=" << hbm_tombstone_reads_.load()
@@ -4633,13 +4885,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
          begin += static_cast<size_t>(hbm_chunk_rows_)) {
       const auto end =
           std::min(keys.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
-      std::vector<int64_t> slots;
-      slots.reserve(end - begin);
-      for (auto i = begin; i < end; ++i) {
-        slots.push_back(hbm_slot(keys[i]));
-      }
+      const auto slots = hbm_find_slots(
+          std::vector<int64_t>(
+              keys.begin() + static_cast<int64_t>(begin),
+              keys.begin() + static_cast<int64_t>(end)));
       const auto held = hbm_read_slots(slots, /*rows=*/!drop);
-      const int64_t row_bytes = hbm_->dim + kHbmQparamsBytes;
+      const int64_t row_bytes = hbm_row_bytes();
       std::vector<std::vector<size_t>> by_shard(num_shards_);
       for (auto i = begin; i < end; ++i) {
         if (held.tags[i - begin] == keys[i]) {
@@ -4648,6 +4899,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         }
       }
       std::vector<int64_t> emptied;
+      std::vector<int64_t> emptied_keys;
       for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
         if (by_shard[shard_id].empty()) {
           continue;
@@ -4673,42 +4925,67 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             if (it == tombstones.end()) {
               continue;
             }
-            const auto timestamp = std::max<uint32_t>(
-                meta_timestamp(it->second),
-                static_cast<uint32_t>(held.last_access[j]));
-            if (!drop && !wlmap->contains(key)) {
-              const auto* hbm_row =
-                  held.rows.template const_data_ptr<uint8_t>() + j * row_bytes;
-              auto* block = pool->template allocate_t<weight_type>();
-              std::memcpy(
-                  reinterpret_cast<char*>(block) + sizeof(int64_t),
-                  &it->second,
-                  sizeof(uint64_t));
-              FixedBlockPool::set_key(block, key);
-              FixedBlockPool::set_used(block, true);
-              FixedBlockPool::set_timestamp(block, timestamp);
-              if (hbm_rows_are_int8_rows()) {
-                copy_hbm_row_to_int8_block(hbm_row, block);
-              } else {
-                hbm_decode_row(hbm_row, row.data());
-                write_payload(
-                    shard_id,
-                    FixedBlockPool::data_ptr<weight_type>(block),
-                    row.data(),
-                    max_D_);
-              }
-              wlmap->insert({key, block});
+            if (!drop) {
+              hbm_restore_block_locked(
+                  shard_id,
+                  *wlmap,
+                  pool,
+                  key,
+                  it->second,
+                  static_cast<uint32_t>(held.last_access[j]),
+                  held.rows.template const_data_ptr<uint8_t>() + j * row_bytes,
+                  row);
             }
             tombstones.erase(it);
             emptied.push_back(slots[j]);
+            emptied_keys.push_back(key);
             (drop ? hbm_dropped_ : hbm_demoted_)++;
             moved++;
           }
         }
       }
-      hbm_clear_slots(emptied);
+      hbm_clear_slots(emptied, emptied_keys);
     }
     return moved;
+  }
+
+  /// Gives `key`, a row leaving HBM with tombstone word `meta`, a backend
+  /// block holding `hbm_row` (unless a write gave it one already), stamped
+  /// with the later of the tombstone and HBM access times. Under the shard
+  /// write lock.
+  void hbm_restore_block_locked(
+      int shard_id,
+      auto& map,
+      auto* pool,
+      int64_t key,
+      uint64_t meta,
+      uint32_t hbm_last_access,
+      const uint8_t* hbm_row,
+      std::vector<weight_type>& row) {
+    if (map.contains(key)) {
+      return;
+    }
+    auto* block = pool->template allocate_t<weight_type>();
+    std::memcpy(
+        reinterpret_cast<char*>(block) + sizeof(int64_t),
+        &meta,
+        sizeof(uint64_t));
+    FixedBlockPool::set_key(block, key);
+    FixedBlockPool::set_used(block, true);
+    FixedBlockPool::set_timestamp(
+        block, std::max<uint32_t>(meta_timestamp(meta), hbm_last_access));
+    if (hbm_rows_are_raw_rows()) {
+      copy_hbm_row_to_raw_block(hbm_row, block);
+    } else {
+      row.resize(max_D_);
+      hbm_decode_row(hbm_row, row.data());
+      write_payload(
+          shard_id,
+          FixedBlockPool::data_ptr<weight_type>(block),
+          row.data(),
+          max_D_);
+    }
+    map.insert({key, block});
   }
 
   /// The HBM rows of a shard and their tombstone timestamps, for a TTL pass.
@@ -4729,12 +5006,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       size_t begin,
       size_t end,
       uint32_t current) {
-    std::vector<int64_t> slots;
-    slots.reserve(end - begin);
+    std::vector<int64_t> chunk_keys;
+    chunk_keys.reserve(end - begin);
     for (auto i = begin; i < end; ++i) {
-      slots.push_back(hbm_slot(rows[i].first));
+      chunk_keys.push_back(rows[i].first);
     }
-    const auto held = hbm_read_slots(slots, /*rows=*/false);
+    const auto held =
+        hbm_read_slots(hbm_find_slots(chunk_keys), /*rows=*/false);
     std::vector<int64_t> expired;
     for (auto i = begin; i < end; ++i) {
       const auto last = std::max<uint32_t>(
@@ -4842,13 +5120,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     keys.swap(hbm_pending_invalidations_[shard_id]);
     hbm_executor_->add([this, keys = std::move(keys)] {
       hbm_run_async([&] {
-        std::vector<int64_t> slots;
-        slots.reserve(keys.size());
-        for (const auto key : keys) {
-          slots.push_back(hbm_slot(key));
-        }
+        const auto slots = hbm_find_slots(keys);
         const auto held = hbm_read_slots(slots, /*rows=*/false);
         std::vector<int64_t> emptied;
+        std::vector<int64_t> emptied_keys;
         for (size_t i = 0; i < keys.size(); ++i) {
           if (held.tags[i] != keys[i]) {
             continue;
@@ -4857,10 +5132,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           const auto lock = kv_store_.by(shard_id).rlock();
           if (!hbm_rows_[shard_id].contains(keys[i])) {
             emptied.push_back(slots[i]);
+            emptied_keys.push_back(keys[i]);
             hbm_invalidated_++;
           }
         }
-        hbm_clear_slots(emptied);
+        hbm_clear_slots(emptied, emptied_keys);
       });
     });
   }
@@ -5044,7 +5320,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const int64_t row_bytes = snapshot.rows.size(1);
       for (size_t i = 0; i < positions.size(); ++i) {
         const auto key = id_ptr[positions[i]];
-        const auto slot = hbm_slot(key);
+        const auto slot = hbm_find_slot_in(tags, key);
         if ((tags[slot] == key || !check_tags) &&
             !snapshot.promoted_since.contains(key)) {
           out.held.push_back(
@@ -5064,12 +5340,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
          begin += static_cast<size_t>(hbm_chunk_rows_)) {
       const auto end =
           std::min(live.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
-      std::vector<int64_t> slots;
-      slots.reserve(end - begin);
+      std::vector<int64_t> chunk_keys;
+      chunk_keys.reserve(end - begin);
       for (auto k = begin; k < end; ++k) {
-        slots.push_back(hbm_slot(id_ptr[positions[live[k]]]));
+        chunk_keys.push_back(id_ptr[positions[live[k]]]);
       }
-      const auto held = hbm_read_slots(slots, rows);
+      const auto held = hbm_read_slots(hbm_find_slots(chunk_keys), rows);
       const int64_t row_bytes = rows ? held.rows.size(1) : 0;
       for (auto k = begin; k < end; ++k) {
         const auto i = live[k];
@@ -5186,14 +5462,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     std::memset(dst, 0, row_bytes);
     std::memcpy(dst, &header, sizeof(header));
     auto* block = reinterpret_cast<weight_type*>(dst);
-    if (hbm_rows_are_int8_rows()) {
-      copy_hbm_row_to_int8_block(hbm_row, block);
-    } else if (packed_) {
-      hbm_decode_row(hbm_row, decoded.data());
-      encode_packed_raw_payload(
-          decoded.data(),
-          reinterpret_cast<uint8_t*>(
-              FixedBlockPool::data_ptr<weight_type>(block)));
+    if (hbm_rows_are_raw_rows()) {
+      copy_hbm_row_to_raw_block(hbm_row, block);
     } else {
       hbm_decode_row(hbm_row, decoded.data());
       write_int8_payload(
@@ -5258,7 +5528,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           });
       return;
     }
-    const int64_t row_bytes = hbm_->dim + kHbmQparamsBytes;
+    const int64_t row_bytes = hbm_row_bytes();
     via_hbm_executor([&] {
       std::vector<int64_t> reread;
       std::vector<weight_type> row(meta_dim + max_D_);
@@ -5266,12 +5536,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
            begin += static_cast<size_t>(hbm_chunk_rows_)) {
         const auto end = std::min(
             positions.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
-        std::vector<int64_t> slots;
-        slots.reserve(end - begin);
+        std::vector<int64_t> chunk_keys;
+        chunk_keys.reserve(end - begin);
         for (auto i = begin; i < end; ++i) {
-          slots.push_back(hbm_slot(id_ptr[positions[i]]));
+          chunk_keys.push_back(id_ptr[positions[i]]);
         }
-        const auto held = hbm_read_slots(slots, /*rows=*/true);
+        const auto held =
+            hbm_read_slots(hbm_find_slots(chunk_keys), /*rows=*/true);
         for (auto i = begin; i < end; ++i) {
           const auto key = id_ptr[positions[i]];
           // Slots change only on this thread; tombstones also under the shard
@@ -5631,7 +5902,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       return;
     }
     const int64_t row_bytes = rows.size(1);
-    const int64_t hbm_row_bytes = hbm_->dim + kHbmQparamsBytes;
+    const int64_t held_row_bytes = hbm_row_bytes();
     auto* out = rows.data_ptr<uint8_t>();
     const auto reread_rows = [&](const std::vector<int64_t>& reread) {
       if (reread.empty()) {
@@ -5664,12 +5935,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
            begin += static_cast<size_t>(hbm_chunk_rows_)) {
         const auto end = std::min(
             positions.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
-        std::vector<int64_t> slots;
-        slots.reserve(end - begin);
+        std::vector<int64_t> chunk_keys;
+        chunk_keys.reserve(end - begin);
         for (auto i = begin; i < end; ++i) {
-          slots.push_back(hbm_slot(id_ptr[positions[i]]));
+          chunk_keys.push_back(id_ptr[positions[i]]);
         }
-        const auto held = hbm_read_slots(slots, /*rows=*/true);
+        const auto held =
+            hbm_read_slots(hbm_find_slots(chunk_keys), /*rows=*/true);
         for (auto i = begin; i < end; ++i) {
           const auto key = id_ptr[positions[i]];
           std::optional<uint64_t> meta;
@@ -5691,7 +5963,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                   *meta,
                   static_cast<uint32_t>(held.last_access[i - begin])),
               held.rows.template const_data_ptr<uint8_t>() +
-                  (i - begin) * hbm_row_bytes,
+                  (i - begin) * held_row_bytes,
               out + positions[i] * row_bytes,
               row_bytes,
               decoded);
@@ -5771,11 +6043,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
            begin += static_cast<size_t>(hbm_chunk_rows_)) {
         const auto end = std::min(
             positions.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
-        std::vector<int64_t> slots;
+        std::vector<int64_t> chunk_keys;
         for (auto i = begin; i < end; ++i) {
-          slots.push_back(hbm_slot(id_ptr[positions[i]]));
+          chunk_keys.push_back(id_ptr[positions[i]]);
         }
-        const auto held = hbm_read_slots(slots, /*rows=*/false);
+        const auto held =
+            hbm_read_slots(hbm_find_slots(chunk_keys), /*rows=*/false);
         for (auto i = begin; i < end; ++i) {
           const auto key = id_ptr[positions[i]];
           // The key can leave HBM after the first pass and its slot go to
@@ -6774,6 +7047,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> hbm_invalidated_{0};
   std::atomic<int64_t> hbm_requantized_{0};
   std::atomic<int64_t> hbm_tombstone_reads_{0};
+  std::atomic<int64_t> hbm_evicted_{0};
   std::atomic<int64_t> hbm_tombstone_mask_reads_{0};
   // Bulk copy of the HBM tier shared by checkpoint fills
   // (KVZCH_EXCLUSIVE_HBM_SNAPSHOT_FILLS); read and replaced on hbm_executor_.

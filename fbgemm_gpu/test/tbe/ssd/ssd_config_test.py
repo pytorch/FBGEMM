@@ -254,7 +254,7 @@ class KVZCHParamsValidateTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 KVZCHParams(enrichment_policy=policy).validate()
 
-    def test_owner_cache_exclusive_requires_int8_and_no_read_populate(self) -> None:
+    def test_owner_cache_exclusive_requires_no_read_populate(self) -> None:
         from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
 
         exclusive = EnrichmentPolicy(
@@ -266,8 +266,12 @@ class KVZCHParamsValidateTest(unittest.TestCase):
             owner_cache_exclusive_promote_every_n=2,
         )
         KVZCHParams(enrichment_policy=exclusive).validate()
+        # The cache holds rows in the DRAM storage format, so it does not need
+        # owner_cache_int8.
+        KVZCHParams(
+            enrichment_policy=exclusive._replace(owner_cache_int8=False)
+        ).validate()
         for policy in (
-            exclusive._replace(owner_cache_int8=False),
             exclusive._replace(owner_cache_read_populate=True),
             exclusive._replace(owner_cache_exclusive_promote_max_rows=-1),
             exclusive._replace(owner_cache_exclusive_promote_every_n=0),

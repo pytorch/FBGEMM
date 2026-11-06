@@ -331,11 +331,13 @@ class EnrichmentPolicy(NamedTuple):
     owner_cache_read_populate: bool = False
     # Limit read-path population to this many lookups. Zero means unlimited.
     owner_cache_read_populate_max_lookups: int = 0
-    # Store owner-cache rows as row-wise INT8 (D codes + fp32 scale and bias)
-    # instead of weights_precision. Requires an enrichment_dim divisible by 4.
+    # No longer selects a format: owner-cache rows are always in the DRAM
+    # storage format (weights_precision rows, the INT8 rows of int8_storage, or
+    # the g8 bytes of packed_storage). Kept for config compatibility and as the
+    # gate of owner_cache_int8_fused_float.
     owner_cache_int8: bool = False
-    # With owner_cache_int8 and an FP32 output_dtype, dequantize straight into
-    # FP32 in one kernel instead of gathering weights_precision rows and casting.
+    # With quantized owner-cache rows (int8_storage or packed_storage) and an
+    # FP32 output_dtype, decode straight into FP32 in one kernel.
     owner_cache_int8_fused_float: bool = False
     # Whole SMs the owner-cache gather leaves free for concurrent kernels such as
     # NCCL collectives: its grid is capped at (SM count - this) CTAs. 0 = uncapped.
@@ -354,11 +356,11 @@ class EnrichmentPolicy(NamedTuple):
     # checkpoints carry these raw rows. Requires serving_qdq_bit_rate 4 and
     # serving_qdq_group_size 8.
     packed_storage: bool = False
-    # Exclusive owner-local cache: a row moved into the INT8 HBM cache is
-    # dropped from DRAM (only its timestamp stays there), so the HBM budget adds
+    # Exclusive owner-local cache: a row moved into the HBM cache is dropped
+    # from DRAM (only its timestamp stays there), so the HBM budget adds
     # capacity instead of copying rows. Every lookup moves its missed rows into
     # empty slots; rows go back to DRAM when idle past the table TTL, rewritten,
-    # or reset. Requires owner_cache_int8 and the DRAM backend, and replaces
+    # or reset. Requires the DRAM backend, and replaces
     # owner_cache_read_populate.
     owner_cache_exclusive: bool = False
     # Most missed rows a lookup moves into HBM. Zero means every miss.
@@ -414,9 +416,6 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             self.owner_cache_gather_reserved_sms == 0 or self.owner_cache_size_mb > 0
         ), "owner_cache_gather_reserved_sms requires owner_cache_size_mb"
-        assert (
-            not self.owner_cache_exclusive or self.owner_cache_int8
-        ), "owner_cache_exclusive requires owner_cache_int8"
         assert not (
             self.owner_cache_exclusive and self.owner_cache_read_populate
         ), "owner_cache_exclusive replaces owner_cache_read_populate"
