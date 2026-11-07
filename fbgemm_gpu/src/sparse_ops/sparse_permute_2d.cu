@@ -6,9 +6,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
 using Tensor = at::Tensor;
 
@@ -257,6 +259,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_flat(
     int64_t len,
     int32_t T,
     int32_t B,
+    int64_t virtual_block_offset,
     const indices_t* __restrict__ indices,
     const int32_t* __restrict__ permute,
     const offsets_t* __restrict__ input_offsets,
@@ -268,7 +271,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_flat(
 
   const int32_t BT = B * T;
   const int64_t block_base =
-      static_cast<int64_t>(blockIdx.x) * blockDim.x * ELEMS_PER_THREAD;
+      (static_cast<int64_t>(blockIdx.x) + virtual_block_offset) * blockDim.x *
+      ELEMS_PER_THREAD;
   if (block_base >= len) {
     return;
   }
@@ -594,8 +598,14 @@ permute_2D_sparse_preallocated_out_cuda(
   if (use_flat_kernel) {
     const int64_t elems_per_block =
         static_cast<int64_t>(kFlatThreads) * kFlatElemsPerThread;
-    const int32_t num_blocks = static_cast<int32_t>(
-        (permuted_indices_size + elems_per_block - 1) / elems_per_block);
+    const int64_t num_blocks =
+        (permuted_indices_size + elems_per_block - 1) / elems_per_block;
+#ifdef USE_ROCM
+    constexpr int64_t max_blocks_per_launch =
+        utils::cuda::kMaxThreadsPerLaunch / kFlatThreads;
+#else
+    const int64_t max_blocks_per_launch = num_blocks;
+#endif
     dispatch_index_types(
         output_offsets.scalar_type(),
         "permute_2D_block_first_row",
@@ -604,24 +614,31 @@ permute_2D_sparse_preallocated_out_cuda(
               indices.scalar_type(),
               "permute_2D_data_kernel_flat",
               [&]<typename indices_t>() {
-                FBGEMM_LAUNCH_KERNEL(
-                    (permute_2D_data_kernel_flat<
-                        kFlatElemsPerThread,
-                        kFlatSmemRows,
-                        offsets_t,
-                        indices_t>),
-                    num_blocks,
-                    kFlatThreads,
-                    0,
-                    at::cuda::getCurrentCUDAStream(),
-                    permuted_indices_size,
-                    T,
-                    B,
-                    indices_contig.data_ptr<indices_t>(),
-                    permute_contig.data_ptr<int32_t>(),
-                    input_offsets.data_ptr<offsets_t>(),
-                    output_offsets.data_ptr<offsets_t>(),
-                    permuted_indices.data_ptr<indices_t>());
+                for (int64_t virtual_block_offset = 0;
+                     virtual_block_offset < num_blocks;
+                     virtual_block_offset += max_blocks_per_launch) {
+                  const auto launch_blocks = std::min<int64_t>(
+                      max_blocks_per_launch, num_blocks - virtual_block_offset);
+                  FBGEMM_LAUNCH_KERNEL(
+                      (permute_2D_data_kernel_flat<
+                          kFlatElemsPerThread,
+                          kFlatSmemRows,
+                          offsets_t,
+                          indices_t>),
+                      launch_blocks,
+                      kFlatThreads,
+                      0,
+                      at::cuda::getCurrentCUDAStream(),
+                      permuted_indices_size,
+                      T,
+                      B,
+                      virtual_block_offset,
+                      indices_contig.data_ptr<indices_t>(),
+                      permute_contig.data_ptr<int32_t>(),
+                      input_offsets.data_ptr<offsets_t>(),
+                      output_offsets.data_ptr<offsets_t>(),
+                      permuted_indices.data_ptr<indices_t>());
+                }
               });
         });
 
