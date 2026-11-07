@@ -33,8 +33,8 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
 
   __shared__ scalar_t sum_value;
 
-  const auto tid = threadIdx.x;
-  for (uint32_t b = blockIdx.y; b < B; b += gridDim.y) {
+  const int32_t tid = static_cast<int32_t>(threadIdx.x);
+  for (int64_t b = blockIdx.y; b < B; b += gridDim.y) {
     const index_t row_start = offsets[b];
     const index_t row_end = offsets[b + 1];
     const auto length = min(row_end - row_start, (index_t)max_L);
@@ -43,7 +43,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
       const auto num_l_blocks =
           (length + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-      for (uint32_t d = blockIdx.x; d < D; d += gridDim.x) {
+      for (int64_t d = blockIdx.x; d < D; d += gridDim.x) {
         if (tid == 0) {
           sum_value = 0;
         }
@@ -52,7 +52,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
         // Each block has its own sum, and sum_value is the sum value across all
         // blocks
         for (auto bk_l = 0; bk_l < num_l_blocks; bk_l++) {
-          const auto l = bk_l * blockDim.x + tid;
+          const int64_t l = static_cast<int64_t>(bk_l) * blockDim.x + tid;
           scalar_t thread_val = 0;
           if (l < length) {
             thread_val =
@@ -73,7 +73,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
         __syncthreads();
 
         for (auto bk_l = 0; bk_l < num_l_blocks; bk_l++) {
-          const auto l = bk_l * blockDim.x + tid;
+          const int64_t l = static_cast<int64_t>(bk_l) * blockDim.x + tid;
           if (l < length) {
             grad_input[row_start + l][d] =
                 (grad_output[row_start + l][d] - sum_value) *

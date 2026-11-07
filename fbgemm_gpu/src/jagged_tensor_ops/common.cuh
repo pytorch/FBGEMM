@@ -231,7 +231,9 @@ inline std::tuple<dim3, dim3, StackArray<int64_t>> check_shape_and_partition_(
 
   StackArray<int64_t> jagged_dims_tensor;
   const int num_jagged_dim = dense_tensor.dim() - 2;
-  TORCH_CHECK(num_jagged_dim <= kStackArrayMaxDims);
+  TORCH_CHECK(
+      num_jagged_dim >= 0 &&
+      num_jagged_dim <= static_cast<int64_t>(kStackArrayMaxDims));
   jagged_dims_tensor.ndim = num_jagged_dim;
   std::memcpy(
       &(jagged_dims_tensor.vals[0]),
@@ -462,7 +464,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_(
   struct SharedMemory<index_t> smem;
   index_t* offsets_sh = smem.getPointer();
 
-  for (auto i = threadIdx.x; i < B + 1; i += blockDim.x) {
+  for (int64_t i = threadIdx.x; i < static_cast<int64_t>(B) + 1;
+       i += blockDim.x) {
     offsets_sh[i] = offsets[i];
   }
   __syncthreads();
@@ -470,9 +473,10 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_(
   // launch-side limit) still covers every row. The pre-loop shared-memory
   // load above is performed once per block; the data remains valid across
   // all grid-stride iterations.
-  const auto row_init = threadIdx.x + blockIdx.x * blockDim.x;
-  const auto row_stride = gridDim.x * blockDim.x;
-  for (auto row = row_init; row < nnz; row += row_stride) {
+  const int64_t row_init =
+      threadIdx.x + static_cast<int64_t>(blockIdx.x) * blockDim.x;
+  const int64_t row_stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t row = row_init; row < nnz; row += row_stride) {
     int first = 1;
     int count = B - 1;
     while (count > 0) {
@@ -605,7 +609,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
     const int nnz,
     const int E,
     F f) {
-  auto values_row = threadIdx.y + blockIdx.y * blockDim.y;
+  const int64_t values_row =
+      threadIdx.y + static_cast<int64_t>(blockIdx.y) * blockDim.y;
   if (values_row >= nnz)
     return;
   for (int real_row = values_row; real_row < nnz;
@@ -622,7 +627,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
     if ((dense_col < y0.size(1)) && (dense_row < y0.size(0)) &&
         (dense_col < y1.size(1)) && (dense_row < y1.size(0)) &&
         (dense_col >= 0) && (dense_row >= 0)) {
-      for (auto tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
+      for (int64_t tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
         VecType128 v_x, v_out, v_y0, v_y1;
         v_x.data.mask =
             (reinterpret_cast<const VecType128::TType*>(x_ptr))[tid];
@@ -634,7 +639,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType128::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (auto tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
+      for (int64_t tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
            tid += blockDim.x) {
         VecType64 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType64::TType*>(x_ptr))[tid];
@@ -646,7 +651,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType64::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (auto tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
+      for (int64_t tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
            tid += blockDim.x) {
         VecType32 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType32::TType*>(x_ptr))[tid];
@@ -658,7 +663,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType32::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (auto tid = threadIdx.x + (E / 2) * 2; tid < E; tid += blockDim.x) {
+      for (int64_t tid = threadIdx.x + (E / 2) * 2; tid < E;
+           tid += blockDim.x) {
         __half v_x, v_out, v_y0, v_y1;
         v_x = static_cast<__half>(x_ptr[tid]);
         v_y0 = static_cast<__half>(y0_ptr[tid]);
@@ -667,7 +673,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         values_ptr[tid] = v_out;
       }
     } else {
-      for (auto tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
+      for (int64_t tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
         VecType128 v_x, v_out, v_y0, v_y1;
         v_x.data.mask =
             (reinterpret_cast<const VecType128::TType*>(x_ptr))[tid];
@@ -675,7 +681,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType128::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (auto tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
+      for (int64_t tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
            tid += blockDim.x) {
         VecType64 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType64::TType*>(x_ptr))[tid];
@@ -683,7 +689,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType64::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (auto tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
+      for (int64_t tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
            tid += blockDim.x) {
         VecType32 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType32::TType*>(x_ptr))[tid];
@@ -691,7 +697,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType32::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (auto tid = threadIdx.x + (E / 2) * 2; tid < E; tid += blockDim.x) {
+      for (int64_t tid = threadIdx.x + (E / 2) * 2; tid < E;
+           tid += blockDim.x) {
         __half v_x, v_out, v_y0, v_y1;
         v_x = static_cast<__half>(x_ptr[tid]);
         fh(v_out, v_x, v_y0, v_y1, f);
@@ -755,7 +762,7 @@ inline bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
   // MI100 has independent shared mem and L1
   int used_shared_kb = shared_kb;
 #endif
-  int used_shared_bytes = used_shared_kb << 10;
+  const size_t used_shared_bytes = static_cast<size_t>(used_shared_kb) << 10;
   AT_DISPATCH_INDEX_TYPES(
       x_offsets[0].scalar_type(), "check_shared_memory", [&] {
         auto B = y_0_reshaped.size(0);
@@ -943,7 +950,8 @@ void jagged_dense_elementwise_jagged_output_opt_(
             // MI100 has independent shared mem and L1
             int used_shared_kb = shared_kb;
 #endif
-            int used_shared_bytes = used_shared_kb << 10;
+            const size_t used_shared_bytes = static_cast<size_t>(used_shared_kb)
+                << 10;
 
             utils::cuda::set_max_dynamic_smem(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<

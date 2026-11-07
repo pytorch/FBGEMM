@@ -24,9 +24,13 @@ __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
   const int max_L = x.size(1);
   const int D = y.size(1);
 
-  const auto b_h_l_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto b_h_l_step = gridDim.x * blockDim.y;
-  for (int b_h_l = b_h_l_begin; b_h_l < B * H * max_L; b_h_l += b_h_l_step) {
+  const int64_t b_h_l_begin =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t b_h_l_step =
+      static_cast<int64_t>(gridDim.x) * blockDim.y;
+  for (int64_t b_h_l = b_h_l_begin;
+       b_h_l < static_cast<int64_t>(B) * H * max_L;
+       b_h_l += b_h_l_step) {
     const int b_h = b_h_l / max_L;
     const int b = b_h / H;
     const int h = b_h % H;
@@ -36,7 +40,8 @@ __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
     const int row_end = offsets[b + 1];
     const int length = row_end - row_start;
     if (l < length) {
-      for (auto d = threadIdx.x; d < D; d += blockDim.x) {
+      for (int32_t d = static_cast<int32_t>(threadIdx.x); d < D;
+           d += blockDim.x) {
         output_values[row_start + l][h * D + d] = x[b_h][l] * y[b_h][d];
       }
     }
@@ -55,9 +60,11 @@ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
   const int max_L = output.size(1);
   const int D = v.size(1);
 
-  const auto b_h_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const auto b_h_step = gridDim.x * blockDim.y;
-  for (int b_h = b_h_begin; b_h < B * H; b_h += b_h_step) {
+  const int64_t b_h_begin =
+      static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t b_h_step = static_cast<int64_t>(gridDim.x) * blockDim.y;
+  for (int64_t b_h = b_h_begin; b_h < static_cast<int64_t>(B) * H;
+       b_h += b_h_step) {
     const int b = b_h / H;
     const int h = b_h % H;
 
@@ -65,12 +72,13 @@ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
     const int row_end = a_offsets[b + 1];
     const int length = std::min(row_end - row_start, max_L);
     if (D == 0) {
-      for (auto l = threadIdx.x; l < max_L; ++l) {
+      for (int32_t l = static_cast<int32_t>(threadIdx.x); l < max_L; ++l) {
         output[b_h][l] = 0;
       }
     } else {
       int l;
-      for (l = threadIdx.x; l < length; l += blockDim.x) {
+      for (l = static_cast<int32_t>(threadIdx.x); l < length;
+           l += blockDim.x) {
         at::acc_type<scalar_t, true> acc =
             v[b_h][0] * a_values[row_start + l][h * D];
         for (int d = 1; d < D; ++d) {
