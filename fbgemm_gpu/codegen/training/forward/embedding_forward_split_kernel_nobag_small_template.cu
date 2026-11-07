@@ -66,12 +66,16 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     // threads-per-launch limit, so we grid-stride to cover the full workload.
     // On CUDA the grid is not capped and the loop body runs once per warp.
 #ifdef USE_ROCM
-    for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-         b_t < offsets.size(0) - 1;
-         b_t += blockDim.y * gridDim.x) {
+    const int64_t num_b_t = static_cast<int64_t>(offsets.size(0)) - 1;
+    for (int64_t b_t =
+             static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+         b_t < num_b_t;
+         b_t += static_cast<int64_t>(blockDim.y) * gridDim.x) {
 #else
-    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    if (b_t >= offsets.size(0) - 1) {
+    const int64_t num_b_t = static_cast<int64_t>(offsets.size(0)) - 1;
+    const int64_t b_t =
+        static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+    if (b_t >= num_b_t) {
         return;
     }
 #endif
@@ -81,7 +85,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     int32_t t;
     int32_t b;
 
-    fd_B.DivMod(b_t, &t, &b);
+    fd_B.DivMod(static_cast<int32_t>(b_t), &t, &b);
 
     {%- if is_index_select %}
     index_t indices_start;
@@ -132,20 +136,30 @@ batch_index_select_dim0_codegen_forward_small_kernel(
         D_emb += kINT8QparamsBytes;
     }
 
-    const auto group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
-    const int32_t group_end = group_start + kThreadGroupSize;
-    const auto d = threadIdx.x % kThreadGroupSize * 4;
+    const int64_t signed_thread_group_size =
+        static_cast<int64_t>(kThreadGroupSize);
+    const int64_t thread_idx = static_cast<int64_t>(threadIdx.x);
+    const int64_t group_start =
+        thread_idx / signed_thread_group_size * signed_thread_group_size;
+    const int64_t group_end = group_start + signed_thread_group_size;
+    const int64_t d = thread_idx % signed_thread_group_size * 4;
 
-    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-        auto l = l_start + threadIdx.x;
-        int64_t idx = l < L ? indices[indices_start + l] : 0;
+    for (int64_t l_start = 0; l_start < L;
+         l_start += kWarpSize) {
+        const int64_t l = l_start + threadIdx.x;
+        int64_t idx = l < L
+            ? indices[indices_start + l]
+            : 0;
         {%- if not dense %}
         const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} =
-          (placement == PlacementType::MANAGED_CACHING && l < L)
+          (placement == PlacementType::MANAGED_CACHING &&
+           l < L)
             ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
         {%- endif %}
-        for (auto j = group_start; j < group_end && l_start + j < L; ++j) {
-            int64_t idx_j = shfl_sync(idx, j);
+        for (int64_t j = group_start;
+             j < group_end && l_start + j < L;
+             ++j) {
+            int64_t idx_j = shfl_sync(idx, static_cast<int32_t>(j));
             {%- if is_index_select %}
             int64_t output_j = L_start + l_start + j;
             {%- else %}
@@ -153,7 +167,8 @@ batch_index_select_dim0_codegen_forward_small_kernel(
             {%- endif %}
             {%- if not dense %}
             const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j =
-              shfl_sync({{ locs_or_addrs_idx }}, j);
+              shfl_sync(
+                  {{ locs_or_addrs_idx }}, static_cast<int32_t>(j));
             {%- endif %}
 
             auto weight_row_emb = WeightRowAccessor<emb_t, cache_t>(
