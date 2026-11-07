@@ -214,6 +214,39 @@ _cu_func_set_attribute_fn: Callable[[int, int, int], int] | None = None
 # fp32 scale and bias after the codes of each INT8 owner-cache row.
 _INT8_ROWWISE_QPARAMS_BYTES = 8
 
+# KVZCH_OWNER_CACHE_HIT_METRICS=1: every KVZCH_OWNER_CACHE_HIT_METRICS_EVERY_N
+# steps, report the owner-local HBM cache hit rate (probed on every N-th
+# lookup), conflict misses, occupancy and the trainer row writes it holds.
+_OWNER_CACHE_HIT_METRICS_ENV = "KVZCH_OWNER_CACHE_HIT_METRICS"
+_OWNER_CACHE_HIT_METRICS_EVERY_N_ENV = "KVZCH_OWNER_CACHE_HIT_METRICS_EVERY_N"
+_OWNER_CACHE_METRIC_NAMES = (
+    "hit_rate",
+    "hits",
+    "queries",
+    "conflict_miss",
+    "empty_miss",
+    "occupancy",
+    "nro_written",
+    "nro_hbm_landed",
+    "nro_hbm_resident_rate",
+)
+# MurmurHash3 finalizer constants of cache_slot() as signed int64.
+_CACHE_SLOT_MIX_1 = 0xFF51AFD7ED558CCD - (1 << 64)
+_CACHE_SLOT_MIX_2 = 0xC4CEB9FE1A85EC53 - (1 << 64)
+
+
+def _owner_cache_slots(keys: torch.Tensor, num_slots: int) -> torch.Tensor:
+    """cache_slot() of split_embeddings_cache_cuda.cuh with int64 tensor ops:
+    the direct-mapped slot of each key."""
+    h = keys.to(torch.int64)
+    for mix in (_CACHE_SLOT_MIX_1, _CACHE_SLOT_MIX_2):
+        h = h ^ ((h >> 33) & 0x7FFFFFFF)
+        h = h * mix
+    h = h ^ ((h >> 33) & 0x7FFFFFFF)
+    # h as uint64 modulo num_slots, from its top 63 bits and its low bit.
+    high = (h >> 1) & 0x7FFFFFFFFFFFFFFF
+    return ((high % num_slots) * 2 + (h & 1)) % num_slots
+
 
 def _get_kvzch_gather_int8_cast_triton_kernel() -> (
     "tuple[triton.JITFunction, dict[torch.dtype, tl.dtype]]"
@@ -554,6 +587,14 @@ class _DirectMappedEnrichmentCache(nn.Module):
         )
         self._read_populate = read_populate
         self._read_populate_max_lookups = read_populate_max_lookups
+        self._hit_metrics: bool = (
+            os.environ.get(_OWNER_CACHE_HIT_METRICS_ENV, "0") == "1"
+        )
+        self.hit_metrics_every_n: int = max(
+            1, int(os.environ.get(_OWNER_CACHE_HIT_METRICS_EVERY_N_ENV, "100"))
+        )
+        self._metric_lookup_count = 0
+        self._last_write_indices: torch.Tensor | None = None
         self._last_query_count = 0
         self._last_miss_count: torch.Tensor | None = None
         self._action_indices: torch.Tensor | None = None
@@ -582,6 +623,15 @@ class _DirectMappedEnrichmentCache(nn.Module):
             torch.zeros(1, dtype=torch.int64, device=device),
             persistent=False,
         )
+        # Device-side metric counters (no host sync until a report):
+        # probed queries, hits, conflict misses, empty-slot misses, trainer
+        # rows written, written rows inserted into HBM.
+        if self._hit_metrics:
+            self.register_buffer(
+                "_metric_counts",
+                torch.zeros(6, dtype=torch.int64, device=device),
+                persistent=False,
+            )
         logging.info(
             "Direct enrichment owner cache has %d rows (%.2f GiB); "
             "read_populate=%s; read_populate_max_lookups=%d; storage=%s; "
@@ -678,6 +728,10 @@ class _DirectMappedEnrichmentCache(nn.Module):
                 ),
                 device=indices.device,
             )
+        if self._hit_metrics:
+            if self._metric_lookup_count % self.hit_metrics_every_n == 0:
+                self._probe_lookup(indices)
+            self._metric_lookup_count += 1
         (
             action_indices,
             action_indices_cpu,
@@ -787,6 +841,58 @@ class _DirectMappedEnrichmentCache(nn.Module):
             rows.contiguous(),
             None,
         )
+
+    def _probe_lookup(self, indices: torch.Tensor) -> None:
+        """Counts, on device, the hits, conflict misses (slot holds another
+        key) and empty-slot misses the coming lookup of `indices` will see."""
+        tags = self.cache_state[
+            _owner_cache_slots(indices, self.cache_state.size(0)), 0
+        ]
+        hit = tags == indices
+        miss = ~hit
+        self._metric_counts[:4] += torch.stack(
+            (
+                torch.full_like(tags[0], indices.numel()),
+                hit.sum(),
+                (miss & (tags >= 0)).sum(),
+                (miss & (tags == -1)).sum(),
+            )
+        )
+
+    def note_write(
+        self, indices: torch.Tensor, landed: torch.Tensor | None = None
+    ) -> None:
+        """Counts trainer rows written to the backend and, with direct HBM
+        writes, how many of them were inserted into HBM."""
+        if not self._hit_metrics:
+            return
+        self._metric_counts[4] += indices.numel()
+        if landed is not None:
+            self._metric_counts[5] += landed
+        self._last_write_indices = indices
+
+    def hit_metrics(self) -> dict[str, float]:
+        """Cumulative counters and current occupancy; syncs the device."""
+        queries, hits, conflict, empty, written, landed = self._metric_counts.tolist()
+        metrics = {
+            "queries": float(queries),
+            "hits": float(hits),
+            "conflict_miss": float(conflict),
+            "empty_miss": float(empty),
+            "nro_written": float(written),
+            "nro_hbm_landed": float(landed),
+            "occupancy": float((self.cache_state >= 0).sum())
+            / self.cache_state.size(0),
+        }
+        last = self._last_write_indices
+        if last is not None and last.numel() > 0:
+            tags = self.cache_state[
+                _owner_cache_slots(last, self.cache_state.size(0)), 0
+            ]
+            metrics["nro_hbm_resident_rate"] = (
+                float((tags == last).sum()) / last.numel()
+            )
+        return metrics
 
     def last_hit_counts(self) -> tuple[int, int]:
         if self._last_miss_count is None:
@@ -2318,6 +2424,24 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._prefetched_direct_backend_output: torch.Tensor | None = None
         self._prefetched_direct_backend_indices: torch.Tensor | None = None
         self._pending_direct_cache_fill_indices: torch.Tensor | None = None
+        # KVZCH_ROW_WRITE_DIRECT_HBM=1: enrichment_write_rows of fp16 rows
+        # writes DRAM in stream order and then inserts the rows DRAM stored
+        # into the owner-local HBM cache right away, instead of waiting for
+        # the next write to warm them (the exclusive cache only into empty
+        # slots, promoted as a lookup promotes them).
+        self._row_write_direct_hbm: bool = (
+            os.environ.get("KVZCH_ROW_WRITE_DIRECT_HBM", "0") == "1"
+        )
+        # Its workspaces: the written batch, the rows DRAM stored (zero for the
+        # others) and which rows it stored.
+        self._written_keys_cpu: torch.Tensor | None = None
+        self._written_rows_cpu: torch.Tensor | None = None
+        self._stored_rows: torch.Tensor | None = None
+        self._stored_rows_cpu: torch.Tensor | None = None
+        self._stored: torch.Tensor | None = None
+        self._stored_cpu: torch.Tensor | None = None
+        self._last_owner_cache_metrics: dict[str, float] = {}
+        self._registered_owner_cache_metrics: set[str] = set()
         # KVZCH_EXCLUSIVE_HBM_MASKED_WRITE_PROMOTE=1: the write-side promotion
         # into the exclusive owner cache masks rows instead of boolean-indexing
         # them (no host sync) and is capped at its promote_max_rows.
@@ -3654,8 +3778,69 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def _advance_direct_enrichment_iteration(self) -> None:
         if self.gather_ssd_cache_stats and dist.get_rank() == 0:
             self._report_kv_backend_stats()
+        owner_cache = self._direct_enrichment_cache
+        if (
+            owner_cache is not None
+            and owner_cache._hit_metrics
+            and self.step > 0
+            and self.step % owner_cache.hit_metrics_every_n == 0
+            and (not dist.is_initialized() or dist.get_rank() == 0)
+        ):
+            self._report_owner_cache_metrics(owner_cache)
         self.may_trigger_eviction()
         self.step += 1
+
+    def _report_owner_cache_metrics(
+        self, owner_cache: _DirectMappedEnrichmentCache
+    ) -> None:
+        """Reports the owner-local HBM cache metrics since the last report as
+        kvzch_cu_owner_cache.tbe_id<N>.<name> (tensorboard and logs)."""
+        current = owner_cache.hit_metrics()
+        last = self._last_owner_cache_metrics
+        self._last_owner_cache_metrics = current
+
+        def delta(name: str) -> float:
+            return current[name] - last.get(name, 0.0)
+
+        values = {
+            name: delta(name)
+            for name in (
+                "hits",
+                "queries",
+                "conflict_miss",
+                "empty_miss",
+                "nro_written",
+                "nro_hbm_landed",
+            )
+        }
+        values["hit_rate"] = (
+            values["hits"] / values["queries"] if values["queries"] > 0 else 0.0
+        )
+        values["occupancy"] = current["occupancy"]
+        if "nro_hbm_resident_rate" in current:
+            values["nro_hbm_resident_rate"] = current["nro_hbm_resident_rate"]
+        logging.info(
+            "[KVZCH owner cache] tbe_id=%s step=%d %s",
+            self.tbe_unique_id,
+            self.step,
+            " ".join(f"{name}={values[name]:.6g}" for name in sorted(values)),
+        )
+        stats_reporter = self.stats_reporter
+        if stats_reporter is None:
+            return
+        for name in _OWNER_CACHE_METRIC_NAMES:
+            if name not in values:
+                continue
+            event_name = f"kvzch_cu_owner_cache.tbe_id{self.tbe_unique_id}.{name}"
+            if event_name not in self._registered_owner_cache_metrics:
+                stats_reporter.register_stats(event_name)
+                self._registered_owner_cache_metrics.add(event_name)
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=event_name,
+                data_bytes=values[name],
+                enable_tb_metrics=True,
+            )
 
     def _prefetch_direct_enrichment(self, indices: torch.Tensor) -> None:
         if self._prefetched_direct_backend_output is not None:
@@ -3702,6 +3887,74 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         current_stream.record_event(self._direct_cache_insert_complete_event)
         self._pending_direct_cache_fill_indices = None
         return pending_indices[found_mask == 0]
+
+    def _grow_direct_write_workspaces(self, rows: torch.Tensor, dim: int) -> None:
+        n = rows.size(0)
+        if (
+            self._written_rows_cpu is not None
+            and self._written_rows_cpu.size(0) >= n
+            and self._written_rows_cpu.size(1) == rows.size(1)
+        ):
+            return
+        if self._written_rows_cpu is not None:
+            # A backend callback may still use the old workspaces.
+            torch.cuda.synchronize(rows.device)
+        capacity = max(n, 1) + max(n, 1) // 4
+        self._written_keys_cpu = torch.empty(
+            capacity, dtype=torch.int64, pin_memory=True
+        )
+        self._written_rows_cpu = torch.empty(
+            (capacity, rows.size(1)), dtype=rows.dtype, pin_memory=True
+        )
+        self._stored_rows = torch.ops.fbgemm.new_unified_tensor(
+            torch.empty(1, dtype=rows.dtype, device=rows.device),
+            (capacity, dim),
+            is_host_mapped=True,
+        )
+        self._stored_rows_cpu = torch.ops.fbgemm.uvm_to_cpu(self._stored_rows)
+        self._stored = torch.ops.fbgemm.new_unified_tensor(
+            torch.empty(1, dtype=torch.uint8, device=rows.device),
+            (capacity,),
+            is_host_mapped=True,
+        )
+        self._stored_cpu = torch.ops.fbgemm.uvm_to_cpu(self._stored)
+
+    def _write_rows_direct(
+        self,
+        owner_cache: _DirectMappedEnrichmentCache,
+        indices: torch.Tensor,
+        rows: torch.Tensor,
+    ) -> None:
+        """KVZCH_ROW_WRITE_DIRECT_HBM: writes the rows of a trainer write to
+        the backend in stream order (write_rows_direct_cuda), then inserts
+        exactly the rows it stored, as it stored them, into the owner-local
+        HBM cache. No host sync."""
+        current_stream = torch.cuda.current_stream()
+        # As write warming: no lookup may still read the slots or workspaces.
+        current_stream.wait_event(self.prefetch_complete_event)
+        n = rows.size(0)
+        self._grow_direct_write_workspaces(rows, owner_cache._embedding_dim)
+        assert self._written_keys_cpu is not None
+        assert self._written_rows_cpu is not None
+        assert self._stored_rows is not None
+        assert self._stored_rows_cpu is not None
+        assert self._stored is not None
+        assert self._stored_cpu is not None
+        keys_cpu = self._written_keys_cpu[:n]
+        keys_cpu.copy_(indices, non_blocking=True)
+        rows_cpu = self._written_rows_cpu[:n]
+        rows_cpu.copy_(rows, non_blocking=True)
+        self.ssd_db.write_rows_direct_cuda(
+            keys_cpu,
+            rows_cpu,
+            torch.tensor([n]),
+            self._stored_rows_cpu[:n],
+            self._stored_cpu[:n],
+        )
+        # Rows DRAM did not store are zero, which the inserts skip.
+        owner_cache.populate_from_write(indices, self._stored_rows[:n])
+        current_stream.record_event(self._direct_cache_insert_complete_event)
+        owner_cache.note_write(indices, self._stored[:n].sum())
 
     def _populate_exclusive_cache_masked(
         self,
@@ -8188,21 +8441,32 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     keep[1:] = sorted_indices[1:] != sorted_indices[:-1]
                     keep &= sorted_rows.abs().amax(dim=1) > 0
                     kept_indices = sorted_indices[keep]
-                    indices_cpu = self.to_pinned_cpu(kept_indices)
-                    rows_cpu = self.to_pinned_cpu(sorted_rows[keep])
+                    kept_rows = sorted_rows[keep]
+                    owner_cache = self._direct_enrichment_cache
+                    if (
+                        owner_cache is not None
+                        and self._row_write_direct_hbm
+                        and rows.dtype == torch.float16
+                    ):
+                        self._write_rows_direct(owner_cache, kept_indices, kept_rows)
+                    else:
+                        if owner_cache is not None:
+                            owner_cache.note_write(kept_indices)
+                        indices_cpu = self.to_pinned_cpu(kept_indices)
+                        rows_cpu = self.to_pinned_cpu(kept_rows)
 
-                    with record_function("## set_embedding_cache_rows ##"):
-                        self.record_function_via_dummy_profile(
-                            "## set_embedding_cache_rows ##",
-                            self.ssd_db.set_embedding_cache_rows_cuda,
-                            indices_cpu,
-                            rows_cpu,
-                            torch.tensor(
-                                [indices_cpu.shape[0]],
-                                device="cpu",
-                                dtype=torch.long,
-                            ),
-                        )
+                        with record_function("## set_embedding_cache_rows ##"):
+                            self.record_function_via_dummy_profile(
+                                "## set_embedding_cache_rows ##",
+                                self.ssd_db.set_embedding_cache_rows_cuda,
+                                indices_cpu,
+                                rows_cpu,
+                                torch.tensor(
+                                    [indices_cpu.shape[0]],
+                                    device="cpu",
+                                    dtype=torch.long,
+                                ),
+                            )
                     if self._direct_enrichment_cache is not None:
                         if retry_indices is not None and retry_indices.numel() > 0:
                             retry_limit = max(1, kept_indices.numel())

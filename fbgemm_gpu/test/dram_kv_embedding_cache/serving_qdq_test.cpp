@@ -2260,6 +2260,70 @@ TEST(ExclusiveHbmTest, ColumnsPastTheHbmRowReadBackAsZero) {
   EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), 300);
 }
 
+TEST(ExclusiveHbmTest, PromotionOfAKeyMissingFromDramEmptiesItsSlot) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto key = at::tensor({21}, at::kLong);
+  const auto now = static_cast<int32_t>(FixedBlockPool::current_timestamp());
+
+  // A slot claimed for a key DRAM does not hold creates no tombstone.
+  const auto claimed = hbm.insert(key, dex_like_rows(1, /*seed=*/46), now);
+  ASSERT_EQ(claimed.size(), 1);
+  cache->exclusive_hbm_promote_async(claimed);
+  cache->exclusive_hbm_wait();
+  EXPECT_EQ(cache->exclusive_hbm_stats()[0], 0);
+  EXPECT_EQ(hbm.tag(21), -1);
+}
+
+TEST(TongxinRowWriteTest, DirectWritesMarkExactlyTheRowsDramStored) {
+  auto cache = make_cache(0);
+  const auto kept = at::tensor({90201}, at::kLong);
+  const auto kept_row = dex_like_rows(1, /*seed=*/76);
+  cache->set_embedding_cache_rows_async(
+      kept, kept_row, at::tensor({1}, at::kLong));
+  cache->wait_row_writes_done();
+  const auto ids = at::tensor({90201, 90202, 90203}, at::kLong);
+  const auto rows = dex_like_rows(3, /*seed=*/77);
+  auto stored_rows = at::ones({3, kDim}, at::kHalf);
+  auto stored = at::ones({3}, at::kByte);
+
+  cache->write_rows_direct(
+      ids, rows, at::tensor({3}, at::kLong), stored_rows, stored);
+
+  // The non-zero row keeps its value, so only the other two are stored.
+  EXPECT_TRUE(at::equal(stored, at::tensor({0, 1, 1}, at::kByte)));
+  const auto dram = read_rows(*cache, ids);
+  EXPECT_TRUE(same_bits(row_ptr(dram, 0), row_ptr(kept_row, 0), kDim));
+  EXPECT_TRUE(same_bits(stored_rows.narrow(0, 1, 2), dram.narrow(0, 1, 2)));
+  EXPECT_EQ(stored_rows[0].abs().max().item<float>(), 0);
+}
+
+TEST(TongxinRowWriteTest, DirectWritesAreDroppedWholeLikeAsyncWrites) {
+  auto cache = make_cache(0);
+  const auto ids = at::tensor({90211, 90212}, at::kLong);
+  const auto count = at::tensor({2}, at::kLong);
+  auto stored_rows = at::ones({2, kDim}, at::kHalf);
+  auto stored = at::ones({2}, at::kByte);
+
+  // While another row write is in flight.
+  cache->hold_row_writes_for_test(true);
+  cache->write_rows_direct(
+      ids, dex_like_rows(2, /*seed=*/78), count, stored_rows, stored);
+  cache->hold_row_writes_for_test(false);
+  EXPECT_EQ(stored.sum().item<int64_t>(), 0);
+  EXPECT_EQ(stored_rows.abs().max().item<float>(), 0);
+  EXPECT_EQ(cache->get_num_rows(), 0);
+
+  // While a stream write runs.
+  stored.fill_(1);
+  const auto pause = cache->pause_for_stream_write();
+  cache->write_rows_direct(
+      ids, dex_like_rows(2, /*seed=*/79), count, stored_rows, stored);
+  cache->resume_after_stream_write(pause);
+  EXPECT_EQ(stored.sum().item<int64_t>(), 0);
+  EXPECT_EQ(cache->get_num_rows(), 0);
+}
+
 TEST(ExclusiveHbmTest, UnsupportedConfigsAreRefused) {
   FakeHbm narrow(kHbmSlots, kDim - 4);
   EXPECT_THROW(make_exclusive_cache(narrow), c10::Error);
