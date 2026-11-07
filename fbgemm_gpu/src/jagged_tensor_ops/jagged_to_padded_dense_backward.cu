@@ -21,7 +21,8 @@ at::Tensor jagged_to_padded_dense_backward(
 
   // Canonicalize padded_values by unsqueeze the last dim if the inner dense
   // dimension is 1 and folded.
-  const bool D_folded = grad_padded_values.dim() == offsets.size() + 1;
+  const bool D_folded =
+      grad_padded_values.dim() == static_cast<int64_t>(offsets.size()) + 1;
   Tensor grad_padded_values_view =
       D_folded ? grad_padded_values.unsqueeze(-1) : grad_padded_values;
   int32_t D = grad_padded_values_view.size(-1);

@@ -77,8 +77,8 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
 
   // Perform scan across blocks
   if (is_multi_block) {
-    const bool is_last_thread =
-        threadIdx.x == (num_entries_per_block - 1) / ITEMS_PER_THREAD;
+    const bool is_last_thread = static_cast<int>(threadIdx.x) ==
+        (num_entries_per_block - 1) / ITEMS_PER_THREAD;
     // The thread that holds the last entry in the block does synchronization
     if (is_last_thread) {
       scalar_t block_prev_local = 0;

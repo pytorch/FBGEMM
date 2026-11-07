@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <cpuinfo.h>
 #include <gtest/gtest.h>
 
 #include "./FBGemmFPTest.h"
@@ -33,9 +34,19 @@ TEST_P(FBGemmFP16Test, TestAvx2) {
 }
 
 TEST_P(FBGemmFP16Test, TestAvx512) {
+  if (!cpuinfo_initialize() || !fbgemm::fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "AVX512 not supported on this CPU";
+  }
   TestRunWithIsa(fbgemm::inst_set_t::avx512);
 }
 
 TEST_P(FBGemmFP16Test, Unpack) {
   UnpackTestRun();
+}
+
+TEST_P(FBGemmFP16Test, TestAvx512_256) {
+  if (!cpuinfo_initialize() || !fbgemm::fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "AVX512 not supported on this CPU";
+  }
+  TestRunWithIsa(fbgemm::inst_set_t::avx512_ymm);
 }

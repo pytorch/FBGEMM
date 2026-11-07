@@ -39,7 +39,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
   const auto NUM_BLOCK_COLS = (N + BLOCK_TILE_N - 1) / BLOCK_TILE_N;
   const auto NUM_BLOCK_ROWS = (M + BLOCK_TILE_M - 1) / BLOCK_TILE_M;
 
-  const auto tx = threadIdx.x;
+  const int32_t tx = static_cast<int32_t>(threadIdx.x);
 
   const auto THREADS_X_PER_BLOCK = BLOCK_TILE_N / THREAD_TILE_N;
   const auto THREADS_Y_PER_BLOCK = BLOCK_TILE_M / THREAD_TILE_M;
@@ -50,13 +50,13 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
   // Grid-stride over (block_col, block_row, b) so a capped grid (used on
   // ROCm to avoid the 2^32 launch-side limit) still covers every output
   // tile.
-  for (auto block_col = blockIdx.x; block_col < NUM_BLOCK_COLS;
+  for (int64_t block_col = blockIdx.x; block_col < NUM_BLOCK_COLS;
        block_col += gridDim.x) {
-    for (auto block_row = blockIdx.y; block_row < NUM_BLOCK_ROWS;
+    for (int64_t block_row = blockIdx.y; block_row < NUM_BLOCK_ROWS;
          block_row += gridDim.y) {
       // Once we remove ROCm<=5.3 support, we should replace uint32_t with auto.
       // See #1655
-      for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
+      for (int64_t b = blockIdx.z; b < B; b += gridDim.z) {
         const index_t row_start = offsets[b];
         const index_t row_end = offsets[b + 1];
         const auto length = min(row_end - row_start, (index_t)max_L);
