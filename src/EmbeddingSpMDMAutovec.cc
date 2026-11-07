@@ -124,6 +124,7 @@ static constexpr uint8x16_t table_indices[] = {
 // 4-bit dequant (vectorized AArch64 path)
 // Processes 16 input bytes -> 32 FP32 outputs per iteration
 // -----------------------------
+template <bool Accumulate>
 static ALWAYS_INLINE void Dequant4bitToF32_neon(
     const uint8_t* input_row,
     float* buf,
@@ -142,15 +143,11 @@ static ALWAYS_INLINE void Dequant4bitToF32_neon(
     // tbl_low_res/tbl_high_res: table lookup result for low/high nibbles
     // q_u32  : reinterpret as u32 lanes
     // q_f32  : converted quant values (float)
-    // buf_tmp: buffer chunk for FMA
     uint8x16_t tbl_low_res[4];
     uint8x16_t tbl_high_res[4];
     uint32x4_t q_u32[8];
     float32x4_t q_f32[8];
-    float32x4_t buf_tmp[8];
-
     const uint8x16_t vmask = vdupq_n_u8(0x0F);
-
     for (; offset < vec_end; offset += 32) {
       // Load 16 input bytes (two 4-bit values per byte)
       const uint8x16_t bytes = vld1q_u8(input_row);
@@ -176,26 +173,89 @@ static ALWAYS_INLINE void Dequant4bitToF32_neon(
       }
 
       for (int i = 0; i < 8; i++) {
-        // Load corresponding buf sections (32 floats = 8x4)
-        buf_tmp[i] = vld1q_f32(buf + offset + i * 4);
-        // FMA: buf + bias + scale * quantized
-        buf_tmp[i] = vfmaq_f32(vaddq_f32(buf_tmp[i], vbias), vscale, q_f32[i]);
-        // Store back to buf
-        vst1q_f32(buf + offset + i * 4, buf_tmp[i]);
+        if constexpr (Accumulate) {
+          const float32x4_t buf_tmp = vld1q_f32(buf + offset + i * 4);
+          vst1q_f32(
+              buf + offset + i * 4,
+              vfmaq_f32(vaddq_f32(buf_tmp, vbias), vscale, q_f32[i]));
+        } else {
+          vst1q_f32(buf + offset + i * 4, vfmaq_f32(vbias, vscale, q_f32[i]));
+        }
       }
     }
   }
 
   // Scalar tail: handle remaining elements (<32 floats)
-  for (; offset < block_size; offset += 2) {
+  for (; offset + 1 < block_size; offset += 2) {
     uint8_t tmp = *input_row++;
     float quantized1 = float(tmp & 0xf);
     float quantized2 = float(tmp >> 4);
-    buf[offset] = std::fma(scale, quantized1, buf[offset] + bias);
-    buf[offset + 1] = std::fma(scale, quantized2, buf[offset + 1] + bias);
+    if constexpr (Accumulate) {
+      buf[offset] = std::fma(scale, quantized1, buf[offset] + bias);
+      buf[offset + 1] = std::fma(scale, quantized2, buf[offset + 1] + bias);
+    } else {
+      buf[offset] = std::fma(scale, quantized1, bias);
+      buf[offset + 1] = std::fma(scale, quantized2, bias);
+    }
+  }
+  if (offset < block_size) {
+    const float quantized = float(*input_row & 0xf);
+    if constexpr (Accumulate) {
+      buf[offset] = std::fma(scale, quantized, buf[offset] + bias);
+    } else {
+      buf[offset] = std::fma(scale, quantized, bias);
+    }
   }
 }
 #endif
+
+template <bool Accumulate>
+static ALWAYS_INLINE void Dequant4bitToF32(
+    const uint8_t* input_row,
+    float* buf,
+    const int64_t block_size,
+    const float scale,
+    const float bias) {
+  int64_t j = 0;
+#ifdef FBGEMM_VECTOR_WIDTH
+  for (; j < block_size - (block_size % (FBGEMM_VECTOR_WIDTH * 2)); j += 2) {
+    const uint8_t tmp = *input_row++;
+    const float quantized1 = float(tmp & 0xf);
+    const float quantized2 = float(tmp >> 4);
+    if constexpr (Accumulate) {
+      buf[j] = std::fma(scale, quantized1, buf[j] + bias);
+      buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
+    } else {
+      buf[j] = std::fma(scale, quantized1, bias);
+      buf[j + 1] = std::fma(scale, quantized2, bias);
+    }
+  }
+#endif
+#ifdef __ARM_NEON
+  Dequant4bitToF32_neon<Accumulate>(input_row, buf, block_size, scale, bias, j);
+#else
+  for (; j + 1 < block_size; j += 2) {
+    const uint8_t tmp = *input_row++;
+    const float quantized1 = float(tmp & 0xf);
+    const float quantized2 = float(tmp >> 4);
+    if constexpr (Accumulate) {
+      buf[j] = std::fma(scale, quantized1, buf[j] + bias);
+      buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
+    } else {
+      buf[j] = std::fma(scale, quantized1, bias);
+      buf[j + 1] = std::fma(scale, quantized2, bias);
+    }
+  }
+  if (j < block_size) {
+    const float quantized = float(*input_row & 0xf);
+    if constexpr (Accumulate) {
+      buf[j] = std::fma(scale, quantized, buf[j] + bias);
+    } else {
+      buf[j] = std::fma(scale, quantized, bias);
+    }
+  }
+#endif
+}
 
 template <typename OutType>
 static inline EmbeddingStatsTracker::DataType get_output_type() {
@@ -531,15 +591,21 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
 
   int64_t current = 0;
   const int64_t rounded_block_size = round_up(block_size, num_elem_per_byte);
+  constexpr bool use_direct_output =
+      InputBitRate == 4 && std::is_same_v<OutType, float>;
+  const int64_t accumulation_buffer_size =
+      use_direct_output ? block_size : rounded_block_size;
 
   std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
   float* buf = nullptr;
-  if (std::cmp_less_equal(rounded_block_size, LOCAL_STORAGE_SIZE)) {
-    buf = local_storage.data();
-  } else {
-    heap_storage.reset(new float[rounded_block_size]);
-    buf = heap_storage.get();
+  if constexpr (!use_direct_output) {
+    if (std::cmp_less_equal(rounded_block_size, LOCAL_STORAGE_SIZE)) {
+      buf = local_storage.data();
+    } else {
+      heap_storage.reset(new float[rounded_block_size]);
+      buf = heap_storage.get();
+    }
   }
 
   for (int64_t m = 0; m < output_size; ++m) {
@@ -548,6 +614,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     int64_t end = current + len;
     if (end > index_size) {
       return false;
+    }
+    if constexpr (use_direct_output) {
+      buf = out;
     }
 
     // Track every forward pass with the actual bag size (len)
@@ -559,7 +628,11 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
         get_output_type<OutType>(),
         output_size,
         len);
-    fillZero(buf, rounded_block_size);
+    bool is_accumulation_buffer_initialized = false;
+    if constexpr (InputBitRate == 2) {
+      fillZero(buf, accumulation_buffer_size);
+      is_accumulation_buffer_initialized = true;
+    }
 
     const float* weights_addr = nullptr;
     if constexpr (HasWeight) {
@@ -602,28 +675,12 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
       }
 
       if constexpr (InputBitRate == 4) {
-        int64_t j = 0;
-#ifdef FBGEMM_VECTOR_WIDTH
-        for (; j < block_size - (block_size % (FBGEMM_VECTOR_WIDTH * 2));
-             j += 2) {
-          uint8_t tmp = *input_row++;
-          float quantized1 = float(tmp & 0xf);
-          float quantized2 = float(tmp >> 4);
-          buf[j] = std::fma(scale, quantized1, buf[j] + bias);
-          buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
+        if (is_accumulation_buffer_initialized) {
+          Dequant4bitToF32<true>(input_row, buf, block_size, scale, bias);
+        } else {
+          Dequant4bitToF32<false>(input_row, buf, block_size, scale, bias);
+          is_accumulation_buffer_initialized = true;
         }
-#endif
-#ifdef __ARM_NEON
-        Dequant4bitToF32_neon(input_row, buf, block_size, scale, bias, j);
-#else
-        for (; j < block_size; j += 2) {
-          uint8_t tmp = *input_row++;
-          float quantized1 = float(tmp & 0xf);
-          float quantized2 = float(tmp >> 4);
-          buf[j] = std::fma(scale, quantized1, buf[j] + bias);
-          buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
-        }
-#endif
       } else if constexpr (InputBitRate == 2) {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
@@ -686,13 +743,19 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
       }
     }
 
+    if (!is_accumulation_buffer_initialized) {
+      fillZero(buf, accumulation_buffer_size);
+    }
+
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;
       for (int64_t j = 0; j < block_size; ++j) {
         buf[j] *= scale;
       }
     }
-    fill_output(out, buf, block_size);
+    if constexpr (!use_direct_output) {
+      fill_output(out, buf, block_size);
+    }
     out += output_stride;
   }
   return current == index_size;
