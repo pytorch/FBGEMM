@@ -389,4 +389,96 @@ pack_row(const c10::Half* row, const PackedLayout& layout, uint8_t* payload) {
   return std::memcmp(decoded.data(), row, layout.dim * sizeof(c10::Half)) == 0;
 }
 
+/// Byte layout of a row stored as row-wise INT8: the first `dim` columns as
+/// dim code bytes then an fp32 scale and an fp32 bias (the INT8 publish row of
+/// torch.ops.quantized.embedding_bag_byte_prepack, and the owner-local HBM
+/// row), followed by the remaining `tail` columns (e.g. optimizer state) as
+/// raw fp16.
+struct Int8Layout {
+  static constexpr int64_t kQparamsBytes = 2 * sizeof(float);
+
+  int64_t dim{0};
+  int64_t tail{0};
+
+  int64_t row_bytes() const {
+    return dim + kQparamsBytes;
+  }
+  int64_t payload_bytes() const {
+    return row_bytes() + tail * static_cast<int64_t>(sizeof(c10::Half));
+  }
+};
+
+enum class Int8Result {
+  kFixed,
+  kMultiPass,
+  kNonFinite,
+  kNotConverged,
+};
+
+/// Decodes an INT8 row as the owner-local HBM gather does: fp16 of
+/// code * scale + bias.
+inline void decode_int8_row(const uint8_t* src, int64_t dim, c10::Half* dst) {
+  float qparams[2];
+  std::memcpy(qparams, src + dim, sizeof(qparams));
+  for (int64_t d = 0; d < dim; ++d) {
+    dst[d] = c10::Half(static_cast<float>(src[d]) * qparams[0] + qparams[1]);
+  }
+}
+
+/// One pass of the INT8 publish quantizer over row[0, dim).
+inline void
+encode_int8_row_once(const c10::Half* row, int64_t dim, uint8_t* dst) {
+  fbgemm::FloatOrHalfToFused8BitRowwiseQuantizedSBFloat<fbgemm::float16>(
+      reinterpret_cast<const fbgemm::float16*>(row),
+      1,
+      static_cast<int>(dim),
+      dst);
+}
+
+/// Replaces nan with 0 and +-inf with +-65504; returns whether all were
+/// finite.
+inline bool clamp_non_finite(c10::Half* row, int64_t dim) {
+  bool finite = true;
+  for (int64_t d = 0; d < dim; ++d) {
+    const float value = static_cast<float>(row[d]);
+    if (std::isfinite(value)) {
+      continue;
+    }
+    finite = false;
+    row[d] = std::isnan(value) ? c10::Half(0.0f)
+                               : c10::Half(value > 0 ? 65504.0f : -65504.0f);
+  }
+  return finite;
+}
+
+/// Encodes row[0, dim) into `dst` (row_bytes() bytes) as codes that a publish
+/// of the decoded row re-derives bit for bit: the row is quantized, then its
+/// fp16 decode is re-quantized until the encoding stops changing (one extra
+/// pass for almost every row). Non-finite values are clamped first.
+inline Int8Result encode_int8_row(
+    const c10::Half* row,
+    int64_t dim,
+    uint8_t* dst,
+    int max_passes = 4) {
+  thread_local std::vector<c10::Half> values;
+  thread_local std::vector<uint8_t> next;
+  values.assign(row, row + dim);
+  const bool finite = clamp_non_finite(values.data(), dim);
+  const auto row_bytes = static_cast<size_t>(dim + Int8Layout::kQparamsBytes);
+  next.resize(row_bytes);
+  encode_int8_row_once(values.data(), dim, dst);
+  for (int pass = 1; pass < max_passes; ++pass) {
+    decode_int8_row(dst, dim, values.data());
+    encode_int8_row_once(values.data(), dim, next.data());
+    if (std::memcmp(next.data(), dst, row_bytes) == 0) {
+      if (!finite) {
+        return Int8Result::kNonFinite;
+      }
+      return pass == 1 ? Int8Result::kFixed : Int8Result::kMultiPass;
+    }
+    std::memcpy(dst, next.data(), row_bytes);
+  }
+  return Int8Result::kNotConverged;
+}
+
 } // namespace kv_mem::serving_qdq
