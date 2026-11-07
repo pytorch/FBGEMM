@@ -41,8 +41,9 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
   const int THREADS_X_PER_BLOCK = BLOCK_TILE_N / THREAD_TILE_N;
   const int THREADS_Y_PER_BLOCK = BLOCK_TILE_M / THREAD_TILE_M;
   const int THREADS_PER_BLOCK = THREADS_X_PER_BLOCK * THREADS_Y_PER_BLOCK;
-  const auto thread_row = threadIdx.x / THREADS_X_PER_BLOCK;
-  const auto thread_col = threadIdx.x % THREADS_X_PER_BLOCK;
+  const int32_t thread_idx = static_cast<int32_t>(threadIdx.x);
+  const int32_t thread_row = thread_idx / THREADS_X_PER_BLOCK;
+  const int32_t thread_col = thread_idx % THREADS_X_PER_BLOCK;
   const auto NUM_K_BLOCKS = (K + BLOCK_TILE_K - 1) / BLOCK_TILE_K;
 
   __shared__ scalar_t As[BLOCK_TILE_M][BLOCK_TILE_K];
@@ -53,26 +54,26 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
   // tile. The per-iteration accumulator and shared-memory tiles are
   // reset/refilled at the inner K-block loop; trailing __syncthreads()
   // between iterations ensures shared-memory reuse is safe.
-  for (auto block_col = blockIdx.x; block_col < NUM_BLOCK_COLS;
+  for (int64_t block_col = blockIdx.x; block_col < NUM_BLOCK_COLS;
        block_col += gridDim.x) {
-    for (auto block_row = blockIdx.y; block_row < NUM_BLOCK_ROWS;
+    for (int64_t block_row = blockIdx.y; block_row < NUM_BLOCK_ROWS;
          block_row += gridDim.y) {
       // Once we remove ROCm<=5.3 support, we should replace uint32_t with auto.
       // See #1655
-      for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
+      for (int64_t b = blockIdx.z; b < B; b += gridDim.z) {
         const index_t row_start = x_offsets[b];
         const index_t row_end = x_offsets[b + 1];
         const auto length = min(row_end - row_start, (index_t)max_L);
 
         // the indices that this current will load into shared mem
-        const auto inner_row_a = threadIdx.x / BLOCK_TILE_K;
-        const auto inner_col_a = threadIdx.x % BLOCK_TILE_K;
+        const int32_t inner_row_a = thread_idx / BLOCK_TILE_K;
+        const int32_t inner_col_a = thread_idx % BLOCK_TILE_K;
         // the number of rows of As that will be loaded per step by a thread
         // block
         const auto A_TILE_ROW_STRIDE = THREADS_PER_BLOCK / BLOCK_TILE_K;
 
-        const auto inner_row_b = threadIdx.x / BLOCK_TILE_N;
-        const auto inner_col_b = threadIdx.x % BLOCK_TILE_N;
+        const int32_t inner_row_b = thread_idx / BLOCK_TILE_N;
+        const int32_t inner_col_b = thread_idx % BLOCK_TILE_N;
         const auto B_TILE_ROW_STRIDE = THREADS_PER_BLOCK / BLOCK_TILE_N;
 
         // registers for C
