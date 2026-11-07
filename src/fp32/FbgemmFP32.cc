@@ -12,9 +12,7 @@
 #include <utility>
 
 #ifndef __aarch64__
-#include "./FbgemmFP32UKernelsAvx2.h" // @manual
-#include "./FbgemmFP32UKernelsAvx512.h" // @manual
-#include "./FbgemmFP32UKernelsAvx512_256.h" // @manual
+#include "../GenerateKernelFP16FP32.h" // @manual
 #else
 #ifdef FBGEMM_ENABLE_KLEIDIAI
 #include "./KleidiAIFP32UKernelsNeon.h" // @manual
@@ -31,61 +29,6 @@ namespace {
 // 2 in ?x2 should be the same as kernel_ncol_blocks.
 // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
 // the restrictions of ymm register numbers (16).
-constexpr kernel_array_t<float> kernel_f32_avx2 = {{
-#ifndef __aarch64__
-    nullptr,
-    gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_2x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_3x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_4x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_5x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp32_fA0fB0fC0}};
-#else
-    nullptr}};
-#endif
-
-constexpr kernel_array_t<float> kernel_f32_avx512 = {{
-#ifndef __aarch64__
-    nullptr,
-    gemmkernel_1x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_2x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_3x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_4x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_5x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_6x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_7x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_8x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_9x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_10x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_11x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_12x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_13x2_Avx512_fp32_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_fp32_fA0fB0fC0}};
-#else
-    nullptr}};
-#endif
-
-// clang-format on
-constexpr kernel_array_t<float> kernel_f32_avx512_256 = {{
-#ifndef __aarch64__
-    nullptr,
-    gemmkernel_1x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_2x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_3x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_4x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_5x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp32_fA0fB0fC0,
-    gemmkernel_7x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_8x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_9x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_10x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_11x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_12x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_13x2_Avx512_256_fp32_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_256_fp32_fA0fB0fC0}};
-#else
-    nullptr}};
-#endif
 
 #ifdef __aarch64__
 #ifdef FBGEMM_ENABLE_KLEIDIAI
@@ -104,11 +47,6 @@ constexpr kernel_array_t<float> kernel_fp32_neon = {{
 
 template <>
 const isa_descriptor<float>& getIsaHandlers(inst_set_t isa) {
-  static isa_descriptor<float> avx2_descriptor{kernel_f32_avx2, partition_avx2};
-  static isa_descriptor<float> avx512_descriptor{
-      kernel_f32_avx512, partition_avx512};
-  static isa_descriptor<float> avx512_256_descriptor{
-      kernel_f32_avx512_256, partition_avx512};
 #ifdef __aarch64__
 #ifdef FBGEMM_ENABLE_KLEIDIAI
   static isa_descriptor<float> neon_descriptor{
@@ -128,16 +66,40 @@ const isa_descriptor<float>& getIsaHandlers(inst_set_t isa) {
 #else
     case inst_set_t::anyarch:
 #endif
-    case inst_set_t::avx2:
-      return avx2_descriptor;
+    case inst_set_t::avx2: {
+      static const isa_descriptor<float> descriptor{
+#ifndef __aarch64__
+          getGemmKernelArray<float, inst_set_t::avx2>(),
+#else
+          kernel_array_t<float>{},
+#endif
+          partition_avx2};
+      return descriptor;
+    }
 
     case inst_set_t::avx512:
-    case inst_set_t::avx512_vnni:
-      return avx512_descriptor;
+    case inst_set_t::avx512_vnni: {
+      static const isa_descriptor<float> descriptor{
+#ifndef __aarch64__
+          getGemmKernelArray<float, inst_set_t::avx512>(),
+#else
+          kernel_array_t<float>{},
+#endif
+          partition_avx512};
+      return descriptor;
+    }
 
     case inst_set_t::avx512_ymm:
-    case inst_set_t::avx512_vnni_ymm:
-      return avx512_256_descriptor;
+    case inst_set_t::avx512_vnni_ymm: {
+      static const isa_descriptor<float> descriptor{
+#ifndef __aarch64__
+          getGemmKernelArray<float, inst_set_t::avx512_ymm>(),
+#else
+          kernel_array_t<float>{},
+#endif
+          partition_avx512};
+      return descriptor;
+    }
   }
 
   throw std::runtime_error("Unsupported uArch");
@@ -179,7 +141,7 @@ FBGEMM_API void ref_kernel<float>(
 }
 #endif // FBGEMM_FP32_FALLBACK_TO_REF_KERNEL
 
-template void cblas_gemm_compute(
+template FBGEMM_API void cblas_gemm_compute(
     const matrix_op_t transa,
     const int m,
     const float* A,
