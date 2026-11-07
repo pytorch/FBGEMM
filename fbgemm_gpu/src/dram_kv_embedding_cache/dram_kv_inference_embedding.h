@@ -33,6 +33,7 @@
 #include "inference_feature_evict.h"
 #include "inference_fixed_block_pool.h"
 #include "kv_inference_embedding_interface.h"
+#include "kv_lookup_stats.h"
 
 namespace kv_mem {
 
@@ -597,6 +598,26 @@ class DramKVInferenceEmbedding
           facebook::fb303::fbData->addStatValue(
               "kvzch.inference.read_total_count",
               read_hit_load + read_missing_load);
+          const auto interval =
+              FLAGS_kv_embedding_table_log_lookup_stats_interval_secs;
+          if (interval > 0) {
+            const auto keys =
+                static_cast<uint64_t>(read_hit_load + read_missing_load);
+            const auto snapshot = lookup_stats_.record(
+                {.batches = 1,
+                 .keys = keys,
+                 .lookupKeys = keys,
+                 .cacheHits = static_cast<uint64_t>(read_hit_load),
+                 .indexMisses = static_cast<uint64_t>(read_missing_load)},
+                std::chrono::seconds(interval));
+            if (snapshot) {
+              LOG(INFO) << "[kv_lookup_stats] backend=dram instance=" << this
+                        << " row_bytes=" << max_D_ * elem_size_
+                        << KVLookupStats::format(*snapshot, false)
+                        << " cache_rows=" << get_num_rows()
+                        << " cache_bytes=" << get_map_used_memsize_in_bytes();
+            }
+          }
           return std::vector<folly::Unit>(results.size());
         });
   };
@@ -1007,6 +1028,8 @@ class DramKVInferenceEmbedding
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
   std::atomic<int> current_iter_{0};
   bool disable_random_init_ = false;
+  KVLookupStats lookup_stats_;
+  friend class KVEmbeddingInferenceTest_LookupStatsCountHitsAndMisses_Test;
 
   // perf stats
   std::atomic<int64_t> read_total_duration_{0};
