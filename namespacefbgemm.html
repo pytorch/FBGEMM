@@ -268,6 +268,8 @@ Functions</h2></td></tr>
 <tr class="memitem:a3535bf91ff758b3bd13929bf9f211c90" id="r_a3535bf91ff758b3bd13929bf9f211c90"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:a3535bf91ff758b3bd13929bf9f211c90 template"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a3535bf91ff758b3bd13929bf9f211c90">genU8Sum8</a> (x86::Emitter *a, T src, T dest, T tmpReg)</td></tr>
 <tr class="memitem:a3a50b707287c0456d23e735846b144c0" id="r_a3a50b707287c0456d23e735846b144c0"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a3a50b707287c0456d23e735846b144c0">initCRegs</a> (x86::Emitter *a, int rowRegs, int colRegs)</td></tr>
+<tr class="memitem:a6bd7ecc767f0744e1eef5e1516398b26" id="r_a6bd7ecc767f0744e1eef5e1516398b26"><td class="memTemplParams" colspan="2">template&lt;typename T, <a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </td></tr>
+<tr class="memitem:a6bd7ecc767f0744e1eef5e1516398b26 template"><td class="memItemLeft">funcptr_t&lt; T &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a6bd7ecc767f0744e1eef5e1516398b26">generateGemmKernel</a> (int kernel_nrows)</td></tr>
 <tr class="memitem:ab87b23be5587e267db6ab7d2b97c6915" id="r_ab87b23be5587e267db6ab7d2b97c6915"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ab87b23be5587e267db6ab7d2b97c6915">requantize_u8acc32_ref</a> (int M, int N, int ld, const std::int32_t *inp, std::uint8_t *out, std::int32_t C_multiplier, std::int32_t C_right_shift, std::int32_t C_zero_point, std::int32_t A_zero_point, std::int32_t B_zero_point, const std::int32_t *row_offsets, const std::int32_t *col_offsets, const std::int32_t *bias, bool fuse_relu=false)</td></tr>
 <tr class="memitem:a798fea9136d48e1cd4c8a2926fb869ed" id="r_a798fea9136d48e1cd4c8a2926fb869ed"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a798fea9136d48e1cd4c8a2926fb869ed">requantize_u8acc32_ref</a> (int M, int N, int ld, const std::int32_t *inp, std::uint8_t *out, const float *C_multiplier, std::int32_t C_zero_point, std::int32_t A_zero_point, const std::int32_t *B_zero_point, const std::int32_t *row_offsets, const std::int32_t *col_offsets, const std::int32_t *bias, int ncols_per_quant_group, bool fuse_relu=false)</td></tr>
 <tr class="memitem:a0f66af5e8e787dc1ff6893ac75ae161f" id="r_a0f66af5e8e787dc1ff6893ac75ae161f"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a0f66af5e8e787dc1ff6893ac75ae161f">col_offsets_with_zero_pt_s8acc32_ref</a> (int K, int N, int ld, const std::int8_t *Bint8, const std::int32_t *B_zero_point, std::int32_t *col_offsets, int ncols_per_quant_group)</td></tr>
@@ -2298,6 +2300,26 @@ template&lt;typename InType, typename IndexType, typename OffsetType = std::int3
   </table>
   </dd>
 </dl>
+
+</div>
+</div>
+<a id="a6bd7ecc767f0744e1eef5e1516398b26" name="a6bd7ecc767f0744e1eef5e1516398b26"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6bd7ecc767f0744e1eef5e1516398b26">&#9670;&#160;</a></span>generateGemmKernel()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename T, <a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">funcptr_t&lt; T &gt; generateGemmKernel </td>
+          <td>(</td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>kernel_nrows</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Generate a JIT-compiled GEMM micro-kernel for the given ISA and data type. Returns a function pointer matching funcptr_t&lt;T&gt;. Each call generates a new kernel; installation in the JIT runtime is serialized. </p>
 
 </div>
 </div>
