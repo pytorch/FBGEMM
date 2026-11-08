@@ -82,8 +82,13 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
         # Instantiate a TBE op
         op = SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[(E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)],
+            weights_precision=weights_precision,
             output_dtype=SparseType.FP32,
             device=device,
+        )
+        self.assertEqual(op.weights_precision, weights_precision)
+        self.assertEqual(
+            op.split_embedding_weights()[0].dtype, weights_precision.as_dtype()
         )
 
         # Generate inputs
