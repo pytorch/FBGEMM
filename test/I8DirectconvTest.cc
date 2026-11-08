@@ -46,18 +46,18 @@ namespace fbgemm {
     //padding */ {pad, pad, pad, pad},
     //    /* dialation */ {1, 1}, /* otpt_pad */ {0,0}, /* trans */ transpose),
 
-    conv_param_t<>(1, 128, 128,     {2, 257}, 1, {2, 6}, {1, 2}, {0, 0, 0, 0},     {1, 1}, {0, 0}, false),
-    conv_param_t<>(1, 16, 16,     {2, 126}, 1, {2, 6}, {1, 2}, {0, 0, 0, 0},     {1, 1}, {0, 0}, false),
-    conv_param_t<>(1, 64, 64,     {2, 257}, 1, {2, 6}, {1, 2}, {0, 0, 0, 0},     {1, 1}, {0, 0}, false),
+    conv_param_t<>(1, 128, 128,     {{2, 257}}, 1, {{2, 6}}, {{1, 2}}, {{0, 0, 0, 0}},     {{1, 1}}, {{0, 0}}, false),
+    conv_param_t<>(1, 16, 16,     {{2, 126}}, 1, {{2, 6}}, {{1, 2}}, {{0, 0, 0, 0}},     {{1, 1}}, {{0, 0}}, false),
+    conv_param_t<>(1, 64, 64,     {{2, 257}}, 1, {{2, 6}}, {{1, 2}}, {{0, 0, 0, 0}},     {{1, 1}}, {{0, 0}}, false),
   };
 
 static vector<conv_param_t<2>> shapes_trans = {
-    conv_param_t<>(1, 256, 176, {2, 4}, 1,   {2, 6}, {1, 2}, {0, 0, 0, 0},
-    {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 128, 128, {4, 12}, 1,   {2, 6}, {1, 1}, {0, 0, 0, 0},
-    {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 512, 64, {4, 50}, 1,   {2, 6}, {1, 1}, {0, 0, 0, 0},
-    {1, 1}, {0, 0}, true),
+    conv_param_t<>(1, 256, 176, {{2, 4}}, 1,   {{2, 6}}, {{1, 2}}, {{0, 0, 0, 0}},
+    {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 128, 128, {{4, 12}}, 1,   {{2, 6}}, {{1, 1}}, {{0, 0, 0, 0}},
+    {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 512, 64, {{4, 50}}, 1,   {{2, 6}}, {{1, 1}}, {{0, 0, 0, 0}},
+    {{1, 1}}, {{0, 0}}, true),
 
 };
 
@@ -109,6 +109,7 @@ static void transposeConvWeights_KwIchO8I4(
   }
 }
 
+#ifndef __aarch64__
 static void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
     const conv_param_t<2>& conv_p,
     const int8_t* Bint8,
@@ -160,6 +161,7 @@ static void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
     }
   }
 }
+#endif
 
 /*
 
@@ -422,6 +424,9 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(1, 2))); // oc_per_g
 
 TEST_P(FBGemmDirectConvTransTest, Test2D) {
+#ifdef __aarch64__
+  GTEST_SKIP() << "Direct convolution is unavailable on ARM64";
+#else
   for (auto conv_p : shapes_trans) {
     int im_in_dim = accumulate(
         conv_p.IN_DIM.begin(), conv_p.IN_DIM.end(), 1, multiplies<int>());
@@ -598,6 +603,7 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
     }
 
   } // for each shape
+#endif
 }
 
 

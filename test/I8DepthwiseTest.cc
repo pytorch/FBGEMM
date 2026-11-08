@@ -160,11 +160,11 @@ TEST_P(FBGemmDepthWiseTest, Test2D) {
         N,
         G,
         OC,
-        {H, W},
+        {{H, W}},
         G,
-        {R, S},
-        {stride_h, stride_w},
-        {PAD_T, PAD_L, PAD_B, PAD_R});
+        {{R, S}},
+        {{stride_h, stride_w}},
+        {{PAD_T, PAD_L, PAD_B, PAD_R}});
     int H_OUT = conv_p.OUT_DIM[0];
     int W_OUT = conv_p.OUT_DIM[1];
 
@@ -304,11 +304,11 @@ TEST_P(FBGemmDepthWiseTest, Test3D) {
         N,
         G,
         OC,
-        {T, H, W},
+        {{T, H, W}},
         G,
-        {K_T, K_H, K_W},
-        {stride_t, stride_h, stride_w},
-        {PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R});
+        {{K_T, K_H, K_W}},
+        {{stride_t, stride_h, stride_w}},
+        {{PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R}});
     int T_OUT = conv_p.OUT_DIM[0];
     int H_OUT = conv_p.OUT_DIM[1];
     int W_OUT = conv_p.OUT_DIM[2];
@@ -444,11 +444,11 @@ TEST_P(
         N,
         G,
         OC,
-        {H, W},
+        {{H, W}},
         G,
-        {R, S},
-        {stride_h, stride_w},
-        {PAD_T, PAD_L, PAD_B, PAD_R});
+        {{R, S}},
+        {{stride_h, stride_w}},
+        {{PAD_T, PAD_L, PAD_B, PAD_R}});
     int H_OUT = conv_p.OUT_DIM[0];
     int W_OUT = conv_p.OUT_DIM[1];
 
@@ -592,11 +592,11 @@ TEST_P(
         N,
         G,
         OC,
-        {T, H, W},
+        {{T, H, W}},
         G,
-        {K_T, K_H, K_W},
-        {stride_t, stride_h, stride_w},
-        {PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R});
+        {{K_T, K_H, K_W}},
+        {{stride_t, stride_h, stride_w}},
+        {{PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R}});
     int T_OUT = conv_p.OUT_DIM[0];
     int H_OUT = conv_p.OUT_DIM[1];
     int W_OUT = conv_p.OUT_DIM[2];

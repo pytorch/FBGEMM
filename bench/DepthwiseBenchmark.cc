@@ -212,11 +212,11 @@ int main() {
         N,
         G,
         OC,
-        {H, W},
+        {{H, W}},
         G,
-        {R, S},
-        {stride_h, stride_w},
-        {PAD_T, PAD_L, PAD_B, PAD_R});
+        {{R, S}},
+        {{stride_h, stride_w}},
+        {{PAD_T, PAD_L, PAD_B, PAD_R}});
     int H_OUT = conv_p.OUT_DIM[0];
     int W_OUT = conv_p.OUT_DIM[1];
 
