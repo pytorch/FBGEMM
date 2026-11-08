@@ -28,14 +28,9 @@ from .common import (
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
+    from test_utils import gpu_available, gpu_unavailable, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        gpu_available,
-        gpu_memory_lt_gb,
-        gpu_unavailable,
-        optests,
-    )
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, optests
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
@@ -485,12 +480,9 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                 )
             torch.testing.assert_close(dequantized_data.cpu(), reference)
 
-    @optests.dontGenerateOpCheckTests("Large grid HIP regression — uses ~4 GB HBM")
+    @optests.dontGenerateOpCheckTests("Large grid HIP regression — uses ~350 MiB HBM")
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore[56]: gpu_memory_lt_gb is typed (bool, str), but Pyre cannot
-    # infer the unpacked arg type through the open-source import shim above.
-    @unittest.skipIf(*gpu_memory_lt_gb(8))
     def test_float_to_fusednbitrowwise_large_grid(self) -> None:
         """
         Regression test for the HIP grid-cap on
@@ -505,7 +497,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         applied across the audit and harmless for kernels that grid-stride.
 
         Two-part test:
-        1. Launch-survival at large grid (nrows ~ 2**28) — verifies the
+        1. Launch-survival at large grid (nrows ~ 2**24) — verifies the
            cap-path compiles and the launch succeeds.
         2. Small-scale Tier-A CPU-oracle correctness — verifies the
            kernel produces the same quantized bytes as the CPU dispatch
@@ -514,7 +506,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         device = torch.device(torch.accelerator.current_accelerator() or "cuda")
 
         # ---- Step 1: launch-survival at large nrows. ----
-        nrows = 1 << 28  # 256M rows
+        nrows = 1 << 24  # 16M rows
         ncols = 4  # smallest valid: ncols % (2 * num_elem_per_byte) == 0 for bit_rate=4
         inp = torch.zeros((nrows, ncols), dtype=torch.float32, device=device)
         output = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(inp, 4)
