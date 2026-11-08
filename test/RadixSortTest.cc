@@ -44,27 +44,27 @@ void test_template(
 
 TEST(cpuKernelTest, radix_sort_parallel_test) {
   test_template<int, 8>(
-      {1, 2, 4, 5, 4, 3, 2, 9},
-      {0, 0, 0, 0, 1, 1, 1, 1},
-      {1, 2, 2, 3, 4, 4, 5, 9},
-      {0, 0, 1, 1, 0, 1, 0, 1},
+      {{1, 2, 4, 5, 4, 3, 2, 9}},
+      {{0, 0, 0, 0, 1, 1, 1, 1}},
+      {{1, 2, 2, 3, 4, 4, 5, 9}},
+      {{0, 0, 1, 1, 0, 1, 0, 1}},
       10,
       false);
 }
 
 TEST(cpuKernelTest, radix_sort_parallel_test_neg_vals) {
   test_template<int64_t, 8>(
-      {-4, -3, 0, 1, -2, -1, 3, 2},
-      {0, 0, 0, 0, 1, 1, 1, 1},
-      {-4, -3, -2, -1, 0, 1, 2, 3},
-      {0, 0, 1, 1, 0, 0, 1, 1});
+      {{-4, -3, 0, 1, -2, -1, 3, 2}},
+      {{0, 0, 0, 0, 1, 1, 1, 1}},
+      {{-4, -3, -2, -1, 0, 1, 2, 3}},
+      {{0, 0, 1, 1, 0, 0, 1, 1}});
 }
 
 TEST(cpuKernelTest, raidx_sort_heap_overflow) {
   constexpr auto max = std::numeric_limits<int>::max();
   test_template<int, 8>(
-      {-1, max, max, -1, max, -1, -1, -1},
-      {1, 2, 3, 4, 5, 6, 7, 8},
-      {-1, -1, -1, -1, -1, max, max, max},
-      {1, 4, 6, 7, 8, 2, 3, 5});
+      {{-1, max, max, -1, max, -1, -1, -1}},
+      {{1, 2, 3, 4, 5, 6, 7, 8}},
+      {{-1, -1, -1, -1, -1, max, max, max}},
+      {{1, 4, 6, 7, 8, 2, 3, 5}});
 }

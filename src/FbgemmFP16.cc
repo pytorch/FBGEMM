@@ -11,9 +11,9 @@
 #include <cmath>
 #include <utility>
 
-#include "./FbgemmFP16UKernelsAvx2.h" // @manual
-#include "./FbgemmFP16UKernelsAvx512.h" // @manual
-#include "./FbgemmFP16UKernelsAvx512_256.h" // @manual
+#ifndef __aarch64__
+#include "./GenerateKernelFP16FP32.h" // @manual
+#endif
 #ifdef __aarch64__
 #include "./FbgemmFP16UKernelsSve128.h" // @manual
 #endif
@@ -33,17 +33,6 @@ namespace {
 // 2 in ?x2 should be the same as kernel_ncol_blocks.
 // Here with kernel_ncol_blocks = 2, we can provide up to 6x2 kernels, due to
 // the restrictions of ymm register numbers (16).
-constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
-    {nullptr,
-#if !defined(__aarch64__)
-     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_6x2_Avx2_fp16_fA0fB0fC0
-#endif
-    }};
 
 #if defined(__aarch64__) && defined(FBGEMM_ENABLE_FP16_SVE128)
 constexpr kernel_array_t<float16> kernel_fp16_sve128 = {{
@@ -77,56 +66,10 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {{
 }};
 #endif
 
-constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
-    {nullptr,
-#if !defined(__aarch64__)
-     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_6x2_Avx2_fp16_fA0fB0fC0,
-     gemmkernel_7x2_Avx512_256_fp16_fA0fB0fC0,
-     gemmkernel_8x2_Avx512_256_fp16_fA0fB0fC0,
-     gemmkernel_9x2_Avx512_256_fp16_fA0fB0fC0,
-     gemmkernel_10x2_Avx512_256_fp16_fA0fB0fC0,
-     gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0,
-     gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0,
-     gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0,
-     gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0
-#endif
-    }};
-
-constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
-    {nullptr,
-#if !defined(__aarch64__)
-     gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_4x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_5x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_6x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_7x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_8x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_9x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_10x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_11x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_12x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_13x2_Avx512_fp16_fA0fB0fC0,
-     gemmkernel_14x2_Avx512_fp16_fA0fB0fC0
-#endif
-    }};
-
 } // namespace
 
 template <>
 const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa) {
-  static isa_descriptor<float16> avx2_descriptor{
-      kernel_fp16_avx2, partition_avx2};
-  static isa_descriptor<float16> avx512_descriptor{
-      kernel_fp16_avx512, partition_avx512};
-  static isa_descriptor<float16> avx512_256_descriptor{
-      kernel_fp16_avx512_256, partition_avx512};
 #ifdef __aarch64__
 #ifdef FBGEMM_ENABLE_KLEIDIAI
   static isa_descriptor<float16> neon_descriptor{
@@ -153,16 +96,40 @@ const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa) {
 #else
     case inst_set_t::anyarch:
 #endif
-    case inst_set_t::avx2:
-      return avx2_descriptor;
+    case inst_set_t::avx2: {
+      static const isa_descriptor<float16> descriptor{
+#ifndef __aarch64__
+          getGemmKernelArray<float16, inst_set_t::avx2>(),
+#else
+          kernel_array_t<float16>{},
+#endif
+          partition_avx2};
+      return descriptor;
+    }
 
     case inst_set_t::avx512:
-    case inst_set_t::avx512_vnni:
-      return avx512_descriptor;
+    case inst_set_t::avx512_vnni: {
+      static const isa_descriptor<float16> descriptor{
+#ifndef __aarch64__
+          getGemmKernelArray<float16, inst_set_t::avx512>(),
+#else
+          kernel_array_t<float16>{},
+#endif
+          partition_avx512};
+      return descriptor;
+    }
 
     case inst_set_t::avx512_ymm:
-    case inst_set_t::avx512_vnni_ymm:
-      return avx512_256_descriptor;
+    case inst_set_t::avx512_vnni_ymm: {
+      static const isa_descriptor<float16> descriptor{
+#ifndef __aarch64__
+          getGemmKernelArray<float16, inst_set_t::avx512_ymm>(),
+#else
+          kernel_array_t<float16>{},
+#endif
+          partition_avx512};
+      return descriptor;
+    }
   }
 
   throw std::runtime_error("Unsupported uArch");

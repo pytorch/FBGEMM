@@ -195,7 +195,6 @@ static int run_benchmark(
         /*output_bit_rate=*/-1);
 #endif
 
-    vector<OutType>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
       bool success_ref = false;
       // Reference implementation
@@ -298,6 +297,7 @@ static int run_benchmark(
 #endif
 
 #ifndef OUT_TYPE_FLOAT16
+      vector<OutType>& output = has_weight ? output_slws : output_sls;
       bool success = false;
       // Hand-written AVX2/AVX512 implementation
       double t = measureWithWarmup(
@@ -514,7 +514,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           false, // use_32_bit_indices
-          false, // prefetch
+          false // prefetch
       );
 
       run_benchmark<fbgemm::bfloat16>(
@@ -525,7 +525,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           false, // use_32_bit_indices
-          false, // prefetch
+          false // prefetch
       );
 #endif // OUT_TYPE_FLOAT16
 
@@ -549,7 +549,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           false, // use_32_bit_indices
-          true, // prefetch
+          true // prefetch
       );
 
       run_benchmark<fbgemm::bfloat16>(
@@ -560,7 +560,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           false, // use_32_bit_indices
-          true, // prefetch
+          true // prefetch
       );
 #endif // OUT_TYPE_FLOAT16
 
@@ -583,7 +583,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           true, // use_32_bit_indices
-          false, // prefetch
+          false // prefetch
       );
 
       run_benchmark<fbgemm::bfloat16>(
@@ -594,7 +594,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           true, // use_32_bit_indices
-          false, // prefetch
+          false // prefetch
       );
 #endif // OUT_TYPE_FLOAT16
 
@@ -618,7 +618,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           true, // use_32_bit_indices
-          true, // prefetch
+          true // prefetch
       );
 
       run_benchmark<fbgemm::bfloat16>(
@@ -629,7 +629,7 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           true, // use_32_bit_indices
-          true, // prefetch
+          true // prefetch
       );
 #endif // OUT_TYPE_FLOAT16
 

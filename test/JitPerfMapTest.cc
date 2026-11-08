@@ -128,11 +128,12 @@ pid_t runInChild(void (*body)()) {
   const pid_t pid = fork();
   if (pid == 0) {
     body();
-    _exit(0);
+    _exit(::testing::Test::HasFailure() ? 1 : 0);
   }
   EXPECT_GT(pid, 0);
   int status = 0;
   EXPECT_EQ(waitpid(pid, &status, 0), pid);
+  EXPECT_EQ(status, 0) << "child process failed";
   return pid;
 }
 
@@ -275,7 +276,7 @@ TEST(JitPerfMapTest, SymlinkAtMapPathIsRefused) {
   const pid_t child = runInChild([] {
     const std::string path = mapPathFor(getpid());
     unlink(path.c_str());
-    symlink("/tmp/fbgemm_perf_map_victim.txt", path.c_str());
+    ASSERT_EQ(symlink("/tmp/fbgemm_perf_map_victim.txt", path.c_str()), 0);
     registerJitCodeForProfiling(kAddr, kSize, kSymbol);
   });
 

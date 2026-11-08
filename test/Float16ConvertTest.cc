@@ -35,7 +35,7 @@ class FBGemmFloat16Test : public testing::TestWithParam<bool> {};
 
 template <FbgemmHalfType T>
 void expectScalarRoundTrips() {
-  constexpr std::array values{-42.0f, -1.5f, 0.0f, 1.5f, 42.0f};
+  constexpr std::array<float, 5> values{{-42.0f, -1.5f, 0.0f, 1.5f, 42.0f}};
   for (const float value : values) {
     EXPECT_FLOAT_EQ(to_float(from_float<T>(value)), value);
   }
