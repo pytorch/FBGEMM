@@ -9,6 +9,7 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
+from contextlib import nullcontext
 
 import hypothesis.strategies as st
 import torch
@@ -74,7 +75,14 @@ class DenseBmmTest(unittest.TestCase):
             [offsets],
             max_lengths=[max_L],
         )
-        output_ref = torch.bmm(x_dense_ref.transpose(2, 1), y_dense_ref)
+        native_triton = getattr(
+            getattr(torch.backends, "python_native", None), "triton", None
+        )
+        reference_context = (
+            native_triton.disabled if native_triton is not None else nullcontext
+        )
+        with reference_context():
+            output_ref = torch.bmm(x_dense_ref.transpose(2, 1), y_dense_ref)
 
         # verify forward
         torch.testing.assert_close(output, output_ref)
@@ -83,7 +91,8 @@ class DenseBmmTest(unittest.TestCase):
         grad_output = output.detach().clone().requires_grad_(True)
 
         output.backward(grad_output)
-        output_ref.backward(grad_output)
+        with reference_context():
+            output_ref.backward(grad_output)
 
         # NOTE: Relax the tolerance for float32 here to avoid flaky test
         #       failures on ARM
