@@ -36,6 +36,140 @@ def default_compiler_flags():
         }),
     })
 
+def oss_ci_compiler_flags():
+    # The CMake warning policy is in cmake/modules/CppLibrary.cmake.
+    # Use mode/dev-nosan for cmake and mode/opt-clang for bazel; the build-mode
+    # static/shared constraint controls the FBGEMM_STATIC definition.
+    # Exercise OSS cache and autovec paths consistently in libraries and tests.
+    return select({
+        "DEFAULT": [],
+        "fbcode//deeplearning/fbgemm/constraints:oss_ci_bazel": [
+            "-UFBGEMM_FBCODE",
+            "-UFBCODE_CAFFE2",
+            "-UFBGEMM_MORE_SPECIALIZATION",
+            "-std=c++20",
+            "-O2",
+            "-g0",
+            "-DNDEBUG",
+            "-fPIC",
+            "-fstack-protector",
+            "-U_FORTIFY_SOURCE",
+            "-D_FORTIFY_SOURCE=1",
+            "-fno-omit-frame-pointer",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-Wall",
+            "-Wunused-but-set-parameter",
+            "-Wno-free-nonheap-object",
+        ] + select({
+            "DEFAULT": [],
+            "ovr_config//compiler:clang": ["-Wthread-safety", "-Wself-assign"],
+        }),
+        "fbcode//deeplearning/fbgemm/constraints:oss_ci_cmake": [
+            "-UFBGEMM_FBCODE",
+            "-UFBCODE_CAFFE2",
+            "-UFBGEMM_MORE_SPECIALIZATION",
+            "-std=c++20",
+            "-O3",
+            "-g0",
+            "-DNDEBUG",
+            "-fPIC",
+            "-fno-omit-frame-pointer",
+            "-fsanitize=address",
+            "-DASMJIT_STATIC",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Waddress",
+            "-Wenum-compare",
+            "-Wmisleading-indentation",
+            "-Wparentheses",
+            "-Wpessimizing-move",
+            "-Wunused-label",
+            "-Wunused-local-typedefs",
+            "-Wunused-value",
+            "-Wimplicit-fallthrough",
+            "-Wuninitialized",
+            "-Wvexing-parse",
+            "-Wmissing-braces",
+            "-Wmismatched-tags",
+            "-Waddress-of-packed-member",
+            "-Wshadow",
+            "-Wzero-as-null-pointer-constant",
+            "-Wunused-variable",
+            "-Wunused-const-variable",
+            "-Wunused-but-set-variable",
+            "-Wunused-function",
+            "-Wunused-result",
+            "-Wignored-qualifiers",
+            "-Wtautological-compare",
+            "-Wno-deprecated-declarations",
+            "-Wno-deprecated-enum-enum-conversion",
+            "-Wno-strict-aliasing",
+            "-Wno-sign-compare",
+            "-Wno-vla",
+        ]
+        + select({
+            "DEFAULT": [],
+            "ovr_config//compiler:clang": [
+                "-Winline-asm",
+                "-Wasm-operand-widths",
+                "-Wmove",
+                "-Winfinite-recursion",
+                "-Wself-assign",
+                "-Wnull-conversion",
+                "-Wstring-concatenation",
+                "-Wdeprecated-dynamic-exception-spec",
+                "-Wdeprecated-this-capture",
+                "-Wdeprecated-copy-with-user-provided-copy",
+                "-Wundefined-var-template",
+                "-Wgcc-compat",
+                "-Wextra-qualification",
+                "-Wstring-conversion",
+                "-Wimplicitly-unsigned-literal",
+                "-Wuninitialized-const-reference",
+                "-Wthread-safety",
+                "-Wdangling",
+                "-Wshift-sign-overflow",
+                "-Wunused-exception-parameter",
+                "-Wheader-hygiene",
+                "-Wshorten-64-to-32",
+                "-Wdeprecated-implementations",
+                "-Wsemicolon-before-method-body",
+                "-Wimport-preprocessor-directive-pedantic",
+                "-Wincompatible-function-pointer-types",
+                "-Wambiguous-reversed-operator",
+                "-Wbitwise-instead-of-logical",
+                "-Wunreachable-code-fallthrough",
+                "-Wunused-local-typedef",
+                "-Wno-unused-command-line-argument",
+                "-Wno-c99-extensions",
+                "-Wno-gnu-zero-variadic-macro-arguments",
+                "-Wno-error=deprecated-dynamic-exception-spec",
+                "-Wno-error=shorten-64-to-32",
+            ],
+            "ovr_config//compiler:gcc": [
+                "-Wno-error=array-bounds",
+            ]
+            + select({
+                "DEFAULT": [],
+                # Match the portable ARM build; GCC 11 lacks the SVE bridge.
+                "ovr_config//cpu:arm64": ["-march=armv8-a", "-mtune=generic"],
+            }),
+        })
+        + select({
+            "DEFAULT": [],
+            "ovr_config//build_mode/constraints:static": ["-DFBGEMM_STATIC"],
+        }),
+    })
+
+def oss_ci_runtime_deps():
+    # Shared libraries use weak stubs; the executable owns the ASAN runtime.
+    return select({
+        "DEFAULT": [],
+        "fbcode//deeplearning/fbgemm/constraints:oss_ci_cmake": ["fbcode//deeplearning/fbgemm:oss_ci_asan_stubs"],
+    })
+
 def get_fbgemm_base_srcs():
     return [
         "src/GenerateI8Depthwise.cc",
@@ -63,6 +197,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmPackMatrixB.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
+        "src/GenerateKernelFP16FP32.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
         "src/GenerateKernelU8S8S32ACC16Avx512.cc",  # Acc16 AVX512 JIT code gen
         "src/GenerateKernelU8S8S32ACC16Avx512VNNI.cc",

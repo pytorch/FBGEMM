@@ -54,26 +54,26 @@ struct BenchmarkSpec {
 
   // Constructor that takes parameters and fills in all the fields in the struct
   BenchmarkSpec(
-      int bit_rate,
-      int batch_size,
-      int num_rows,
-      int emb_dims,
-      int avg_length,
-      int indices_bits,
-      int lengths_sum,
-      bool has_weight,
-      bool cache_flushed,
-      bool prefetch)
-      : bit_rate(bit_rate),
-        batch_size(batch_size),
-        num_rows(num_rows),
-        emb_dims(emb_dims),
-        avg_length(avg_length),
-        indices_bits(indices_bits),
-        lengths_sum(lengths_sum),
-        has_weight(has_weight),
-        cache_flushed(cache_flushed),
-        prefetch(prefetch) {}
+      int bit_rate_in,
+      int batch_size_in,
+      int num_rows_in,
+      int emb_dims_in,
+      int avg_length_in,
+      int indices_bits_in,
+      int lengths_sum_in,
+      bool has_weight_in,
+      bool cache_flushed_in,
+      bool prefetch_in)
+      : bit_rate(bit_rate_in),
+        batch_size(batch_size_in),
+        num_rows(num_rows_in),
+        emb_dims(emb_dims_in),
+        avg_length(avg_length_in),
+        indices_bits(indices_bits_in),
+        lengths_sum(lengths_sum_in),
+        has_weight(has_weight_in),
+        cache_flushed(cache_flushed_in),
+        prefetch(prefetch_in) {}
 
   // Overload the equal operator (==) to compare equality of two BenchmarkSpec
   // objects by comparing equality of each member

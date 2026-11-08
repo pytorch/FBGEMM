@@ -37,6 +37,8 @@ skip_cuda_lt_sm100 = unittest.skipIf(
 skip_rocm = unittest.skipIf(torch.version.hip is not None, "Does not support ROCm")
 
 
+@skip_cuda_lt_sm100
+@skip_rocm
 class CutlassBlackwellFMHATest(unittest.TestCase):
     def _abs_max(self, t: torch.Tensor):
         return t.abs().max().item()

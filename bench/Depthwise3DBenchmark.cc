@@ -96,11 +96,11 @@ int main() {
         N,
         K,
         K,
-        {T, H, W},
+        {{T, H, W}},
         K,
-        {K_T, K_H, K_W},
-        {stride_t, stride_h, stride_w},
-        {PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R});
+        {{K_T, K_H, K_W}},
+        {{stride_t, stride_h, stride_w}},
+        {{PAD_P, PAD_T, PAD_L, PAD_N, PAD_B, PAD_R}});
     int T_OUT = conv_p.OUT_DIM[0];
     int H_OUT = conv_p.OUT_DIM[1];
     int W_OUT = conv_p.OUT_DIM[2];

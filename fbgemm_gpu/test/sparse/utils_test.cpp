@@ -16,9 +16,7 @@
 using namespace testing;
 
 at::Tensor get_valid_cpu_tensor() {
-  std::vector<int32_t> test_data = {1};
-  return torch::from_blob(
-      test_data.data(), {static_cast<long>(test_data.size())}, torch::kInt);
+  return torch::tensor({1}, torch::dtype(torch::kInt));
 }
 
 TEST(SparseOpsUtilsTest, undefined_tensors_do_not_trigger) {

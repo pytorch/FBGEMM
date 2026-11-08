@@ -82,8 +82,13 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
         # Instantiate a TBE op
         op = SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[(E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)],
+            weights_precision=weights_precision,
             output_dtype=SparseType.FP32,
             device=device,
+        )
+        self.assertEqual(op.weights_precision, weights_precision)
+        self.assertEqual(
+            op.split_embedding_weights()[0].dtype, weights_precision.as_dtype()
         )
 
         # Generate inputs
@@ -126,10 +131,10 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
         The nobag forward launches
         grid = div_round_up(total_B, kForwardMaxThreads / kWarpSize) with
         block = dim3(kWarpSize, kForwardMaxThreads / kWarpSize), so the total
-        thread count is ~= total_B * kWarpSize. On ROCm (kWarpSize = 64),
-        total_B > 2**32 / 64 (~67.1M) exceeds the HIP limit. total_B = B * T;
-        we drive it with a large B and a tiny 1-row table (D = 4) so tensors
-        stay small -- the overflow is grid-driven, not memory-driven.
+        thread count is ~= total_B * kWarpSize. Choose total_B above
+        2**32 / the device's runtime warp size to exceed the HIP limit.
+        total_B = B * T; a large B and a tiny 1-row table (D = 4) keep
+        allocations bounded while exercising the thread-count overflow.
 
         Pre-fix on ROCm, FBGEMM_LAUNCH_KERNEL ->
         KernelLauncher::checkThreadCountNotExceeded TORCH_CHECK-fails. The fix
@@ -137,14 +142,13 @@ class ForwardBackwardInt32OverflowTest(unittest.TestCase):
         the full workload; the tail sentinel below fails if any strided bag is
         dropped.
 
-        On CUDA (kWarpSize = 32) total threads stay under 2**32, so this is a
-        ROCm-specific repro.
+        This test exercises the ROCm-specific HIP launch limit.
         """
         if torch.version.hip is None:
             self.skipTest("2**32 grid-overflow repro is ROCm-specific")
 
         device = torch.cuda.current_device()
-        warp = 64
+        warp = torch.cuda.get_device_properties(device).warp_size
         D = 4
         E = 1
         # total_B = B (T = 1). Require total_B * warp > 2**32.

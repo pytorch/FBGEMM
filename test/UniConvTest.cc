@@ -34,31 +34,31 @@ GetShapes_() {
   vector<conv_param_t<1>> shapes = {
     // MB, IC, OC, {IW}, G, {KW}, {stride_w}, {pad_l,pad_r}, {dilation_w}
     // Regular
-    conv_param_t<1>(1, 16, 16, {30}, 1, {3}, {1}, {1, 1}),
-    conv_param_t<1>(1, 32, 32, {30}, 1, {3}, {1}, {1, 1}),
-    conv_param_t<1>(1, 32, 16, {30}, 1, {3}, {1}, {0, 0}, {2}),
+    conv_param_t<1>(1, 16, 16, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}),
+    conv_param_t<1>(1, 32, 32, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}),
+    conv_param_t<1>(1, 32, 16, {{30}}, 1, {{3}}, {{1}}, {{0, 0}}, {{2}}),
     // deconv shapes
     // MB, IC, OC, {IW}, G, {KW}, {stride_w}, {pad_l,pad_r}, {dilation_w}, {output_padding}, transposed
     // Regular
-    conv_param_t<1>(1, 16, 16, {30}, 1, {3}, {1}, {1, 1}, {1}, {0}, true),
-    conv_param_t<1>(1, 32, 32, {30}, 1, {3}, {1}, {1, 1}, {1}, {0}, true),
-    conv_param_t<1>(1, 32, 16, {30}, 1, {3}, {1}, {0, 0}, {1}, {0}, true),
-    conv_param_t<1>(1, 16, 16, {30}, 1, {3}, {1}, {1, 1}, {2}, {0}, true),
-    conv_param_t<1>(1, 32, 32, {30}, 1, {3}, {1}, {1, 1}, {2}, {0}, true),
-    conv_param_t<1>(1, 32, 16, {30}, 1, {3}, {1}, {0, 0}, {2}, {0}, true),
-    conv_param_t<1>(1, 16, 16, {30}, 1, {3}, {1}, {1, 1}, {1}, {1}, true),
-    conv_param_t<1>(1, 32, 32, {30}, 1, {3}, {1}, {1, 1}, {1}, {1}, true),
-    conv_param_t<1>(1, 32, 16, {30}, 1, {3}, {1}, {0, 0}, {1}, {1}, true),
-    conv_param_t<1>(1, 32, 32, {30}, 1, {3}, {2}, {1, 1}, {2}, {0}, true),
+    conv_param_t<1>(1, 16, 16, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}, {{1}}, {{0}}, true),
+    conv_param_t<1>(1, 32, 32, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}, {{1}}, {{0}}, true),
+    conv_param_t<1>(1, 32, 16, {{30}}, 1, {{3}}, {{1}}, {{0, 0}}, {{1}}, {{0}}, true),
+    conv_param_t<1>(1, 16, 16, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}, {{2}}, {{0}}, true),
+    conv_param_t<1>(1, 32, 32, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}, {{2}}, {{0}}, true),
+    conv_param_t<1>(1, 32, 16, {{30}}, 1, {{3}}, {{1}}, {{0, 0}}, {{2}}, {{0}}, true),
+    conv_param_t<1>(1, 16, 16, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}, {{1}}, {{1}}, true),
+    conv_param_t<1>(1, 32, 32, {{30}}, 1, {{3}}, {{1}}, {{1, 1}}, {{1}}, {{1}}, true),
+    conv_param_t<1>(1, 32, 16, {{30}}, 1, {{3}}, {{1}}, {{0, 0}}, {{1}}, {{1}}, true),
+    conv_param_t<1>(1, 32, 32, {{30}}, 1, {{3}}, {{2}}, {{1, 1}}, {{2}}, {{0}}, true),
 
     // some example deconv shapes
-    conv_param_t<1>(1, 96, 48, {30}, 1, {16}, {8}, {4, 4}, {1}, {0}, true),
-    conv_param_t<1>(1, 48, 24, {30}, 1, {8}, {4}, {2, 2}, {1}, {0}, true),
-    conv_param_t<1>(1, 24, 12, {30}, 1, {4}, {2}, {1, 1}, {1}, {0}, true),
+    conv_param_t<1>(1, 96, 48, {{30}}, 1, {{16}}, {{8}}, {{4, 4}}, {{1}}, {{0}}, true),
+    conv_param_t<1>(1, 48, 24, {{30}}, 1, {{8}}, {{4}}, {{2, 2}}, {{1}}, {{0}}, true),
+    conv_param_t<1>(1, 24, 12, {{30}}, 1, {{4}}, {{2}}, {{1, 1}}, {{1}}, {{0}}, true),
 
     // groupwise
-    conv_param_t<1>(1, 32, 16, {30}, 8, {3}, {1}, {0, 0}, {1}, {1}, true),
-    conv_param_t<1>(1, 32, 32, {30}, 8, {3}, {2}, {1, 1}, {2}, {0}, true),
+    conv_param_t<1>(1, 32, 16, {{30}}, 8, {{3}}, {{1}}, {{0, 0}}, {{1}}, {{1}}, true),
+    conv_param_t<1>(1, 32, 32, {{30}}, 8, {{3}}, {{2}}, {{1, 1}}, {{2}}, {{0}}, true),
   };
   return shapes;
 }
@@ -72,78 +72,78 @@ GetShapes_() {
     // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, {pad_t, pad_l,
     // pad_b, pad_r}, {dilation_h, dilation_w}
     // Regular
-    conv_param_t<>(1, 16, 16, {10, 30}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 16, 32, {30, 10}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}, {2, 2}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}, {3, 3}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}, {2, 2}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}, {2, 1}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {2, 2}, {1, 1, 1, 1}, {1, 2}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {2, 1, 2, 1}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {1, 2, 1, 2}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 2}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {2, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 16, 16, {10, 30}, 1, {3, 5}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 16, 16, {10, 30}, 1, {5, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 16, 16, {10, 30}, 1, {5, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}),
+    conv_param_t<>(1, 16, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 16, 32, {{30, 10}}, 1, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{0, 0, 0, 0}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{0, 0, 0, 0}}, {{2, 2}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{2, 2}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{3, 3}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{2, 2}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{2, 2}}, {{1, 1, 1, 1}}, {{2, 2}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{2, 2}}, {{1, 1, 1, 1}}, {{2, 1}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{2, 2}}, {{1, 1, 1, 1}}, {{1, 2}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{2, 1, 2, 1}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{1, 2, 1, 2}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 2}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{2, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 16, 16, {{10, 30}}, 1, {{3, 5}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 16, 16, {{10, 30}}, 1, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 16, 16, {{10, 30}}, 1, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{2, 2}}),
     // groupwise
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 16, 32, {10, 30}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {2, 2}, {2, 1, 2, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {1, 2}, {2, 1, 2, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {2, 1}, {2, 1, 2, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 5}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {5, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {5, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 8, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 16, 32, {{10, 30}}, 8, {{3, 3}}, {{2, 2}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{2, 2}}, {{2, 1, 2, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{1, 2}}, {{2, 1, 2, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{2, 1}}, {{2, 1, 2, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 5}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{2, 2}}),
     // DW
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {3, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {3, 3}, {2, 2}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {3, 3}, {1, 1}, {1, 2, 1, 2}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {3, 3}, {2, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {3, 3}, {1, 2}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {3, 5}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {5, 3}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {5, 5}, {1, 1}, {1, 1, 1, 1}),
-    conv_param_t<>(1, 32, 32, {10, 30}, 32, {5, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}),
-    conv_param_t<>(1, 128, 256, {32, 100}, 128, {3, 3}, {1, 1}, {1, 1, 1, 1}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{3, 3}}, {{2, 2}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{3, 3}}, {{1, 1}}, {{1, 2, 1, 2}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{3, 3}}, {{2, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{3, 3}}, {{1, 2}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{3, 5}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{5, 5}}, {{1, 1}}, {{1, 1, 1, 1}}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 32, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{2, 2}}),
+    conv_param_t<>(1, 128, 256, {{32, 100}}, 128, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}),
     // Pointwise
-    conv_param_t<>(1, 32, 32, {10, 30}, 1, {1, 1}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 16, 32, {10, 30}, 1, {1, 1}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {1, 1}, {1, 1}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {1, 1}, {2, 2}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {1, 1}, {1, 2}, {0, 0, 0, 0}),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {1, 1}, {2, 1}, {0, 0, 0, 0}),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 1, {{1, 1}}, {{1, 1}}, {{0, 0, 0, 0}}),
+    conv_param_t<>(1, 16, 32, {{10, 30}}, 1, {{1, 1}}, {{1, 1}}, {{0, 0, 0, 0}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{1, 1}}, {{1, 1}}, {{0, 0, 0, 0}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{1, 1}}, {{2, 2}}, {{0, 0, 0, 0}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{1, 1}}, {{1, 2}}, {{0, 0, 0, 0}}),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{1, 1}}, {{2, 1}}, {{0, 0, 0, 0}}),
 
     // deconv shapes
     // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, {pad_t, pad_l,
     // pad_b, pad_r}, {dilation_h, dilation_w}, {output_padding_h, output_padding_w}, transposed
     // Regular
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}, {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {0, 0, 0, 0}, {2, 2}, {0, 0}, true),
-    conv_param_t<>(1, 32, 16, {10, 30}, 1, {3, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}, {0, 0}, true),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{0, 0, 0, 0}}, {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{0, 0, 0, 0}}, {{2, 2}}, {{0, 0}}, true),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 1, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{2, 2}}, {{0, 0}}, true),
     // groupwise
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 32, 16, {10, 30}, 8, {3, 3}, {1, 1}, {1, 1, 1, 1}, {1, 1}, {1, 0}, true),
-    conv_param_t<>(1, 16, 32, {10, 30}, 8, {3, 3}, {2, 2}, {1, 1, 1, 1}, {1, 1}, {0, 1}, true),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {2, 2}, {2, 1, 2, 1}, {1, 1}, {1, 1}, true),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {1, 2}, {2, 1, 2, 1}, {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 3}, {2, 1}, {2, 1, 2, 1}, {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {3, 5}, {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {5, 3}, {1, 1}, {1, 1, 1, 1}, {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 32, 32, {10, 30}, 8, {5, 3}, {1, 1}, {1, 1, 1, 1}, {2, 2}, {0, 0}, true),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 32, 16, {{10, 30}}, 8, {{3, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{1, 1}}, {{1, 0}}, true),
+    conv_param_t<>(1, 16, 32, {{10, 30}}, 8, {{3, 3}}, {{2, 2}}, {{1, 1, 1, 1}}, {{1, 1}}, {{0, 1}}, true),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{2, 2}}, {{2, 1, 2, 1}}, {{1, 1}}, {{1, 1}}, true),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{1, 2}}, {{2, 1, 2, 1}}, {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 3}}, {{2, 1}}, {{2, 1, 2, 1}}, {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{3, 5}}, {{1, 1}}, {{1, 1, 1, 1}}, {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 32, 32, {{10, 30}}, 8, {{5, 3}}, {{1, 1}}, {{1, 1, 1, 1}}, {{2, 2}}, {{0, 0}}, true),
     // directconv
-    conv_param_t<>(1, 256, 176, {2, 4}, 1,   {2, 6}, {1, 2}, {0, 0, 0, 0},
-    {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 128, 128, {4, 12}, 1,   {2, 6}, {1, 1}, {0, 0, 0, 0},
-    {1, 1}, {0, 0}, true),
-    conv_param_t<>(1, 512, 64, {4, 50}, 1,   {2, 6}, {1, 1}, {0, 0, 0, 0},
-    {1, 1}, {0, 0}, true),
+    conv_param_t<>(1, 256, 176, {{2, 4}}, 1,   {{2, 6}}, {{1, 2}}, {{0, 0, 0, 0}},
+    {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 128, 128, {{4, 12}}, 1,   {{2, 6}}, {{1, 1}}, {{0, 0, 0, 0}},
+    {{1, 1}}, {{0, 0}}, true),
+    conv_param_t<>(1, 512, 64, {{4, 50}}, 1,   {{2, 6}}, {{1, 1}}, {{0, 0, 0, 0}},
+    {{1, 1}}, {{0, 0}}, true),
   };
   return shapes;
 }
@@ -196,7 +196,7 @@ TEST_P(uniConvTest, packingTest) {
   auto [MB, IC, OC, IT, IH, IW, G, kernel, stride, pad] = GetParam();
 
   conv_param_t<1> conv_p_1d(
-      MB, IC, OC, {IW}, G, {kernel}, {stride}, {pad, pad});
+      MB, IC, OC, {{IW}}, G, {{kernel}}, {{stride}}, {{pad, pad}});
 
   int kernel_dim_1d = kernel;
   aligned_vector<int8_t> Bint8_1d(
@@ -211,8 +211,10 @@ TEST_P(uniConvTest, packingTest) {
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_NE(packedB_1D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix is null";
+#endif
       ASSERT_EQ(packedB_1D.getPackedWForDirectconv(), nullptr)
           << "directconv packed matrix should be null";
       break;
@@ -220,8 +222,10 @@ TEST_P(uniConvTest, packingTest) {
     case optimized_conv_t::groupwise: {
       ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForGroupwise(), nullptr)
@@ -233,8 +237,10 @@ TEST_P(uniConvTest, packingTest) {
     case optimized_conv_t::pointwise: {
       ASSERT_EQ(packedB_1D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should null";
+#endif
       ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix should be null";
       ASSERT_NE(packedB_1D.getPackedWForPointwise(), nullptr)
@@ -244,8 +250,10 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::directconv: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
@@ -260,8 +268,10 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::im2col: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_1D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_1D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_1D.getPackedWForPointwise(), nullptr)
@@ -278,11 +288,11 @@ TEST_P(uniConvTest, packingTest) {
       MB,
       IC,
       OC,
-      {IH, IW},
+      {{IH, IW}},
       G,
-      {kernel, kernel},
-      {stride, stride},
-      {pad, pad, pad, pad});
+      {{kernel, kernel}},
+      {{stride, stride}},
+      {{pad, pad, pad, pad}});
 
   int kernel_dim_2d = kernel * kernel;
   aligned_vector<int8_t> Bint8_2d(
@@ -297,8 +307,10 @@ TEST_P(uniConvTest, packingTest) {
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_NE(packedB_2D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix is null";
+#endif
       ASSERT_EQ(packedB_2D.getPackedWForDirectconv(), nullptr)
           << "directconv packed matrix should be null";
       break;
@@ -306,8 +318,10 @@ TEST_P(uniConvTest, packingTest) {
     case optimized_conv_t::groupwise: {
       ASSERT_EQ(packedB_2D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForGroupwise(), nullptr)
@@ -319,8 +333,10 @@ TEST_P(uniConvTest, packingTest) {
     case optimized_conv_t::pointwise: {
       ASSERT_EQ(packedB_2D.getPackedWForIm2col(), nullptr)
           << "im2col packed matrix should be null";
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should null";
+#endif
       ASSERT_EQ(packedB_2D.getPackedWForGroupwise(), nullptr)
           << "Groupwise packed matrix should be null";
       ASSERT_NE(packedB_2D.getPackedWForPointwise(), nullptr)
@@ -330,8 +346,10 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::directconv: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_2D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
@@ -346,8 +364,10 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::im2col: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_2D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_2D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_2D.getPackedWForPointwise(), nullptr)
@@ -364,11 +384,11 @@ TEST_P(uniConvTest, packingTest) {
       MB,
       IC,
       OC,
-      {IT, IH, IW},
+      {{IT, IH, IW}},
       G,
-      {kernel, kernel, kernel},
-      {stride, stride, stride},
-      {pad, pad, pad, pad, pad, pad});
+      {{kernel, kernel, kernel}},
+      {{stride, stride, stride}},
+      {{pad, pad, pad, pad, pad, pad}});
 
   int kernel_dim_3d = kernel * kernel * kernel;
   aligned_vector<int8_t> Bint8_3d(
@@ -383,15 +403,19 @@ TEST_P(uniConvTest, packingTest) {
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_NE(packedB_3D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix is null";
+#endif
       ASSERT_EQ(packedB_3D.getPackedWForDirectconv(), nullptr)
           << "directconv packed matrix should be null";
       break;
     }
     case optimized_conv_t::groupwise: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)
           << "pointwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForIm2col(), nullptr)
@@ -403,8 +427,10 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::pointwise: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_3D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForIm2col(), nullptr)
@@ -416,8 +442,10 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::directconv: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_3D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)
@@ -432,8 +460,10 @@ TEST_P(uniConvTest, packingTest) {
       break;
     }
     case optimized_conv_t::im2col: {
+#if defined(FBGEMM_FBCODE) || !defined(__aarch64__)
       ASSERT_EQ(packedB_3D.getPackedWForDepthwise(), nullptr)
           << "depthwise packed matrix should be null";
+#endif
       ASSERT_EQ(packedB_3D.getPackedWForGroupwise(), nullptr)
           << "groupwise packed matrix should be null";
       ASSERT_EQ(packedB_3D.getPackedWForPointwise(), nullptr)
@@ -454,7 +484,7 @@ TEST_P(uniConvTest, packUnpackTest) {
   auto [MB, IC, OC, IT, IH, IW, G, kernel, stride, pad] = GetParam();
 
   conv_param_t<1> conv_p_1d(
-      MB, IC, OC, {IW}, G, {kernel}, {stride}, {pad, pad});
+      MB, IC, OC, {{IW}}, G, {{kernel}}, {{stride}}, {{pad, pad}});
 
   int kernel_dim_1d = kernel;
 
@@ -474,11 +504,11 @@ TEST_P(uniConvTest, packUnpackTest) {
       MB,
       IC,
       OC,
-      {IH, IW},
+      {{IH, IW}},
       G,
-      {kernel, kernel},
-      {stride, stride},
-      {pad, pad, pad, pad});
+      {{kernel, kernel}},
+      {{stride, stride}},
+      {{pad, pad, pad, pad}});
 
   int kernel_dim_2d = kernel * kernel;
 
@@ -498,11 +528,11 @@ TEST_P(uniConvTest, packUnpackTest) {
       MB,
       IC,
       OC,
-      {IT, IH, IW},
+      {{IT, IH, IW}},
       G,
-      {kernel, kernel, kernel},
-      {stride, stride, stride},
-      {pad, pad, pad, pad, pad, pad});
+      {{kernel, kernel, kernel}},
+      {{stride, stride, stride}},
+      {{pad, pad, pad, pad, pad, pad}});
 
   int kernel_dim_3d = kernel * kernel * kernel;
 
@@ -526,11 +556,11 @@ TEST(uniConvTest, cornerCases) {
       1, // mini-batch
       16, // input channels
       32, // output channels
-      {28, 28}, // input height/width
+      {{28, 28}}, // input height/width
       4, // groups
-      {3, 3}, // kernel height/width
-      {stride, stride}, // strides
-      {1, 1, 1, 1}); // padding
+      {{3, 3}}, // kernel height/width
+      {{stride, stride}}, // strides
+      {{1, 1, 1, 1}}); // padding
 
   int kernel_dim_2d = conv_p_2d.K[0] * conv_p_2d.K[1];
 
