@@ -18,6 +18,7 @@
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
+#include "fbgemm/SimdUtils.h"
 #include "src/CodeGenHelpers.h" // @manual
 
 using namespace std;
@@ -135,6 +136,48 @@ void checkJitRounding(bool native) {
   }
 }
 
+void checkSpecialValues(void (*convert)(const float*, bfloat16*, size_t)) {
+  constexpr uint32_t inputs[] = {
+      0x7f800001u,
+      0x7fc00001u,
+      0x7fff8000u,
+      0x7fffffffu,
+      0xff800001u,
+      0xffc00001u,
+      0xffff8000u,
+      0xffffffffu,
+      0x7f800000u,
+      0xff800000u,
+      0x3f808000u,
+      0x3f818000u,
+      0xbf808000u,
+      0xbf818000u};
+  constexpr uint16_t expected[] = {
+      0x7fc0,
+      0x7fc0,
+      0x7fff,
+      0x7fff,
+      0xffc0,
+      0xffc0,
+      0xffff,
+      0xffff,
+      0x7f80,
+      0xff80,
+      0x3f80,
+      0x3f82,
+      0xbf80,
+      0xbf82};
+  float src[33];
+  bfloat16 dst[33];
+  for (size_t i = 0; i < 33; ++i) {
+    src[i] = std::bit_cast<float>(inputs[i % 14]);
+  }
+  convert(src, dst, 33); // SIMD blocks followed by a scalar tail.
+  for (size_t i = 0; i < 33; ++i) {
+    EXPECT_EQ(dst[i].val, expected[i % 14]);
+  }
+}
+
 } // namespace
 
 TEST(FBGemmBfloat16Test, JitAvx2Rounding) {
@@ -201,34 +244,38 @@ TEST(FBGemmBfloat16Test, JitAvx512Bf16Rounding) {
 }
 
 TEST(FBGemmBfloat16Test, Conversion) {
+  checkSpecialValues(FloatToBfloat16_ref);
   float a[100]; // fp32 type
   for (int i = 0; i < 100; ++i) {
-    a[i] = i + 1.25;
+    const uint32_t high = (0x3f00u + i) | (i & 2 ? 0x8000u : 0);
+    a[i] = std::bit_cast<float>((high << 16) | 0x8000u);
   }
   bfloat16 b[100]; // bfloat16 type
   float c[100]; // fp32 type
   FloatToBfloat16_ref(a, b, 100);
   Bfloat16ToFloat_ref(b, c, 100);
   for (int i = 0; i < 100; ++i) {
-    // The relative error should be less than 1/(2^7) since bfloat16
-    // has 7 bits mantissa.
-    EXPECT_LE(fabs(c[i] - a[i]) / a[i], 1.0 / 128);
+    const uint16_t high = std::bit_cast<uint32_t>(a[i]) >> 16;
+    EXPECT_EQ(b[i].val, high + (high & 1));
+    EXPECT_LE(fabs((c[i] - a[i]) / a[i]), 1.0 / 128);
   }
 }
 
 TEST(FBGemmBfloat16Test, Conversion_simd) {
+  checkSpecialValues(FloatToBfloat16_simd);
   float a[100]; // fp32 type
   for (int i = 0; i < 100; ++i) {
-    a[i] = i + 1.25;
+    const uint32_t high = (0x3f00u + i) | (i & 2 ? 0x8000u : 0);
+    a[i] = std::bit_cast<float>((high << 16) | 0x8000u);
   }
   bfloat16 b[100]; // bfloat16 type
   float c[100]; // fp32 type
   FloatToBfloat16_simd(a, b, 100);
   Bfloat16ToFloat_simd(b, c, 100);
   for (int i = 0; i < 100; ++i) {
-    // The relative error should be less than 1/(2^7) since bfloat16
-    // has 7 bits mantissa.
-    EXPECT_LE(fabs(c[i] - a[i]) / a[i], 1.0 / 128)
+    const uint16_t high = std::bit_cast<uint32_t>(a[i]) >> 16;
+    EXPECT_EQ(b[i].val, high + (high & 1));
+    EXPECT_LE(fabs((c[i] - a[i]) / a[i]), 1.0 / 128)
         << "Conversion results differ at (" << i << " ). ref: " << a[i]
         << " conversion: " << c[i];
   }
@@ -293,3 +340,19 @@ TEST(FBGemmBfloat16Test, ScalarRoundingAndNaN) {
     EXPECT_EQ(output.val, expected);
   }
 }
+
+#if defined(__x86_64__) || defined(_M_X64)
+TEST(FBGemmBfloat16Test, ConversionAvx2SpecialValues) {
+  if (!cpuinfo_initialize() || !fbgemmHasAvx2Support()) {
+    GTEST_SKIP() << "AVX2 not supported";
+  }
+  checkSpecialValues(FloatToBfloat16_avx2);
+}
+
+TEST(FBGemmBfloat16Test, ConversionAvx512SpecialValues) {
+  if (!cpuinfo_initialize() || !fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "AVX512 not supported";
+  }
+  checkSpecialValues(FloatToBfloat16_avx512);
+}
+#endif
