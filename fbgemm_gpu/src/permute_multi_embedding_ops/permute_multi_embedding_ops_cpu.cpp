@@ -48,7 +48,8 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
   FBGEMM_DISPATCH_FLOATING_TYPES(
       pooled_embs[0].scalar_type(), "permute_multi_embs_cpu", [&] {
         at::parallel_for(0, B, 0, [&](int32_t start, int32_t end) {
-          int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
+          int32_t in_tensor, out_tensor, in_offset, out_offset, length,
+              next = 0;
           for (const auto i : c10::irange(permutes.size(0))) {
             const int32_t* __restrict__ pp =
                 permutes[i].const_data_ptr<int32_t>();
@@ -65,24 +66,46 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
               out_offset = pp[PermuteParam::out_offset];
             }
             length = pp[PermuteParam::length];
+            const auto& in = inputs[in_tensor];
+            auto& out = outputs[out_tensor];
+            // Indexing rows through the base pointer avoids building a
+            // temporary `Tensor` per row. Rows `t[b]` cannot provide (too few
+            // rows, empty tensors) still go through `t[b]`, so they raise the
+            // same error as before.
+            const bool use_row_ptrs = in.dim() > 0 && in.size(0) >= end &&
+                in.numel() > 0 && out.numel() > 0;
+            const auto in_row =
+                [&in,
+                 use_row_ptrs,
+                 in_base =
+                     use_row_ptrs ? in.const_data_ptr<scalar_t>() : nullptr,
+                 in_stride = use_row_ptrs ? in.stride(0) : int64_t{0}](
+                    int64_t b) -> const scalar_t* {
+              return use_row_ptrs ? in_base + b * in_stride
+                                  : in[b].const_data_ptr<scalar_t>();
+            };
+            const auto out_row =
+                [&out,
+                 use_row_ptrs,
+                 out_base =
+                     use_row_ptrs ? out.mutable_data_ptr<scalar_t>() : nullptr,
+                 out_stride = use_row_ptrs ? out.stride(0) : int64_t{0}](
+                    int64_t b) -> scalar_t* {
+              return use_row_ptrs ? out_base + b * out_stride
+                                  : out[b].mutable_data_ptr<scalar_t>();
+            };
             if (reverse_permute && next < 0) {
               for (auto b : c10::irange(start, end)) {
-                auto outp =
-                    outputs[out_tensor][b].mutable_data_ptr<scalar_t>() +
-                    out_offset;
-                const auto inp =
-                    inputs[in_tensor][b].const_data_ptr<scalar_t>() + in_offset;
+                auto outp = out_row(b) + out_offset;
+                const auto inp = in_row(b) + in_offset;
                 for (const auto j : c10::irange(length)) {
                   outp[j] += inp[j];
                 }
               }
             } else {
               for (auto b : c10::irange(start, end)) {
-                auto outp =
-                    outputs[out_tensor][b].mutable_data_ptr<scalar_t>() +
-                    out_offset;
-                const auto inp =
-                    inputs[in_tensor][b].const_data_ptr<scalar_t>() + in_offset;
+                auto outp = out_row(b) + out_offset;
+                const auto inp = in_row(b) + in_offset;
                 std::memcpy(outp, inp, length * pooled_embs[0].itemsize());
               }
             }
