@@ -173,7 +173,12 @@ Configure the target CUDA architectures for your hardware:
   # If not specified and no CUDA device is present either, all CUDA architectures will be targeted
   cuda_arch_list=7.0;8.0
 
-  # For NVIDIA Blackwell architecture (GB100, GB200):
+  # For NVIDIA Blackwell architecture (B200/GB200 and B300/GB300) with CUDA 13,
+  # use the family target, which runs on both 10.0 and 10.3:
+  # cuda_arch_list=10.0f
+  # export TORCH_CUDA_ARCH_LIST="10.0f"
+  #
+  # With CUDA 12.8/12.9 (B200/GB200 only):
   # cuda_arch_list=10.0a
   # export TORCH_CUDA_ARCH_LIST="10.0a"
 
