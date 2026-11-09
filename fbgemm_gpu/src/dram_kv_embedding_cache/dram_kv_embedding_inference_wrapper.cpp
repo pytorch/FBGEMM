@@ -272,6 +272,34 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings(
     const at::Tensor& indices,
     const at::Tensor& weights,
     std::optional<int64_t> inplace_update_ts_opt) {
+  set_embeddings_impl(indices, weights, inplace_update_ts_opt, nullptr, 0, 0);
+}
+
+void DramKVEmbeddingInferenceWrapper::set_embeddings_with_value_versions(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    std::optional<int64_t> inplace_update_ts_opt,
+    const at::Tensor& value_versions,
+    int64_t watermark,
+    int64_t epoch) {
+  TORCH_CHECK(
+      watermark >= 0 && epoch >= 0, "Invalid KV value version metadata");
+  set_embeddings_impl(
+      indices,
+      weights,
+      inplace_update_ts_opt,
+      epoch ? &value_versions : nullptr,
+      watermark,
+      epoch);
+}
+
+void DramKVEmbeddingInferenceWrapper::set_embeddings_impl(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    std::optional<int64_t> inplace_update_ts_opt,
+    const at::Tensor* value_versions,
+    int64_t watermark,
+    int64_t epoch) {
   check_initialized();
   TORCH_CHECK(
       weights.dim() == 2, "Embedding updates must be a two-dimensional tensor");
@@ -299,8 +327,41 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings(
     backend_weights.slice(1, 0, weights.size(1)).copy_(weights);
   }
 
-  folly::coro::blockingWait(kv_backend_->inference_set_kv_db_async(
-      indices, backend_weights, count, inplacee_update_ts));
+  if (value_versions) {
+    TORCH_CHECK(
+        value_versions->device().is_cpu() &&
+            value_versions->scalar_type() == at::kLong &&
+            value_versions->is_contiguous() &&
+            value_versions->numel() == indices.numel(),
+        "KV value versions must be row-aligned contiguous CPU int64 data");
+    kv_backend_->set_kv_db_sync_with_value_versions(
+        indices,
+        backend_weights,
+        count,
+        inplacee_update_ts,
+        *value_versions,
+        watermark,
+        epoch);
+  } else {
+    folly::coro::blockingWait(kv_backend_->inference_set_kv_db_async(
+        indices, backend_weights, count, inplacee_update_ts));
+  }
+}
+
+void DramKVEmbeddingInferenceWrapper::set_value_version_metadata(
+    int64_t watermark,
+    int64_t epoch) {
+  TORCH_CHECK(watermark >= 0 && epoch > 0, "Invalid KV value version metadata");
+  value_version_watermark_ = watermark;
+  value_version_epoch_ = epoch;
+}
+
+int64_t DramKVEmbeddingInferenceWrapper::get_value_version_watermark() const {
+  return value_version_watermark_;
+}
+
+int64_t DramKVEmbeddingInferenceWrapper::get_value_version_epoch() const {
+  return value_version_epoch_.value_or(0);
 }
 
 at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
@@ -362,6 +423,10 @@ c10::List<at::Tensor> DramKVEmbeddingInferenceWrapper::serialize() const {
   results.push_back(
       torch::tensor(
           {static_cast<int64_t>(disable_random_init_)}, torch::kInt64));
+  if (value_version_epoch_) {
+    results.push_back(torch::tensor({value_version_watermark_}, torch::kInt64));
+    results.push_back(torch::tensor({*value_version_epoch_}, torch::kInt64));
+  }
   LOG(INFO) << "DramKVEmbeddingInferenceWrapper serialized " << results.size()
             << " entries with disable_random_init = " << disable_random_init_
             << ", this = " << this;
@@ -370,6 +435,8 @@ c10::List<at::Tensor> DramKVEmbeddingInferenceWrapper::serialize() const {
 
 void DramKVEmbeddingInferenceWrapper::deserialize(
     const c10::List<at::Tensor>& states) {
+  value_version_watermark_ = 0;
+  value_version_epoch_.reset();
   if (states.empty()) {
     return;
   }
@@ -388,6 +455,18 @@ void DramKVEmbeddingInferenceWrapper::deserialize(
   // the two entries above; leave the constructor default in place for those.
   if (states.size() >= 3 && states[2].numel() >= 1) {
     disable_random_init_ = states[2].const_data_ptr<int64_t>()[0] != 0;
+  }
+  if (states.size() >= 5) {
+    for (const auto i : {3, 4})
+      TORCH_CHECK(
+          states[i].device().is_cpu() && states[i].scalar_type() == at::kLong &&
+              states[i].is_contiguous() && states[i].numel() == 1,
+          "KV value version state must be CPU int64[1]");
+    const auto watermark = states[3].item<int64_t>();
+    const auto epoch = states[4].item<int64_t>();
+    TORCH_CHECK(watermark >= 0 && epoch >= 0, "Invalid KV value version state");
+    if (epoch)
+      set_value_version_metadata(watermark, epoch);
   }
   if (kv_backend_ != nullptr) {
     kv_backend_->set_disable_random_init(disable_random_init_);
@@ -444,6 +523,18 @@ static auto dram_kv_embedding_inference_wrapper =
         .def(
             "get_lookup_row_bytes",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::get_lookup_row_bytes)
+        .def(
+            "set_value_version_metadata",
+            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::
+                set_value_version_metadata)
+        .def(
+            "get_value_version_watermark",
+            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::
+                get_value_version_watermark)
+        .def(
+            "get_value_version_epoch",
+            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::
+                get_value_version_epoch)
         .def(
             "mark_existing_keys",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::mark_existing_keys,
