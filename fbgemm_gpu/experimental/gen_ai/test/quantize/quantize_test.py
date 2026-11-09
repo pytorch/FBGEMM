@@ -97,6 +97,11 @@ SM90_OR_LATER = evaluate_cuda_platform_version(9)
 
 SUPPORTS_NVFP4 = evaluate_platform_supports_nvfp4()
 
+# torch.ops.fbgemm.scaled_fp4_quant is only built for the SM100 family (10.x).
+SUPPORTS_CUDA_NVFP4_QUANT = (
+    SUPPORTS_NVFP4 and torch.cuda.get_device_capability()[0] == 10
+)
+
 SUPPORTS_MXFP4 = evaluate_platform_supports_mxfp4()
 
 SUPPORTS_FP8 = evaluate_platform_supports_fp8()
@@ -3486,6 +3491,54 @@ class NVFP4Tests(unittest.TestCase):
             aqs[0], bqs[0], a_scales[0], b_scales[0], None, global_scales[0]
         )
         out_bf16 = A @ B.t()
+
+        torch.testing.assert_close(out_nvfp4, out_bf16, atol=5.0e-2, rtol=5.0e-2)
+
+    @unittest.skipIf(
+        not SUPPORTS_CUDA_NVFP4_QUANT,
+        "scaled_fp4_quant is only supported on SM100-family GPUs",
+    )
+    @settings(deadline=None)
+    @given(
+        M=st.sampled_from([1, 250]),
+        N=st.sampled_from([256, 1024]),
+        K=st.sampled_from([2048, 3584]),
+        dtype=st.sampled_from([torch.bfloat16, torch.float16]),
+    )
+    def test_scaled_fp4_quant_gemm(
+        self, M: int, N: int, K: int, dtype: torch.dtype
+    ) -> None:
+        A = torch.randn((M, K), dtype=dtype, device=self.device) * 0.1
+        B = torch.randn((N, K), dtype=dtype, device=self.device) * 0.01
+
+        global_scales, a_global_scales, b_global_scales = get_nvfp4_global_scales_naive(
+            [A],
+            [B],
+        )
+
+        def quantize(
+            x: torch.Tensor, global_scale: torch.Tensor
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            # Pre-fill the outputs (0xFF is a NaN scale) so that a kernel that
+            # writes nothing cannot pass.
+            rows, cols = x.shape
+            xq = torch.full((rows, cols // 2), 0xFF, dtype=torch.uint8, device=x.device)
+            x_scale = torch.full(
+                ((rows + 127) // 128 * 128, (cols // 16 + 3) // 4),
+                -1,
+                dtype=torch.int32,
+                device=x.device,
+            )
+            torch.ops.fbgemm.scaled_fp4_quant(xq, x, x_scale, global_scale)
+            return xq, x_scale.view(torch.float8_e4m3fn)
+
+        aq, a_scale = quantize(A, a_global_scales[0])
+        bq, b_scale = quantize(B, b_global_scales[0])
+
+        out_nvfp4 = torch.ops.fbgemm.f4f4bf16(
+            aq, bq, a_scale, b_scale, None, global_scales[0]
+        )
+        out_bf16 = (A.float() @ B.float().t()).to(torch.bfloat16)
 
         torch.testing.assert_close(out_nvfp4, out_bf16, atol=5.0e-2, rtol=5.0e-2)
 
