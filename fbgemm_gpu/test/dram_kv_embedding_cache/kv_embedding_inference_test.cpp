@@ -10,6 +10,7 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
 #include <fmt/format.h>
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <atomic>
@@ -168,6 +169,28 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
 
   std::unique_ptr<DramKVInferenceEmbedding<float>> backend_;
 };
+
+TEST_F(KVEmbeddingInferenceTest, LookupStatsCountHitsAndMisses) {
+  gflags::FlagSaver flags;
+  FLAGS_kv_embedding_table_log_lookup_stats_interval_secs = 0;
+  insertEmbedding(12345);
+  EXPECT_TRUE(verifyEmbedding(readEmbedding(12345), generateEmbedding(12345)));
+  EXPECT_EQ(backend_->lookup_stats_.totals().keys, 0);
+
+  FLAGS_kv_embedding_table_log_lookup_stats_interval_secs = 60;
+  const auto ids = at::tensor({12345, 12345, 45678, 45679}, at::kLong);
+  auto output = at::empty({4, EMBEDDING_DIM}, at::kFloat);
+  backend_->get_kv_db_async(ids, output, at::tensor({4}, at::kLong)).get();
+  const auto counts = backend_->lookup_stats_.totals();
+  EXPECT_EQ(counts.batches, 1);
+  EXPECT_EQ(counts.keys, 4);
+  EXPECT_EQ(counts.lookupKeys, 4);
+  EXPECT_EQ(counts.cacheHits, 2);
+  EXPECT_EQ(counts.indexMisses, 2);
+  EXPECT_EQ(counts.diskReads, 0);
+  EXPECT_EQ(counts.diskBytes, 0);
+  EXPECT_TRUE(at::equal(output[0], output[1]));
+}
 
 TEST_F(KVEmbeddingInferenceTest, InferenceLifecycleWithMetadata) {
   const int64_t embedding_id = 12345;

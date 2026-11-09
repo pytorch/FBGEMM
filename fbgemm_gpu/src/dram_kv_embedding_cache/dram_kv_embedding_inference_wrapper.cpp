@@ -21,6 +21,10 @@ DEFINE_bool(
     true,
     "Whether to use async get/set for DRAM KV inference embedding."
     "This should be true for dram but might be different for other non-Dram backends.");
+DEFINE_int32(
+    kv_embedding_table_log_lookup_stats_interval_secs,
+    0,
+    "Periodic per-backend KV lookup statistics in INFO logs. Zero disables logging.");
 
 namespace fbgemm_gpu {
 namespace {
