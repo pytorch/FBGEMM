@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2026 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -286,6 +287,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     const int64_t input_stride,
     const bool scale_bias_last,
     const bool no_bag) {
+  const bool record_stats = is_stats_enabled();
   constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
@@ -363,14 +365,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
       out += output_stride;
     } // m
     // Track every forward pass in the no_bag case
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        EmbeddingStatsTracker::DataType::INT8,
-        isOutput8bit ? EmbeddingStatsTracker::DataType::INT8
-                     : get_output_type<OutType>(),
-        output_size,
-        1);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::INT8,
+          isOutput8bit ? EmbeddingStatsTracker::DataType::INT8
+                       : get_output_type<OutType>(),
+          output_size,
+          1);
+    }
     return true;
   } // no_bag
 
@@ -386,13 +390,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     }
 
     // Track every forward inference with the actual bag size (len)
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        EmbeddingStatsTracker::DataType::INT8,
-        get_output_type<OutType>(),
-        output_size,
-        len);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::INT8,
+          get_output_type<OutType>(),
+          output_size,
+          len);
+    }
 
     const float* weights_addr = weights != nullptr
         ? (is_weight_positional ? weights : weights + current)
@@ -491,6 +497,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     const bool scale_bias_last,
     const bool no_bag,
     int output_bit_rate) {
+  const bool record_stats = is_stats_enabled();
   static_assert(InputBitRate == 2 || InputBitRate == 4);
   nbit_embedding_sanity_check<OutType>(InputBitRate, output_bit_rate, no_bag);
   if (data_size < 0) {
@@ -579,13 +586,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     }
 
     // Track every forward pass with the actual bag size (len)
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        EmbeddingStatsTracker::DataType::INT4,
-        EmbeddingStatsTracker::DataType::INT4,
-        output_size,
-        1);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::INT4,
+          EmbeddingStatsTracker::DataType::INT4,
+          output_size,
+          1);
+    }
     return true;
   }
 
@@ -620,14 +629,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     }
 
     // Track every forward pass with the actual bag size (len)
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
-                          : EmbeddingStatsTracker::DataType::INT2,
-        get_output_type<OutType>(),
-        output_size,
-        len);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                            : EmbeddingStatsTracker::DataType::INT2,
+          get_output_type<OutType>(),
+          output_size,
+          len);
+    }
     bool is_accumulation_buffer_initialized = false;
     if constexpr (InputBitRate == 2) {
       fillZero(buf, accumulation_buffer_size);
@@ -959,6 +970,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
     const int64_t input_stride,
     const bool scale_bias_last,
     const bool no_bag) {
+  const bool record_stats = is_stats_enabled();
   if (data_size < 0) {
     return false;
   }
@@ -1010,15 +1022,17 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
       out += output_stride;
     } // m
 
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        std::is_same_v<InType, bfloat16>
-            ? EmbeddingStatsTracker::DataType::BF16
-            : EmbeddingStatsTracker::DataType::FP32,
-        get_output_type<OutType>(),
-        output_size,
-        1);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          std::is_same_v<InType, bfloat16>
+              ? EmbeddingStatsTracker::DataType::BF16
+              : EmbeddingStatsTracker::DataType::FP32,
+          get_output_type<OutType>(),
+          output_size,
+          1);
+    }
 
     return true;
   } // no_bag
@@ -1055,15 +1069,17 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
       return false;
     }
     // Track every inference for actual bag size (len)
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        std::is_same_v<InType, bfloat16>
-            ? EmbeddingStatsTracker::DataType::BF16
-            : EmbeddingStatsTracker::DataType::FP32,
-        get_output_type<OutType>(),
-        output_size,
-        len);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          std::is_same_v<InType, bfloat16>
+              ? EmbeddingStatsTracker::DataType::BF16
+              : EmbeddingStatsTracker::DataType::FP32,
+          get_output_type<OutType>(),
+          output_size,
+          len);
+    }
 
     for (int i = 0; i < len; ++i) {
       int64_t idx = indices[current];
@@ -1146,6 +1162,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
     float* out,
     const bool is_weight_positional,
     const bool use_offsets) {
+  const bool record_stats = is_stats_enabled();
   constexpr bool is8bit = std::is_same_v<InType, uint8_t>;
 
   if constexpr (is8bit) {
@@ -1162,13 +1179,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
       if (end > index_size) {
         return false;
       }
-      EmbeddingStatsTracker::getInstance().recordPattern(
-          uncompressed_data_size,
-          block_size,
-          EmbeddingStatsTracker::DataType::SPARSE_INT8,
-          EmbeddingStatsTracker::DataType::FP32,
-          output_size,
-          len);
+      if (record_stats) {
+        EmbeddingStatsTracker::getInstance().recordPattern(
+            uncompressed_data_size,
+            block_size,
+            EmbeddingStatsTracker::DataType::SPARSE_INT8,
+            EmbeddingStatsTracker::DataType::FP32,
+            output_size,
+            len);
+      }
       const float* weights_addr = weights != nullptr
           ? (is_weight_positional ? weights : weights + current)
           : nullptr;
@@ -1237,13 +1256,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
         return false;
       }
 
-      EmbeddingStatsTracker::getInstance().recordPattern(
-          uncompressed_data_size,
-          block_size,
-          EmbeddingStatsTracker::DataType::SPARSE_FP32,
-          EmbeddingStatsTracker::DataType::FP32,
-          output_size,
-          len);
+      if (record_stats) {
+        EmbeddingStatsTracker::getInstance().recordPattern(
+            uncompressed_data_size,
+            block_size,
+            EmbeddingStatsTracker::DataType::SPARSE_FP32,
+            EmbeddingStatsTracker::DataType::FP32,
+            output_size,
+            len);
+      }
 
       const float* weights_addr = weights != nullptr
           ? (is_weight_positional ? weights : weights + current)
@@ -1845,6 +1866,7 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
              const OffsetType* offsets_or_lengths,
              const float* weights,
              OutType* out) {
+    const bool record_stats = is_stats_enabled();
     return detail::embedding_spmdm_fp8(
         block_size,
         output_size,
@@ -1863,14 +1885,17 @@ GenerateEmbeddingSpMDMFP8WithStrides_autovec(
         [=](uint8_t value) {
           return detail::hfp8_to_float(value, mantissa_bits, multiplier);
         },
-        [](int64_t rows, int64_t dims, int64_t batch, int64_t length) {
-          EmbeddingStatsTracker::getInstance().recordPattern(
-              rows,
-              dims,
-              EmbeddingStatsTracker::DataType::FP8,
-              get_output_type<OutType>(),
-              batch,
-              length);
+        [record_stats](
+            int64_t rows, int64_t dims, int64_t batch, int64_t length) {
+          if (record_stats) {
+            EmbeddingStatsTracker::getInstance().recordPattern(
+                rows,
+                dims,
+                EmbeddingStatsTracker::DataType::FP8,
+                get_output_type<OutType>(),
+                batch,
+                length);
+          }
         },
         true);
   };
