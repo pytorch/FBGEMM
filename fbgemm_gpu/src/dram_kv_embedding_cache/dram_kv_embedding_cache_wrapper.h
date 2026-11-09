@@ -65,7 +65,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           std::move(table_sizes),
           enrichment_config);
     } else if (row_storage_bitwidth == 32) {
-      impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
+      fp32_impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
           max_D,
           uniform_init_lower,
           uniform_init_upper,
@@ -86,6 +86,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           std::move(table_offsets),
           std::move(table_sizes),
           enrichment_config);
+      impl_ = fp32_impl_;
     } else {
       throw std::runtime_error("Failed to create recording device");
     }
@@ -116,6 +117,44 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
 
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
     impl_->set(indices, weights, count);
+  }
+
+  /// Cold FP32 payload population. Caller must ensure no concurrent reader and
+  /// no resident TBE/L1 state; this API owns only backing storage. Payload
+  /// width includes the native optimizer tail, but excludes backend metadata
+  /// headers. get() propagates failures and keeps input tensors alive until
+  /// completion.
+  void set_cpu_rows_checked(at::Tensor indices, at::Tensor weights) {
+    check_cpu_payload_keys(indices);
+    TORCH_CHECK(
+        weights.device().is_cpu() && weights.scalar_type() == at::kFloat &&
+            weights.dim() == 2 && weights.is_contiguous() &&
+            weights.size(0) == indices.numel() &&
+            weights.size(1) == impl_->get_max_D(),
+        "checked DRAM CPU writes require complete contiguous FP32 payload rows");
+    if (indices.numel() == 0) {
+      return;
+    }
+    auto count = at::tensor(indices.numel(), at::kLong);
+    impl_
+        ->set_kv_db_async(
+            indices, weights, count, kv_db::RocksdbWriteMode::STREAM)
+        .get();
+  }
+
+  /// Checked authoritative payload readback; absent rows are finite zeros with
+  /// mask=0. Does not read or populate the TBE's resident L1 cache.
+  std::tuple<at::Tensor, at::Tensor> get_cpu_rows_checked(at::Tensor indices) {
+    check_cpu_payload_keys(indices);
+    auto weights = at::zeros({indices.numel(), impl_->get_max_D()}, at::kFloat);
+    auto found = at::zeros({indices.numel()}, at::kByte);
+    if (indices.numel() > 0) {
+      auto count = at::tensor(indices.numel(), at::kLong);
+      fp32_impl_
+          ->get_kv_db_async_with_found_mask(indices, weights, count, found)
+          .get();
+    }
+    return {std::move(weights), std::move(found)};
   }
 
   void flush() {
@@ -272,10 +311,24 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   }
 
  private:
+  void check_cpu_payload_keys(const at::Tensor& indices) {
+    TORCH_CHECK(
+        fp32_impl_ != nullptr && fp32_impl_->supports_found_mask_reads(),
+        "checked DRAM CPU payload APIs require FP32 with random initialization disabled");
+    TORCH_CHECK(
+        indices.device().is_cpu() && indices.scalar_type() == at::kLong &&
+            indices.dim() == 1 && indices.is_contiguous(),
+        "checked DRAM CPU payload APIs require contiguous CPU int64 keys");
+    TORCH_CHECK(
+        indices.ge(0).all().item<bool>(),
+        "checked DRAM CPU payload APIs reject negative/sentinel keys");
+  }
+
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;
 
   std::shared_ptr<kv_db::EmbeddingKVDB> impl_;
+  std::shared_ptr<kv_mem::DramKVEmbeddingCache<float>> fp32_impl_;
 };
 
 } // namespace kv_mem
