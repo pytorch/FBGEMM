@@ -183,8 +183,8 @@ class RESParams:
         default_factory=list
     )  # table names that are enabled for RES (empty means all enabled)
     # Streams DEVICE-placed tables named in `res_enabled_tables`, which the
-    # cache lane cannot reach. Holds device memory scaled to the row count of
-    # this TBE, whether or not those rows are streamed, so it is opt-in.
+    # cache lane cannot reach. A TBE streaming at least one of them holds device
+    # memory scaled to its whole row count, so it is opt-in.
     enable_hbm_streaming: bool = False
     # Drain period in iterations. Marks accumulate in between, and marking a
     # row again does nothing, so a row touched every iteration still ships once
@@ -2189,7 +2189,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.ignore
     def _register_res_hbm_buffers(self) -> None:
-        """Allocate the HBM lane's per-TBE state.
+        """Allocate the HBM lane's per-TBE state, or turn the lane off when this
+        TBE has no allowlisted DEVICE table to drain.
 
         The touched-row map is written during prefetch from the unfiltered
         `linearize_cache_indices` output, so every looked-up row lands there
@@ -2206,7 +2207,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         linear_size = self.total_hash_size + 1
         res_hbm_linear_mask = self._build_res_hbm_linear_mask(linear_size)
         if not bool(res_hbm_linear_mask.any()):
+            self._res_hbm_streaming = False
             self._res_hbm_ships_zch_identities = False
+            return
         self.register_buffer(
             "_res_rows_seen",
             torch.zeros(linear_size, device=self.current_device, dtype=torch.bool),
