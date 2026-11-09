@@ -7,7 +7,8 @@ var searchData=
   ['dosconvoninpbuffer_4',['DoSConvOnInpBuffer',['../classfbgemm_1_1_do_s_conv_on_inp_buffer.html',1,'fbgemm']]],
   ['dospmdmoninpbuffer_5',['DoSpmdmOnInpBuffer',['../classfbgemm_1_1_do_spmdm_on_inp_buffer.html',1,'fbgemm']]],
   ['dramkvembeddingcache_6',['DramKVEmbeddingCache',['../classkv__mem_1_1_dram_k_v_embedding_cache.html',1,'kv_mem']]],
-  ['dramkvinferenceembedding_7',['DramKVInferenceEmbedding',['../classkv__mem_1_1_dram_k_v_inference_embedding.html',1,'kv_mem']]],
-  ['dramssdkvembeddingcache_8',['DramSsdKVEmbeddingCache',['../classkv__db_1_1_dram_ssd_k_v_embedding_cache.html',1,'kv_db']]],
-  ['dramssdkvembeddingcachewrapper_9',['DramSsdKVEmbeddingCacheWrapper',['../classkv__mem_1_1_dram_ssd_k_v_embedding_cache_wrapper.html',1,'kv_mem']]]
+  ['dramkvembeddingcache_3c_20float_20_3e_7',['DramKVEmbeddingCache&lt; float &gt;',['../classkv__mem_1_1_dram_k_v_embedding_cache.html',1,'kv_mem']]],
+  ['dramkvinferenceembedding_8',['DramKVInferenceEmbedding',['../classkv__mem_1_1_dram_k_v_inference_embedding.html',1,'kv_mem']]],
+  ['dramssdkvembeddingcache_9',['DramSsdKVEmbeddingCache',['../classkv__db_1_1_dram_ssd_k_v_embedding_cache.html',1,'kv_db']]],
+  ['dramssdkvembeddingcachewrapper_10',['DramSsdKVEmbeddingCacheWrapper',['../classkv__mem_1_1_dram_ssd_k_v_embedding_cache_wrapper.html',1,'kv_mem']]]
 ];

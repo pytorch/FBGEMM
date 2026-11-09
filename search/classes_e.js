@@ -7,7 +7,8 @@ var searchData=
   ['snapshotreadguard_4',['SnapshotReadGuard',['../classssd_1_1_snapshot_read_guard.html',1,'ssd']]],
   ['sparseadagradsignature_5',['SparseAdaGradSignature',['../classfbgemm_1_1_sparse_ada_grad_signature.html',1,'fbgemm']]],
   ['synchronizedshardedmap_6',['SynchronizedShardedMap',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]],
-  ['synchronizedshardedmap_3c_20int64_5ft_2c_20weight_5ftype_20_2a_20_3e_7',['SynchronizedShardedMap&lt; int64_t, weight_type * &gt;',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]],
-  ['synchronizedshardedmap_3c_20k_2c_20v_2c_20m_2c_20inferencefixedblockpool_20_3e_8',['SynchronizedShardedMap&lt; K, V, M, InferenceFixedBlockPool &gt;',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]],
-  ['synchronizedshardedmap_3c_20k_2c_20v_2c_20m_2c_20inferencefixedblockpool_20_3e_3c_20int64_5ft_2c_20weight_5ftype_20_2a_20_3e_9',['SynchronizedShardedMap&lt; K, V, M, InferenceFixedBlockPool &gt;&lt; int64_t, weight_type * &gt;',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]]
+  ['synchronizedshardedmap_3c_20int64_5ft_2c_20float_20_2a_20_3e_7',['SynchronizedShardedMap&lt; int64_t, float * &gt;',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]],
+  ['synchronizedshardedmap_3c_20int64_5ft_2c_20weight_5ftype_20_2a_20_3e_8',['SynchronizedShardedMap&lt; int64_t, weight_type * &gt;',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]],
+  ['synchronizedshardedmap_3c_20k_2c_20v_2c_20m_2c_20inferencefixedblockpool_20_3e_9',['SynchronizedShardedMap&lt; K, V, M, InferenceFixedBlockPool &gt;',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]],
+  ['synchronizedshardedmap_3c_20k_2c_20v_2c_20m_2c_20inferencefixedblockpool_20_3e_3c_20int64_5ft_2c_20weight_5ftype_20_2a_20_3e_10',['SynchronizedShardedMap&lt; K, V, M, InferenceFixedBlockPool &gt;&lt; int64_t, weight_type * &gt;',['../classkv__mem_1_1_synchronized_sharded_map.html',1,'kv_mem']]]
 ];
