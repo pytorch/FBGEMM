@@ -1545,6 +1545,12 @@ auto dram_kv_embedding_cache_wrapper =
             })
         .def("set", &DramKVEmbeddingCacheWrapper::set)
         .def(
+            "set_cpu_rows_checked",
+            &DramKVEmbeddingCacheWrapper::set_cpu_rows_checked)
+        .def(
+            "get_cpu_rows_checked",
+            &DramKVEmbeddingCacheWrapper::get_cpu_rows_checked)
+        .def(
             "set_range_to_storage",
             &DramKVEmbeddingCacheWrapper::set_range_to_storage)
         .def(
