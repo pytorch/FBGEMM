@@ -453,6 +453,132 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_2d
   }
 }
 
+// Long-sequence specialization. One warp cooperatively processes one segment;
+// match-any gives every destination group a stable lane rank, while the group
+// leader advances a shared-memory cursor once. This preserves the exact
+// sequence order and unbucketize permutation of the serial implementation.
+template <
+    bool has_weight,
+    bool bucketize_pos,
+    bool return_bucket_mapping,
+    typename offset_t,
+    typename index_t,
+    typename scalar_t>
+__global__
+__launch_bounds__(kWarpSize) void _block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_warp(
+    int lengths_size,
+    int32_t B,
+    const index_t* __restrict__ block_sizes_data,
+    const index_t* __restrict__ total_num_blocks,
+    int my_size,
+    const offset_t* __restrict__ offsets_data,
+    const index_t* __restrict__ indices_data,
+    const scalar_t* __restrict__ weights_data,
+    const int64_t weights_dim,
+    offset_t* __restrict__ new_offsets_data,
+    index_t* __restrict__ new_indices_data,
+    scalar_t* __restrict__ new_weights_data,
+    index_t* __restrict__ new_pos_data,
+    index_t* const __restrict__ unbucketize_permute_data,
+    index_t* const __restrict__ bag_mapping_data,
+    const offset_t* const __restrict__ length_to_feature_idx,
+    const index_t* const __restrict__ block_bucketize_pos_concat,
+    const index_t* const __restrict__ block_bucketize_pos_offsets,
+    const index_t* const __restrict__ indices_to_lb,
+    const bool keep_orig_idx,
+    const bool* const __restrict__ keep_orig_idx_per_feature) {
+  using uindex_t = std::make_unsigned_t<index_t>;
+  extern __shared__ __align__(8) char shared_memory[];
+  auto* bucket_offsets = reinterpret_cast<offset_t*>(shared_memory);
+  const auto lane = getLaneId();
+
+  for (int64_t b_t = blockIdx.x; b_t < lengths_size; b_t += gridDim.x) {
+    for (int p = lane; p < my_size; p += kWarpSize) {
+      bucket_offsets[p] = new_offsets_data[p * lengths_size + b_t];
+    }
+    __syncthreads();
+
+    const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
+    const index_t blk_size = block_sizes_data[t];
+    const index_t local_num_blks =
+        total_num_blocks == nullptr ? 1 : (total_num_blocks[t] / my_size);
+    const index_t global_num_blks =
+        total_num_blocks == nullptr ? my_size : total_num_blocks[t];
+    const index_t global_idx_size = blk_size * global_num_blks;
+    const index_t local_idx_size = blk_size * local_num_blks;
+    const offset_t rowstart = b_t == 0 ? 0 : offsets_data[b_t - 1];
+    const offset_t rowend = offsets_data[b_t];
+    const bool use_block_bucketize_pos = block_bucketize_pos_concat != nullptr;
+    bool keep_idx = keep_orig_idx;
+    if (keep_orig_idx_per_feature != nullptr) {
+      keep_idx = keep_orig_idx_per_feature[t];
+    }
+
+    for (offset_t chunk = rowstart; chunk < rowend; chunk += kWarpSize) {
+      const offset_t i = chunk + lane;
+      const bool valid = i < rowend;
+      const uindex_t idx =
+          valid ? static_cast<uindex_t>(indices_data[i]) : uindex_t{0};
+      uindex_t p = static_cast<uindex_t>(my_size);
+      uindex_t new_idx = 0;
+      if (valid && !use_block_bucketize_pos) {
+        p = idx < global_idx_size ? idx / local_idx_size
+                                  : (idx % global_num_blks) / local_num_blks;
+        if (keep_idx) {
+          new_idx = idx;
+        } else if (idx < global_idx_size) {
+          new_idx = idx % local_idx_size;
+        } else {
+          new_idx = idx / global_num_blks;
+        }
+      } else if (valid) {
+        const uindex_t lb = indices_to_lb[i];
+        p = lb < my_size ? lb : idx % my_size;
+        if (keep_idx) {
+          new_idx = idx;
+        } else if (blk_size == 0) {
+          new_idx = idx / global_num_blks;
+        } else if (lb < my_size) {
+          new_idx = idx -
+              block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
+        } else {
+          new_idx = idx / my_size;
+        }
+      }
+
+      const auto peers = __match_any_sync(kFullWarpMask, p);
+      const int leader = __ffsll(static_cast<unsigned long long>(peers)) - 1;
+      const int rank = __popcll(
+          static_cast<unsigned long long>(peers) &
+          static_cast<unsigned long long>(getLaneMaskLt()));
+      offset_t base = 0;
+      if (valid && lane == leader) {
+        base = bucket_offsets[p];
+        bucket_offsets[p] += __popcll(static_cast<unsigned long long>(peers));
+      }
+      base = shfl_sync(base, leader);
+      if (valid) {
+        const offset_t pos = base + rank;
+        new_indices_data[pos] = new_idx;
+        unbucketize_permute_data[i] = pos;
+        if constexpr (return_bucket_mapping) {
+          bag_mapping_data[i] = p;
+        }
+        if (has_weight) {
+          for (int64_t d = 0; d < weights_dim; ++d) {
+            new_weights_data[pos * weights_dim + d] =
+                weights_data[i * weights_dim + d];
+          }
+        }
+        if (bucketize_pos) {
+          new_pos_data[pos] = i - rowstart;
+        }
+      }
+    }
+    __syncthreads();
+  }
+}
+
 template <typename offset_t, typename index_t>
 __global__
 __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
@@ -482,73 +608,85 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
   }
 }
 
-#define LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_2D_WEIGHTS_CUDA_KERNEL_WITH_WEIGHT( \
-    bucketize_pos, return_bucket_mapping)                                                   \
-  dispatch_index_types(                                                                     \
-      offsets_contig.scalar_type(),                                                         \
-      "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_1",                \
-      [&]<typename offset_t>() {                                                            \
-        dispatch_index_types(                                                               \
-            indices_contig.scalar_type(),                                                   \
-            "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_2",          \
-            [&]<typename index_t>() {                                                       \
-              dispatch_floating_types_and_double(                                           \
-                  weights_value.scalar_type(),                                              \
-                  "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_3",    \
-                  [&]<typename scalar_t>() {                                                \
-                    _block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2<      \
-                        true,                                                               \
-                        bucketize_pos,                                                      \
-                        return_bucket_mapping,                                              \
-                        offset_t,                                                           \
-                        index_t,                                                            \
-                        scalar_t>                                                           \
-                        <<<num_blocks,                                                      \
-                           threads_per_block,                                               \
-                           0,                                                               \
-                           at::cuda::getCurrentCUDAStream()>>>(                             \
-                            lengths_size,                                                   \
-                            B,                                                              \
-                            block_sizes.data_ptr<index_t>(),                                \
-                            total_num_blocks.has_value()                                    \
-                                ? total_num_blocks.value().data_ptr<index_t>()              \
-                                : static_cast<index_t*>(nullptr),                           \
-                            my_size,                                                        \
-                            offsets_contig.data_ptr<offset_t>(),                            \
-                            indices_contig.data_ptr<index_t>(),                             \
-                            weights_value_contig.data_ptr<scalar_t>(),                      \
-                            weights_dim,                                                    \
-                            new_offsets.data_ptr<offset_t>(),                               \
-                            new_indices.data_ptr<index_t>(),                                \
-                            new_weights.data_ptr<scalar_t>(),                               \
-                            bucketize_pos ? new_pos.data_ptr<index_t>()                     \
-                                          : static_cast<index_t*>(nullptr),                 \
-                            unbucketize_permute.data_ptr<index_t>(),                        \
-                            (return_bucket_mapping)                                         \
-                                ? bucket_mapping.data_ptr<index_t>()                        \
-                                : static_cast<index_t*>(nullptr),                           \
-                            batch_size_per_feature.has_value()                              \
-                                ? length_to_feature_idx.data_ptr<offset_t>()                \
-                                : static_cast<offset_t*>(nullptr),                          \
-                            block_bucketize_pos.has_value()                                 \
-                                ? block_bucketize_pos_concat                                \
-                                      .data_ptr<index_t>()                                  \
-                                : static_cast<index_t*>(nullptr),                           \
-                            block_bucketize_pos.has_value()                                 \
-                                ? block_bucketize_pos_offsets                               \
-                                      .data_ptr<index_t>()                                  \
-                                : static_cast<index_t*>(nullptr),                           \
-                            block_bucketize_pos.has_value()                                 \
-                                ? indices_to_lb.data_ptr<index_t>()                         \
-                                : static_cast<index_t*>(nullptr),                           \
-                            keep_orig_idx,                                                  \
-                            keep_orig_idx_per_feature.has_value()                           \
-                                ? keep_orig_idx_per_feature                                 \
-                                      ->const_data_ptr<bool>()                              \
-                                : static_cast<bool*>(nullptr));                             \
-                    C10_CUDA_KERNEL_LAUNCH_CHECK();                                         \
-                  });                                                                       \
-            });                                                                             \
+#define LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_2D_WEIGHTS_CUDA_KERNEL_WITH_WEIGHT(       \
+    bucketize_pos, return_bucket_mapping)                                                         \
+  dispatch_index_types(                                                                           \
+      offsets_contig.scalar_type(),                                                               \
+      "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_1",                      \
+      [&]<typename offset_t>() {                                                                  \
+        dispatch_index_types(                                                                     \
+            indices_contig.scalar_type(),                                                         \
+            "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_2",                \
+            [&]<typename index_t>() {                                                             \
+              dispatch_floating_types_and_double(                                                 \
+                  weights_value.scalar_type(),                                                    \
+                  "_block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_3",          \
+                  [&]<typename scalar_t>() {                                                      \
+                    const auto block_bucketize_kernel =                                           \
+                        use_warp_parallel_sequence_kernel                                         \
+                        ? _block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2_warp< \
+                              true,                                                               \
+                              bucketize_pos,                                                      \
+                              return_bucket_mapping,                                              \
+                              offset_t,                                                           \
+                              index_t,                                                            \
+                              scalar_t>                                                           \
+                        : _block_bucketize_sequence_sparse_features_2d_weights_cuda_kernel2<      \
+                              true,                                                               \
+                              bucketize_pos,                                                      \
+                              return_bucket_mapping,                                              \
+                              offset_t,                                                           \
+                              index_t,                                                            \
+                              scalar_t>;                                                          \
+                    block_bucketize_kernel<<<                                                     \
+                        use_warp_parallel_sequence_kernel ? warp_num_blocks                       \
+                                                          : num_blocks,                           \
+                        use_warp_parallel_sequence_kernel                                         \
+                            ? warp_threads_per_block                                              \
+                            : threads_per_block,                                                  \
+                        use_warp_parallel_sequence_kernel ? warp_smem_size                        \
+                                                          : 0,                                    \
+                        at::cuda::getCurrentCUDAStream()>>>(                                      \
+                        lengths_size,                                                             \
+                        B,                                                                        \
+                        block_sizes.data_ptr<index_t>(),                                          \
+                        total_num_blocks.has_value()                                              \
+                            ? total_num_blocks.value().data_ptr<index_t>()                        \
+                            : static_cast<index_t*>(nullptr),                                     \
+                        my_size,                                                                  \
+                        offsets_contig.data_ptr<offset_t>(),                                      \
+                        indices_contig.data_ptr<index_t>(),                                       \
+                        weights_value_contig.data_ptr<scalar_t>(),                                \
+                        weights_dim,                                                              \
+                        new_offsets.data_ptr<offset_t>(),                                         \
+                        new_indices.data_ptr<index_t>(),                                          \
+                        new_weights.data_ptr<scalar_t>(),                                         \
+                        bucketize_pos ? new_pos.data_ptr<index_t>()                               \
+                                      : static_cast<index_t*>(nullptr),                           \
+                        unbucketize_permute.data_ptr<index_t>(),                                  \
+                        (return_bucket_mapping)                                                   \
+                            ? bucket_mapping.data_ptr<index_t>()                                  \
+                            : static_cast<index_t*>(nullptr),                                     \
+                        batch_size_per_feature.has_value()                                        \
+                            ? length_to_feature_idx.data_ptr<offset_t>()                          \
+                            : static_cast<offset_t*>(nullptr),                                    \
+                        block_bucketize_pos.has_value()                                           \
+                            ? block_bucketize_pos_concat.data_ptr<index_t>()                      \
+                            : static_cast<index_t*>(nullptr),                                     \
+                        block_bucketize_pos.has_value()                                           \
+                            ? block_bucketize_pos_offsets.data_ptr<index_t>()                     \
+                            : static_cast<index_t*>(nullptr),                                     \
+                        block_bucketize_pos.has_value()                                           \
+                            ? indices_to_lb.data_ptr<index_t>()                                   \
+                            : static_cast<index_t*>(nullptr),                                     \
+                        keep_orig_idx,                                                            \
+                        keep_orig_idx_per_feature.has_value()                                     \
+                            ? keep_orig_idx_per_feature                                           \
+                                  ->const_data_ptr<bool>()                                        \
+                            : static_cast<bool*>(nullptr));                                       \
+                    C10_CUDA_KERNEL_LAUNCH_CHECK();                                               \
+                  });                                                                             \
+            });                                                                                   \
       });
 
 #define LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_2D_WEIGHTS_CUDA_KERNEL_2_WITH_WEIGHT( \
@@ -795,6 +933,20 @@ _block_bucketize_sparse_features_2d_weights_cuda(
       threads_per_block,
       at::cuda::getCurrentCUDAStream(),
       utils::cuda::BlockCapPolicy::OverflowOnly);
+  const auto warp_threads_per_block = kWarpSizeHost();
+  const auto warp_num_blocks = utils::cuda::cap_grid_dim_x_from_workload(
+      static_cast<int64_t>(lengths_size) * warp_threads_per_block,
+      warp_threads_per_block,
+      at::cuda::getCurrentCUDAStream());
+  const auto warp_smem_size = my_size * offsets_contig.element_size();
+  constexpr int64_t kWarpParallelMinAverageLength = 256;
+  const bool use_warp_parallel_sequence_kernel = sequence && !bucketize_pos &&
+      !return_bucket_mapping && !batch_size_per_feature.has_value() &&
+      !block_bucketize_pos.has_value() && !keep_orig_idx &&
+      !keep_orig_idx_per_feature.has_value() && lengths_size > 0 &&
+      indices.numel() / lengths_size >= kWarpParallelMinAverageLength &&
+      warp_smem_size <=
+          at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
   // bucketize nonzeros
   new_offsets = asynchronous_exclusive_cumsum_gpu(new_lengths);
   if (sequence) {
