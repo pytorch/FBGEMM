@@ -80,8 +80,32 @@ class SSDDeviceSelectionTest(unittest.TestCase):
 
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
-@unittest.skipIf(True, "Test is broken.")
 class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
+    def test_legacy_dummy_backing_state_dict(self) -> None:
+        import tempfile
+
+        E, D = 16, 32
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, SparseType.FP16)] * 2,
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=1,
+        )
+        legacy_state = emb.state_dict()
+        legacy_state.pop("_dummy_weights_uvm", None)
+        legacy_state.pop("_dummy_weights_offsets", None)
+        legacy_state["weights_uvm"] = torch.zeros(
+            1, device=emb.current_device, dtype=torch.uint8
+        )
+        legacy_state["weights_offsets"] = torch.tensor(
+            [0, E * D], device=emb.current_device, dtype=torch.int64
+        )
+
+        emb.load_state_dict(legacy_state, strict=True)
+        self.assertEqual(emb.weights_uvm.numel(), 1)
+        self.assertEqual(emb.weights_offsets.cpu().tolist(), [0, E * D])
+        self.assertNotIn("_dummy_weights_uvm", emb.state_dict())
+        self.assertNotIn("_dummy_weights_offsets", emb.state_dict())
+
     def test_nbit_ssd(self) -> None:
         import tempfile
 
@@ -175,8 +199,6 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         Ds = [D] * T
         Es = [E] * T
 
-        row_alignment = 16
-
         feature_table_map = list(range(T))
         emb = SSDIntNBitTableBatchedEmbeddingBags(
             embedding_specs=[
@@ -221,10 +243,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                     np.stack([scales, shifts], axis=1).astype(np.float16).view(np.uint8)
                 )
 
-            D_bytes = rounded_row_size_in_bytes(
-                Ds[t], weights_ty_list[t], row_alignment
-            )
-            copy_byte_tensor = torch.empty([E, D_bytes], dtype=torch.uint8)
+            copy_byte_tensor = torch.zeros([E, emb.max_D_cache], dtype=torch.uint8)
 
             fake_quantize_embs(
                 weights,
