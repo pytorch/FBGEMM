@@ -465,6 +465,20 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             ),
         )
 
+        # Keep lookup backing separate from persisted module metadata.
+        self.register_buffer(
+            "_dummy_weights_uvm",
+            torch.zeros(
+                self.max_D_cache, device=self.current_device, dtype=torch.uint8
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_dummy_weights_offsets",
+            torch.zeros(T_, device=self.current_device, dtype=torch.int64),
+            persistent=False,
+        )
+
         if self.max_float8_D > 0:
             default_config = SparseType.FP8.default_config()
             self.fp8_exponent_bits: int = (
@@ -653,9 +667,9 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         # weights_placements
         return torch.ops.fbgemm.int_nbit_split_embedding_codegen_lookup_function(
             dev_weights=self.weights_dev,
-            uvm_weights=self.weights_uvm,
+            uvm_weights=self._dummy_weights_uvm,
             weights_placements=self.weights_placements,
-            weights_offsets=self.weights_offsets,
+            weights_offsets=self._dummy_weights_offsets,
             weights_tys=self.weights_tys,
             D_offsets=self.D_offsets,
             total_D=self.total_D,
