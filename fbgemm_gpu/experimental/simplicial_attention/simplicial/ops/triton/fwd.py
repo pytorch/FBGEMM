@@ -66,6 +66,7 @@ def _gqa_pack_fwd_inner(
     w2: tl.constexpr,
     BLOCK_SIZE_KV: tl.constexpr,
     IS_MASK_LOAD: tl.constexpr,
+    INPUT_PRECISION: tl.constexpr,
 ):
     # [BLOCK_SIZE_KV, HEAD_DIM]
     kv2_offs_s = kv2_idx + tl.arange(0, BLOCK_SIZE_KV)
@@ -90,7 +91,7 @@ def _gqa_pack_fwd_inner(
     qk = tl.dot(
         qk1,  # * softmax_scale,
         k2t_tile,
-        input_precision="tf32",  # INPUT_PRECISION,
+        input_precision=INPUT_PRECISION,
         out_dtype=tl.float32,
     )  # [BLOCK_SIZE_Q, BLOCK_SIZE_KV]
 
@@ -255,6 +256,7 @@ def _gqa_pack_fwd_kernel(
                 w2,
                 BLOCK_SIZE_KV,
                 IS_MASK_LOAD=False,
+                INPUT_PRECISION=INPUT_PRECISION,
             )
         if has_mask_load:
             kv2_idx = kv2_start + num_n_trips_inner * BLOCK_SIZE_KV
@@ -277,6 +279,7 @@ def _gqa_pack_fwd_kernel(
                 w2,
                 BLOCK_SIZE_KV,
                 IS_MASK_LOAD=True,
+                INPUT_PRECISION=INPUT_PRECISION,
             )
 
     acc = acc / l_i[:, None]
@@ -307,8 +310,7 @@ def triton_fwd(q, k1, k2, v1, v2, w1, w2, k2_bias=None, v2_bias=None):
         torch.bfloat16
     )
     m = torch.zeros((bs, num_heads, seq_len), dtype=torch.float32, device=q.device)
-    # INPUT_PRECISION = "ieee"
-    INPUT_PRECISION = "tf32"
+    INPUT_PRECISION = "ieee" if torch.version.hip else "tf32"
     # e^x = 2^(x * log2(e)), so we multiply x by log2(e) to use faster exp2 in kernel.
     sm_scale = 1.44269504  # math.log2(math.exp(1))
     sm_scale *= head_dim**-0.5
