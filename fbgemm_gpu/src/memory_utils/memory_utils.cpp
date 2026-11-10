@@ -57,14 +57,12 @@ Tensor uvm_to_cpu_cpu([[maybe_unused]] const Tensor& t) {
   TORCH_CHECK(
       false,
       "Cannot convert CPU tensor to UVM: CPU tensors are never UVM tensors");
-  return t;
 }
 
 Tensor uvm_to_cpu_clone_cpu([[maybe_unused]] const Tensor& t) {
   TORCH_CHECK(
       false,
       "Cannot clone CPU tensor as UVM: CPU tensors are never UVM tensors");
-  return t.clone();
 }
 
 bool is_uvm_tensor_cpu(const Tensor& /*t*/) {
