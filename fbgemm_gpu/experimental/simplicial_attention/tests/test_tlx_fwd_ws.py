@@ -11,6 +11,13 @@ import sys
 
 import pytest
 import torch
+
+if not torch.cuda.is_available():
+    pytest.skip("GPU unavailable", allow_module_level=True)
+
+if torch.version.hip is not None:
+    pytest.skip("TLX warp-group MMA tests require CUDA", allow_module_level=True)
+
 from simplicial.ops.pytorch.two_simplicial_attention import torch_fwd_ref
 from simplicial.ops.tlx.fwd_ws import tlx_fwd_ws
 from simplicial.ops.triton.fwd import triton_fwd as triton_fwd
