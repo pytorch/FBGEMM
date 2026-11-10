@@ -752,6 +752,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
         pg: dist.ProcessGroup | None = None,
         device: torch.device | int | None = None,
+        max_physical_l1_cache_size_mb: int | None = None,
     ) -> None:
         super().__init__()
 
@@ -1027,6 +1028,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert (
             element_size == 4 or element_size == 2
         ), f"Invalid element size {element_size}"
+        if max_physical_l1_cache_size_mb is not None:
+            # Opt-in physical allocation cap, including padded optimizer state.
+            max_cache_sets = (max_physical_l1_cache_size_mb * 1024 * 1024) // (
+                self.cache_assoc * element_size * self.cache_row_dim
+            )
+            if max_cache_sets < 1:
+                raise ValueError(
+                    "max_physical_l1_cache_size_mb must fit at least one physical cache set"
+                )
+            cache_sets = min(cache_sets, max_cache_sets)
         cache_size = cache_sets * self.cache_assoc * element_size * self.cache_row_dim
         logging.info(
             f"Using cache for SSD with admission algorithm "
