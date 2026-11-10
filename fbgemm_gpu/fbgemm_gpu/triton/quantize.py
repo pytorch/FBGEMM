@@ -11,6 +11,7 @@ import math
 import torch
 import triton  # @manual
 import triton.language as tl  # @manual
+from fbgemm_gpu.config import FeatureGate, FeatureGateName
 
 from .common import get_mx4_exp_bias, get_mx4_lookup_table, RoundingMode
 
@@ -85,6 +86,25 @@ def _compute_exp(
 
 
 @triton.jit
+def _quantize_e2m1(x):
+    """Round scaled FP32 values (as int32 bits) to MX4 e2m1 codes, sign in bit 3.
+
+    Same results as the general bit-manipulation path for EBITS=2, MBITS=1: magnitudes
+    0, 0.5, 1, 1.5, 2, 3, 4, 6 with ties rounded away from zero, and anything from 5 up
+    (including inf and nan) saturated to 6.
+    """
+    # Clamp nan to inf so the rounding add below cannot overflow into the sign bit.
+    mag = tl.minimum(x & 0x7FFFFFFF, 0x7F800000)
+    # From 1.0 up, adding half a mantissa step and keeping one mantissa bit rounds ties away
+    # from zero; exponent and mantissa bit then give the code (1.0 -> 2 ... 6.0 -> 7, saturating).
+    hi = tl.minimum(((mag + 0x200000) >> 22) - 252, 7)
+    # Below 1.0 the step is a fixed 0.5: from 0.25 -> 0.5 (code 1), from 0.75 -> 1.0 (code 2).
+    lo = (mag >= 0x3E800000).to(tl.int32) + (mag >= 0x3F400000).to(tl.int32)
+    code = tl.where(mag >= 0x3F800000, hi, lo)
+    return code | ((x >> 28) & 0x8)
+
+
+@triton.jit
 def _kernel_quantize_mx4(
     A,
     out,
@@ -102,6 +122,8 @@ def _kernel_quantize_mx4(
     FP4_EXP_BIAS: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
+    HAS_PADDING: tl.constexpr,
+    E2M1_FAST_PATH: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -122,6 +144,7 @@ def _kernel_quantize_mx4(
         FP4_EXP_BIAS (int): Exponent bias of target mx4 format.
         GROUP_LOAD (int): Number of groups to process simultaneously.
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
+        HAS_PADDING (bool): Whether ROW_PADDING is nonzero.
     """
     # Define Constant Expressions.
     FP32_EXP_MASK: tl.constexpr = 0x7F800000  # type: ignore[Incompatible variable type]
@@ -158,9 +181,20 @@ def _kernel_quantize_mx4(
     # Find starting offsets for this thread. These are calculated before adjusting for padding.
     input_start = pid * (GROUPS_PER_THREAD * GROUP_SIZE)
     output_start = pid * OUTPUT_CHUNK_SIZE
-    exp_start = output_start + GROUP_SIZE // 2
+    # Per-element offsets are int32 and relative to this thread's chunk; only the scalar chunk
+    # starts and bounds need int64. Bounds are clamped to [0, chunk size] so they fit in int32.
+    input_bound = tl.minimum(  # noqa: TR012 (tl.clamp is float-only; these are int)
+        tl.maximum(M * K - input_start, 0),  # noqa: TR012
+        GROUPS_PER_THREAD * GROUP_SIZE,
+    ).to(tl.int32)
+    output_bound = tl.minimum(  # noqa: TR012 (tl.clamp is float-only; these are int)
+        tl.maximum(OUTPUT_SIZE - output_start, 0),  # noqa: TR012
+        OUTPUT_CHUNK_SIZE,
+    ).to(tl.int32)
+    A_chunk = A + input_start
+    out_chunk = out + output_start
     # Initiate offset ranges used in kernel.
-    input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + input_start
+    local_input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE)
     output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 2))
     # Stochastic rounding loads chunks of random values.
     if ROUNDING_MODE == 3:
@@ -169,33 +203,36 @@ def _kernel_quantize_mx4(
     else:
         rand_bits_offset = pid * GROUPS_PER_THREAD
     # We need to shift output offsets to make space for shared exponent storage.
-    output_offset += output_offset // (GROUP_SIZE // 2) + output_start
+    output_offset += output_offset // (GROUP_SIZE // 2)
     # Now create offsets for writing the shared exponent.
-    exp_offset = tl.arange(0, GROUP_LOAD) * PACKED_GROUP_SIZE + exp_start
+    exp_offset = tl.arange(0, GROUP_LOAD) * PACKED_GROUP_SIZE + GROUP_SIZE // 2
 
     # Load and process blocks of values for this chunk.
     for _k in range(0, tl.cdiv(GROUPS_PER_THREAD, GROUP_LOAD)):
-        # We need to make some adjustments to allow for padding.
-        pad_mask = (input_offset % (GROUPS_PER_ROW * GROUP_SIZE)) < K
-        if ROW_PADDING != 0:
+        if HAS_PADDING:
+            # Padded rows need the global offset to locate row boundaries.
+            input_offset = local_input_offset + input_start
+            pad_mask = (input_offset % (GROUPS_PER_ROW * GROUP_SIZE)) < K
             # Shift the input to account for padding.
             padded_input_offset = (
                 input_offset
                 - (input_offset // (GROUPS_PER_ROW * GROUP_SIZE)) * ROW_PADDING
             )
-        # When theres no padding we can simplify indexing.
+            a = tl.load(
+                A + padded_input_offset,
+                # Mask values out of range for both the main array and this chunk. Also pad.
+                mask=(padded_input_offset < (M * K))
+                & (padded_input_offset < ((pid + 1) * GROUPS_PER_THREAD * GROUP_SIZE))
+                & pad_mask,
+                other=0,
+            )
         else:
-            padded_input_offset = input_offset
-
-        # Load a block of values.
-        a = tl.load(
-            A + padded_input_offset,
-            # Mask values out of range for both the main array and this chunk. Also pad if needed.
-            mask=(padded_input_offset < (M * K))
-            & (padded_input_offset < ((pid + 1) * GROUPS_PER_THREAD * GROUP_SIZE))
-            & pad_mask,
-            other=0,
-        )
+            # Without padding every offset is in its row, so only the range check remains.
+            a = tl.load(
+                A_chunk + local_input_offset,
+                mask=local_input_offset < input_bound,
+                other=0,
+            )
 
         # Scaling step
         ##############
@@ -224,19 +261,13 @@ def _kernel_quantize_mx4(
         group_exp = tl.clamp(group_exp, -127, 125)
 
         # Next we scale A in preparation for quantization.
-        # Compute scale = 2^group_exp exactly via FP32 bit construction instead of a slow
-        # per-group FP64 exp2. group_exp is an integer in [-127, 125]; for e >= -126, 2^e is
-        # a normal fp32 (zero mantissa) so we set the exponent field directly. e == -127 ->
-        # 2^-127 is subnormal and cannot be built that way, so special-case it.
-        group_exp_int = group_exp.to(tl.int32)
-        scale = tl.where(
-            group_exp_int >= -126,
-            ((group_exp_int + 127) << 23).to(tl.float32, bitcast=True),
-            2.0**-127,
-        )
+        # Multiply by 2^-group_exp, built exactly from FP32 bits, instead of dividing by
+        # 2^group_exp. group_exp is an integer in [-127, 125], so 2^-group_exp is always a
+        # normal fp32 and the product is the exact quotient.
+        inv_scale = ((127 - group_exp.to(tl.int32)) << 23).to(tl.float32, bitcast=True)
         # Apply scale to input. We do this by broadcasting scale.
-        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) / tl.reshape(
-            scale, [GROUP_LOAD, 1]
+        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
+            inv_scale, [GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
@@ -244,11 +275,10 @@ def _kernel_quantize_mx4(
         # We're done with group_exp now so we can write it out.
         # We readd fp32_exp_bias for compatibility with cuda dequant.
         tl.store(
-            out + exp_offset,
+            out_chunk + exp_offset,
             (group_exp + FP32_EXP_BIAS).to(tl.uint8),
             # Prevent writing outside this chunk or the main array.
-            mask=(exp_offset < OUTPUT_SIZE)
-            & (exp_offset < (OUTPUT_CHUNK_SIZE * (pid + 1))),
+            mask=exp_offset < output_bound,
         )
 
         # Quantization step
@@ -266,7 +296,7 @@ def _kernel_quantize_mx4(
             # Start by splitting down to half of offsets.
             philox_4x_offset = tl.split(
                 tl.reshape(
-                    input_offset,
+                    local_input_offset + input_start,
                     [GROUP_LOAD * GROUP_SIZE // 2, 2],
                     can_reorder=True,
                 )
@@ -294,63 +324,77 @@ def _kernel_quantize_mx4(
             # Mask off mantissa bits of random value and add to mantissa.
             scaled_a = scaled_a + (stochastic_round_bits & RAND_MASK)
 
-        # Extract sign bit of value.
-        sign_bit = (scaled_a >> FP32_SIGN_OFFSET) & SIGN_MASK
+        if (
+            E2M1_FAST_PATH
+            and EBITS == 2
+            and MBITS == 1
+            and FP4_EXP_BIAS == 1
+            and not STOCHASTIC_CASTING
+        ):
+            mx4_value = _quantize_e2m1(scaled_a)
+        else:
+            # Extract sign bit of value.
+            sign_bit = (scaled_a >> FP32_SIGN_OFFSET) & SIGN_MASK
 
-        # Extract exponent.
-        biased_exp = (scaled_a & FP32_EXP_MASK) >> FP32_EXP_OFFSET
+            # Extract exponent.
+            biased_exp = (scaled_a & FP32_EXP_MASK) >> FP32_EXP_OFFSET
 
-        # Extract mantissa.
-        trailing_mantissa = scaled_a & FP32_MANTISSA_MASK
+            # Extract mantissa.
+            trailing_mantissa = scaled_a & FP32_MANTISSA_MASK
 
-        # Adjust exponent bias for FP4.
-        new_biased_exp = biased_exp - FP32_EXP_BIAS + FP4_EXP_BIAS
+            # Adjust exponent bias for FP4.
+            new_biased_exp = biased_exp - FP32_EXP_BIAS + FP4_EXP_BIAS
 
-        # Compute difference between ideal exponent and what fp4 can represent.
-        exp_diff = tl.where(new_biased_exp <= 0, 1 - new_biased_exp, 0)
+            # Compute difference between ideal exponent and what fp4 can represent.
+            exp_diff = tl.where(new_biased_exp <= 0, 1 - new_biased_exp, 0)
 
-        # Clip this difference to maximum number of fp32 mantissa bits.
-        exp_diff = tl.minimum(exp_diff, MAX_FP32_MANTISSA_BITS)
+            # Clip this difference to maximum number of fp32 mantissa bits.
+            exp_diff = tl.minimum(exp_diff, MAX_FP32_MANTISSA_BITS)
 
-        # Now we round our fp32 mantissa down to fp4.
-        is_subnorm = biased_exp == 0
-        # Add implied 1 bit to normal values.
-        mantissa = tl.where(
-            is_subnorm, trailing_mantissa, trailing_mantissa + IMPLIED_1_BIT
-        )
-        # Compute base number of bits corresponding to the mantissa, smaller for subnorms
-        # since implied one is included in exp_diff.
-        fp32_sig_bits = tl.where(is_subnorm, 23, 24).to(tl.int32)
-        # Now we're ready to shift down to target bitwidth (with an extra bit for rounding).
-        # The shift can reach 45 for tiny values. Shifting an int32 by >= 32 is undefined:
-        # NVIDIA saturates to 0 but AMD GPUs only use the low 5 bits of the shift amount.
-        # Mantissa fits in 24 bits, so clamping to 31 gives 0 on all backends.
-        mantissa_shift = tl.minimum(fp32_sig_bits + exp_diff - MBITS_IMPLICIT - 1, 31)
-        mantissa = mantissa >> mantissa_shift
-        # Perform rounding by adding 1 and shifting down.
-        mantissa = (mantissa + 1) >> 1
+            # Now we round our fp32 mantissa down to fp4.
+            is_subnorm = biased_exp == 0
+            # Add implied 1 bit to normal values.
+            mantissa = tl.where(
+                is_subnorm, trailing_mantissa, trailing_mantissa + IMPLIED_1_BIT
+            )
+            # Compute base number of bits corresponding to the mantissa, smaller for subnorms
+            # since implied one is included in exp_diff.
+            fp32_sig_bits = tl.where(is_subnorm, 23, 24).to(tl.int32)
+            # Now we're ready to shift down to target bitwidth (with an extra bit for rounding).
+            # The shift can reach 45 for tiny values. Shifting an int32 by >= 32 is undefined:
+            # NVIDIA saturates to 0 but AMD GPUs only use the low 5 bits of the shift amount.
+            # Mantissa fits in 24 bits, so clamping to 31 gives 0 on all backends.
+            mantissa_shift = tl.minimum(
+                fp32_sig_bits + exp_diff - MBITS_IMPLICIT - 1, 31
+            )
+            mantissa = mantissa >> mantissa_shift
+            # Perform rounding by adding 1 and shifting down.
+            mantissa = (mantissa + 1) >> 1
 
-        # Check for overflow and adjust exponent accordingly.
-        overflow = mantissa > MANTISSA_OVERFLOW_THRESHOLD
-        # Allow subnorms to overflow into normals, otherwise shift away overflow.
-        mantissa = tl.where(overflow and (not is_subnorm), mantissa >> 1, mantissa)
-        # Special case where a value is subnormal and has a large mantissa, overflow it.
-        new_biased_exp = tl.where(
-            (new_biased_exp <= 0) and (mantissa == 2), 1, new_biased_exp
-        )
-        # Remove implicit 1.
-        mantissa = mantissa & IMPLICIT_1_MASK
-        # Add overflow to exponent.
-        new_biased_exp = tl.where(overflow, new_biased_exp + 1, new_biased_exp)
-        # If exp overflows, set mantissa to maximum value (equivalent to clamping).
-        mantissa = tl.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
+            # Check for overflow and adjust exponent accordingly.
+            overflow = mantissa > MANTISSA_OVERFLOW_THRESHOLD
+            # Allow subnorms to overflow into normals, otherwise shift away overflow.
+            mantissa = tl.where(overflow and (not is_subnorm), mantissa >> 1, mantissa)
+            # Special case where a value is subnormal and has a large mantissa, overflow it.
+            new_biased_exp = tl.where(
+                (new_biased_exp <= 0) and (mantissa == 2), 1, new_biased_exp
+            )
+            # Remove implicit 1.
+            mantissa = mantissa & IMPLICIT_1_MASK
+            # Add overflow to exponent.
+            new_biased_exp = tl.where(overflow, new_biased_exp + 1, new_biased_exp)
+            # If exp overflows, set mantissa to maximum value (equivalent to clamping).
+            mantissa = tl.where(
+                new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa
+            )
 
-        # Construct FP4 value from components.
-        new_biased_exp = tl.maximum(
-            tl.minimum(new_biased_exp, EXPONENT_OVERFLOW_THRESHOLD), 0
-        )
-        mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
-        mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value
+            # Construct FP4 value from components.
+            new_biased_exp = tl.maximum(  # noqa: TR012 (tl.clamp is float-only; these are int32)
+                tl.minimum(new_biased_exp, EXPONENT_OVERFLOW_THRESHOLD),  # noqa: TR012
+                0,
+            )
+            mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
+            mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value
 
         # Extract low and high bits from values.
         low_mx4, high_mx4 = tl.split(
@@ -361,15 +405,14 @@ def _kernel_quantize_mx4(
 
         # Write out packed values to output tensor.
         tl.store(
-            out + output_offset,
+            out_chunk + output_offset,
             packed_mx4,
             # Prevent writing outside this chunk or the main array.
-            mask=(output_offset < OUTPUT_SIZE)
-            & (output_offset < (OUTPUT_CHUNK_SIZE * (pid + 1))),
+            mask=output_offset < output_bound,
         )
 
         # Update offsets so we work on the next block.
-        input_offset += GROUP_LOAD * GROUP_SIZE
+        local_input_offset += GROUP_LOAD * GROUP_SIZE
         exp_offset += GROUP_LOAD * PACKED_GROUP_SIZE
         output_offset += GROUP_LOAD * PACKED_GROUP_SIZE
 
@@ -452,6 +495,7 @@ def triton_quantize_mx4(
 
     # Check if we need to use int64 for indexing.
     use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
+    fast_path = FeatureGate.is_enabled(FeatureGateName.TRITON_MX4_QUANTIZE_FAST_PATH)
 
     # Invoke triton quantization kernel over rows.
     grid = (num_threads,)
@@ -479,6 +523,10 @@ def triton_quantize_mx4(
         GROUP_LOAD=GROUP_LOAD,
         # pyre-ignore[6]
         USE_INT64=use_int64,
+        # pyre-ignore[6]
+        HAS_PADDING=padding != 0 or not fast_path,
+        # pyre-ignore[6]
+        E2M1_FAST_PATH=fast_path,
     )
     # Inputs are now fully quantized and ready to return.
     # Try to return in the original shape if possible.
