@@ -200,7 +200,7 @@ void all_to_one_target_cpu(
     const std::vector<Tensor>& input_tensors,
     std::vector<Tensor>& output_tensors) {
   TORCH_CHECK(input_tensors.size() == output_tensors.size());
-  for (size_t i = 0; i < input_tensors.size(); i++) {
+  for (const auto i : c10::irange(input_tensors.size())) {
     const auto& src = input_tensors.at(i);
     auto& dst = output_tensors.at(i);
     dst.copy_(src, /*non_blocking=*/true);

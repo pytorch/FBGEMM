@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <c10/util/irange.h>
 
 namespace fbgemm_gpu {
 
@@ -27,7 +28,7 @@ __device__ __forceinline__ void binary_search_range(
         // Do linear scan in case of duplicate data (We assume that the
         // number of duplicates is small.  This can we very bad if the
         // number of duplicates is large)
-        for (index_t i = mid + 1; i < num_entries; i++) {
+        for (const auto i : c10::irange(mid + 1, num_entries)) {
           if (target != arr[i]) {
             found_ = i;
             break;

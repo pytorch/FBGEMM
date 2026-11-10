@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
@@ -47,7 +48,7 @@ thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
   float2 qparams;
   float min_val = input_row[0].vmin();
   float max_val = input_row[0].vmax();
-  for (int i = 0; i < D / 4; ++i) {
+  for (const auto i : c10::irange(D / 4)) {
     min_val = min(min_val, input_row[i].vmin());
     max_val = max(max_val, input_row[i].vmax());
   }

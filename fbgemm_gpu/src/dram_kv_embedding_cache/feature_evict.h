@@ -29,6 +29,7 @@
 #include <gtest/gtest_prod.h>
 #include <cassert>
 
+#include <c10/util/irange.h>
 #include "SynchronizedShardedMap.h"
 
 namespace kv_mem {
@@ -1059,7 +1060,7 @@ class FeatureEvict {
     {
       std::unique_lock<std::mutex> lock(metric_mtx_);
       metrics_.exec_duration_ms += duration.count();
-      for (size_t i = 0; i < evicted_counts.size(); ++i) {
+      for (const auto i : c10::irange(evicted_counts.size())) {
         metrics_.evicted_counts[i] += evicted_counts[i];
         metrics_.processed_counts[i] += processed_counts[i];
       }
@@ -1566,7 +1567,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
         continue;
       }
 
-      for (int shard_id = 0; shard_id < this->num_shards_; ++shard_id) {
+      for (const auto shard_id : c10::irange(this->num_shards_)) {
         total +=
             this->local_blocks_num_per_shard_per_table_[table_id][shard_id];
       }
@@ -1577,7 +1578,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       int64_t acc_count = 0;
       int64_t threshold_bucket = num_buckets_ - 1;
       int64_t bucket0_count = 0;
-      for (int shard_id = 0; shard_id < this->num_shards_; ++shard_id) {
+      for (const auto shard_id : c10::irange(this->num_shards_)) {
         bucket0_count +=
             local_buckets_per_shard_per_table_[table_id][shard_id][0];
       }

@@ -8,6 +8,7 @@
 
 #include "common.cuh"
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/config/feature_gates.h"
 
 using Tensor = at::Tensor;
@@ -513,7 +514,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
 
     // Load base offsets for each bucket
     offset_t base_offsets[kWarpSize];
-    for (auto p = 0; p < my_size; p++) {
+    for (const auto p : c10::irange(my_size)) {
       CUDA_KERNEL_ASSERT(
           p * lengths_size + b_t >= 0 &&
           "bucketized_offsets index out of bounds");
@@ -534,7 +535,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
 
       // Compute ballot for all buckets - no branch divergence!
       // All threads execute the same loop iterations
-      for (int p = 0; p < my_size; p++) {
+      for (const auto p : c10::irange(my_size)) {
         // ballot_sync() returns a width-correct mask (uint64_t on ROCm
         // wavefront64, uint32_t on CUDA warp32). Pairing it with __popcll is
         // required: a 32-bit mask + __popc would silently truncate lanes 32-63
@@ -561,7 +562,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_warp_parallel_k
       // buckets. Each thread only captured the ballot for its own bucket,
       // but here we need the popcount for every bucket to update all
       // cumulative_counts entries.
-      for (int p = 0; p < my_size; p++) {
+      for (const auto p : c10::irange(my_size)) {
         // Width-correct ballot + __popcll, same rationale as above.
         const auto bucket_mask = ballot_sync(valid && (my_bucket == p));
         cumulative_counts[p] += __popcll(bucket_mask);
@@ -945,7 +946,7 @@ _block_bucketize_sparse_features_cuda(
     // Validate dtype of block_bucketize_pos tensors before concatenation
     const auto& pos_tensors = block_bucketize_pos.value();
     const auto expected_dtype = indices_contig.scalar_type();
-    for (size_t i = 0; i < pos_tensors.size(); ++i) {
+    for (const auto i : c10::irange(pos_tensors.size())) {
       TORCH_CHECK(
           pos_tensors[i].scalar_type() == expected_dtype,
           "block_bucketize_sparse_features: block_bucketize_pos[",

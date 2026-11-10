@@ -17,6 +17,7 @@
 #include <functional>
 #include "ATen/Parallel.h"
 
+#include <c10/util/irange.h>
 #include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/binary_search_range.h"
@@ -167,7 +168,7 @@ void jagged_dense_elementwise_dense_output_kernel_(
   const scalar_t* x_data = x_accessor.data();
   const auto x_stride0 = x_accessor.stride(0);
   const auto x_stride1 = x_accessor.stride(1);
-  for (int64_t oidx = 0; oidx < outer_dense_size; ++oidx) {
+  for (const auto oidx : c10::irange(outer_dense_size)) {
     const auto output_outer = output_accessor[oidx];
     const auto y_outer = y_accessor[oidx];
     scalar_t* const out_data = output_outer.data();
@@ -201,7 +202,7 @@ void jagged_dense_elementwise_dense_output_kernel_(
             scalar_t* const out_row = out_data + jidx * out_stride0;
             const scalar_t* const x_row = x_data + (begin + jiidx) * x_stride0;
             const scalar_t* const y_row = y_data + jidx * y_stride0;
-            for (int64_t iidx = 0; iidx < inner_dense_size; ++iidx) {
+            for (const auto iidx : c10::irange(inner_dense_size)) {
               out_row[iidx * out_stride1] =
                   f(x_row[iidx * x_stride1], y_row[iidx * y_stride1]);
             }
@@ -216,7 +217,7 @@ void jagged_dense_elementwise_dense_output_kernel_(
         } else {
           scalar_t* const out_row = out_data + jidx * out_stride0;
           const scalar_t* const y_row = y_data + jidx * y_stride0;
-          for (int64_t iidx = 0; iidx < inner_dense_size; ++iidx) {
+          for (const auto iidx : c10::irange(inner_dense_size)) {
             out_row[iidx * out_stride1] =
                 f(padding_value, y_row[iidx * y_stride1]);
           }
@@ -1757,7 +1758,7 @@ Tensor get_source_mask_cpu(
         bool* output_data = output.mutable_data_ptr<bool>();
 
         int64_t offset = 0;
-        for (int64_t i = 0; i < batch_size; ++i) {
+        for (const auto i : c10::irange(batch_size)) {
           const index_t n_sources = num_sources_data[i];
           const index_t n_targets = num_targets_data[i];
 
@@ -1787,7 +1788,7 @@ static Tensor repeat_arange_cpu(const Tensor& lengths) {
   int64_t output_size = 0;
   AT_DISPATCH_INDEX_TYPES(lengths.scalar_type(), "repeat_arange_cpu_size", [&] {
     const index_t* lengths_data = lengths.const_data_ptr<index_t>();
-    for (int64_t i = 0; i < batch_size; ++i) {
+    for (const auto i : c10::irange(batch_size)) {
       output_size += static_cast<int64_t>(lengths_data[i]);
     }
   });
@@ -1811,10 +1812,10 @@ static Tensor repeat_arange_cpu(const Tensor& lengths) {
     index_t* output_data = output.data_ptr<index_t>();
 
     int64_t offset = 0;
-    for (int64_t i = 0; i < batch_size; ++i) {
+    for (const auto i : c10::irange(batch_size)) {
       const index_t length = lengths_data[i];
       // Fill with 0, 1, 2, ..., length-1
-      for (index_t j = 0; j < length; ++j) {
+      for (const auto j : c10::irange(length)) {
         output_data[offset + j] = j;
       }
       offset += length;

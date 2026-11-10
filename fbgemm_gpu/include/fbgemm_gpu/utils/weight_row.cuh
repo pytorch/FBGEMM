@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 #include "fbgemm_gpu/utils/vec4.cuh"
@@ -150,7 +151,7 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
     auto* ptr_float = reinterpret_cast<float*>(ptr);
     auto* qparam_ptr = reinterpret_cast<const float*>(&qparams.x);
 #pragma unroll
-    for (int i = 0; i < 2; ++i) {
+    for (const auto i : c10::irange(2)) {
       ptr_float[i] = qparam_ptr[i];
     }
 
@@ -158,14 +159,14 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
     auto* ptr_16bit = reinterpret_cast<uint16_t*>(ptr);
     auto* qparam_ptr = reinterpret_cast<const uint16_t*>(&qparams.x);
 #pragma unroll
-    for (int i = 0; i < 4; ++i) {
+    for (const auto i : c10::irange(4)) {
       ptr_16bit[i] = qparam_ptr[i];
     }
 
   } else {
     auto* qparam_ptr = reinterpret_cast<const uint8_t*>(&qparams.x);
 #pragma unroll
-    for (int i = 0; i < 8; ++i) {
+    for (const auto i : c10::irange(8)) {
       ptr[i] = qparam_ptr[i];
     }
   }

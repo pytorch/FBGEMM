@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <c10/util/irange.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // Extended *TensorAccessor
@@ -71,7 +72,7 @@ copy_str(char* dst, const char* src, const size_t max_len) {
   len = len < (max_len - 1) ? len : (max_len - 1);
 
   // Copy src to dst
-  for (size_t i = 0; i < len; i++) {
+  for (const auto i : c10::irange(len)) {
     dst[i] = src[i];
   }
   dst[len] = '\0';
@@ -107,7 +108,7 @@ class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
             strides_) {
     if (sizes_ && strides_) {
       numel_ = 1;
-      for (size_t d = 0; d < N; d++) {
+      for (const auto d : c10::irange(N)) {
         numel_ += (sizes_[d] - 1) * strides_[d];
       }
     }
@@ -338,7 +339,7 @@ class PackedTensorAccessor
     numel_ = 0;
     if (sizes_ && strides_) {
       numel_ = 1;
-      for (size_t d = 0; d < N; d++) {
+      for (const auto d : c10::irange(N)) {
         numel_ += (sizes_[d] - 1) * strides_[d];
       }
     }

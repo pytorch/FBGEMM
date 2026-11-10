@@ -15,6 +15,7 @@
 
 #include <cmath>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/weight_row.cuh"
@@ -193,7 +194,7 @@ TEST(WeightRow, update_optimizer_state) {
         cache.slice(1, cols + 2, cols + 4).cpu().contiguous().flatten();
     auto* doubles = reinterpret_cast<double*>(momentum2.data_ptr<float>());
 
-    for (auto i = 0; i < rows; i++) {
+    for (const auto i : c10::irange(rows)) {
       EXPECT_EQ(doubles[i], kMomentum2);
     }
   }
@@ -205,7 +206,7 @@ TEST(WeightRow, update_optimizer_state) {
         cache.slice(1, cols + 4, cols + 5).cpu().contiguous().flatten();
     auto* uints = reinterpret_cast<uint8_t*>(momentum34.data_ptr<float>());
 
-    for (auto i = 0; i < rows; i++) {
+    for (const auto i : c10::irange(rows)) {
       EXPECT_EQ(uints[i * 4], kMomentum3);
       EXPECT_EQ(uints[i * 4 + 1], kMomentum4);
     }

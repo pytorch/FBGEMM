@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <type_traits>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
@@ -149,7 +150,7 @@ __global__ void auc_kernel(
       is_multi_block,
       /*signal=*/2);
 
-  for (int i = 0; i < PADDED_SECTION_SIZE; i++) {
+  for (const auto i : c10::irange(PADDED_SECTION_SIZE)) {
     smem_fp[section_offset + i] = local_fp[i];
     smem_tp[section_offset + i] = local_tp[i];
   }

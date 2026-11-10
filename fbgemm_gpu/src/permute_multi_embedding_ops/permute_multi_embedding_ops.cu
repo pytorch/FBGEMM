@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <ostream>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/permute_multi_embedding_function.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
@@ -282,7 +283,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
   // check input tensors
   std::vector<Tensor> inputs;
   inputs.reserve(pooled_embs.size());
-  for (int32_t i = 0; i < num_of_input_tensors; i++) {
+  for (const auto i : c10::irange(num_of_input_tensors)) {
     Tensor cont_tensor = pooled_embs[i].contiguous();
     inputs.push_back(cont_tensor);
     TORCH_CHECK(cont_tensor.is_contiguous());
@@ -292,7 +293,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
   std::vector<Tensor> outputs;
   outputs.reserve(num_of_output_tensors);
   const auto lengths = reinterpret_cast<const int64_t*>(out_lengths.data());
-  for (int32_t i = 0; i < num_of_output_tensors; i++) {
+  for (const auto i : c10::irange(num_of_output_tensors)) {
     Tensor output =
         at::empty({batch_size, lengths[i]}, pooled_embs[0].options());
     outputs.push_back(output);

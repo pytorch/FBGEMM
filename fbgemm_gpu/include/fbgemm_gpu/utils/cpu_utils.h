@@ -11,6 +11,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <c10/util/irange.h>
 #include <cstdint>
 #include <utility>
 
@@ -32,7 +33,7 @@ void report_embedding_error(
     const IndexType* indices_data,
     int64_t hash_size,
     bool allow_minus_one = false) {
-  for (int b = b_begin; b < b_end; ++b) {
+  for (const auto b : c10::irange(b_begin, b_end)) {
     const auto pool_begin = offsets_data[t * B + b];
     const auto pool_end = offsets_data[t * B + b + 1];
     for (auto p = pool_begin; p < pool_end; ++p) {

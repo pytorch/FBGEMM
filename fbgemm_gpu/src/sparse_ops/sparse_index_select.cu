@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -41,7 +42,7 @@ __global__ __launch_bounds__(kMaxThreads) void index_select_2d_kernel(
          col < D / UNROLL_FACTOR * UNROLL_FACTOR;
          col += blockDim.x * UNROLL_FACTOR) {
 #pragma unroll
-      for (int i = 0; i < UNROLL_FACTOR; i++) {
+      for (const auto i : c10::irange(UNROLL_FACTOR)) {
         output[dst_idx][col + i] = LDG(&input[src_idx][col + i]);
       }
     }

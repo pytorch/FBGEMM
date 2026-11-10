@@ -9,6 +9,7 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_inference_embedding.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
+#include <c10/util/irange.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
@@ -73,7 +74,7 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
   // Generate deterministic embeddings based on id for verification
   static std::vector<float> generateEmbedding(int64_t id) {
     std::vector<float> embedding(EMBEDDING_DIM);
-    for (int i = 0; i < EMBEDDING_DIM; ++i) {
+    for (const auto i : c10::irange(EMBEDDING_DIM)) {
       embedding[i] = static_cast<float>(id * 1000 + i) / 100000.0f;
     }
     return embedding;
@@ -141,7 +142,7 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
 
   // Bulk insert embeddings
   void bulkInsert(int64_t start_id, int64_t count, uint32_t base_ts = 1000) {
-    for (int64_t i = 0; i < count; ++i) {
+    for (const auto i : c10::irange(count)) {
       insertEmbedding(start_id + i, base_ts);
     }
   }
@@ -158,7 +159,7 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
   void runParallel(int num_threads, WorkFn work_fn) {
     std::vector<std::thread> threads;
     threads.reserve(num_threads);
-    for (int t = 0; t < num_threads; ++t) {
+    for (const auto t : c10::irange(num_threads)) {
       threads.emplace_back([t, &work_fn]() { work_fn(t); });
     }
     for (auto& thread : threads) {
@@ -267,7 +268,7 @@ TEST_F(KVEmbeddingInferenceTest, ConcurrentReads) {
     std::mt19937 rng(t);
     std::uniform_int_distribution<int64_t> dist(0, NUM_EMBEDDINGS - 1);
 
-    for (int r = 0; r < READS_PER_THREAD; ++r) {
+    for ([[maybe_unused]] const auto _ : c10::irange(READS_PER_THREAD)) {
       int64_t id = dist(rng);
       auto retrieved = readEmbedding(id);
       auto expected = generateEmbedding(id);
@@ -314,7 +315,7 @@ TEST_F(KVEmbeddingInferenceTest, ConcurrentWrites) {
 
   runParallel(NUM_WRITERS, [&](int t) {
     int64_t base_id = t * WRITES_PER_THREAD;
-    for (int i = 0; i < WRITES_PER_THREAD; ++i) {
+    for (const auto i : c10::irange(WRITES_PER_THREAD)) {
       insertEmbedding(base_id + i, 1000 + t);
       write_count.fetch_add(1, std::memory_order_relaxed);
     }
@@ -374,7 +375,7 @@ TEST_F(KVEmbeddingInferenceTest, ConcurrentReadWrite) {
             << " writers (" << OPS_PER_WRITER << " ops each)";
 
   // Reader threads - run until writers complete
-  for (int t = 0; t < NUM_READERS; ++t) {
+  for (const auto t : c10::irange(NUM_READERS)) {
     threads.emplace_back([this,
                           t,
                           &read_count,
@@ -399,12 +400,12 @@ TEST_F(KVEmbeddingInferenceTest, ConcurrentReadWrite) {
   }
 
   // Writer threads - fixed number of operations
-  for (int t = 0; t < NUM_WRITERS; ++t) {
+  for (const auto t : c10::irange(NUM_WRITERS)) {
     threads.emplace_back([this, t, &write_count]() {
       std::mt19937 rng(t + 2000);
       std::uniform_int_distribution<int64_t> key_dist(0, NUM_HOT_KEYS - 1);
 
-      for (int i = 0; i < OPS_PER_WRITER; ++i) {
+      for (const auto i : c10::irange(OPS_PER_WRITER)) {
         int64_t key = key_dist(rng);
         int64_t version = t * OPS_PER_WRITER + i;
         auto embedding = generateEmbedding(version);
@@ -458,8 +459,8 @@ TEST_F(KVEmbeddingInferenceTest, ConcurrentWritesSameKey) {
   std::vector<std::pair<int, int>> all_versions;
 
   // Collect all possible versions
-  for (int t = 0; t < NUM_WRITERS; ++t) {
-    for (int i = 0; i < WRITES_PER_THREAD; ++i) {
+  for (const auto t : c10::irange(NUM_WRITERS)) {
+    for (const auto i : c10::irange(WRITES_PER_THREAD)) {
       all_versions.emplace_back(t, i);
     }
   }
@@ -470,7 +471,7 @@ TEST_F(KVEmbeddingInferenceTest, ConcurrentWritesSameKey) {
             << TARGET_KEY << " (" << WRITES_PER_THREAD << " writes each)";
 
   runParallel(NUM_WRITERS, [&](int t) {
-    for (int i = 0; i < WRITES_PER_THREAD; ++i) {
+    for (const auto i : c10::irange(WRITES_PER_THREAD)) {
       int64_t version = t * 1000 + i;
       auto embedding = generateEmbedding(version);
       insertEmbedding(TARGET_KEY, embedding, 3000 + t);
@@ -530,7 +531,7 @@ TEST_F(KVEmbeddingInferenceTest, ReadConsistencyDuringWrites) {
             << " toggle updates";
 
   // Reader threads
-  for (int t = 0; t < NUM_READERS; ++t) {
+  for ([[maybe_unused]] const auto _ : c10::irange(NUM_READERS)) {
     threads.emplace_back(
         [this, &stop_flag, &v1_reads, &v2_reads, &partial_reads]() {
           while (!stop_flag.load(std::memory_order_acquire)) {
@@ -557,7 +558,7 @@ TEST_F(KVEmbeddingInferenceTest, ReadConsistencyDuringWrites) {
 
   // Writer thread - toggle between v1 and v2
   threads.emplace_back([this, &embedding_v1, &embedding_v2]() {
-    for (int i = 0; i < NUM_UPDATES; ++i) {
+    for (const auto i : c10::irange(NUM_UPDATES)) {
       auto& embedding = (i % 2 == 0) ? embedding_v2 : embedding_v1;
       insertEmbedding(TARGET_KEY, embedding, 5000 + i);
       std::this_thread::sleep_for(std::chrono::microseconds(50));
@@ -609,7 +610,7 @@ TEST_F(KVEmbeddingInferenceTest, HighConcurrency) {
     std::uniform_int_distribution<int64_t> key_dist(0, NUM_KEYS - 1);
     std::uniform_real_distribution<float> op_dist(0.0f, 1.0f);
 
-    for (int i = 0; i < OPS_PER_THREAD; ++i) {
+    for (const auto i : c10::irange(OPS_PER_THREAD)) {
       int64_t key = key_dist(rng);
 
       try {

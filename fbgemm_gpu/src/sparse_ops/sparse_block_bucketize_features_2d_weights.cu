@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -307,7 +308,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_2d_w
       new_indices_data[pos] = new_idx;
       if (has_weight) {
         // Copy all weight dimensions for this index
-        for (int64_t d = 0; d < weights_dim; ++d) {
+        for (const auto d : c10::irange(weights_dim)) {
           new_weights_data[pos * weights_dim + d] =
               weights_data[i * weights_dim + d];
         }
@@ -441,7 +442,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_2d
       }
       if (has_weight) {
         // Copy all weight dimensions for this index
-        for (int64_t d = 0; d < weights_dim; ++d) {
+        for (const auto d : c10::irange(weights_dim)) {
           new_weights_data[pos * weights_dim + d] =
               weights_data[i * weights_dim + d];
         }

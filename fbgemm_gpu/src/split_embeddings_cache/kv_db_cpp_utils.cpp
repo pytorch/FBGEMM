@@ -8,6 +8,7 @@
 
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 
+#include <c10/util/irange.h>
 #include <common/base/Proc.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
@@ -70,7 +71,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
 
   // first loop to figure out size per bucket id in ascending order
   std::map<int64_t, int64_t> bucket_id_to_cnt;
-  for (int64_t i = 0; i < num_indices; ++i) {
+  for (const auto i : c10::irange(num_indices)) {
     auto global_bucket_id = _get_bucket_id(
         indices_data_ptr[i], hash_mode, bucket_size, total_num_buckets);
     TORCH_CHECK(
@@ -89,7 +90,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
   at::Tensor bucket_tensor =
       at::zeros({bucket_end - bucket_start, 1}, unordered_indices.options());
   auto bucket_tensor_data_ptr = bucket_tensor.mutable_data_ptr<int64_t>();
-  for (int64_t i = bucket_start; i < bucket_end; ++i) {
+  for (const auto i : c10::irange(bucket_start, bucket_end)) {
     if (bucket_id_to_cnt.contains(i)) {
       bucket_tensor_data_ptr[i - bucket_start] = bucket_id_to_cnt[i];
     } else {
@@ -117,7 +118,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
   std::vector<folly::Future<folly::Unit>> futures;
   for (int64_t i = 0; i < num_executors; ++i) {
     auto f = folly::via(executors.get()).thenValue([&, i](folly::Unit) {
-      for (int64_t j = 0; j < num_indices; j++) {
+      for (const auto j : c10::irange(num_indices)) {
         auto bucket_id = _get_bucket_id(
             indices_data_ptr[j], hash_mode, bucket_size, total_num_buckets);
         if (bucket_id % num_executors != i) {

@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
@@ -74,7 +75,7 @@ __global__ inline void _float_to_paddedFP8rowwise_cuda_kernel(
       // non-zero pad value is for output size counting in host
       output_row_scale[1] = *reinterpret_cast<float*>(
           (row == threads - 1) ? &pad : &last_buc_idx);
-      for (int col = 0; col < range; col += 1) {
+      for (const auto col : c10::irange(range)) {
         output_row[col] = float_to_hfp8(
             to_float(input_row[col]) * scale, ebit, bias, max_pos);
       }
@@ -252,7 +253,7 @@ __global__ inline void _PaddedFP8rowwise_to_float_2d_cuda_kernel(
       // if pad is negative it's used to indidate indices of the next padded
       // bucket
       pad = ::max(0, ::min(pad, row_dim));
-      for (int bi = 0; bi < row_dim - pad; ++bi) {
+      for (const auto bi : c10::irange(row_dim - pad)) {
         const auto output_ =
             hfp8_to_float(input_row[col + bi], ebit, bias) / input_row_scale[0];
         quantize_float_store(&output_row[col + bi - col_offset], output_);

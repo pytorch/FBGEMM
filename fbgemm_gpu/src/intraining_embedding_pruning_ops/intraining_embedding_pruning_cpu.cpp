@@ -9,6 +9,7 @@
 #include <ATen/ATen.h>
 #include <torch/torch.h>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/intraining_embedding_pruning.h"
 
 using Tensor = at::Tensor;
@@ -83,7 +84,7 @@ Tensor remap_indices_update_utils_cpu(
         // address_lookup is always int64 to match GPU/CUDA implementation
         const auto address_lookup_a = address_lookup.accessor<int64_t, 1>();
 
-        for (int32_t i = 0; i < num_features; i++) {
+        for (const auto i : c10::irange(num_features)) {
           const auto start = feature_offsets_a[i];
           const auto length = feature_lengths_a[i];
 
@@ -132,7 +133,7 @@ Tensor remap_indices_update_utils_cpu(
                 row_util_a[row_util_idx] += count;
               };
 
-              for (int64_t j = 1; j < full_length; j++) {
+              for (const auto j : c10::irange(1, full_length)) {
                 if (sorted_data[j] == current_val) {
                   current_count++;
                 } else {
@@ -147,7 +148,7 @@ Tensor remap_indices_update_utils_cpu(
           }
 
           // Remap indices using address_lookup
-          for (int64_t j = 0; j < length; j++) {
+          for (const auto j : c10::irange(length)) {
             const int64_t idx = start + j;
             const index_t original_val = values_a[idx];
             const int64_t address_lookup_idx = buffer_offset + original_val;

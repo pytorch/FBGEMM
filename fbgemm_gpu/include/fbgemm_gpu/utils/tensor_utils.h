@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <c10/util/irange.h>
 #include <cstdint>
 
 inline bool torch_tensor_on_cpu_check(const at::Tensor& ten) {
@@ -50,7 +51,7 @@ inline std::string torch_tensor_shape_str(const at::Tensor& ten) {
   std::stringstream ss;
   const auto sizes = ten.sizes();
   ss << "[";
-  for (std::size_t i = 0; i < sizes.size(); ++i) {
+  for (const auto i : c10::irange(sizes.size())) {
     ss << sizes[i];
     if (i != sizes.size() - 1) {
       ss << ", ";
