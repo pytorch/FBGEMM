@@ -22,6 +22,10 @@ import sys
 
 import pytest
 import torch
+
+if not torch.cuda.is_available():
+    pytest.skip("GPU unavailable", allow_module_level=True)
+
 from ikbo.ops.tlx_ikbo_lce import create_user_flag, tlx_ikbo_lce
 from ikbo.ops.torch_lce import torch_decomposed_lce
 from ikbo.ops.triton_ikbo_lce import triton_ikbo_lce
@@ -97,6 +101,9 @@ def test_triton_ikbo_lce(B, M, N, K_USER, K_CAND, cand_to_user_ratio):
     _check_vs_fp32("triton", out, ref_fp16, ref_fp32)
 
 
+@pytest.mark.skipif(
+    torch.version.hip is not None, reason="TLX warp-group MMA tests require CUDA"
+)
 @pytest.mark.parametrize("B", [512, 1024])
 @pytest.mark.parametrize("M", [128, 433])
 @pytest.mark.parametrize("N", [256])
