@@ -143,7 +143,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   }
 
   /// Checked authoritative payload readback; absent rows are finite zeros with
-  /// mask=0. Does not read or populate the TBE's resident L1 cache.
+  /// mask=0. Requires a cold backend and an exclusive caller, with no resident
+  /// TBE/L1 state. The normal backend read path pauses in-flight eviction and
+  /// updates KVZCH read hit/miss counters; this is not a side-effect-free
+  /// probe. Does not read or populate the TBE's resident L1 cache.
   std::tuple<at::Tensor, at::Tensor> get_cpu_rows_checked(at::Tensor indices) {
     check_cpu_payload_keys(indices);
     auto weights = at::zeros({indices.numel(), impl_->get_max_D()}, at::kFloat);
