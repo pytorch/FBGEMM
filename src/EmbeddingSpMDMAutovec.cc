@@ -210,7 +210,11 @@ static ALWAYS_INLINE void Dequant4bitToF32_neon(
 #endif
 
 template <bool Accumulate>
+#if defined(__x86_64__) || defined(_M_X64)
+static NOINLINE void Dequant4bitToF32(
+#else
 static ALWAYS_INLINE void Dequant4bitToF32(
+#endif
     const uint8_t* input_row,
     float* buf,
     const int64_t block_size,
@@ -835,6 +839,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
 
       const uint8_t* input_row = input_row_base;
       if constexpr (BitRate == 4) {
+#if defined(__x86_64__) || defined(_M_X64)
+        Dequant4bitToF32<true>(input_row, buf, block_size, scale, bias);
+#else
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH
         for (; j < block_size - (block_size % (FBGEMM_VECTOR_WIDTH * 2));
@@ -859,6 +866,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBitRowWiseSparse_autovec(
           quantized &= quantized_mask;
           buf[j] = std::fma(scale, float(quantized), buf[j] + bias);
         }
+#endif
       } else if constexpr (BitRate == 2) {
         int64_t j = 0;
 #ifdef FBGEMM_VECTOR_WIDTH

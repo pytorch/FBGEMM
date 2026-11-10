@@ -114,7 +114,6 @@ DEVICE_INLINE float2 bf1622float2(const __nv_bfloat162 val) {
           false,                                                                                                 \
           "With head dim = 128 we're almost even with int8 at this point. Are you sure about this? Num groups:", \
           NUM_GROUPS);                                                                                           \
-      break;                                                                                                     \
     default:                                                                                                     \
       TORCH_CHECK(false, "Unsupported number of groups: ", NUM_GROUPS);                                          \
   }

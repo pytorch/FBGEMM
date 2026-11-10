@@ -41,6 +41,36 @@ VIRTUAL_TABLE_ROWS = int(
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommon):
+    def test_physical_l1_budget_opt_in(self) -> None:
+        for optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ADAM):
+            with self.subTest(
+                optimizer=optimizer
+            ), tempfile.TemporaryDirectory() as storage:
+                common_args = {
+                    "embedding_specs": [(1024, 132)],
+                    "feature_table_map": [0],
+                    "ssd_storage_directory": storage,
+                    "cache_sets": 256,
+                    "optimizer": optimizer,
+                    "weights_precision": SparseType.FP32,
+                    "l2_cache_size": 0,
+                }
+                uncapped = SSDTableBatchedEmbeddingBags(**common_args)
+                self.assertEqual(uncapped.lxu_cache_state.shape[0], 256)
+                self.assertGreater(uncapped.lxu_cache_weights.nbytes, 1024 * 1024)
+                capped = SSDTableBatchedEmbeddingBags(
+                    **common_args, max_physical_l1_cache_size_mb=1
+                )
+                self.assertLessEqual(capped.lxu_cache_weights.nbytes, 1024 * 1024)
+                self.assertEqual(
+                    capped.lxu_cache_state.shape[0],
+                    (1024 * 1024) // (capped.cache_assoc * 4 * capped.cache_row_dim),
+                )
+                with self.assertRaisesRegex(ValueError, "one physical cache set"):
+                    SSDTableBatchedEmbeddingBags(
+                        **common_args, max_physical_l1_cache_size_mb=0
+                    )
+
     def test_rejects_post_construction_device_migration(self) -> None:
         emb = SSDTableBatchedEmbeddingBags.__new__(SSDTableBatchedEmbeddingBags)
         torch.nn.Module.__init__(emb)

@@ -86,8 +86,8 @@ __global__ void zipf_kernel(
     pta::PackedTensorAccessor64<long, 1, at::RestrictPtrTraits> y) {
   rk_state internal_state;
   auto N = y.size(0);
-  for (auto i = blockIdx.x * blockDim.x + threadIdx.x; i < N;
-       i += blockDim.x * gridDim.x) {
+  for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < N;
+       i += int64_t(blockDim.x) * gridDim.x) {
     rk_seed(seed + i, &internal_state);
     y[i] = rk_zipf(&internal_state, a);
   }
