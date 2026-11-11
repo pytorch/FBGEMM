@@ -600,7 +600,12 @@ toolchains have been properly installed.</p>
 <span class="c1"># If not specified and no CUDA device is present either, all CUDA architectures will be targeted</span>
 <span class="nv">cuda_arch_list</span><span class="o">=</span><span class="m">7</span>.0<span class="p">;</span><span class="m">8</span>.0
 
-<span class="c1"># For NVIDIA Blackwell architecture (GB100, GB200):</span>
+<span class="c1"># For NVIDIA Blackwell architecture (B200/GB200 and B300/GB300) with CUDA 13,</span>
+<span class="c1"># use the family target, which runs on both 10.0 and 10.3:</span>
+<span class="c1"># cuda_arch_list=10.0f</span>
+<span class="c1"># export TORCH_CUDA_ARCH_LIST="10.0f"</span>
+<span class="c1">#</span>
+<span class="c1"># With CUDA 12.8/12.9 (B200/GB200 only):</span>
 <span class="c1"># cuda_arch_list=10.0a</span>
 <span class="c1"># export TORCH_CUDA_ARCH_LIST="10.0a"</span>
 
