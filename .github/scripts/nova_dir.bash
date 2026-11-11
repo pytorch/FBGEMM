@@ -22,8 +22,14 @@ fi
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
 
-if [[ "$CU_VERSION" == "cu130" ]] ||
-     [[ "$CU_VERSION" == "cu129" ]] ||
+if [[ "$CU_VERSION" == "cu130" ]]; then
+    # 10.0f (SM100 family) covers both B200 (10.0) and B300 (10.3); 10.0a
+    # cubins only load on 10.0.  This matches the non-Nova CUDA 13 targets in
+    # fbgemm_gpu_build.bash.
+    export TORCH_CUDA_ARCH_LIST="8.0;9.0a;10.0f;12.0a"
+    echo "[NOVA] Set TORCH_CUDA_ARCH_LIST to: ${TORCH_CUDA_ARCH_LIST}"
+
+elif [[ "$CU_VERSION" == "cu129" ]] ||
      [[ "$CU_VERSION" == "cu128" ]]; then
     export TORCH_CUDA_ARCH_LIST="8.0;9.0a;10.0a;12.0a"
     echo "[NOVA] Set TORCH_CUDA_ARCH_LIST to: ${TORCH_CUDA_ARCH_LIST}"
