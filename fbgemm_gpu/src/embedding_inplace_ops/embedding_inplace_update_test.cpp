@@ -27,8 +27,9 @@ int32_t get_D_bytes(
   return nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
 }
 
+#ifndef FBGEMM_CPU_ONLY
 template <typename index_t>
-void test_embedding_inplace_update() {
+void test_embedding_inplace_update(bool use_cpu) {
   int T = folly::Random::rand32() % 3 + 2; // total number of tables
   std::vector<SparseType> weight_ty_list = {
       SparseType::FP32,
@@ -83,7 +84,6 @@ void test_embedding_inplace_update() {
               << ", update rows: " << update_row_idx_str;
   }
 
-  bool use_cpu = folly::Random::rand32() % 2;
   auto device = use_cpu ? at::kCPU : at::kCUDA;
   int64_t row_alignment = use_cpu ? 1L : 16L;
 
@@ -113,8 +113,9 @@ void test_embedding_inplace_update() {
       at::tensor(update_offsets, at::device(device).dtype(at::kLong));
   auto table_idx_tensor =
       at::tensor(update_table_idx, at::device(device).dtype(at::kInt));
-  auto row_idx_tensor =
-      at::tensor(update_row_idx, at::device(device).dtype(at::kLong));
+  auto row_idx_tensor = at::tensor(
+      update_row_idx,
+      at::device(device).dtype(c10::CppTypeToScalarType<index_t>::value));
 
   if (use_cpu) {
     fbgemm_gpu::embedding_inplace_update_cpu(
@@ -178,10 +179,18 @@ void test_embedding_inplace_update() {
   }
 }
 
+#endif
+
 TEST(EmbeddingInplaceUpdateTest, random_update) {
-  // TODO: Skipping tests for now because it is
-  // unreliable and crashes occasionally.  This should be fixed and re-enabled.
-  //
-  // test_embedding_inplace_update<int32_t>();
-  // test_embedding_inplace_update<int64_t>();
+#ifdef FBGEMM_CPU_ONLY
+  GTEST_SKIP() << "GPU unavailable";
+#else
+  if (at::getNumGPUs() == 0) {
+    GTEST_SKIP() << "GPU unavailable";
+  }
+  for (int iteration = 0; iteration < 20; ++iteration) {
+    test_embedding_inplace_update<int32_t>(false);
+    test_embedding_inplace_update<int64_t>(false);
+  }
+#endif
 }
