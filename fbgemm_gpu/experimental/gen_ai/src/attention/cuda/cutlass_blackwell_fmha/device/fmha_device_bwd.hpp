@@ -225,23 +225,35 @@ private:
       ElementAccumulator* scaled_lse = nullptr, cute::tuple<cute::_1, cute::tuple<cute::tuple<int, int>, int>> const& stride_scaled_lse = {},
       ElementAccumulator* dQ_acc = nullptr, cute::tuple<int, cute::_1, cute::tuple<cute::tuple<int, int>, int>> const& stride_dQ = {}) {
 
-    return typename Operation::Arguments{
-      to_bwd_shape(args.problem_shape),
-      { args.ptr_Q,  to_bwd_stride(args.stride_Q),
-        args.ptr_K,  to_bwd_stride(args.stride_K),
-        args.ptr_V,  to_bwd_stride(args.stride_V),
-        args.ptr_dO, to_bwd_stride(args.stride_dO),
-        scaled_lse, to_bwd_stride(stride_scaled_lse),
-        sum_OdO, to_bwd_stride(stride_sum_OdO),
-        dQ_acc, to_bwd_stride(stride_dQ),
-        args.softmax_scale,
-        args.ptr_dq_semaphore,
-        args.window_size_left,
-        args.window_size_right },
-      { args.ptr_dK, to_bwd_stride(args.stride_dK),
-        args.ptr_dV, to_bwd_stride(args.stride_dV) },
-      args.hw_info
+    typename Operation::Arguments result{};
+    result.problem_shape = to_bwd_shape(args.problem_shape);
+    auto& mainloop = result.mainloop;
+    mainloop.ptr_q = args.ptr_Q;
+    mainloop.stride_q = to_bwd_stride(args.stride_Q);
+    mainloop.ptr_k = args.ptr_K;
+    mainloop.stride_k = to_bwd_stride(args.stride_K);
+    mainloop.ptr_v = args.ptr_V;
+    mainloop.stride_v = to_bwd_stride(args.stride_V);
+    mainloop.ptr_do = args.ptr_dO;
+    mainloop.stride_do = to_bwd_stride(args.stride_dO);
+    mainloop.ptr_lse = scaled_lse;
+    mainloop.stride_lse = to_bwd_stride(stride_scaled_lse);
+    mainloop.ptr_sum_odo = sum_OdO;
+    mainloop.stride_sum_odo = to_bwd_stride(stride_sum_OdO);
+    mainloop.ptr_dq_acc = dQ_acc;
+    mainloop.stride_dq_acc = to_bwd_stride(stride_dQ);
+    mainloop.softmax_scale = args.softmax_scale;
+    result.epilogue = {
+      args.ptr_dK, to_bwd_stride(args.stride_dK),
+      args.ptr_dV, to_bwd_stride(args.stride_dV)
     };
+    result.hw_info = args.hw_info;
+    if constexpr (!IsMla) {
+      result.mainloop.ptr_dq_semaphore = args.ptr_dq_semaphore;
+      result.mainloop.window_size_left = args.window_size_left;
+      result.mainloop.window_size_right = args.window_size_right;
+    }
+    return result;
   }
 
 public:
