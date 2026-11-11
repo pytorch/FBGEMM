@@ -234,6 +234,38 @@ TEST_F(KVEmbeddingInferenceTest, MarkedRowIsKeptAndStillEvictable) {
   EXPECT_EQ(backend_->get_num_rows(), 0);
 }
 
+// Eviction erases victims in small wlock batches; readers of surviving rows
+// keep getting correct data while it runs, and exactly the stale rows go.
+TEST_F(KVEmbeddingInferenceTest, BatchedEraseEvictsStaleRowsUnderReads) {
+  setenv("FBGEMM_FEATURE_EVICT_ERASE_BATCH", "7", /*overwrite=*/1);
+  bulkInsert(0, 1000, /*base_ts=*/1000);
+  bulkInsert(1000, 1000, /*base_ts=*/5000);
+
+  std::atomic<bool> done{false};
+  std::atomic<int> bad_reads{0};
+  std::thread evictor([&] {
+    backend_->trigger_feature_evict(3000);
+    backend_->wait_until_eviction_done();
+    done = true;
+  });
+  runParallel(8, [&](int t) {
+    std::mt19937 rng(t);
+    std::uniform_int_distribution<int64_t> dist(1000, 1999);
+    while (!done) {
+      const int64_t id = dist(rng);
+      if (!verifyEmbedding(readEmbedding(id), generateEmbedding(id))) {
+        bad_reads++;
+      }
+    }
+  });
+  evictor.join();
+  unsetenv("FBGEMM_FEATURE_EVICT_ERASE_BATCH");
+
+  EXPECT_EQ(bad_reads, 0);
+  EXPECT_EQ(backend_->get_num_rows(), 1000);
+  EXPECT_TRUE(verifyEmbedding(readEmbedding(1500), generateEmbedding(1500)));
+}
+
 // The loader only runs the pre-load evict when something was marked, so ids
 // missing from the store must not be counted.
 TEST_F(KVEmbeddingInferenceTest, MarkExistingKeysCountsOnlyResidentRows) {
