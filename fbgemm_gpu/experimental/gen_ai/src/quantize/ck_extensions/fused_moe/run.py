@@ -6,15 +6,25 @@
 
 # pyre-unsafe
 
-import torch
-
-# Load the custom op library
-torch.ops.load_library(
-    "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/src/quantize/ck_extensions:ck_fused_moe"
-)
-
 
 def main():
+    import torch
+
+    if not torch.cuda.is_available():
+        print("Skipping CK fused MoE: GPU unavailable")
+        return
+    if torch.version.hip is None:
+        print("Skipping CK fused MoE: this example requires ROCm")
+        return
+    if torch.cuda.get_device_properties(0).gcnArchName.split(":")[0] == "gfx1250":
+        print("Skipping CK fused MoE: gfx1250 is not supported")
+        return
+
+    # Load the custom op library only on supported ROCm devices.
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/src/quantize/ck_extensions:ck_fused_moe"
+    )
+
     # Set dimensions
     tokens = 128
     hidden_size = 8192
