@@ -10,6 +10,10 @@ import sys
 
 import pytest
 import torch
+
+if not torch.cuda.is_available():
+    pytest.skip("GPU unavailable", allow_module_level=True)
+
 from ikbo.ops.tlx_ikbo_fa_ws import tlx_flash_attn_ikbo_tma_persistent
 from ikbo.ops.triton_ikbo_fa import triton_flash_attn_ikbo_tma
 
@@ -120,6 +124,9 @@ def test_triton_ikbo_fa(B, n_seed, num_heads, d_head, max_seq_len, cand_to_user_
     torch.testing.assert_close(torch_output, triton_output, atol=1e-3, rtol=1e-4)
 
 
+@pytest.mark.skipif(
+    torch.version.hip is not None, reason="TLX warp-group MMA tests require CUDA"
+)
 @pytest.mark.parametrize("B", [512, 1024, 2048])
 @pytest.mark.parametrize("n_seed", [64])
 @pytest.mark.parametrize("num_heads", [1, 2, 4, 6])

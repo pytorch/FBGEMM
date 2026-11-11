@@ -11,6 +11,13 @@ import sys
 
 import pytest
 import torch
+
+if not torch.cuda.is_available():
+    pytest.skip("GPU unavailable", allow_module_level=True)
+
+if torch.version.hip is not None:
+    pytest.skip("TLX warp-group MMA tests require CUDA", allow_module_level=True)
+
 from simplicial.ops.tlx.fwd_ws_pipelined import tlx_fwd_ws_pipelined
 from simplicial.ops.triton.fwd import triton_fwd as triton_fwd
 from simplicial.utils import assert_diff, compute_sqnr
