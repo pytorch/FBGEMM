@@ -653,8 +653,15 @@ convertAndPack(float component, float inv_scale, float shift = 0.0) {
   auto val = fmaf(component, inv_scale, -shift * inv_scale);
   val = fmaxf(val, -FP8_E4M3_MAX::value);
   val = fminf(val, FP8_E4M3_MAX::value);
-  auto x = __nv_fp8_e4m3(val);
-  return *reinterpret_cast<uint32_t*>(&x);
+#ifdef USE_ROCM
+#if defined(HIP_FP8_TYPE_OCP) && HIP_FP8_TYPE_OCP
+  return static_cast<uint32_t>(__hip_fp8_e4m3(val).__x);
+#else
+  return static_cast<uint32_t>(at::Float8_e4m3fn(val).x);
+#endif
+#else
+  return static_cast<uint32_t>(__nv_fp8_e4m3(val).__x);
+#endif
 }
 // Function to pack four components into a single uint32_t
 DEVICE_INLINE uint32_t packComponents(uint32_t x_bits[4]) {
@@ -815,7 +822,7 @@ at::Tensor quantize_qkv_per_head(
   }
 
   constexpr int32_t kMaxBlocks = 512;
-  dim3 block_size(kThreadsPerWarp, kWarpsPerBlock);
+  dim3 block_size(D_H / 4, kWarpsPerBlock);
   dim3 grid_size(kMaxBlocks);
   auto scale_q = at::zeros({B, N_KVH_L}, XQ_O.options().dtype(at::kFloat));
   float* const scale_q_ptr = scale_q.mutable_data_ptr<float>();
