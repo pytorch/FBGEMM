@@ -46,6 +46,18 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
       const at::Tensor& weights,
       std::optional<int64_t> inplace_update_ts_opt = std::nullopt);
 
+  void set_embeddings_with_value_versions(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      std::optional<int64_t> inplace_update_ts_opt,
+      const at::Tensor& value_versions,
+      int64_t watermark,
+      int64_t epoch);
+
+  void set_value_version_metadata(int64_t watermark, int64_t epoch);
+  int64_t get_value_version_watermark() const;
+  int64_t get_value_version_epoch() const;
+
   at::Tensor get_embeddings(const at::Tensor& indices);
 
   // Stamps inplace_update_ts onto rows already present in the store, so a
@@ -93,6 +105,13 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
       InitMode mode);
 
   void check_initialized() const;
+  void set_embeddings_impl(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      std::optional<int64_t> inplace_update_ts_opt,
+      const at::Tensor* value_versions,
+      int64_t watermark,
+      int64_t epoch);
 
   int64_t num_shards_ = 32;
   double uniform_init_lower_ = 0.0;
@@ -105,6 +124,8 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   std::optional<int64_t> backend_storage_row_bytes_;
   int64_t storage_max_row_bytes_ = 0;
   int64_t lookup_max_row_bytes_ = 0;
+  int64_t value_version_watermark_ = 0;
+  std::optional<int64_t> value_version_epoch_;
 };
 
 } // namespace fbgemm_gpu

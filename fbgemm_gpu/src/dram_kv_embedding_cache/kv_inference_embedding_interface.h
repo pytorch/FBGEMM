@@ -69,6 +69,17 @@ class KVInferenceEmbeddingInterface {
       const at::Tensor& count,
       std::optional<uint32_t> inplace_update_ts) = 0;
 
+  virtual void set_kv_db_sync_with_value_versions(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      std::optional<uint32_t> inplace_update_ts,
+      const at::Tensor& /* value_versions */,
+      uint64_t /* watermark */,
+      uint64_t /* epoch */) {
+    set_kv_db_sync(indices, weights, count, inplace_update_ts);
+  }
+
   /// Get embeddings from KV store (sync version)
   ///
   /// @param indices The 1D embedding index tensor
