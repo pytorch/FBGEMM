@@ -8,6 +8,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstdlib>
+#include <thread>
+
 #include "InferenceSynchronizedShardedMap.h"
 #include "feature_evict.h"
 #include "inference_fixed_block_pool.h"
@@ -87,12 +91,21 @@ class InferenceTimeThresholdBasedEvict
       }
     }
 
-    // 2nd step: drop keys from the map under wlock (excludes readers).
-    {
-      auto shard_map_wlock = this->kv_store_.by(shard_id).wlock();
-      for (int64_t key : evicting_blocks | std::views::keys) {
-        shard_map_wlock->erase(key);
+    // 2nd step: drop keys from the map under wlock (excludes readers), in
+    // batches so serving lookups on this shard are not held off for the whole
+    // erase. Readers copy rows under rlock, so each batch's wlock drains any
+    // reader still using a block from an earlier batch before step 3 frees it.
+    const size_t erase_batch = erase_batch_size();
+    for (size_t begin = 0; begin < evicting_blocks.size();
+         begin += erase_batch) {
+      const size_t end = std::min(evicting_blocks.size(), begin + erase_batch);
+      {
+        auto shard_map_wlock = this->kv_store_.by(shard_id).wlock();
+        for (size_t i = begin; i < end; ++i) {
+          shard_map_wlock->erase(evicting_blocks[i].first);
+        }
       }
+      std::this_thread::yield();
     }
 
     // 3rd step: keys unreachable and readers drained, now free the blocks.
@@ -103,6 +116,15 @@ class InferenceTimeThresholdBasedEvict
   }
 
  private:
+  // FBGEMM_FEATURE_EVICT_ERASE_BATCH overrides the number of keys erased per
+  // wlock hold.
+  static size_t erase_batch_size() {
+    if (const char* env = std::getenv("FBGEMM_FEATURE_EVICT_ERASE_BATCH")) {
+      return std::max(1, std::atoi(env));
+    }
+    return 1024;
+  }
+
   InferenceKVStore* inference_kv_store_;
 };
 
