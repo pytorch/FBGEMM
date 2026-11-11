@@ -347,6 +347,7 @@ struct ExampleRunner {
   using StrideNewV = StrideNewK;
   using StrideCacheV = StrideCacheK;
   using StrideO = StrideQ;
+  using StrideLSE = Stride<int, int, _1>;
 
   using Kernel = 
     cutlass::fmha::kernel::Sm100FmhaGenKernelWarpspecialized<
@@ -357,7 +358,7 @@ struct ExampleRunner {
         StrideQ, StrideNewK, StrideNewV,
         StrideCacheK, StrideCacheV, StrideO
       >,
-      cutlass::fmha::collective::Sm100FmhaGenEpilogueWarpspecialized<ElementOut, StrideO>,
+      cutlass::fmha::collective::Sm100FmhaGenEpilogueWarpspecialized<ElementOut, StrideO, ElementAcc, StrideLSE>,
       std::conditional_t<kKernelType == KernelType::UMMA_P,
         cutlass::fmha::kernel::PersistentTileScheduler,
         cutlass::fmha::kernel::IndividualTileSchedulerSplitK
@@ -529,12 +530,14 @@ struct ExampleRunner {
     typename Operation::Arguments arguments{
       problem_shape,
       block_seqlen_kv.get(), block_cache_batch_idx.get(),
+      get<1>(problem_shape), -1,
       block_q.get(), stride_q,
       block_new_k.get(), stride_new_k,
       block_new_v.get(), stride_new_v,
       block_cache_k.get(), stride_cache_k,
       block_cache_v.get(), stride_cache_v,
       block_o.get(), stride_o,
+      nullptr, make_stride(0, 0, _1{}),
       hw_info
     };
 
