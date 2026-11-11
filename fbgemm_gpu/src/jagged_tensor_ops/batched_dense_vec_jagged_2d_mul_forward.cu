@@ -8,6 +8,7 @@
 
 // clang-format off
 #include "common.cuh"
+#include <c10/util/irange.h>
 
 using Tensor = at::Tensor;
 
@@ -46,7 +47,7 @@ __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
            d += blockDim.x) {
         at::acc_type<scalar_t, true> acc =
             v[b_h][0] * a_values[row_start][h * D + d];
-        for (int l = 1; l < length; ++l) {
+        for (const auto l : c10::irange(1, length)) {
           acc += v[b_h][l] * a_values[row_start + l][h * D + d];
         }
         output[b_h][d] = acc;

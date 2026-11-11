@@ -11,6 +11,7 @@
 #else
 #include <cub/block/block_scan.cuh>
 #endif
+#include <c10/util/irange.h>
 #include <algorithm>
 #include "common.cuh"
 
@@ -72,7 +73,7 @@ __global__ __launch_bounds__(kMaxThreads) void _batched_complete_cumsum_kernel(
       out[row][0] = 0;
     }
 
-    for (uint32_t offset = 0; offset < items_per_thread; offset++) {
+    for (const auto offset : c10::irange(items_per_thread)) {
       uint32_t i = offset * nthreads_per_block + threadIdx.x;
       val_t data = 0;
       if (i < len) {

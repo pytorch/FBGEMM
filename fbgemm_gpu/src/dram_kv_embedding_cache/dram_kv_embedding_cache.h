@@ -39,6 +39,7 @@
 #include <utility>
 #include "common/time/Time.h"
 
+#include <c10/util/irange.h>
 #include "../ssd_split_embeddings_cache/initializer.h"
 #include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
 #include "SynchronizedShardedMap.h"
@@ -1271,7 +1272,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// Decode: dibit = round(fval * 2 - 1)
   static int64_t decodeSIDFromWeights(const weight_type* weights_ptr) {
     uint64_t uval = 0;
-    for (int i = 0; i < 32; ++i) {
+    for (const auto i : c10::irange(32)) {
       float fval = static_cast<float>(weights_ptr[i]);
       uint8_t dibit =
           static_cast<uint8_t>(std::lround(fval * 2.0f - 1.0f)) & 0x3;
@@ -2266,7 +2267,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           };
 
                       if (!use_lookup_prefetch) {
-                        for (size_t i = 0; i < num_indexes; ++i) {
+                        for (const auto i : c10::irange(num_indexes)) {
                           const auto weights_row_index = index_positions[i];
                           const auto weight_idx =
                               int64_t(indices_data_ptr[weights_row_index]);
@@ -2299,14 +2300,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       const auto prefetch_distance = std::min(
                           static_cast<size_t>(dram_lookup_prefetch_distance_),
                           num_indexes);
-                      for (size_t i = 0; i < prefetch_distance; ++i) {
+                      for (const auto i : c10::irange(prefetch_distance)) {
                         const auto weight_idx =
                             int64_t(indices_data_ptr[index_positions[i]]);
                         tokens[i] = wlmap->prehash(weight_idx);
                         wlmap->prefetch(tokens[i]);
                       }
-                      for (size_t i = 0; i < num_indexes + prefetch_distance;
-                           ++i) {
+                      for (const auto i :
+                           c10::irange(num_indexes + prefetch_distance)) {
                         const auto token_index = i % prefetch_distance;
                         if (i >= prefetch_distance) {
                           copy_or_fill_row(
@@ -2396,7 +2397,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           shared_indexes =
               std::make_shared<const std::vector<int64_t>>(std::move(indexes));
         }
-        for (size_t split = 0; split < num_splits; ++split) {
+        for (const auto split : c10::irange(num_splits)) {
           const auto begin = split * indices_per_split;
           const auto indexes_size =
               shared_indexes ? shared_indexes->size() : indexes.size();
@@ -2577,7 +2578,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   void set_kv_with_metaheader_to_storage(
       const at::Tensor& weights_with_metaheader) {
     std::vector<int64_t> keys(weights_with_metaheader.size(0), 0);
-    for (int64_t i = 0; i < weights_with_metaheader.size(0); ++i) {
+    for (const auto i : c10::irange(weights_with_metaheader.size(0))) {
       keys[i] = FixedBlockPool::get_key(weights_with_metaheader[i].data_ptr());
     }
     auto indices =
@@ -3172,7 +3173,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             const int64_t indices_per_chunk =
                 (conv_count + num_chunks - 1) / num_chunks;
 
-            for (int64_t chunk = 0; chunk < num_chunks; ++chunk) {
+            for (const auto chunk : c10::irange(num_chunks)) {
               const int64_t begin = chunk * indices_per_chunk;
               const int64_t end =
                   std::min(conv_count, begin + indices_per_chunk);
@@ -3190,7 +3191,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                         for (auto& bucket : buckets) {
                           bucket.reserve(estimated_bucket_size);
                         }
-                        for (int64_t i = begin; i < end; ++i) {
+                        for (const auto i : c10::irange(begin, end)) {
                           const int64_t index = indices_data_ptr[i];
                           if (index < 0) {
                             continue;
@@ -3296,7 +3297,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           futures.reserve(num_chunks);
           const int64_t indices_per_chunk =
               (conv_count + num_chunks - 1) / num_chunks;
-          for (int64_t chunk = 0; chunk < num_chunks; ++chunk) {
+          for (const auto chunk : c10::irange(num_chunks)) {
             const int64_t begin = chunk * indices_per_chunk;
             const int64_t end = std::min(conv_count, begin + indices_per_chunk);
             chunks[chunk].begin = begin;
@@ -3310,7 +3311,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           auto& output = chunks[chunk];
                           output.shard_ids.reserve(end - begin);
                           output.shard_counts.resize(num_shards_);
-                          for (int64_t i = begin; i < end; ++i) {
+                          for (const auto i : c10::irange(begin, end)) {
                             const int64_t index = indices_data_ptr[i];
                             if (index < 0) {
                               output.shard_ids.push_back(kInvalidShard);
@@ -3347,7 +3348,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               num_chunks * num_shards_);
           for (int64_t shard = 0; shard < num_shards_; ++shard) {
             auto write_offset = result->shard_offsets[shard];
-            for (int64_t chunk = 0; chunk < num_chunks; ++chunk) {
+            for (const auto chunk : c10::irange(num_chunks)) {
               chunk_shard_write_offsets[chunk * num_shards_ + shard] =
                   write_offset;
               write_offset += chunks[chunk].shard_counts[shard];
@@ -3356,7 +3357,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           }
 
           futures.clear();
-          for (int64_t chunk = 0; chunk < num_chunks; ++chunk) {
+          for (const auto chunk : c10::irange(num_chunks)) {
             futures.emplace_back(
                 folly::via(executor_.get())
                     .thenValue([this,
@@ -3370,8 +3371,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       auto* const shard_write_offsets =
                           chunk_shard_write_offsets.data() +
                           chunk * num_shards_;
-                      for (size_t offset = 0; offset < input.shard_ids.size();
-                           ++offset) {
+                      for (const auto offset :
+                           c10::irange(input.shard_ids.size())) {
                         const auto shard_id = input.shard_ids[offset];
                         if (shard_id == kInvalidShard) {
                           continue;

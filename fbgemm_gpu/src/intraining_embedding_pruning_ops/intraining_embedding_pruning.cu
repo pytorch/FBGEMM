@@ -24,6 +24,7 @@
 #include <cub/device/device_run_length_encode.cuh>
 #include <limits>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/intraining_embedding_pruning.h"
 #include "fbgemm_gpu/utils/check_product_with_limit.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
@@ -62,7 +63,7 @@ __global__ void init_address_lookup_kernel(
   int64_t* address_lookup = &address_lookups[buffer_offset];
   int64_t emb_size = emb_sizes[t_i];
 
-  for (int64_t idx_row = start; idx_row < end; idx_row++) {
+  for (const auto idx_row : c10::irange(start, end)) {
     if (idx_row < emb_size) {
       address_lookup[idx_row] = idx_row;
     } else {
@@ -192,7 +193,7 @@ __global__ void prune_indices_per_table(
   // This placeholder will never be accessed.
   int64_t INSERTED_ROW_PLACEHOLDER = rows;
 
-  for (int64_t idx_row = start; idx_row < end; idx_row++) {
+  for (const auto idx_row : c10::irange(start, end)) {
     if (row_util[idx_row] > util_thresholds[t_i]) {
       // If the row was not pruned, then skip;
       // Otherwise, reset its physical address to placeholder
@@ -238,7 +239,7 @@ __global__ void get_pruning_lengths(
     // This placeholder will never be accessed.
     int64_t INSERTED_ROW_PLACEHOLDER = rows;
 
-    for (int64_t idx = segment_start; idx < segment_end; idx++) {
+    for (const auto idx : c10::irange(segment_start, segment_end)) {
       if (address_lookup[idx] < 0) {
         pruned_row_length[threadIdx.x] += 1;
       } else if (address_lookup[idx] == INSERTED_ROW_PLACEHOLDER) {
@@ -252,7 +253,7 @@ __global__ void get_pruning_lengths(
   if (threadIdx.x == 0) {
     int64_t inserted_rows = 0;
     int64_t pruned_rows = 0;
-    for (int32_t i = 0; i < kMaxThreads; i++) {
+    for (const auto i : c10::irange(kMaxThreads)) {
       inserted_rows += inserted_row_length[i];
       pruned_rows += pruned_row_length[i];
     }
@@ -298,7 +299,7 @@ __global__ void retrieve_pruned_and_inserted_rows(
   int64_t INSERTED_ROW_PLACEHOLDER = rows;
 
   int64_t pruned_idx = 0, inserted_idx = 0;
-  for (int64_t idx = segment_start; idx < segment_end; idx++) {
+  for (const auto idx : c10::irange(segment_start, segment_end)) {
     if (address_lookup[idx] < 0) {
       pruned_row[pruned_idx++] = idx;
     } else if (address_lookup[idx] == INSERTED_ROW_PLACEHOLDER) {
@@ -348,7 +349,7 @@ __global__ void retrieve_pruned_indices(
   // All pruned rows will be directed to the first row of embedding storage
   int64_t PAST_PRUNED_ROW_PLACEHOLDER = 0;
 
-  for (int64_t idx = segment_start; idx < segment_end; idx++) {
+  for (const auto idx : c10::irange(segment_start, segment_end)) {
     address_lookup[inserted_row[idx]] = -address_lookup[pruned_row[idx]];
     address_lookup[pruned_row[idx]] = PAST_PRUNED_ROW_PLACEHOLDER;
     table_pruning_indices[idx] = address_lookup[inserted_row[idx]];
@@ -383,7 +384,7 @@ __global__ void cleanup_address_lookups(
   // This placeholder will be never accessed
   int64_t INSERTED_ROW_PLACEHOLDER = rows;
 
-  for (int64_t row_idx = start; row_idx < end; row_idx++) {
+  for (const auto row_idx : c10::irange(start, end)) {
     if (address_lookup[row_idx] < 0) {
       // If exists more space due to sampling difference, keep as it is
       address_lookup[row_idx] = -address_lookup[row_idx];
@@ -826,7 +827,7 @@ Tensor remap_indices_update_utils_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       values.scalar_type(), "remap_indices_update_utils_cuda", [&] {
-        for (int32_t i = 0; i < num_features; i++) {
+        for (const auto i : c10::irange(num_features)) {
           const auto start = feature_offsets_a[i];
           const auto length = feature_lengths_a[i];
 

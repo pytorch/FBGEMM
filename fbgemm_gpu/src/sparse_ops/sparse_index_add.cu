@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -47,7 +48,7 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
 
     // RESET per-iteration register state.
     scalar_t sum[MAX_ELEMENTS_PER_THREAD];
-    for (int i = 0; i < MAX_ELEMENTS_PER_THREAD; i++) {
+    for (const auto i : c10::irange(MAX_ELEMENTS_PER_THREAD)) {
       sum[i] = 0;
     }
 
@@ -60,7 +61,7 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
       for (col = start_D, i = 0; col < start_D + stride_D && col < rounded_D;
            col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
 #pragma unroll
-        for (int j = 0; j < UNROLL_FACTOR; j++) {
+        for (const auto j : c10::irange(UNROLL_FACTOR)) {
           sum[i + j] += LDG(&out_grad[src_idx][col + j]);
         }
       }
@@ -74,7 +75,7 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
     for (col = start_D, i = 0; col < start_D + stride_D && col < rounded_D;
          col += blockDim.x * UNROLL_FACTOR, i += UNROLL_FACTOR) {
 #pragma unroll
-      for (int j = 0; j < UNROLL_FACTOR; j++) {
+      for (const auto j : c10::irange(UNROLL_FACTOR)) {
         in_deduped_grad[dst_idx][col + j] = sum[i + j];
       }
     }

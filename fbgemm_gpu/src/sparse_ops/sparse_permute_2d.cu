@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -65,7 +66,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
     for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
-        for (auto w_col = 0; w_col < weights_columns; ++w_col) {
+        for (const auto w_col : c10::irange(weights_columns)) {
           permuted_weights[(output_start + i) * weights_columns + w_col] =
               weights[(input_start + i) * weights_columns + w_col];
         }
@@ -340,7 +341,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_flat(
       auto* dst4 = reinterpret_cast<uint4*>(permuted_indices + base);
       const auto* src4 = reinterpret_cast<const uint4*>(indices + src);
 #pragma unroll
-      for (int v = 0; v < ELEMS_PER_THREAD / E; ++v) {
+      for (const auto v : c10::irange(ELEMS_PER_THREAD / E)) {
         dst4[v] = src4[v];
       }
       return;
@@ -348,7 +349,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel_flat(
   }
 
 #pragma unroll
-  for (int e = 0; e < ELEMS_PER_THREAD; ++e) {
+  for (const auto e : c10::irange(ELEMS_PER_THREAD)) {
     const int64_t i = base + e;
     if (i >= len) {
       return;

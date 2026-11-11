@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
@@ -34,7 +35,7 @@ void binary_search_range_cpu(
         // Do linear scan in case of duplicate data (We assume that the
         // number of duplicates is small.  This can we very bad if the
         // number of duplicates is large)
-        for (int i = mid + 1; i < num_entries; i++) {
+        for (const auto i : c10::irange(mid + 1, num_entries)) {
           if (target != arr[i]) {
             found_ = i;
             break;

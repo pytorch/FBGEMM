@@ -8,6 +8,7 @@
 
 #include "common.cuh"
 
+#include <c10/util/irange.h>
 #include <limits>
 
 using Tensor = at::Tensor;
@@ -42,7 +43,7 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
     index_t indices_end = offsets[offsets_index + 1];
     int32_t L = indices_end - indices_start;
     at::acc_type<scalar_t, true> sum = 0.0;
-    for (int32_t l = 0; l < L; ++l) {
+    for (const auto l : c10::irange(L)) {
       auto idx = LDG(&indices[indices_start + l]);
       sum += weight[static_cast<int64_t>(n) * sum_E + table_offset + idx + 0];
     }
@@ -186,7 +187,7 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     const int t = info >> info_B_num_bits;
 
     at::acc_type<scalar_t, true> grad_sum = 0.0;
-    for (int32_t sl = 0; sl < SL; ++sl) {
+    for (const auto sl : c10::irange(SL)) {
       const auto b =
           reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start + sl] &
           info_B_mask;

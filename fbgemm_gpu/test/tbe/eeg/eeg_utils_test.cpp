@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <type_traits>
@@ -96,7 +97,7 @@ TEST(ZipfianDistTest, TestSamples) {
 
         // Generate samples and sanity check
         auto dist = ZipfianDistribution(s, q, n);
-        for (int i = 0; i < kNumTrials; ++i) {
+        for ([[maybe_unused]] const auto _ : c10::irange(kNumTrials)) {
           auto sample = dist(rng);
           ASSERT_GE(sample, 0);
           ASSERT_LE(sample, n - 1);

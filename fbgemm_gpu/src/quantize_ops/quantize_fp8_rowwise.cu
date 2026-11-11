@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
@@ -51,7 +52,7 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
     // value of the unassigned 4 bytes are hence indeterministic
     // Initialize it to make the output deterministic for PT2 compliance
     output_row_scale_bias[1] = 0.0;
-    for (int64_t col = 0; col < ncols; ++col) {
+    for (const auto col : c10::irange(ncols)) {
       output_row[col] =
           float_to_hfp8(to_float(input_row[col]) * scale, ebit, bias, max_pos);
     }

@@ -11,6 +11,7 @@
 #include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
 
+#include <c10/util/irange.h>
 #include <cub/device/device_scan.cuh>
 
 using Tensor = at::Tensor;
@@ -86,7 +87,7 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
   auto offsets = at::empty({B + 1}, lengths.options());
   offsets[0].zero_();
   std::vector<Tensor> padded_values_per_key;
-  for (int32_t t = 0; t < T; t++) {
+  for (const auto t : c10::irange(T)) {
     int64_t max_L = max_lengths_per_key[t];
     size_t temp_storage_bytes = 0;
     AT_DISPATCH_INDEX_TYPES(
@@ -141,7 +142,7 @@ stacked_jagged_2d_to_dense_forward_cuda(
   int32_t T = lengths.size(0);
   std::vector<Tensor> padded_values_per_key;
   std::vector<Tensor> offsets_tensor_per_key;
-  for (int32_t t = 0; t < T; t++) {
+  for (const auto t : c10::irange(T)) {
     int64_t max_L = max_lengths_per_key[t];
     size_t temp_storage_bytes = 0;
     auto offsets = at::empty({B + 1}, lengths.options());
@@ -195,7 +196,7 @@ Tensor stacked_jagged_2d_to_dense_backward_cuda(
   auto grad_values =
       at::zeros({total_L, D}, grad_padded_values_per_key[0].options());
   int32_t T = grad_padded_values_per_key.size();
-  for (int32_t t = 0; t < T; t++) {
+  for (const auto t : c10::irange(T)) {
     TORCH_CHECK(grad_padded_values_per_key[t].dim() == 3);
     TORCH_CHECK(grad_padded_values_per_key[t].size(0) == B);
     TORCH_CHECK(grad_padded_values_per_key[t].size(2) == D);

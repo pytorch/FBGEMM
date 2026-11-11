@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <c10/util/irange.h>
 
 // clang-format off
 #ifdef USE_ROCM
@@ -103,7 +104,7 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
 
     if (block_id != 0) {
       scalar_t block_prev_local = *block_prev;
-      for (int i = 0; i < ITEMS_PER_THREAD; i++) {
+      for (const auto i : c10::irange(ITEMS_PER_THREAD)) {
         arr[i] += block_prev_local;
       }
     }
@@ -140,7 +141,7 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
 
     if (block_id != 0) {
       scalar_t block_prev_local = *block_prev;
-      for (int i = 0; i < ITEMS_PER_THREAD; i++) {
+      for (const auto i : c10::irange(ITEMS_PER_THREAD)) {
         arr[i] += block_prev_local;
       }
     }

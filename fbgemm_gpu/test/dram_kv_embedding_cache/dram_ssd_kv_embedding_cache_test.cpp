@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 
+#include <c10/util/irange.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/ssd_table_batched_embeddings.h"
 
 namespace kv_db {
@@ -177,7 +178,7 @@ class DramSsdKVEmbeddingCacheTest : public ::testing::Test {
     auto rows = at::zeros({1, row_dim}, at::kFloat);
     auto* row = rows.data_ptr<float>();
     create_metaheader_row(row, row_dim, id);
-    for (int i = 0; i < EMBEDDING_DIM; ++i) {
+    for (const auto i : c10::irange(EMBEDDING_DIM)) {
       row[kMetaHeaderDim + i] = value;
     }
     auto count = at::tensor({1}, at::kLong);
@@ -298,7 +299,7 @@ TEST_F(DramSsdKVEmbeddingCacheTest, GetBothMissReturnsZeros) {
   auto weights = getViaComposite({999});
 
   auto* w_ptr = weights.data_ptr<float>();
-  for (int j = 0; j < EMBEDDING_DIM; ++j) {
+  for (const auto j : c10::irange(EMBEDDING_DIM)) {
     EXPECT_FLOAT_EQ(w_ptr[j], 0.0f) << "Expected zero at index " << j;
   }
 }
@@ -338,7 +339,7 @@ TEST_F(DramSsdKVEmbeddingCacheTest, SetWritesToDramOnly) {
   // SSD tier should not have the key: a direct SSD read returns zeros.
   auto ssd = readSsd({10});
   auto* s = ssd.data_ptr<float>();
-  for (int j = 0; j < EMBEDDING_DIM; ++j) {
+  for (const auto j : c10::irange(EMBEDDING_DIM)) {
     EXPECT_FLOAT_EQ(s[j], 0.0f) << "set() must not write to SSD";
   }
 }
@@ -421,7 +422,7 @@ TEST_F(DramSsdKVEmbeddingCacheTest, SsdHitBackfillsDram) {
   auto dram_indices = at::tensor({50}, at::kLong);
   auto dram_count = at::tensor({1}, at::kLong);
   float dram_val = 0.0f;
-  for (int attempt = 0; attempt < 100; ++attempt) {
+  for ([[maybe_unused]] const auto _ : c10::irange(100)) {
     auto dram_weights = at::zeros({1, EMBEDDING_DIM}, at::kFloat);
     dram_cache_->get_kv_db_async(dram_indices, dram_weights, dram_count).wait();
     dram_val = dram_weights.data_ptr<float>()[0];
@@ -493,7 +494,7 @@ TEST_F(DramSsdKVEmbeddingCacheTest, AsyncBackfillShutdownDoesNotHang) {
   constexpr int64_t kNumKeys = 2000;
   std::vector<int64_t> ids;
   ids.reserve(kNumKeys);
-  for (int64_t i = 0; i < kNumKeys; ++i) {
+  for (const auto i : c10::irange(kNumKeys)) {
     const int64_t key = 100000 + i;
     ids.push_back(key);
     insertIntoSsd(key, 10.0f + static_cast<float>(i));
@@ -520,7 +521,7 @@ TEST_F(DramSsdKVEmbeddingCacheTest, StopWritebackDuringAsyncBackfill) {
   constexpr int64_t kNumKeys = 1024;
   std::vector<int64_t> ids;
   ids.reserve(kNumKeys);
-  for (int64_t i = 0; i < kNumKeys; ++i) {
+  for (const auto i : c10::irange(kNumKeys)) {
     const int64_t key = 200000 + i;
     ids.push_back(key);
     insertIntoSsd(key, 20.0f + static_cast<float>(i));
@@ -595,10 +596,10 @@ TEST_F(DramSsdKVEmbeddingCacheTest, FlushDirtyBlocksToSsd) {
   auto rows =
       at::zeros({static_cast<int64_t>(ids.size()), row_dim}, at::kFloat);
   auto* rp = rows.data_ptr<float>();
-  for (size_t r = 0; r < ids.size(); ++r) {
+  for (const auto r : c10::irange(ids.size())) {
     float* row = rp + r * row_dim;
     create_metaheader_row(row, row_dim, ids[r]); // embeds key in metaheader
-    for (int i = 0; i < EMBEDDING_DIM; ++i) {
+    for (const auto i : c10::irange(EMBEDDING_DIM)) {
       row[kMetaHeaderDim + i] = 10.0f + static_cast<float>(r);
     }
   }
@@ -670,10 +671,10 @@ TEST_F(DramSsdKVEmbeddingCacheTest, GetDramKvPerfReportsSsdMetrics) {
   auto rows =
       at::zeros({static_cast<int64_t>(ids.size()), row_dim}, at::kFloat);
   auto* rp = rows.data_ptr<float>();
-  for (size_t r = 0; r < ids.size(); ++r) {
+  for (const auto r : c10::irange(ids.size())) {
     float* row = rp + r * row_dim;
     create_metaheader_row(row, row_dim, ids[r]);
-    for (int i = 0; i < EMBEDDING_DIM; ++i) {
+    for (const auto i : c10::irange(EMBEDDING_DIM)) {
       row[kMetaHeaderDim + i] = 10.0f + static_cast<float>(r);
     }
   }
@@ -703,10 +704,10 @@ TEST_F(DramSsdKVEmbeddingCacheTest, SetRangeToStorageWritesWholeRowToSsd) {
   auto rows =
       at::zeros({static_cast<int64_t>(ids.size()), row_dim}, at::kFloat);
   auto* rp = rows.data_ptr<float>();
-  for (size_t r = 0; r < ids.size(); ++r) {
+  for (const auto r : c10::irange(ids.size())) {
     float* row = rp + r * row_dim;
     create_metaheader_row(row, row_dim, ids[r]); // key read back via get_key()
-    for (int i = 0; i < EMBEDDING_DIM; ++i) {
+    for (const auto i : c10::irange(EMBEDDING_DIM)) {
       row[kMetaHeaderDim + i] = 70.0f + static_cast<float>(r);
     }
   }

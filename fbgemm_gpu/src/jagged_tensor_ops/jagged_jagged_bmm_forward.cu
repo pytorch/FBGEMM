@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -122,23 +123,23 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
 
             // Calculate the results per thread
 #pragma unroll
-            for (auto k = 0; k < BLOCK_TILE_K; k++) {
+            for (const auto k : c10::irange(BLOCK_TILE_K)) {
               // Load values from shared memory to registers for x_values
-              for (auto row = 0; row < THREAD_TILE_M; row++) {
+              for (const auto row : c10::irange(THREAD_TILE_M)) {
                 fragment_a[row] = As[thread_row * THREAD_TILE_M + row][k];
               }
 
               // Load values from shared memory to registers for y
 #pragma unroll
-              for (auto col = 0; col < THREAD_TILE_N; col++) {
+              for (const auto col : c10::irange(THREAD_TILE_N)) {
                 fragment_b[col] = Bs[k][thread_col * THREAD_TILE_N + col];
               }
 
               // Each thread calcualtes THREAD_TILE_M * THREAD_TILE_N elements
 #pragma unroll
-              for (auto row = 0; row < THREAD_TILE_M; row++) {
+              for (const auto row : c10::irange(THREAD_TILE_M)) {
 #pragma unroll
-                for (auto col = 0; col < THREAD_TILE_N; col++) {
+                for (const auto col : c10::irange(THREAD_TILE_N)) {
                   accum[row][col] += fragment_a[row] * fragment_b[col];
                 }
               }
@@ -150,9 +151,9 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
 
           // Write the result to the output
 #pragma unroll
-          for (auto row = 0; row < THREAD_TILE_M; row++) {
+          for (const auto row : c10::irange(THREAD_TILE_M)) {
 #pragma unroll
-            for (auto col = 0; col < THREAD_TILE_N; col++) {
+            for (const auto col : c10::irange(THREAD_TILE_N)) {
               auto out_row_offset =
                   block_row * BLOCK_TILE_M + thread_row * THREAD_TILE_M + row;
               auto out_col_offset =

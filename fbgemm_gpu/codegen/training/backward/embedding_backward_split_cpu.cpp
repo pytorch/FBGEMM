@@ -17,6 +17,7 @@
 
 #include <ATen/Parallel.h>
 
+#include <c10/util/irange.h>
 #include <algorithm>
 #include <cassert>
 #include <tuple>
@@ -70,9 +71,8 @@ void csr2csc_template_(
           fbgemm::fbgemmAlignedAlloc(64, NS * sizeof(value_t))));
 
   const auto FBo = csr_offsets[(size_t)table_to_feature_offset[0] * B];
-  for (int feature = table_to_feature_offset[0];
-       feature < table_to_feature_offset[1];
-       ++feature) {
+  for (const auto feature :
+       c10::irange(table_to_feature_offset[0], table_to_feature_offset[1])) {
     const auto FBs = (feature - table_to_feature_offset[0]) * B;
     at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
       for (int b = b_begin; b < b_end; ++b) {
@@ -121,7 +121,7 @@ void csr2csc_template_(
 
   at::parallel_for(
       0, num_chunks, 1, [&](int64_t chunk_begin, int64_t chunk_end) {
-        for (int64_t c = chunk_begin; c < chunk_end; ++c) {
+        for (const auto c : c10::irange(chunk_begin, chunk_end)) {
           int64_t begin = 1 + c * (NS - 1) / num_chunks;
           int64_t end = 1 + (c + 1) * (NS - 1) / num_chunks;
           int local_count = 0;
@@ -136,7 +136,7 @@ void csr2csc_template_(
       });
 
   chunk_uniq_offsets[0] = 0;
-  for (int c = 0; c < num_chunks; ++c) {
+  for (const auto c : c10::irange(num_chunks)) {
     chunk_uniq_offsets[c + 1] = chunk_uniq_offsets[c] + chunk_uniq_counts[c];
   }
   int U = chunk_uniq_offsets[num_chunks] + 1;
@@ -194,7 +194,7 @@ void csr2csc_template_(
 
   at::parallel_for(
       0, num_chunks, 1, [&](int64_t chunk_begin, int64_t chunk_end) {
-        for (int64_t c = chunk_begin; c < chunk_end; ++c) {
+        for (const auto c : c10::irange(chunk_begin, chunk_end)) {
           int64_t begin = 1 + c * (NS - 1) / num_chunks;
           int64_t end = 1 + (c + 1) * (NS - 1) / num_chunks;
 
