@@ -11,11 +11,13 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <ctime>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <utility>
 
 #include <c10/util/irange.h>
 #include <folly/coro/BlockingWait.h>
@@ -172,7 +174,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       bool disable_random_init = false,
       bool enable_blob_db = false,
       bool enable_metadata_cf = false,
-      int64_t metadata_dim = 0)
+      int64_t metadata_dim = 0,
+      int64_t stats_dump_period_sec = 600)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -191,6 +194,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         max_D_(max_D),
         metadata_dim_(metadata_dim),
         elem_size_(row_storage_bitwidth / 8) {
+    TORCH_CHECK(
+        stats_dump_period_sec >= 0 &&
+            std::cmp_less_equal(stats_dump_period_sec, UINT32_MAX),
+        "stats_dump_period_sec must fit an unsigned 32-bit integer");
     class Int64Comparator : public rocksdb::Comparator {
      public:
       const char* Name() const override {
@@ -283,7 +290,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 #else
     options.statistics = rocksdb::CreateDBStatistics();
 #endif
-    options.stats_dump_period_sec = 600;
+    options.stats_dump_period_sec =
+        static_cast<uint32_t>(stats_dump_period_sec);
 
     // no bloom filter on the last level, checkout https://fburl.com/ne99girf
     options.optimize_filters_for_hits = true;
