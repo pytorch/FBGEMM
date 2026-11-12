@@ -48,14 +48,14 @@ __launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kerne
         offset, jidx, jagged_dims, x_offsets);
 
     if (is_zero) {
-      for (int32_t iidx = static_cast<int32_t>(threadIdx.x);
-           iidx < inner_dense_size;
+      for (uint32_t iidx = threadIdx.x;
+           static_cast<int64_t>(iidx) < inner_dense_size;
            iidx += blockDim.x) {
         output[oidx][jidx][iidx] = padding_value;
       }
     } else {
-      for (int32_t iidx = static_cast<int32_t>(threadIdx.x);
-           iidx < inner_dense_size;
+      for (uint32_t iidx = threadIdx.x;
+           static_cast<int64_t>(iidx) < inner_dense_size;
            iidx += blockDim.x) {
         output[oidx][jidx][iidx] =
             f(x_values[offset][iidx], y_values[offset][iidx]);

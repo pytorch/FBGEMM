@@ -90,7 +90,7 @@ __global__ __launch_bounds__(kFlatBlockSize) void linearize_index_flat_kernel(
         is_last_feature ? index_t{0} : (hash_size_cumsum[t + 1] - hash_offset);
     const bool is_merged_feature = !is_last_feature && (per_feature_hash == 0);
 
-    for (int32_t i = static_cast<int32_t>(threadIdx.x); i < L;
+    for (uint32_t i = threadIdx.x; static_cast<int64_t>(i) < L;
          i += blockDim.x) {
       const auto idx = __ldg(&indices[indices_start + i]);
       if (!is_last_feature && !is_merged_feature && idx >= per_feature_hash) {
