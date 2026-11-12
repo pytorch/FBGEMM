@@ -164,11 +164,11 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     // On CUDA the grid is not capped and the loop body runs once per warp.
 #ifdef USE_ROCM
     for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-         b_t < offsets.size(0) - 1;
+         b_t < static_cast<uint32_t>(offsets.size(0) - 1);
          b_t += blockDim.y * gridDim.x) {
 #else
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    if (b_t >= offsets.size(0) - 1) {
+    if (b_t >= static_cast<uint32_t>(offsets.size(0) - 1)) {
         return;
     }
 #endif
@@ -199,7 +199,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
         // If the table does not require gradient computation, we set the gradient to zero.
         for (auto l_start = 0; l_start < L; l_start += kWarpSize) {
             auto l = l_start + threadIdx.x;
-            if (l < L) {
+            if (static_cast<decltype(l + L)>(l) < static_cast<decltype(l + L)>(L)) {
                 grad_indice_weights[indices_start + l] = 0.0;
             }
         }
@@ -257,7 +257,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
         // TODO: Maybe using a combination of shared memory and registers is
         // better for performance
         #pragma unroll kFixedMaxVecsPerThread
-        for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
+        for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < static_cast<uint32_t>(D); ++vec) {
             const int32_t d = {{ d }};
             Vec4TAcc<grad_t> go(grad_output_ + d);
             grad_out[vec] = go;
@@ -265,12 +265,12 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 
         for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
             auto l = l_start + threadIdx.x;
-            const auto offset_idx = l < L
+            const auto offset_idx = static_cast<decltype(l + L)>(l) < static_cast<decltype(l + L)>(L)
                 ? (static_cast<overflow_safe_int_t>(indices[indices_start + l]) * D_emb)
                 : 0;
             {%- if not dense %}
             const auto {{ locs_or_addrs_idx }} =
-                (placement == PlacementType::MANAGED_CACHING && l < L)
+                (placement == PlacementType::MANAGED_CACHING && static_cast<decltype(l + L)>(l) < static_cast<decltype(l + L)>(L))
                     ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
             {%- endif %}
 
@@ -303,7 +303,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     const auto weight_row3 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j3], D);
 
                     #pragma unroll kFixedMaxVecsPerThread
-                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + threadIdx.x) * kVecWidth < D; ++vec) {
+                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + threadIdx.x) * kVecWidth < static_cast<uint32_t>(D); ++vec) {
                         const int32_t d = (kWarpSize * vec + threadIdx.x) * kVecWidth;
 
                         Vec4T<at::acc_type<cache_t, true>> weight0, weight1, weight2, weight3;
@@ -357,7 +357,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     const auto weight_row3 = WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j3], D);
 
                     #pragma unroll kFixedMaxVecsPerThread
-                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + threadIdx.x) * kVecWidth < D; ++vec) {
+                    for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && (kWarpSize * vec + threadIdx.x) * kVecWidth < static_cast<uint32_t>(D); ++vec) {
                         const int32_t d = (kWarpSize * vec + threadIdx.x) * kVecWidth;
 
                         Vec4T<at::acc_type<cache_t, true>> weight0, weight1, weight2, weight3;
@@ -414,7 +414,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 
                 #pragma unroll kFixedMaxVecsPerThread
                 for (int32_t vec = 0;
-                    vec < kFixedMaxVecsPerThread && {{ d }} < D;
+                    vec < kFixedMaxVecsPerThread && {{ d }} < static_cast<uint32_t>(D);
                     ++vec) {
                     const int32_t d = {{ d }};
                     {%- if not dense %}
