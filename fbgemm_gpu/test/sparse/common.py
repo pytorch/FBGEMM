@@ -100,7 +100,6 @@ def permute_indices_ref_(
     return permuted_lengths, permuted_indices, permuted_weights
 
 
-@torch.jit.script
 def permute_scripted(
     permute: torch.Tensor, lengths: torch.Tensor, indices: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
