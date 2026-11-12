@@ -313,6 +313,116 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->serving_qdq_existing_rows();
   }
 
+  void exclusive_hbm_register(
+      at::Tensor cache_state,
+      at::Tensor cache_weights,
+      at::Tensor last_access,
+      bool set_associative) {
+    half_impl().exclusive_hbm_register(
+        std::move(cache_state),
+        std::move(cache_weights),
+        std::move(last_access),
+        set_associative);
+  }
+
+  void exclusive_hbm_promote_cuda(
+      at::Tensor promoted_keys_cpu,
+      at::Tensor promoted_count_cpu,
+      std::optional<at::Tensor> victim_keys_cpu,
+      std::optional<at::Tensor> victim_access_cpu,
+      std::optional<at::Tensor> victim_rows_cpu,
+      std::optional<at::Tensor> victim_count_cpu,
+      bool from_write) {
+    half_impl().exclusive_hbm_promote_cuda(
+        std::move(promoted_keys_cpu),
+        std::move(promoted_count_cpu),
+        std::move(victim_keys_cpu),
+        std::move(victim_access_cpu),
+        std::move(victim_rows_cpu),
+        std::move(victim_count_cpu),
+        from_write);
+  }
+
+  int64_t exclusive_hbm_demote_all() {
+    return half_impl().exclusive_hbm_demote_all();
+  }
+
+  int64_t exclusive_hbm_sweep(int64_t now) {
+    return half_impl().exclusive_hbm_sweep(now);
+  }
+
+  void exclusive_hbm_wait() {
+    half_impl().exclusive_hbm_wait();
+  }
+
+  void wait_row_writes_done() {
+    half_impl().wait_row_writes_done();
+  }
+
+  std::vector<int64_t> exclusive_hbm_stats() {
+    return half_impl().exclusive_hbm_stats();
+  }
+
+  /// Bytes per raw INT8 checkpoint row, or 0 without int8_storage.
+  int64_t get_int8_row_bytes() {
+    return impl_->get_int8_row_bytes();
+  }
+
+  /// Bytes per raw checkpoint row (INT8 or packed INT4), or 0 for fp16 rows.
+  int64_t get_raw_row_bytes() {
+    return impl_->get_raw_row_bytes();
+  }
+
+  void set_raw_source_format(const std::string& format) {
+    half_impl().set_raw_source_format(format);
+  }
+
+  bool accepts_raw_row_bytes(int64_t row_bytes, bool drop_tail) {
+    return half_impl().accepts_raw_row_bytes(row_bytes, drop_tail);
+  }
+
+  void encode_written_rows_cuda(
+      at::Tensor rows_cpu,
+      at::Tensor out_cpu,
+      at::Tensor count_cpu) {
+    half_impl().encode_written_rows_cuda(
+        std::move(rows_cpu), std::move(out_cpu), std::move(count_cpu));
+  }
+
+  void encode_written_rows(
+      const at::Tensor& rows,
+      const at::Tensor& out,
+      const at::Tensor& count) {
+    half_impl().encode_written_rows(rows, out, count);
+  }
+
+  int64_t hbm_written_row_bytes() {
+    return half_impl().hbm_written_row_bytes();
+  }
+
+  void hold_row_writes_for_test(bool hold) {
+    half_impl().hold_row_writes_for_test(hold);
+  }
+
+  void get_int8_payloads_cuda(
+      at::Tensor indices_cpu,
+      at::Tensor rows_cpu,
+      at::Tensor count_cpu) {
+    half_impl().get_int8_payloads_cuda(
+        std::move(indices_cpu), std::move(rows_cpu), std::move(count_cpu));
+  }
+
+  void get_int8_payloads(
+      const at::Tensor& indices,
+      const at::Tensor& rows,
+      const at::Tensor& count) {
+    half_impl().get_int8_payloads(indices, rows, count);
+  }
+
+  std::vector<int64_t> get_int8_write_counts() {
+    return half_impl().get_int8_write_counts();
+  }
+
  private:
   void check_cpu_payload_keys(const at::Tensor& indices) {
     TORCH_CHECK(
@@ -329,6 +439,14 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
 
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;
+
+  // The exclusive HBM tier exists only on FP16 caches.
+  kv_mem::DramKVEmbeddingCache<at::Half>& half_impl() {
+    auto* impl =
+        dynamic_cast<kv_mem::DramKVEmbeddingCache<at::Half>*>(impl_.get());
+    TORCH_CHECK(impl != nullptr, "exclusive HBM tier needs FP16 weights");
+    return *impl;
+  }
 
   std::shared_ptr<kv_db::EmbeddingKVDB> impl_;
   std::shared_ptr<kv_mem::DramKVEmbeddingCache<float>> fp32_impl_;
