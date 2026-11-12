@@ -1764,6 +1764,12 @@ auto dram_kv_embedding_cache_wrapper =
             "get_int8_payloads_cuda",
             &DramKVEmbeddingCacheWrapper::get_int8_payloads_cuda)
         .def(
+            "write_rows_direct_cuda",
+            &DramKVEmbeddingCacheWrapper::write_rows_direct_cuda)
+        .def(
+            "hold_row_writes_for_test",
+            &DramKVEmbeddingCacheWrapper::hold_row_writes_for_test)
+        .def(
             "get_int8_payloads",
             &DramKVEmbeddingCacheWrapper::get_int8_payloads)
         .def(

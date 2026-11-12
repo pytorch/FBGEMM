@@ -570,6 +570,17 @@ def _dram_backend(dim: int, num_rows: int, int8_storage: bool = False) -> _DramB
     )
 
 
+class OwnerCacheSlotTest(unittest.TestCase):
+    def test_owner_cache_slots_match_cache_slot(self) -> None:
+        keys = [0, 1, 7, 31, -1, -2, 123456789, (1 << 62) + 5, -(1 << 63)]
+        keys += torch.randint(
+            -(1 << 62), 1 << 62, (200,), generator=torch.Generator().manual_seed(3)
+        ).tolist()
+        for num_slots in (1, 7, 4096, 85_019_675):
+            slots = training._owner_cache_slots(torch.tensor(keys), num_slots)
+            self.assertEqual(slots.tolist(), [_slot(k, num_slots) for k in keys])
+
+
 @unittest.skipIf(_OPEN_SOURCE, "requires the internal KV ZCH ops")
 @unittest.skipIf(not torch.cuda.is_available(), "requires a CUDA device")
 class ExclusiveOwnerCacheTest(unittest.TestCase):
@@ -748,6 +759,301 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 torch.equal(outputs[0].view(torch.int16), outputs[1].view(torch.int16))
             )
         self.assertEqual(fused_cache.last_hit_counts(), (64, 64))
+
+    def test_hit_metrics_count_hits_conflicts_and_written_rows(self) -> None:
+        device = _cuda_device()
+        with mock.patch.dict(
+            os.environ,
+            {
+                "KVZCH_OWNER_CACHE_HIT_METRICS": "1",
+                "KVZCH_OWNER_CACHE_HIT_METRICS_EVERY_N": "1",
+            },
+        ):
+            tbe = self._cu_tbe(owner_cache=True)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        num_slots = cache.cache_state.size(0)
+        collider = next(
+            k for k in range(1000, 10000) if _slot(k, num_slots) == _slot(7, num_slots)
+        )
+        rows = torch.randn(2, 128, generator=torch.Generator().manual_seed(5)) * 0.3
+        tbe.enrichment_write_rows(
+            torch.tensor([7, 31], device=device),
+            torch.tensor([0, 2], device=device),
+            rows.half().to(device),
+        )
+        torch.cuda.synchronize()
+        tbe.ssd_db.wait_util_filling_work_done()
+        keys = torch.tensor([7, 31], device=device)
+        tbe._direct_enrichment_lookup(keys)  # empty slots, read-populated
+        tbe._direct_enrichment_lookup(keys)  # hits
+        tbe._direct_enrichment_lookup(torch.tensor([collider], device=device))
+        metrics = cache.hit_metrics()
+        self.assertEqual(metrics["queries"], 5)
+        self.assertEqual(metrics["hits"], 2)
+        self.assertEqual(metrics["empty_miss"], 2)
+        self.assertEqual(metrics["conflict_miss"], 1)
+        self.assertEqual(metrics["nro_written"], 2)
+        self.assertEqual(metrics["nro_hbm_landed"], 0)
+        self.assertEqual(metrics["nro_hbm_resident_rate"], 1.0)
+        self.assertAlmostEqual(metrics["occupancy"], 2 / num_slots)
+
+        reporter = mock.MagicMock()
+        tbe.stats_reporter = reporter
+        tbe._report_owner_cache_metrics(cache)
+        reported = {
+            call.kwargs["event_name"].rsplit(".", 1)[1]: call.kwargs["data_bytes"]
+            for call in reporter.report_data_amount.call_args_list
+        }
+        self.assertEqual(reported["hit_rate"], 2 / 5)
+        self.assertEqual(reported["conflict_miss"], 1)
+        self.assertEqual(reported["nro_written"], 2)
+        reporter.reset_mock()
+        tbe._report_owner_cache_metrics(cache)
+        reported = {
+            call.kwargs["event_name"].rsplit(".", 1)[1]: call.kwargs["data_bytes"]
+            for call in reporter.report_data_amount.call_args_list
+        }
+        self.assertEqual(reported["queries"], 0)
+        self.assertEqual(reported["hit_rate"], 0.0)
+
+    def test_hit_metrics_off_by_default(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("KVZCH_OWNER_CACHE_HIT_METRICS", None)
+            tbe = self._cu_tbe(owner_cache=True)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertFalse(cache._hit_metrics)
+        device = _cuda_device()
+        tbe._direct_enrichment_lookup(torch.tensor([7], device=device))
+        self.assertFalse(hasattr(cache, "_metric_counts"))
+        self.assertEqual(cache._metric_lookup_count, 0)
+
+    def _direct_write_tbe(
+        self,
+        int8_storage: bool = True,
+        packed_storage: bool = False,
+        exclusive: bool = False,
+    ) -> training.SSDTableBatchedEmbeddingBags:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "KVZCH_ROW_WRITE_DIRECT_HBM": "1",
+                "KVZCH_OWNER_CACHE_HIT_METRICS": "1",
+                "KVZCH_OWNER_CACHE_HIT_METRICS_EVERY_N": "1",
+            },
+        ):
+            return self._cu_tbe(
+                int8_storage=int8_storage,
+                load_without_opt=True,
+                owner_cache=True,
+                packed_storage=packed_storage,
+                exclusive=exclusive,
+            )
+
+    def test_direct_hbm_row_writes_into_inclusive_cache(self) -> None:
+        device = _cuda_device()
+        tbe = self._direct_write_tbe()
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertIs(type(cache), training._DirectMappedEnrichmentCache)
+
+        def read_payloads(keys: list[int]) -> torch.Tensor:
+            ids = torch.tensor(keys)
+            raw = torch.empty(ids.numel(), 136, dtype=torch.uint8)
+            tbe.ssd_db.get_int8_payloads(ids, raw, torch.tensor([ids.numel()]))
+            qparams = raw[:, 128:].contiguous().view(torch.float32)
+            return raw[:, :128].float() * qparams[:, :1] + qparams[:, 1:]
+
+        def write(keys: list[int], rows: torch.Tensor) -> None:
+            tbe.enrichment_write_rows(
+                torch.tensor(keys, device=device),
+                torch.tensor([0, len(keys)], device=device),
+                rows.to(device),
+            )
+
+        def wait_for_rows(keys: list[int]) -> None:
+            torch.cuda.synchronize()
+            deadline = time.monotonic() + 60
+            while bool((read_payloads(keys).abs().amax(1) == 0).any()):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.1)
+
+        generator = torch.Generator().manual_seed(81)
+        old_31, new_7, new_31 = (
+            (torch.randn(3, 128, generator=generator) * 0.3).half().unbind(0)
+        )
+        write([31], old_31.unsqueeze(0))
+        wait_for_rows([31])
+        cache.reset()
+
+        # The first lookup after the write already hits both rows: 7 gets its
+        # written row, 31 keeps the backend row the fill-only write leaves
+        # (warmed from the first write).
+        write([7, 31], torch.stack((new_7, new_31)))
+        out = tbe._direct_enrichment_lookup(torch.tensor([7, 31], device=device))
+        self.assertEqual(cache.last_hit_counts(), (2, 2))
+        wait_for_rows([7, 31])
+        backend = read_payloads([7, 31])
+        torch.testing.assert_close(backend[1], read_payloads([31])[0])
+        torch.testing.assert_close(backend[1], old_31.float(), rtol=5e-3, atol=5e-3)
+        torch.testing.assert_close(out.cpu(), backend, rtol=5e-3, atol=5e-3)
+        # 31 from the first write, then only 7: 31 kept its row the second time.
+        self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], 2)
+
+    def test_direct_hbm_row_writes_into_exclusive_cache(self) -> None:
+        device = _cuda_device()
+        tbe = self._direct_write_tbe(packed_storage=True, exclusive=True)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertIs(type(cache), training._ExclusiveDirectMappedEnrichmentCache)
+
+        def dram_rows() -> int:
+            return int(tbe.ssd_db.get_dram_kv_perf(1, 1)[22])
+
+        def settle(expected_dram_rows: int) -> None:
+            torch.cuda.synchronize()
+            deadline = time.monotonic() + 60
+            while True:
+                tbe.ssd_db.exclusive_hbm_wait()
+                if dram_rows() == expected_dram_rows:
+                    return
+                self.assertLess(
+                    time.monotonic(),
+                    deadline,
+                    f"DRAM rows {dram_rows()}, HBM rows "
+                    f"{tbe.ssd_db.exclusive_hbm_stats()}",
+                )
+                time.sleep(0.1)
+
+        def read_checkpoint(keys: torch.Tensor) -> torch.Tensor:
+            tbe.set_int8_checkpoint_rows(True)
+            raw = tbe.split_embedding_weights()[0][0]
+            tbe.set_int8_checkpoint_rows(False)
+            assert isinstance(raw, PartiallyMaterializedTensor)
+            rows = raw.wrapped.get_weights_by_ids(keys.cpu())
+            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                rows[:, 16:].contiguous(), 8, 128
+            ).float()
+
+        n = 64
+        keys = torch.arange(n) * 7 + 3
+        rows = (
+            torch.randn(n, 128, generator=torch.Generator().manual_seed(83)) * 0.3
+        ).half()
+        tbe.enrichment_write_rows(
+            keys.to(device), torch.tensor([0, n], device=device), rows.to(device)
+        )
+        # The HBM tier holds the only copy of every written row.
+        settle(0)
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), n)
+        self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], n)
+        out = tbe._direct_enrichment_lookup(keys.to(device))
+        self.assertEqual(cache.last_hit_counts(), (n, n))
+        # The HBM rows are the INT8 rows of what DRAM stored (the g8 rows).
+        stored = self._stored_rows("g8", keys, rows).float()
+        step = (stored.amax(1) - stored.amin(1)) / 255
+        err = (out.cpu().float() - stored).abs().amax(1)
+        self.assertTrue(bool((err <= step / 2 + 1e-3).all()))
+        # Checkpoint reads fill them from HBM, as g8 rows: within half a g8
+        # step (max |x| / 7 per group of 8) of the HBM rows.
+        hbm = out.cpu().float()
+        half_step = hbm.abs().view(n, 16, 8).amax(2, keepdim=True) / 14
+        self.assertTrue(
+            bool(
+                (
+                    (read_checkpoint(keys) - hbm).abs().view(n, 16, 8)
+                    <= half_step + 1e-2
+                ).all()
+            )
+        )
+
+        # A row back in DRAM with an empty slot: the write's HBM insert loses
+        # to the nonzero DRAM row, which stays the only copy.
+        cache.reset()
+        settle(n)
+        # Without write warming, which would move the demoted rows back first.
+        tbe._pending_direct_cache_fill_indices = None
+        demoted = read_checkpoint(keys[:1])
+        tbe.enrichment_write_rows(
+            keys[:1].to(device),
+            torch.tensor([0, 1], device=device),
+            torch.full((1, 128), 0.5, device=device).half(),
+        )
+        settle(n)
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), 0)
+        self.assertFalse(bool((cache.cache_state == int(keys[0])).any()))
+        torch.testing.assert_close(read_checkpoint(keys[:1]), demoted, rtol=0, atol=0)
+
+    @staticmethod
+    def _stored_rows(fmt: str, keys: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
+        """What DRAM's own row-write path stores for `rows`, decoded: written
+        through set_embedding_cache_rows into a backend of the same format."""
+        g8 = fmt == "g8"
+        backend = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+            max_D=128,
+            uniform_init_lower=-0.1,
+            uniform_init_upper=0.1,
+            num_shards=8,
+            num_threads=8,
+            row_storage_bitwidth=16,
+            hash_size_cumsum=torch.tensor([0, 1 << 20]),
+            disable_random_init=True,
+            enrichment_config=torch.classes.fbgemm.EnrichmentConfig(
+                4,
+                "",
+                "",
+                128,
+                1,
+                serving_qdq_bit_rate=4 if g8 else 0,
+                serving_qdq_group_size=8 if g8 else 0,
+                packed_storage=g8,
+                int8_storage=fmt == "int8",
+            ),
+        )
+        n = keys.numel()
+        backend.set_embedding_cache_rows_cuda(
+            keys.cpu(), rows.cpu().contiguous(), torch.tensor([n])
+        )
+        torch.cuda.synchronize()
+        backend.wait_row_writes_done()
+        stored = torch.empty(n, 128, dtype=torch.float16)
+        backend.get(keys.cpu(), stored, torch.tensor([n]), 0)
+        return stored
+
+    def test_dropped_direct_row_write_reaches_neither_tier(self) -> None:
+        """A row write the backend drops, because another is still in flight,
+        puts nothing into HBM either, exclusive or not."""
+        device = _cuda_device()
+        n = 16
+        keys = (torch.arange(n) * 7 + 3).to(device)
+        offsets = torch.tensor([0, n], device=device)
+        rows = (
+            torch.randn(n, 128, generator=torch.Generator().manual_seed(89)) * 0.3
+        ).half()
+        for exclusive in (False, True):
+            with self.subTest(exclusive=exclusive):
+                tbe = self._direct_write_tbe(exclusive=exclusive)
+                cache = tbe._direct_enrichment_cache
+                assert cache is not None
+                tbe.ssd_db.hold_row_writes_for_test(True)
+                tbe.enrichment_write_rows(keys, offsets, rows.to(device))
+                torch.cuda.synchronize()
+                tbe.ssd_db.hold_row_writes_for_test(False)
+                if exclusive:
+                    tbe.ssd_db.exclusive_hbm_wait()
+                    self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), 0)
+
+                self.assertFalse(bool(torch.isin(cache.cache_state[:, 0], keys).any()))
+                self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], 0)
+                self.assertEqual(int(tbe.ssd_db.get_dram_kv_perf(1, 1)[22]), 0)
+
+                # The next write is stored, and lands in HBM.
+                tbe._pending_direct_cache_fill_indices = None
+                tbe.enrichment_write_rows(keys, offsets, rows.to(device))
+                tbe._direct_enrichment_lookup(keys)
+                self.assertEqual(cache.last_hit_counts(), (n, n))
+                self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], n)
 
     def test_int8_dram_nonexclusive_read_populate_and_fill_only_writes(self) -> None:
         device = _cuda_device()

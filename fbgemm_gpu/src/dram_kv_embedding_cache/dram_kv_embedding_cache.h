@@ -961,6 +961,54 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
   }
 
+  /// Writes `src` as the row of `id`, the way every enrichment write does,
+  /// and returns whether it did: with skip_nonzero_rows a non-zero row or an
+  /// HBM row keeps its value, and a key the pool cannot allocate is skipped.
+  bool write_enrichment_row_locked(
+      int shard_id,
+      auto& map,
+      auto* pool,
+      int64_t id,
+      const weight_type* src,
+      int64_t stride,
+      bool skip_nonzero_rows) {
+    weight_type* block = nullptr;
+    auto it = map.find(id);
+    if (it != map.end()) {
+      block = it->second;
+      if (skip_nonzero_rows &&
+          !FixedBlockPool::is_weights_all_zero(block, payload_end_bytes())) {
+        return false;
+      }
+    } else {
+      if (skip_nonzero_rows && hbm_ && hbm_rows_[shard_id].contains(id)) {
+        return false;
+      }
+      block = pool->template allocate_t<weight_type>();
+      if (block == nullptr) {
+        return false;
+      }
+      FixedBlockPool::set_key(block, id);
+      map.insert({id, block});
+      hbm_take_tombstone_locked(shard_id, id);
+      if (is_eviction_enabled()) {
+        auto* feature_score_evict =
+            dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+                feature_evict_.get());
+        if (feature_score_evict) {
+          feature_score_evict->update_feature_score_statistics(
+              block, 0, shard_id, true);
+        }
+      }
+    }
+    write_payload(
+        shard_id, FixedBlockPool::data_ptr<weight_type>(block), src, stride);
+    if (enable_ssd_backend_) {
+      pool->set_dirty(block, true);
+    }
+    return true;
+  }
+
   /// Separate write path for enrichment that runs on enrichment_executor_
   /// instead of the main executor_. This avoids competing with forward/backward
   /// for thread pool resources. Uses pause/resume to yield to fwd/bwd —
@@ -1028,52 +1076,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           auto* pool = kv_store_.pool_by(shard_id);
                           while (cursor < total) {
                             const auto& id_index = indexes[cursor];
-                            auto id = int64_t(indices_data_ptr[id_index]);
-                            weight_type* block = nullptr;
-                            auto it = wlmap->find(id);
-                            if (it != wlmap->end()) {
-                              block = it->second;
-                              if (skip_nonzero_rows &&
-                                  !FixedBlockPool::is_weights_all_zero(
-                                      block, payload_end_bytes())) {
-                                cursor++;
-                                continue;
-                              }
-                            } else {
-                              if (skip_nonzero_rows && hbm_ &&
-                                  hbm_rows_[shard_id].contains(id)) {
-                                cursor++;
-                                continue;
-                              }
-                              // Key doesn't exist, allocate new block and
-                              // insert
-                              block = pool->template allocate_t<weight_type>();
-                              if (block == nullptr) {
-                                cursor++;
-                                continue; // Skip if allocation fails
-                              }
-                              FixedBlockPool::set_key(block, id);
-                              wlmap->insert({id, block});
-                              hbm_take_tombstone_locked(shard_id, id);
-                              if (is_eviction_enabled()) {
-                                auto* feature_score_evict = dynamic_cast<
-                                    FeatureScoreBasedEvict<weight_type>*>(
-                                    feature_evict_.get());
-                                if (feature_score_evict) {
-                                  feature_score_evict
-                                      ->update_feature_score_statistics(
-                                          block, 0, shard_id, true);
-                                }
-                              }
-                            }
-                            write_payload(
+                            write_enrichment_row_locked(
                                 shard_id,
-                                FixedBlockPool::data_ptr<weight_type>(block),
+                                *wlmap,
+                                pool,
+                                int64_t(indices_data_ptr[id_index]),
                                 weights_data_ptr + id_index * stride,
-                                stride);
-                            if (enable_ssd_backend_) {
-                              pool->set_dirty(block, true);
-                            }
+                                stride,
+                                skip_nonzero_rows);
                             cursor++;
                             // Check if we should pause and yield lock
                             if (is_laser_write_interrupted()) {
@@ -1640,6 +1650,133 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               .via(enrichment_executor_.get());
         })
         .ensure([this]() { row_write_in_progress_.store(false); });
+  }
+
+  /// KVZCH_ROW_WRITE_DIRECT_HBM: set_embedding_cache_rows_async run in place,
+  /// so an HBM insert stream-ordered after it can copy exactly the rows DRAM
+  /// stored. Of the first `count` rows it sets stored[i] (uint8) for each it
+  /// wrote, under the same rules and drops as the async write, and puts into
+  /// stored_rows[i] the row as written (serving-QDQ snapped), zero for the
+  /// others. It does not yield to forward and backward reads, which wait on
+  /// the HBM insert, and is dropped while a stream write runs.
+  void write_rows_direct(
+      const at::Tensor& indices,
+      const at::Tensor& rows,
+      const at::Tensor& count,
+      const at::Tensor& stored_rows,
+      const at::Tensor& stored) {
+    const int64_t n = count.item<int64_t>();
+    TORCH_CHECK(
+        indices.device().is_cpu() && indices.is_contiguous() &&
+            indices.scalar_type() == at::kLong && indices.numel() >= n,
+        "direct write indices must be a contiguous CPU int64 tensor");
+    TORCH_CHECK(
+        rows.device().is_cpu() && rows.is_contiguous() && rows.dim() == 2 &&
+            rows.size(0) >= n,
+        "direct write rows must be a contiguous 2D CPU tensor");
+    TORCH_CHECK(
+        stored_rows.device().is_cpu() && stored_rows.is_contiguous() &&
+            stored_rows.scalar_type() == rows.scalar_type() &&
+            stored_rows.dim() == 2 && stored_rows.size(0) >= n &&
+            stored_rows.size(1) <= rows.size(1),
+        "direct write stored rows must be a contiguous CPU [n, <= row width] "
+        "tensor of the rows' dtype");
+    TORCH_CHECK(
+        stored.device().is_cpu() && stored.is_contiguous() &&
+            stored.scalar_type() == at::kByte && stored.numel() >= n,
+        "direct write mask must be a contiguous CPU uint8 tensor");
+    auto* stored_data = stored.data_ptr<uint8_t>();
+    std::memset(stored_data, 0, n);
+    stored_rows.narrow(0, 0, n).zero_();
+    if (!enrichment_config_.has_value() || n == 0) {
+      return;
+    }
+    bool expected = false;
+    if (!row_write_in_progress_.compare_exchange_strong(expected, true)) {
+      XLOG(INFO)
+          << "[EmbeddingCacheEnrich] skipping direct row write - previous row write in progress";
+      return;
+    }
+    SCOPE_EXIT {
+      row_write_in_progress_.store(false);
+    };
+    auto weights = rows.narrow(0, 0, n).clone();
+    apply_serving_qdq(weights, n);
+    if (!begin_direct_row_write()) {
+      return;
+    }
+    SCOPE_EXIT {
+      end_laser_write();
+    };
+    const auto* ids = indices.const_data_ptr<int64_t>();
+    const auto* src = weights.const_data_ptr<weight_type>();
+    const int64_t stride = weights.size(1);
+    for (const auto& [shard_id, indexes] : shard_input(indices, count)) {
+      auto wlmap = kv_store_.by(shard_id).wlock();
+      auto* pool = kv_store_.pool_by(shard_id);
+      for (const auto i : indexes) {
+        stored_data[i] = write_enrichment_row_locked(
+            shard_id,
+            *wlmap,
+            pool,
+            ids[i],
+            src + i * stride,
+            stride,
+            /*skip_nonzero_rows=*/true);
+      }
+      hbm_post_invalidations_locked(shard_id);
+    }
+    const int64_t width = stored_rows.size(1);
+    auto* out = stored_rows.data_ptr<weight_type>();
+    for (int64_t i = 0; i < n; ++i) {
+      if (stored_data[i]) {
+        std::memcpy(
+            out + i * width, src + i * stride, width * sizeof(weight_type));
+      }
+    }
+  }
+
+  /// write_rows_direct once earlier work on the current stream is done:
+  /// `stored_rows_cpu` and `stored_cpu` are host views of host-mapped buffers
+  /// a later GPU insert reads.
+  void write_rows_direct_cuda(
+      at::Tensor indices_cpu,
+      at::Tensor rows_cpu,
+      at::Tensor count_cpu,
+      at::Tensor stored_rows_cpu,
+      at::Tensor stored_cpu) {
+    hbm_rethrow_async_error();
+    auto functor = std::make_unique<std::function<void()>>(
+        [self =
+             std::static_pointer_cast<DramKVEmbeddingCache>(shared_from_this()),
+         indices = std::move(indices_cpu),
+         rows = std::move(rows_cpu),
+         count = std::move(count_cpu),
+         stored_rows = std::move(stored_rows_cpu),
+         stored = std::move(stored_cpu)]() mutable {
+          self->hbm_run_async([&] {
+            try {
+              self->write_rows_direct(
+                  indices, rows, count, stored_rows, stored);
+            } catch (...) {
+              // Rows not marked stored are not inserted.
+              stored.zero_();
+              stored_rows.zero_();
+              throw;
+            }
+          });
+        });
+    AT_CUDA_CHECK(cudaLaunchHostFunc(
+        at::cuda::getCurrentCUDAStream(),
+        kv_db_utils::cuda_host_func,
+        functor.get()));
+    // The callback owns it once launched.
+    functor.release();
+  }
+
+  /// Drops every row write until released, as one in flight would.
+  void hold_row_writes_for_test(bool hold) {
+    row_write_in_progress_.store(hold);
   }
 
   void set_embedding_cache_enrich_query_id_async(
@@ -3018,6 +3155,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     laser_write_cv_.wait(
         lock, [this] { return !laser_write_interrupt_.load(); });
     if (laser_write_epoch_.load() != write_epoch) {
+      return false;
+    }
+    ++active_laser_writers_;
+    return true;
+  }
+
+  /// begin_laser_write for write_rows_direct: never waits for forward and
+  /// backward, and fails while a stream write runs.
+  bool begin_direct_row_write() {
+    std::scoped_lock lock(laser_write_mutex_);
+    if (stream_laser_suspensions_ > 0) {
       return false;
     }
     ++active_laser_writers_;
