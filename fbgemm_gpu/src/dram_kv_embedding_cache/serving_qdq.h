@@ -9,14 +9,23 @@
 #pragma once
 
 #include <c10/util/Exception.h>
+#include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Half.h>
 #include <fbgemm/QuantUtils.h>
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <ostream>
 #include <vector>
 #include "fbgemm_gpu/utils/grouped_int4_e4m3.h"
+
+#ifdef __aarch64__
+#include <arm_neon.h>
+#elif defined(__SSSE3__)
+#include <tmmintrin.h>
+#endif
 
 /// Rewrites embedding rows as the values serving decodes after the table's
 /// publish encoding (rowwise N-bit with an fp16 scale and bias, or group-wise
@@ -217,6 +226,167 @@ inline Stats round_trip_rows(
     stats.record(round_trip_row(rows + r * stride, dim, format, scratch));
   }
   return stats;
+}
+
+/// Byte layout of a row stored in its group-wise INT4 publish encoding: the
+/// first `dim` columns as dim / 2 code bytes then dim / group_size
+/// float8_e4m3fn scale bytes, followed by the remaining `tail` columns (e.g.
+/// optimizer state) as raw fp16.
+struct PackedLayout {
+  int64_t dim{0};
+  int64_t group_size{0};
+  int64_t tail{0};
+
+  int64_t code_bytes() const {
+    return dim / 2;
+  }
+  int64_t packed_bytes() const {
+    return fbgemm_gpu::grouped_int4_e4m3::packed_row_bytes(dim, group_size);
+  }
+  int64_t payload_bytes() const {
+    return packed_bytes() + tail * static_cast<int64_t>(sizeof(c10::Half));
+  }
+};
+
+/// First scale byte of a row whose values are kept outside the packed slot.
+/// It is an e4m3fn NaN, which the encoder never writes (scales are clamped to
+/// [2^-9, 448], and an all-zero group gets scale 0).
+constexpr uint8_t kFallbackScale = 0x7F;
+
+/// fp16 bits of grouped_int4_e4m3::decode(nibble, scale) for every scale byte
+/// and nibble, split into low and high bytes so a byte shuffle decodes a group.
+struct DecodeTable {
+  // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays): 16-byte rows for SIMD loads
+  alignas(16) uint8_t lo[256][16];
+  alignas(16) uint8_t hi[256][16];
+  // NOLINTEND(cppcoreguidelines-avoid-c-arrays)
+};
+
+inline const DecodeTable& decode_table() {
+  static const DecodeTable table = [] {
+    DecodeTable t{};
+    for (int s = 0; s < 256; ++s) {
+      const float scale = static_cast<float>(c10::Float8_e4m3fn(
+          static_cast<uint8_t>(s), c10::Float8_e4m3fn::from_bits()));
+      for (int n = 0; n < 16; ++n) {
+        const uint16_t bits =
+            c10::Half(fbgemm_gpu::grouped_int4_e4m3::decode(n, scale)).x;
+        t.lo[s][n] = static_cast<uint8_t>(bits & 0xFF);
+        t.hi[s][n] = static_cast<uint8_t>(bits >> 8);
+      }
+    }
+    return t;
+  }();
+  return table;
+}
+
+inline void unpack_group_scalar(
+    const DecodeTable& t,
+    const uint8_t* codes,
+    uint8_t scale,
+    int64_t group_size,
+    uint16_t* out) {
+  for (int64_t j = 0; j < group_size / 2; ++j) {
+    const uint8_t lo = codes[j] & 0x0F;
+    const uint8_t hi = codes[j] >> 4;
+    out[2 * j] = static_cast<uint16_t>(t.lo[scale][lo] | t.hi[scale][lo] << 8);
+    out[2 * j + 1] =
+        static_cast<uint16_t>(t.lo[scale][hi] | t.hi[scale][hi] << 8);
+  }
+}
+
+/// Decodes `num_groups` groups of 8: 4 code bytes and 1 scale byte each make
+/// 8 fp16 values (16 output bytes).
+inline void unpack_g8(
+    const uint8_t* codes,
+    const uint8_t* scales,
+    int64_t num_groups,
+    uint8_t* out) {
+  const auto& t = decode_table();
+  int64_t g = 0;
+#ifdef __aarch64__
+  const uint8x8_t low_nibble = vdup_n_u8(0x0F);
+  for (; g + 2 <= num_groups; g += 2) {
+    const uint8x8_t bytes = vld1_u8(codes + g * 4);
+    // val[0] holds group g's 8 nibbles in column order, val[1] group g + 1's.
+    const uint8x8x2_t nibbles =
+        vzip_u8(vand_u8(bytes, low_nibble), vshr_n_u8(bytes, 4));
+    for (int k = 0; k < 2; ++k) {
+      const uint8_t s = scales[g + k];
+      const uint8x8_t lo = vqtbl1_u8(vld1q_u8(t.lo[s]), nibbles.val[k]);
+      const uint8x8_t hi = vqtbl1_u8(vld1q_u8(t.hi[s]), nibbles.val[k]);
+      const uint8x8x2_t halves = vzip_u8(lo, hi);
+      vst1q_u8(out + (g + k) * 16, vcombine_u8(halves.val[0], halves.val[1]));
+    }
+  }
+#elif defined(__SSSE3__)
+  const __m128i low_nibble = _mm_set1_epi8(0x0F);
+  for (; g < num_groups; ++g) {
+    uint32_t word = 0;
+    std::memcpy(&word, codes + g * 4, sizeof(word));
+    const __m128i bytes = _mm_cvtsi32_si128(static_cast<int>(word));
+    const __m128i nibbles = _mm_unpacklo_epi8(
+        _mm_and_si128(bytes, low_nibble),
+        _mm_and_si128(_mm_srli_epi16(bytes, 4), low_nibble));
+    const uint8_t s = scales[g];
+    const __m128i lo = _mm_shuffle_epi8(
+        _mm_load_si128(reinterpret_cast<const __m128i*>(t.lo[s])), nibbles);
+    const __m128i hi = _mm_shuffle_epi8(
+        _mm_load_si128(reinterpret_cast<const __m128i*>(t.hi[s])), nibbles);
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>(out + g * 16), _mm_unpacklo_epi8(lo, hi));
+  }
+#endif
+  for (; g < num_groups; ++g) {
+    std::array<uint16_t, 8> group;
+    unpack_group_scalar(t, codes + g * 4, scales[g], 8, group.data());
+    std::memcpy(out + g * 16, group.data(), sizeof(group));
+  }
+}
+
+/// Decodes the packed first `layout.dim` columns; bit-identical to
+/// grouped_int4_e4m3::dequantize_row.
+inline void
+unpack_row(const uint8_t* payload, const PackedLayout& layout, c10::Half* out) {
+  const uint8_t* scales = payload + layout.code_bytes();
+  if (layout.group_size == 8) {
+    unpack_g8(payload, scales, layout.dim / 8, reinterpret_cast<uint8_t*>(out));
+    return;
+  }
+  const auto& t = decode_table();
+  auto* dst = reinterpret_cast<uint16_t*>(out);
+  for (int64_t g = 0; g < layout.dim / layout.group_size; ++g) {
+    unpack_group_scalar(
+        t,
+        payload + g * layout.group_size / 2,
+        scales[g],
+        layout.group_size,
+        dst + g * layout.group_size);
+  }
+}
+
+/// Encodes row[0, dim) into `payload` and returns whether it decodes back
+/// bit-for-bit (true exactly for serving fixed points). An all-zero group gets
+/// scale 0, so a zero row packs to zero bytes. On false the payload holds the
+/// encoding of the row, which is not the row.
+inline bool
+pack_row(const c10::Half* row, const PackedLayout& layout, uint8_t* payload) {
+  fbgemm_gpu::grouped_int4_e4m3::quantize_row(
+      row, layout.dim, layout.group_size, payload);
+  uint8_t* scales = payload + layout.code_bytes();
+  const int64_t group_code_bytes = layout.group_size / 2;
+  for (int64_t g = 0; g < layout.dim / layout.group_size; ++g) {
+    const uint8_t* codes = payload + g * group_code_bytes;
+    if (std::all_of(codes, codes + group_code_bytes, [](uint8_t b) {
+          return b == 0;
+        })) {
+      scales[g] = 0;
+    }
+  }
+  thread_local std::vector<c10::Half> decoded;
+  decoded.resize(layout.dim);
+  unpack_row(payload, layout, decoded.data());
+  return std::memcmp(decoded.data(), row, layout.dim * sizeof(c10::Half)) == 0;
 }
 
 } // namespace kv_mem::serving_qdq

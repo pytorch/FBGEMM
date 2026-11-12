@@ -20,7 +20,7 @@ from collections.abc import Callable
 from enum import Enum
 from functools import cached_property
 from math import floor, log2
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Optional, Protocol, TYPE_CHECKING
 import torch  # usort:skip
 from typing_extensions import Self  # usort:skip
 
@@ -185,8 +185,280 @@ class SwitchStats:
     snapshot_count: int
 
 
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS"
+)
+_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT_ENV = (
+    "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT"
+)
+_CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT = 9
+_smem_carveout_set: dict[int, int] = {}
+if TYPE_CHECKING:
+    import triton
+    import triton.language as tl
+
+_kvzch_gather_int8_cast_triton: (
+    "tuple[triton.JITFunction, dict[torch.dtype, tl.dtype]] | None"
+) = None
+_cu_func_set_attribute_fn: Callable[[int, int, int], int] | None = None
+
 # fp32 scale and bias after the codes of each INT8 owner-cache row.
 _INT8_ROWWISE_QPARAMS_BYTES = 8
+
+
+def _get_kvzch_gather_int8_cast_triton_kernel() -> (
+    "tuple[triton.JITFunction, dict[torch.dtype, tl.dtype]]"
+):
+    """Gather tagged INT8 hits and storage-dtype misses, rounding hits through
+    the storage dtype before rounding to the output dtype, like gather + to().
+
+    Returns the kernel and its ``ROW_T`` for each storage dtype. Triton is
+    imported on the first launch only, so CPU-only builds never need it.
+    """
+    global _kvzch_gather_int8_cast_triton
+    if _kvzch_gather_int8_cast_triton is not None:
+        return _kvzch_gather_int8_cast_triton
+    import triton
+    import triton.language as tl
+
+    @triton.jit
+    def _kernel(
+        OUT,
+        ADDR,
+        N,
+        D: tl.constexpr,
+        BD: tl.constexpr,
+        ROW_T: tl.constexpr,
+        BM: tl.constexpr,
+    ):
+        # The stable INT8 writer stores D code bytes then aligned fp32 qparams.
+        tl.static_assert(D % 4 == 0, "INT8 owner-cache dim must be divisible by 4")
+        d = tl.arange(0, BD)
+        for t in range(tl.program_id(0), tl.cdiv(N, BM), tl.num_programs(0)):
+            rows = t * BM + tl.arange(0, BM)
+            m = rows < N
+            addr = tl.load(ADDR + rows, mask=m, other=0)
+            hit = m & ((addr & 1) == 1)
+            miss = m & ((addr & 1) == 0)
+            base = addr & -2
+            code_ptr = base.to(tl.pointer_type(tl.uint8), bitcast=True)
+            codes = tl.load(
+                code_ptr[:, None] + d[None, :],
+                mask=hit[:, None] & (d[None, :] < D),
+                other=0,
+            ).to(tl.float32)
+            qp = (code_ptr + D).to(tl.pointer_type(tl.float32), bitcast=True)
+            scale = tl.load(qp, mask=hit, other=0.0)
+            bias = tl.load(qp + 1, mask=hit, other=0.0)
+            deq = tl.fma(codes, scale[:, None], bias[:, None])
+            deq = deq.to(ROW_T).to(tl.float32)
+            row_ptr = base.to(tl.pointer_type(ROW_T), bitcast=True)
+            row = tl.load(
+                row_ptr[:, None] + d[None, :],
+                mask=miss[:, None] & (d[None, :] < D),
+                other=0.0,
+            ).to(tl.float32)
+            val = tl.where(hit[:, None], deq, row)
+            tl.store(
+                OUT + rows.to(tl.int64)[:, None] * D + d[None, :],
+                val.to(OUT.dtype.element_ty),
+                mask=m[:, None] & (d[None, :] < D),
+            )
+
+    _kvzch_gather_int8_cast_triton = (
+        _kernel,
+        {
+            torch.float16: tl.float16,
+            torch.bfloat16: tl.bfloat16,
+            torch.float32: tl.float32,
+        },
+    )
+    return _kvzch_gather_int8_cast_triton
+
+
+def _kvzch_int8_fused_cast_mode() -> str | None:
+    """The opt-in mode: None (off), "1" (C++ op when present) or "triton"."""
+    mode = os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV, "0")
+    if mode not in ("", "0", "1", "triton"):
+        raise ValueError(
+            f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV} must be 0, 1 or triton, "
+            f"got {mode!r}"
+        )
+    return mode if mode in ("1", "triton") else None
+
+
+def _kvzch_int8_fused_cast_shape() -> tuple[int, int, float]:
+    bm_error = (
+        f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM_ENV} must be a positive power of two"
+    )
+    try:
+        bm = int(os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_BM_ENV, "16"))
+    except ValueError as error:
+        raise ValueError(bm_error) from error
+    if bm < 1 or bm & (bm - 1):
+        raise ValueError(bm_error)
+
+    warps_error = (
+        f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS_ENV} "
+        "must be a power of two in [1, 32]"
+    )
+    try:
+        num_warps = int(
+            os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_NUM_WARPS_ENV, "4")
+        )
+    except ValueError as error:
+        raise ValueError(warps_error) from error
+    if not 1 <= num_warps <= 32 or num_warps & (num_warps - 1):
+        raise ValueError(warps_error)
+
+    programs_error = (
+        f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM_ENV} "
+        "must be finite and positive"
+    )
+    try:
+        programs_per_sm = float(
+            os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_PROGRAMS_PER_SM_ENV, "16")
+        )
+    except ValueError as error:
+        raise ValueError(programs_error) from error
+    if not math.isfinite(programs_per_sm) or programs_per_sm <= 0:
+        raise ValueError(programs_error)
+    return bm, num_warps, programs_per_sm
+
+
+def _kvzch_int8_fused_cast_smem_carveout() -> int | None:
+    value = os.environ.get(_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT_ENV)
+    if not value:
+        return None
+    error = (
+        f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_SMEM_CARVEOUT_ENV} "
+        "must be an integer in [0, 100]"
+    )
+    try:
+        carveout = int(value)
+    except ValueError as e:
+        raise ValueError(error) from e
+    if not 0 <= carveout <= 100:
+        raise ValueError(error)
+    return carveout
+
+
+@dataclass(frozen=True)
+class _Int8FusedCastLaunch:
+    """Fused-cast gather settings, resolved once when the owner cache is built."""
+
+    row_dtype: torch.dtype
+    use_cxx_op: bool
+    bm: int
+    num_warps: int
+    block_d: int
+    max_programs: int
+    smem_carveout: int | None
+
+
+def _kvzch_int8_fused_cast_launch_config(
+    mode: str,
+    row_dtype: torch.dtype,
+    embedding_dim: int,
+    device: torch.device,
+    max_ctas: int,
+) -> _Int8FusedCastLaunch:
+    """Shape defaults are BM=16, num_warps=4, programs_per_sm=16; fractional
+    programs_per_sm caps the grid to a fraction of the device's SM count."""
+    if row_dtype not in (torch.float16, torch.bfloat16, torch.float32):
+        raise ValueError(
+            f"{_OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV} row_dtype must be "
+            f"torch.float16, torch.bfloat16, or torch.float32, got {row_dtype}"
+        )
+    bm, num_warps, programs_per_sm = _kvzch_int8_fused_cast_shape()
+    smem_carveout = _kvzch_int8_fused_cast_smem_carveout()
+    # "1" prefers the C++ fused-cast op when present; "triton" or a CTA cap
+    # forces the Triton kernel.
+    use_cxx_op = (
+        mode == "1"
+        and not max_ctas
+        and hasattr(torch.ops.fbgemm, "kvzch_direct_cache_gather_int8_cast")
+    )
+    max_programs = 0
+    if not use_cxx_op:
+        sms = torch.cuda.get_device_properties(device).multi_processor_count
+        max_programs = max(1, int(sms * programs_per_sm))
+        if max_ctas:
+            max_programs = min(max_programs, max_ctas)
+    return _Int8FusedCastLaunch(
+        row_dtype=row_dtype,
+        use_cxx_op=use_cxx_op,
+        bm=bm,
+        num_warps=num_warps,
+        block_d=1 << (embedding_dim - 1).bit_length(),
+        max_programs=max_programs,
+        smem_carveout=smem_carveout,
+    )
+
+
+def _kvzch_direct_cache_gather_int8_cast(
+    output: torch.Tensor,
+    row_addresses: torch.Tensor,
+    launch: _Int8FusedCastLaunch,
+) -> torch.Tensor:
+    """Fused-cast gather, bit-identical to the storage gather + to()."""
+    if launch.use_cxx_op:
+        return torch.ops.fbgemm.kvzch_direct_cache_gather_int8_cast(
+            output, row_addresses, launch.row_dtype
+        )
+    n = row_addresses.numel()
+    if n == 0:
+        return output
+    kernel, row_types = _get_kvzch_gather_int8_cast_triton_kernel()
+    programs = min(-(-n // launch.bm), launch.max_programs)
+    # Match the reference CUDA gather's device guard and per-device stream.
+    with torch.cuda.device(output.device):
+        compiled = kernel[(programs,)](
+            output,
+            row_addresses,
+            n,
+            D=output.size(1),
+            BD=launch.block_d,
+            ROW_T=row_types[launch.row_dtype],
+            BM=launch.bm,
+            num_warps=launch.num_warps,
+        )
+        if launch.smem_carveout is not None:
+            _set_smem_carveout(compiled.function, launch.smem_carveout)
+    return output
+
+
+def _cu_func_set_attribute(function: int, attribute: int, value: int) -> int:
+    import ctypes
+
+    global _cu_func_set_attribute_fn
+    if _cu_func_set_attribute_fn is None:
+        fn = ctypes.CDLL("libcuda.so.1").cuFuncSetAttribute
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        fn.restype = ctypes.c_int
+        _cu_func_set_attribute_fn = fn
+    return _cu_func_set_attribute_fn(function, attribute, value)
+
+
+def _set_smem_carveout(function: int, carveout: int) -> None:
+    """Set once per compiled kernel; the carveout applies to later launches."""
+    if _smem_carveout_set.get(function) == carveout:
+        return
+    result = _cu_func_set_attribute(
+        function, _CU_FUNC_ATTRIBUTE_PREFERRED_SHARED_MEMORY_CARVEOUT, carveout
+    )
+    if result != 0:
+        raise RuntimeError(f"cuFuncSetAttribute(carveout={carveout}) failed: {result}")
+    _smem_carveout_set[function] = carveout
 
 
 def _owner_cache_gather_max_ctas(reserved_sms: int, device: torch.device) -> int:
@@ -239,6 +511,31 @@ class _DirectMappedEnrichmentCache(nn.Module):
         self._gather_max_ctas: int = _owner_cache_gather_max_ctas(
             gather_reserved_sms, device
         )
+        fused_cast_mode = _kvzch_int8_fused_cast_mode()
+        self._fused_cast_dtype: torch.dtype | None = None
+        self._fused_cast_launch: _Int8FusedCastLaunch | None = None
+        if fused_cast_mode is not None and self._gather_max_ctas:
+            # The Triton gather is not measured under a CTA cap, where it runs
+            # far fewer threads per CTA than the C++ gather.
+            logging.warning(
+                "%s ignored: owner_cache_gather_reserved_sms caps the gather",
+                _OWNER_LOCAL_CACHE_INT8_FUSED_CAST_ENV,
+            )
+        elif (
+            int8
+            and not self._fused_float_gather
+            and output_dtype is not None
+            and output_dtype != cache_dtype
+            and fused_cast_mode is not None
+        ):
+            self._fused_cast_launch = _kvzch_int8_fused_cast_launch_config(
+                fused_cast_mode,
+                cache_dtype,
+                embedding_dim,
+                device,
+                self._gather_max_ctas,
+            )
+            self._fused_cast_dtype = output_dtype
         self._embedding_dim = embedding_dim
         self._storage_dtype = cache_dtype
         if int8:
@@ -288,7 +585,8 @@ class _DirectMappedEnrichmentCache(nn.Module):
         logging.info(
             "Direct enrichment owner cache has %d rows (%.2f GiB); "
             "read_populate=%s; read_populate_max_lookups=%d; storage=%s; "
-            "fused_float_gather=%s; gather_max_ctas=%d",
+            "fused_float_gather=%s; gather_max_ctas=%d; fused_cast_dtype=%s; "
+            "fused_cast_launch=%s",
             cache_sets,
             cache_sets * (row_bytes + tag_bytes) / (1024**3),
             read_populate,
@@ -296,6 +594,8 @@ class _DirectMappedEnrichmentCache(nn.Module):
             "int8_rowwise" if int8 else str(cache_dtype),
             self._fused_float_gather,
             self._gather_max_ctas,
+            self._fused_cast_dtype,
+            self._fused_cast_launch,
         )
 
     def _grow_workspaces(self, required_capacity: int) -> None:
@@ -372,7 +672,9 @@ class _DirectMappedEnrichmentCache(nn.Module):
             return torch.empty(
                 (0, self._embedding_dim),
                 dtype=(
-                    torch.float32 if self._fused_float_gather else self._storage_dtype
+                    torch.float32
+                    if self._fused_float_gather
+                    else self._fused_cast_dtype or self._storage_dtype
                 ),
                 device=indices.device,
             )
@@ -401,12 +703,21 @@ class _DirectMappedEnrichmentCache(nn.Module):
         read_backend_into(action_indices_cpu, inserted_rows, actions_count_cpu)
         output = torch.empty(
             (indices.numel(), self._embedding_dim),
-            dtype=torch.float32 if self._fused_float_gather else self._storage_dtype,
+            dtype=(
+                torch.float32
+                if self._fused_float_gather
+                else self._fused_cast_dtype or self._storage_dtype
+            ),
             device=indices.device,
         )
         if self._fused_float_gather:
             torch.ops.fbgemm.kvzch_direct_cache_gather_int8_float(
                 output, row_addresses, self._storage_dtype, self._gather_max_ctas
+            )
+        elif self._fused_cast_dtype is not None:
+            assert self._fused_cast_launch is not None
+            _kvzch_direct_cache_gather_int8_cast(
+                output, row_addresses, self._fused_cast_launch
             )
         elif self._int8:
             torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
@@ -491,6 +802,200 @@ class _DirectMappedEnrichmentCache(nn.Module):
         self._read_populate_lookup_count.zero_()
         self._last_query_count = 0
         self._last_miss_count = None
+
+
+class _ExclusiveHbmBackend(Protocol):
+    """The DramKVEmbeddingCacheWrapper methods the exclusive owner cache uses."""
+
+    def exclusive_hbm_register(
+        self,
+        cache_state: torch.Tensor,
+        cache_weights: torch.Tensor,
+        last_access: torch.Tensor,
+    ) -> None:
+        """Registers the owner cache's slot tensors as the HBM tier."""
+
+    def exclusive_hbm_promote_cuda(
+        self, promoted_keys_cpu: torch.Tensor, promoted_count_cpu: torch.Tensor
+    ) -> None:
+        """Drops the DRAM copies of the promoted keys, after the insert."""
+
+    def exclusive_hbm_demote_all(self) -> None:
+        """Writes every HBM row back to DRAM."""
+
+
+class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
+    """Owner-local INT8 cache that holds the only copy of its rows.
+
+    Every ``promote_every_n``-th lookup moves up to ``promote_max_rows`` of its
+    missed rows (all of them when 0) into empty slots, and the DRAM backend
+    then drops those rows, keeping their timestamps (see
+    ``DramKVEmbeddingCache::exclusive_hbm_register``). Occupied slots are never
+    overwritten; rows leave HBM through the backend, which writes them back to
+    DRAM. Hits stamp each slot's ``last_access`` for the backend's TTL.
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        total_hash_size: int,
+        cache_dtype: torch.dtype,
+        device: torch.device,
+        cache_size_mb: int,
+        backend: _ExclusiveHbmBackend,
+        promote_max_rows: int = 0,
+        promote_every_n: int = 1,
+        fused_float_gather: bool = False,
+        output_dtype: torch.dtype | None = None,
+        gather_reserved_sms: int = 0,
+    ) -> None:
+        # Codes and qparams, the int64 tag and the int32 last-access time.
+        slot_bytes = embedding_dim + _INT8_ROWWISE_QPARAMS_BYTES + 8 + 4
+        super().__init__(
+            embedding_dim=embedding_dim,
+            total_hash_size=min(
+                total_hash_size, max(1, cache_size_mb * 1024 * 1024 // slot_bytes)
+            ),
+            cache_dtype=cache_dtype,
+            device=device,
+            cache_size_mb=cache_size_mb,
+            read_populate=False,
+            read_populate_max_lookups=0,
+            int8=True,
+            fused_float_gather=fused_float_gather,
+            output_dtype=output_dtype,
+            gather_reserved_sms=gather_reserved_sms,
+        )
+        self.register_buffer(
+            "last_access",
+            torch.zeros(self.cache_state.size(0), dtype=torch.int32, device=device),
+            persistent=False,
+        )
+        self._backend = backend
+        self._promote_max_rows = promote_max_rows
+        self._promote_every_n = promote_every_n
+        # Not `_lookups`: publish walkers treat a module with `_lookups` or
+        # `_lookup` as a sharded-module container.
+        self._lookup_count = 0
+        self._promoted_keys: torch.Tensor | None = None
+        self._promoted_keys_cpu: torch.Tensor | None = None
+        self._promoted_count: torch.Tensor | None = None
+        self._promoted_count_cpu: torch.Tensor | None = None
+        backend.exclusive_hbm_register(
+            self.cache_state, self.cache_weights, self.last_access
+        )
+        logging.info(
+            "Exclusive owner cache: %d slots of %d bytes, promote_max_rows=%d, "
+            "promote_every_n=%d",
+            self.cache_state.size(0),
+            slot_bytes,
+            promote_max_rows,
+            promote_every_n,
+        )
+
+    def _grow_promoted(self, required_capacity: int) -> None:
+        if (
+            self._promoted_keys is not None
+            and self._promoted_keys.numel() >= required_capacity
+        ):
+            return
+        if self._promoted_keys is not None:
+            # A promotion callback may still read the host-mapped buffers.
+            torch.cuda.synchronize(self.cache_weights.device)
+            required_capacity += required_capacity // 4
+        device = self.cache_weights.device
+        self._promoted_keys = torch.ops.fbgemm.new_unified_tensor(
+            torch.empty(1, dtype=torch.int64, device=device),
+            (required_capacity,),
+            is_host_mapped=True,
+        )
+        self._promoted_keys_cpu = torch.ops.fbgemm.uvm_to_cpu(self._promoted_keys)
+        if self._promoted_count is None:
+            self._promoted_count = torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(1, dtype=torch.int32, device=device),
+                (1,),
+                is_host_mapped=True,
+            )
+            self._promoted_count_cpu = torch.ops.fbgemm.uvm_to_cpu(self._promoted_count)
+
+    def _promote(
+        self,
+        keys: torch.Tensor,
+        rows: torch.Tensor,
+        count: torch.Tensor | None,
+        now: int,
+    ) -> None:
+        self._grow_promoted(max(1, keys.numel()))
+        assert self._promoted_keys is not None
+        assert self._promoted_count is not None
+        assert self._promoted_keys_cpu is not None
+        assert self._promoted_count_cpu is not None
+        torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
+            self.cache_state,
+            self.cache_weights,
+            self.last_access,
+            keys,
+            rows,
+            count,
+            self._promoted_keys,
+            self._promoted_count,
+            now,
+        )
+        self._backend.exclusive_hbm_promote_cuda(
+            self._promoted_keys_cpu, self._promoted_count_cpu
+        )
+
+    def lookup(
+        self,
+        indices: torch.Tensor,
+        read_backend_into: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
+    ) -> torch.Tensor:
+        output = super().lookup(indices, read_backend_into)
+        num_indices = indices.numel()
+        if num_indices == 0:
+            return output
+        assert self._row_addresses is not None
+        assert self._action_indices is not None
+        assert self._inserted_rows is not None
+        assert self._actions_count is not None
+        now = int(time.time())
+        torch.ops.fbgemm.kvzch_exclusive_cache_touch(
+            self._row_addresses[:num_indices],
+            self.cache_weights,
+            self.last_access,
+            now,
+        )
+        self._lookup_count += 1
+        if self._lookup_count % self._promote_every_n == 0:
+            count = self._actions_count
+            if self._promote_max_rows > 0:
+                count = torch.clamp(count, max=self._promote_max_rows)
+            self._promote(
+                self._action_indices[:num_indices],
+                self._inserted_rows[:num_indices],
+                count,
+                now,
+            )
+        return output
+
+    def populate_from_write(self, indices: torch.Tensor, rows: torch.Tensor) -> None:
+        if indices.numel() == 0:
+            return
+        if rows.dim() != 2 or rows.size(0) != indices.numel():
+            raise ValueError("owner-local direct cache write rows must match indices")
+        if rows.size(1) > self._embedding_dim:
+            raise ValueError("owner-local direct cache write rows are too wide")
+        if rows.size(1) < self._embedding_dim:
+            rows = torch.nn.functional.pad(
+                rows, (0, self._embedding_dim - rows.size(1))
+            )
+        self._promote(indices.contiguous(), rows.contiguous(), None, int(time.time()))
+
+    def reset(self) -> None:
+        # Every claimed slot is promoted (or skipped) before its rows go back.
+        torch.cuda.synchronize(self.cache_weights.device)
+        self._backend.exclusive_hbm_demote_all()
+        super().reset()
 
 
 class DramKvPerfStat(str, Enum):
@@ -791,6 +1296,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._owner_cache_int8: bool = False
         self._owner_cache_int8_fused_float: bool = False
         self._owner_cache_gather_reserved_sms: int = 0
+        self._owner_cache_exclusive: bool = False
+        self._owner_cache_exclusive_promote_max_rows: int = 0
+        self._owner_cache_exclusive_promote_every_n: int = 1
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -855,11 +1363,28 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._owner_cache_gather_reserved_sms = (
                     enrichment_policy.owner_cache_gather_reserved_sms
                 )
+                self._owner_cache_exclusive = enrichment_policy.owner_cache_exclusive
+                self._owner_cache_exclusive_promote_max_rows = (
+                    enrichment_policy.owner_cache_exclusive_promote_max_rows
+                )
+                self._owner_cache_exclusive_promote_every_n = (
+                    enrichment_policy.owner_cache_exclusive_promote_every_n
+                )
                 if (
                     enrichment_policy.serving_qdq_bit_rate
                     and self.backend_type != BackendType.DRAM
                 ):
                     raise ValueError("serving_qdq_bit_rate requires the DRAM backend")
+                if (
+                    enrichment_policy.packed_storage
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("packed_storage requires the DRAM backend")
+                if (
+                    self._owner_cache_exclusive
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("owner_cache_exclusive requires the DRAM backend")
             if self.load_ckpt_without_opt:
                 if (
                     # pyre-ignore [16]
@@ -1501,6 +2026,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     list(ep.laser_key_suffixes),
                     self._serving_qdq_bit_rate(ep),
                     ep.serving_qdq_group_size,
+                    ep.packed_storage,
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -1735,7 +2261,21 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._direct_enrichment_dim = dims[0] if self._direct_backend_gather else 0
         self._direct_enrichment_output_dtype = output_dtype.as_dtype()
         self._direct_enrichment_cache: _DirectMappedEnrichmentCache | None = None
-        if self._owner_cache_size_mb > 0:
+        if self._owner_cache_size_mb > 0 and self._owner_cache_exclusive:
+            self._direct_enrichment_cache = _ExclusiveDirectMappedEnrichmentCache(
+                embedding_dim=self._direct_enrichment_dim,
+                total_hash_size=self.total_hash_size,
+                cache_dtype=weights_precision.as_dtype(),
+                device=self.lxu_cache_weights.device,
+                cache_size_mb=self._owner_cache_size_mb,
+                backend=self._ssd_db,
+                promote_max_rows=self._owner_cache_exclusive_promote_max_rows,
+                promote_every_n=self._owner_cache_exclusive_promote_every_n,
+                fused_float_gather=self._owner_cache_int8_fused_float,
+                output_dtype=self._direct_enrichment_output_dtype,
+                gather_reserved_sms=self._owner_cache_gather_reserved_sms,
+            )
+        elif self._owner_cache_size_mb > 0:
             self._direct_enrichment_cache = _DirectMappedEnrichmentCache(
                 embedding_dim=self._direct_enrichment_dim,
                 total_hash_size=self.total_hash_size,
@@ -3081,14 +3621,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         rows, found_mask = self._read_direct_backend_rows_with_found_mask(
             pending_indices
         )
-        found = found_mask != 0
+        # 2 marks a row the exclusive owner cache already holds: neither
+        # inserted nor retried.
+        found = found_mask == 1
         owner_cache.populate_from_write(
             pending_indices[found],
             rows[found],
         )
         current_stream.record_event(self._direct_cache_insert_complete_event)
         self._pending_direct_cache_fill_indices = None
-        return pending_indices[~found]
+        return pending_indices[found_mask == 0]
 
     def owner_local_cache_last_hit_counts(self) -> tuple[int, int] | None:
         owner_cache = self._direct_enrichment_cache
@@ -5032,6 +5574,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE, also
         validating serving_qdq_group_size, which depends on it."""
         bit_rate, group_size = ep.serving_qdq_bit_rate, ep.serving_qdq_group_size
+        if ep.packed_storage and (bit_rate != 4 or group_size != 8):
+            raise ValueError(
+                "packed_storage needs serving_qdq_bit_rate 4 and "
+                f"serving_qdq_group_size 8, got {bit_rate} and {group_size}"
+            )
         if bit_rate == 0:
             if group_size != 0:
                 raise ValueError("serving_qdq_group_size needs serving_qdq_bit_rate 4")
