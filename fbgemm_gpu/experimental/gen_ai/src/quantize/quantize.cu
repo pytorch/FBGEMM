@@ -2099,10 +2099,22 @@ std::vector<at::Tensor> quantize_fp8_per_col(
 }
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
+// cvt.rn.satfinite.e2m1x2.f32 is available on sm_100a and sm_103a, and on the
+// SM100 family targets (sm_100f, sm_103f). Family targets such as the 10.0f
+// used by the CUDA 13 builds define __CUDA_ARCH_FAMILY_SPECIFIC__ but not
+// __CUDA_ARCH_FEAT_SM100_ALL, so checking only the latter compiles the NVFP4
+// quantize kernel to an empty body there.
+#if defined(__CUDA_ARCH__) &&                   \
+    (defined(__CUDA_ARCH_FEAT_SM100_ALL) ||     \
+     (defined(__CUDA_ARCH_FAMILY_SPECIFIC__) && \
+      __CUDA_ARCH_FAMILY_SPECIFIC__ >= 1000 &&  \
+      __CUDA_ARCH_FAMILY_SPECIFIC__ < 1100))
+#define FBGEMM_NVFP4_CVT_ENABLED
+#endif
+
 // Convert 8 float32 values into 8 e2m1 values (represented as one uint32_t).
 inline __device__ uint32_t fp32_vec_to_e2m1(float (&array)[8]) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
-    defined(__CUDA_ARCH_FEAT_SM100_ALL)
+#if defined(FBGEMM_NVFP4_CVT_ENABLED)
   uint32_t val;
   asm volatile(
       "{\n"
@@ -2133,8 +2145,7 @@ inline __device__ uint32_t fp32_vec_to_e2m1(float (&array)[8]) {
 
 // Convert 4 float2 values into 8 e2m1 values (represented as one uint32_t).
 inline __device__ uint32_t fp32_vec_to_e2m1(float2 (&array)[4]) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
-    defined(__CUDA_ARCH_FEAT_SM100_ALL)
+#if defined(FBGEMM_NVFP4_CVT_ENABLED)
   uint32_t val;
   asm volatile(
       "{\n"
@@ -2176,8 +2187,7 @@ __device__ uint8_t* cvt_quant_to_fp4_get_sf_out_offset(
     int colIdx,
     int numCols,
     SFType* SFout) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
-    defined(__CUDA_ARCH_FEAT_SM100_ALL)
+#if defined(FBGEMM_NVFP4_CVT_ENABLED)
   static_assert(
       CVT_FP4_NUM_THREADS_PER_SF == 1 || CVT_FP4_NUM_THREADS_PER_SF == 2);
 
@@ -2237,8 +2247,7 @@ struct PackedVec<__nv_fp8_e4m3> {
 template <class Type, bool UE8M0_SF = false>
 __device__ uint32_t
 cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
-    defined(__CUDA_ARCH_FEAT_SM100_ALL)
+#if defined(FBGEMM_NVFP4_CVT_ENABLED)
   // Get absolute maximum values among the local 8 values.
   auto localMax = __habs2(vec.elts[0]);
 
@@ -2314,8 +2323,7 @@ cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
 // Use UE4M3 by default.
 template <class Type, bool UE8M0_SF = false>
 __global__ void
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
-    defined(__CUDA_ARCH_FEAT_SM100_ALL)
+#if defined(FBGEMM_NVFP4_CVT_ENABLED)
 __launch_bounds__(512, 4) cvt_fp16_to_fp4(
 #else
 cvt_fp16_to_fp4(
@@ -2326,8 +2334,7 @@ cvt_fp16_to_fp4(
     float const* SFScale,
     uint32_t* out,
     uint32_t* SFout) {
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
-    defined(__CUDA_ARCH_FEAT_SM100_ALL)
+#if defined(FBGEMM_NVFP4_CVT_ENABLED)
   using PackedVec = PackedVec<Type>;
   static constexpr int CVT_FP4_NUM_THREADS_PER_SF =
       (CVT_FP4_SF_VEC_SIZE / CVT_FP4_ELTS_PER_THREAD);
@@ -2855,6 +2862,14 @@ void scaled_fp4_quant(
   int32_t n = input.size(1);
 
   TORCH_CHECK(n % 16 == 0, "The N dimension must be multiple of 16.");
+  // The kernel body is only compiled for the SM100 family (see
+  // FBGEMM_NVFP4_CVT_ENABLED); on other GPUs it would return without writing.
+  const auto* prop = at::cuda::getDeviceProperties(input.get_device());
+  TORCH_CHECK(
+      prop->major == 10,
+      "scaled_fp4_quant requires an SM100-family GPU (sm_10x), got sm_",
+      prop->major,
+      prop->minor);
 
   int multiProcessorCount =
       get_device_attribute(cudaDevAttrMultiProcessorCount, -1);
@@ -2863,10 +2878,9 @@ void scaled_fp4_quant(
   auto sf_out = static_cast<int32_t*>(output_sf.data_ptr());
   auto output_ptr = static_cast<int64_t*>(output.mutable_data_ptr());
   at::cuda::CUDAGuard device_guard{(char)input.get_device()};
-  auto stream = at::cuda::getStreamFromPool(false, input.get_device());
-  if (stream == nullptr) {
-    std::cerr << "Warning: Null CUDA stream" << std::endl;
-  }
+  // Launch on the caller's stream so that the kernel is ordered after the
+  // producer of `input` and before the consumers of `output`.
+  auto stream = at::cuda::getCurrentCUDAStream(input.get_device());
 
   // We don't support e8m0 scales at this moment.
   bool useUE8M0 = false;

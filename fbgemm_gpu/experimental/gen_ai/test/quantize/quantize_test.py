@@ -97,6 +97,11 @@ SM90_OR_LATER = evaluate_cuda_platform_version(9)
 
 SUPPORTS_NVFP4 = evaluate_platform_supports_nvfp4()
 
+# torch.ops.fbgemm.scaled_fp4_quant is only built for the SM100 family (10.x).
+SUPPORTS_CUDA_NVFP4_QUANT = (
+    SUPPORTS_NVFP4 and torch.cuda.get_device_capability()[0] == 10
+)
+
 SUPPORTS_MXFP4 = evaluate_platform_supports_mxfp4()
 
 SUPPORTS_FP8 = evaluate_platform_supports_fp8()
@@ -3414,6 +3419,50 @@ class FastGemvTests(unittest.TestCase):
     not torch.cuda.is_available() or torch.version.hip,
     "Skip when cuda is not available or HIP is enabled",
 )
+class ScaledFP4QuantTests(unittest.TestCase):
+    def test_unsupported_gpu(self) -> None:
+        major, minor = torch.cuda.get_device_capability()
+        if major == 10:
+            self.skipTest("SM100-family GPUs support scaled_fp4_quant")
+        device = torch.accelerator.current_accelerator()
+
+        for dtype in (torch.float16, torch.bfloat16):
+            with self.subTest(dtype=dtype):
+                x = torch.ones((1, 16), dtype=dtype, device=device)
+                xq = torch.full((1, 8), 0xFF, dtype=torch.uint8, device=device)
+                scales = torch.full((128, 1), -1, dtype=torch.int32, device=device)
+                global_scale = torch.ones((), dtype=torch.float32, device=device)
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "scaled_fp4_quant requires an SM100-family GPU.*"
+                    f"got sm_{major}{minor}",
+                ):
+                    torch.ops.fbgemm.scaled_fp4_quant(xq, x, scales, global_scale)
+                torch.cuda.synchronize()
+                self.assertTrue(torch.all(xq == 0xFF))
+                self.assertTrue(torch.all(scales == -1))
+
+
+def quantize_nvfp4_cuda(
+    x: torch.Tensor, global_scale: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # 0xFF encodes a NaN scale, exposing a kernel that writes nothing.
+    rows, cols = x.shape
+    xq = torch.full((rows, cols // 2), 0xFF, dtype=torch.uint8, device=x.device)
+    x_scale = torch.full(
+        ((rows + 127) // 128 * 128, (cols // 16 + 3) // 4),
+        -1,
+        dtype=torch.int32,
+        device=x.device,
+    )
+    torch.ops.fbgemm.scaled_fp4_quant(xq, x, x_scale, global_scale)
+    return xq, x_scale.view(torch.float8_e4m3fn)
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available() or torch.version.hip,
+    "Skip when cuda is not available or HIP is enabled",
+)
 @unittest.skipIf(not SUPPORTS_NVFP4, "Skip if NVFP4 is not supported")
 class NVFP4Tests(unittest.TestCase):
     @classmethod
@@ -3472,22 +3521,82 @@ class NVFP4Tests(unittest.TestCase):
         K=st.sampled_from([2048, 3584]),
     )
     def test_gemm(self, M: int, N: int, K: int) -> None:
-        A = torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
-        B = torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+        self._test_gemm(M, N, K, torch.bfloat16, use_cuda_quantizer=False)
+
+    @unittest.skipIf(
+        not SUPPORTS_CUDA_NVFP4_QUANT,
+        "scaled_fp4_quant is only supported on SM100-family GPUs",
+    )
+    @settings(deadline=None)
+    @given(
+        M=st.sampled_from([1, 250]),
+        N=st.sampled_from([256, 1024]),
+        K=st.sampled_from([2048, 3584]),
+        dtype=st.sampled_from([torch.bfloat16, torch.float16]),
+    )
+    def test_scaled_fp4_quant_gemm(
+        self, M: int, N: int, K: int, dtype: torch.dtype
+    ) -> None:
+        self._test_gemm(M, N, K, dtype, use_cuda_quantizer=True)
+
+    def _test_gemm(
+        self, M: int, N: int, K: int, dtype: torch.dtype, use_cuda_quantizer: bool
+    ) -> None:
+        A = torch.randn((M, K), dtype=dtype, device=self.device) * 0.1
+        B = torch.randn((N, K), dtype=dtype, device=self.device) * 0.01
 
         global_scales, a_global_scales, b_global_scales = get_nvfp4_global_scales_naive(
             [A],
             [B],
         )
-        aqs, a_scales = quantize_nvfp4_naive([A], a_global_scales)
-        bqs, b_scales = quantize_nvfp4_naive([B], b_global_scales)
+
+        if use_cuda_quantizer:
+            aq, a_scale = quantize_nvfp4_cuda(A, a_global_scales[0])
+            bq, b_scale = quantize_nvfp4_cuda(B, b_global_scales[0])
+            out_bf16 = (A.float() @ B.float().t()).to(torch.bfloat16)
+        else:
+            aqs, a_scales = quantize_nvfp4_naive([A], a_global_scales)
+            bqs, b_scales = quantize_nvfp4_naive([B], b_global_scales)
+            aq, a_scale = aqs[0], a_scales[0]
+            bq, b_scale = bqs[0], b_scales[0]
+            out_bf16 = A @ B.t()
 
         out_nvfp4 = torch.ops.fbgemm.f4f4bf16(
-            aqs[0], bqs[0], a_scales[0], b_scales[0], None, global_scales[0]
+            aq, bq, a_scale, b_scale, None, global_scales[0]
         )
-        out_bf16 = A @ B.t()
-
         torch.testing.assert_close(out_nvfp4, out_bf16, atol=5.0e-2, rtol=5.0e-2)
+
+    @unittest.skipIf(
+        not SUPPORTS_CUDA_NVFP4_QUANT,
+        "scaled_fp4_quant is only supported on SM100-family GPUs",
+    )
+    def test_scaled_fp4_quant_current_stream(self) -> None:
+        for dtype in (torch.float16, torch.bfloat16):
+            with self.subTest(dtype=dtype):
+                x = torch.zeros((256, 256), dtype=dtype, device=self.device)
+                expected_x = torch.ones_like(x)
+                _, global_scales, _ = get_nvfp4_global_scales_naive(
+                    [expected_x], [expected_x]
+                )
+                expected_q, expected_scales = quantize_nvfp4_naive(
+                    [expected_x], global_scales
+                )
+                torch.cuda.synchronize()
+                stream = torch.cuda.Stream()
+                with torch.cuda.stream(stream):
+                    torch.cuda._sleep(100_000_000)
+                    x.fill_(1)
+                    xq, scales = quantize_nvfp4_cuda(x, global_scales[0])
+                    consumed_q = xq.clone()
+                    consumed_scales = scales.clone()
+                stream.synchronize()
+                torch.testing.assert_close(consumed_q, expected_q[0], rtol=0, atol=0)
+                torch.testing.assert_close(
+                    consumed_scales.view(torch.uint8).flatten(),
+                    expected_scales[0].view(torch.uint8).flatten(),
+                    rtol=0,
+                    atol=0,
+                )
 
     @settings(deadline=None)
     @given(
