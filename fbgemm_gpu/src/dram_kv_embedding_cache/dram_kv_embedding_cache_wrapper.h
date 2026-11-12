@@ -316,18 +316,31 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   void exclusive_hbm_register(
       at::Tensor cache_state,
       at::Tensor cache_weights,
-      at::Tensor last_access) {
+      at::Tensor last_access,
+      bool set_associative) {
     half_impl().exclusive_hbm_register(
         std::move(cache_state),
         std::move(cache_weights),
-        std::move(last_access));
+        std::move(last_access),
+        set_associative);
   }
 
   void exclusive_hbm_promote_cuda(
       at::Tensor promoted_keys_cpu,
-      at::Tensor promoted_count_cpu) {
+      at::Tensor promoted_count_cpu,
+      std::optional<at::Tensor> victim_keys_cpu,
+      std::optional<at::Tensor> victim_access_cpu,
+      std::optional<at::Tensor> victim_rows_cpu,
+      std::optional<at::Tensor> victim_count_cpu,
+      bool from_write) {
     half_impl().exclusive_hbm_promote_cuda(
-        std::move(promoted_keys_cpu), std::move(promoted_count_cpu));
+        std::move(promoted_keys_cpu),
+        std::move(promoted_count_cpu),
+        std::move(victim_keys_cpu),
+        std::move(victim_access_cpu),
+        std::move(victim_rows_cpu),
+        std::move(victim_count_cpu),
+        from_write);
   }
 
   int64_t exclusive_hbm_demote_all() {
@@ -368,18 +381,23 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return half_impl().accepts_raw_row_bytes(row_bytes, drop_tail);
   }
 
-  void write_rows_direct_cuda(
-      at::Tensor indices_cpu,
+  void encode_written_rows_cuda(
       at::Tensor rows_cpu,
-      at::Tensor count_cpu,
-      at::Tensor stored_rows_cpu,
-      at::Tensor stored_cpu) {
-    half_impl().write_rows_direct_cuda(
-        std::move(indices_cpu),
-        std::move(rows_cpu),
-        std::move(count_cpu),
-        std::move(stored_rows_cpu),
-        std::move(stored_cpu));
+      at::Tensor out_cpu,
+      at::Tensor count_cpu) {
+    half_impl().encode_written_rows_cuda(
+        std::move(rows_cpu), std::move(out_cpu), std::move(count_cpu));
+  }
+
+  void encode_written_rows(
+      const at::Tensor& rows,
+      const at::Tensor& out,
+      const at::Tensor& count) {
+    half_impl().encode_written_rows(rows, out, count);
+  }
+
+  int64_t hbm_written_row_bytes() {
+    return half_impl().hbm_written_row_bytes();
   }
 
   void hold_row_writes_for_test(bool hold) {

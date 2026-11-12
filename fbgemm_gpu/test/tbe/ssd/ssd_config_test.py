@@ -254,7 +254,37 @@ class KVZCHParamsValidateTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 KVZCHParams(enrichment_policy=policy).validate()
 
-    def test_owner_cache_exclusive_requires_int8_and_no_read_populate(self) -> None:
+    def test_owner_cache_format_and_layout_defaults_preserve_the_policy(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy()
+        self.assertIsNone(policy.owner_cache_match_dram_format)
+        self.assertFalse(policy.owner_cache_set_associative)
+        self.assertNotIn("owner_cache_match_dram_format", repr(policy))
+        self.assertNotIn("owner_cache_set_associative", repr(policy))
+        self.assertIn(
+            "owner_cache_match_dram_format=True",
+            repr(policy._replace(owner_cache_match_dram_format=True)),
+        )
+        self.assertIn(
+            "owner_cache_set_associative=True",
+            repr(policy._replace(owner_cache_set_associative=True)),
+        )
+
+    def test_exclusive_rejects_an_explicit_false_format_match(self) -> None:
+        from fbgemm_gpu.tbe.ssd import EnrichmentPolicy
+
+        policy = EnrichmentPolicy(
+            direct_backend_gather=True,
+            owner_cache_size_mb=1,
+            owner_cache_exclusive=True,
+        )
+        policy.validate()
+        policy._replace(owner_cache_match_dram_format=True).validate()
+        with self.assertRaisesRegex(ValueError, "owner_cache_match_dram_format"):
+            policy._replace(owner_cache_match_dram_format=False).validate()
+
+    def test_owner_cache_exclusive_requires_no_read_populate(self) -> None:
         from fbgemm_gpu.tbe.ssd import EnrichmentPolicy, KVZCHParams
 
         exclusive = EnrichmentPolicy(
@@ -266,8 +296,12 @@ class KVZCHParamsValidateTest(unittest.TestCase):
             owner_cache_exclusive_promote_every_n=2,
         )
         KVZCHParams(enrichment_policy=exclusive).validate()
+        # The cache holds rows in the DRAM storage format, so it does not need
+        # owner_cache_int8.
+        KVZCHParams(
+            enrichment_policy=exclusive._replace(owner_cache_int8=False)
+        ).validate()
         for policy in (
-            exclusive._replace(owner_cache_int8=False),
             exclusive._replace(owner_cache_read_populate=True),
             exclusive._replace(owner_cache_exclusive_promote_max_rows=-1),
             exclusive._replace(owner_cache_exclusive_promote_every_n=0),

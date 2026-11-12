@@ -5,12 +5,16 @@
 # LICENSE file in the root directory of this source tree.
 
 import importlib.util
+import json
 import os
+import statistics
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 from unittest import mock
 
@@ -50,6 +54,7 @@ def _cache(
     read_populate: bool = False,
     fused_float_gather: bool = False,
     gather_reserved_sms: int = 0,
+    set_associative: bool = False,
 ) -> training._DirectMappedEnrichmentCache:
     return training._DirectMappedEnrichmentCache(
         embedding_dim=dim,
@@ -63,6 +68,7 @@ def _cache(
         output_dtype=output_dtype,
         fused_float_gather=fused_float_gather,
         gather_reserved_sms=gather_reserved_sms,
+        set_associative=set_associative,
     )
 
 
@@ -94,6 +100,9 @@ class OwnerLocalInt8FusedCastDispatchTest(unittest.TestCase):
                 torch.ops.fbgemm, "kvzch_direct_cache_lookup_int8", create=True
             ),
             mock.patch.object(
+                torch.ops.fbgemm, "kvzch_exclusive_cache_touch", create=True
+            ) as touch,
+            mock.patch.object(
                 torch.ops.fbgemm, "kvzch_direct_cache_gather_int8", create=True
             ) as gather,
             mock.patch.object(
@@ -104,6 +113,7 @@ class OwnerLocalInt8FusedCastDispatchTest(unittest.TestCase):
         self.assertEqual(result.dtype, torch.float16)
         gather.assert_called_once_with(result, addresses, torch.float16, 0)
         fused.assert_not_called()
+        touch.assert_not_called()
         self.assertEqual(
             cache.lookup(torch.empty(0, dtype=torch.int64), mock.Mock()).dtype,
             torch.float16,
@@ -182,6 +192,9 @@ class OwnerLocalInt8FusedCastDispatchTest(unittest.TestCase):
             mock.patch.object(cache, "_get_workspaces", return_value=workspace),
             mock.patch.object(
                 torch.ops.fbgemm, "kvzch_direct_cache_lookup_int8", create=True
+            ),
+            mock.patch.object(
+                torch.ops.fbgemm, "kvzch_exclusive_cache_touch", create=True
             ),
             mock.patch.object(torch.cuda, "get_device_properties") as properties,
             mock.patch.object(
@@ -510,6 +523,27 @@ def _slot(key: int, num_slots: int) -> int:
     return h % num_slots
 
 
+def _set_base(key: int, num_slots: int) -> int:
+    """First slot of `key`'s set in a set-associative owner cache."""
+    ways = training._OWNER_CACHE_WAYS
+    return _slot(key, num_slots // ways) * ways
+
+
+def _held_slot(state: torch.Tensor, key: int) -> int:
+    """The slot of `state` that holds `key`, or -1."""
+    base = _set_base(key, state.size(0))
+    tags = state[base : base + training._OWNER_CACHE_WAYS].view(-1).tolist()
+    return base + tags.index(key) if key in tags else -1
+
+
+def _fill_set(state: torch.Tensor, key: int) -> None:
+    """Fills the empty slots of `key`'s set with other keys."""
+    base = _set_base(key, state.size(0))
+    for way in range(training._OWNER_CACHE_WAYS):
+        if int(state[base + way].item()) == -1:
+            state[base + way] = 10**9 + way
+
+
 class _DramBackend(training._ExclusiveHbmBackend, Protocol):
     def set(
         self, indices: torch.Tensor, weights: torch.Tensor, count: torch.Tensor
@@ -544,11 +578,24 @@ class _DramBackend(training._ExclusiveHbmBackend, Protocol):
     def exclusive_hbm_wait(self) -> None:
         """Waits for queued HBM tier work."""
 
+    def exclusive_hbm_sweep(self, now: int = -1) -> int:
+        """Demotes rows idle past the TTL at now."""
+
     def exclusive_hbm_stats(self) -> list[int]:
         """HBM tier counters."""
 
 
-def _dram_backend(dim: int, num_rows: int, int8_storage: bool = False) -> _DramBackend:
+class _CheckpointRows(Protocol):
+    def set_dram_db_wrapper(self, backend: _DramBackend) -> None:
+        """Binds the checkpoint view to the backend."""
+
+    def narrow(self, dim: int, start: int, length: int) -> torch.Tensor:
+        """Reads checkpoint rows, including exclusive HBM rows."""
+
+
+def _dram_backend(
+    dim: int, num_rows: int, int8_storage: bool = False, packed_storage: bool = False
+) -> _DramBackend:
     enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
         4,  # IN_MEMORY_TEST_ONLY
         "",
@@ -556,6 +603,9 @@ def _dram_backend(dim: int, num_rows: int, int8_storage: bool = False) -> _DramB
         dim,
         1,  # THRIFT_FLOAT
         int8_storage=int8_storage,
+        serving_qdq_bit_rate=4 if packed_storage else 0,
+        serving_qdq_group_size=8 if packed_storage else 0,
+        packed_storage=packed_storage,
     )
     return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
         max_D=dim,
@@ -570,7 +620,45 @@ def _dram_backend(dim: int, num_rows: int, int8_storage: bool = False) -> _DramB
     )
 
 
+def _full_owner_cache_tags(num_slots: int, device: torch.device) -> torch.Tensor:
+    """Distinct positive keys that occupy all ways of every set."""
+    ways = training._OWNER_CACHE_WAYS
+    sets = num_slots // ways
+    slots = torch.arange(num_slots, dtype=torch.int64, device=device)
+    hashes = slots // ways + (slots % ways) * sets
+
+    def invert_hash(values: torch.Tensor) -> torch.Tensor:
+        mask = (1 << 31) - 1
+        values = values ^ ((values >> 33) & mask)
+        values = values * (pow(0xC4CEB9FE1A85EC53, -1, 1 << 64) - (1 << 64))
+        values = values ^ ((values >> 33) & mask)
+        inverse = pow(0xFF51AFD7ED558CCD, -1, 1 << 64)
+        values = values * (inverse if inverse < (1 << 63) else inverse - (1 << 64))
+        return values ^ ((values >> 33) & mask)
+
+    keys = invert_hash(hashes)
+    while (negative := keys < 0).any():
+        hashes[negative] += num_slots
+        keys[negative] = invert_hash(hashes[negative])
+    return keys.view(num_slots, 1)
+
+
 class OwnerCacheSlotTest(unittest.TestCase):
+    def test_default_slots_keep_the_trunk_budget_and_skip_access_tracking(self) -> None:
+        cache = _cache(torch.device("cpu"))
+        self.assertEqual(cache.cache_state.size(0), 1024 * 1024 // 144)
+        self.assertEqual(cache.last_access.numel(), 0)
+        self.assertEqual(cache._cache_ways, 1)
+        self.assertFalse(cache._track_access)
+        self.assertFalse(cache._raw_rows)
+
+    def test_set_associative_slots_charge_access_times_and_whole_sets(self) -> None:
+        cache = _cache(torch.device("cpu"), set_associative=True)
+        self.assertEqual(cache.cache_state.size(0), 1024 * 1024 // 148 // 16 * 16)
+        self.assertEqual(cache.last_access.numel(), cache.cache_state.size(0))
+        self.assertEqual(cache._cache_ways, 16)
+        self.assertTrue(cache._track_access)
+
     def test_owner_cache_slots_match_cache_slot(self) -> None:
         keys = [0, 1, 7, 31, -1, -2, 123456789, (1 << 62) + 5, -(1 << 63)]
         keys += torch.randint(
@@ -616,7 +704,8 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         state = torch.full((slots, 1), -1, dtype=torch.int64, device=device)
         weights = torch.zeros(slots, dim + 8, dtype=torch.uint8, device=device)
         access = torch.zeros(slots, dtype=torch.int32, device=device)
-        state[_slot(7, slots)] = 10**9
+        # Without victim outputs a full set takes no key.
+        _fill_set(state, 7)
         promoted = torch.empty(n, dtype=torch.int64, device=device)
         count = torch.zeros(1, dtype=torch.int32, device=device)
         torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
@@ -630,17 +719,19 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             count,
             1234,
             True,
+            set_associative=True,
         )
         claimed = promoted[: int(count.item())].cpu().tolist()
         self.assertGreater(len(claimed), 700)
         for key in (3, 4, 7):
             self.assertNotIn(key, claimed)
         host_weights = weights.cpu()
+        host_state = state.cpu()
         for key in claimed:
             torch.testing.assert_close(
-                host_weights[_slot(key, slots)], raw[key], rtol=0, atol=0
+                host_weights[_held_slot(host_state, key)], raw[key], rtol=0, atol=0
             )
-        self.assertEqual(int(state[_slot(7, slots)].item()), 10**9)
+        self.assertEqual(_held_slot(host_state, 7), -1)
 
     def _cu_tbe(
         self,
@@ -651,6 +742,10 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         backend_type: BackendType = BackendType.DRAM,
         packed_storage: bool = False,
         exclusive: bool = False,
+        owner_cache_int8: bool = True,
+        match_dram_format: bool | None = True,
+        set_associative: bool = True,
+        gather_reserved_sms: int = 32,
     ) -> training.SSDTableBatchedEmbeddingBags:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -672,10 +767,12 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 owner_cache_size_mb=2000,
                 owner_cache_read_populate=True,
                 owner_cache_read_populate_max_lookups=8,
-                owner_cache_int8=True,
-                owner_cache_int8_fused_float=True,
-                owner_cache_gather_reserved_sms=32,
+                owner_cache_int8=owner_cache_int8,
+                owner_cache_int8_fused_float=owner_cache_int8,
+                owner_cache_gather_reserved_sms=gather_reserved_sms,
                 owner_cache_exclusive=exclusive,
+                owner_cache_match_dram_format=match_dram_format,
+                owner_cache_set_associative=set_associative,
             )
             if exclusive:
                 enrichment_policy = enrichment_policy._replace(
@@ -760,6 +857,207 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             )
         self.assertEqual(fused_cache.last_hit_counts(), (64, 64))
 
+    def test_default_off_policy_keeps_int8_dispatch_and_fused_cast(self) -> None:
+        device = _cuda_device()
+        with mock.patch.dict(os.environ, {ENV: "1"}, clear=True):
+            tbe = self._cu_tbe(
+                int8_storage=False,
+                owner_cache=True,
+                output_dtype=SparseType.BF16,
+                match_dram_format=None,
+                set_associative=False,
+                gather_reserved_sms=0,
+            )
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertTrue(cache._int8)
+        self.assertFalse(cache._raw_rows)
+        self.assertEqual(cache._cache_ways, 1)
+        self.assertEqual(cache.last_access.numel(), 0)
+        self.assertEqual(cache.cache_state.size(0), tbe.total_hash_size)
+        self.assertEqual(cache._fused_cast_dtype, torch.bfloat16)
+        keys = torch.tensor([7, 31], device=device)
+        rows = torch.linspace(-0.3, 0.7, 128).repeat(2, 1).half()
+        tbe.ssd_db.set(
+            keys.cpu(), torch.nn.functional.pad(rows, (0, 4)), torch.tensor([2])
+        )
+        tbe.ssd_db.wait_util_filling_work_done()
+        lookup_op = torch.ops.fbgemm.kvzch_direct_cache_lookup_int8
+        with mock.patch.object(
+            torch.ops.fbgemm, "kvzch_direct_cache_lookup_int8", wraps=lookup_op
+        ) as lookup:
+            tbe._direct_enrichment_lookup(keys)
+            fused = tbe._direct_enrichment_lookup(keys)
+        self.assertIs(lookup.call_args.args[-1], False)
+        self.assertEqual(cache.last_hit_counts(), (2, 2))
+        cache._fused_cast_dtype = None
+        reference = tbe._direct_enrichment_lookup(keys)
+        self.assertTrue(
+            torch.equal(fused.view(torch.uint8), reference.view(torch.uint8))
+        )
+        state = cache.cache_state.cpu()
+        for key in keys.cpu().tolist():
+            self.assertEqual(int(state[_slot(key, state.size(0)), 0]), key)
+
+    def test_exclusive_implies_match_and_rejects_explicit_false(self) -> None:
+        tbe = self._cu_tbe(
+            int8_storage=False,
+            owner_cache=True,
+            exclusive=True,
+            match_dram_format=None,
+            set_associative=False,
+        )
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertTrue(cache._raw_rows)
+        self.assertEqual(cache.cache_weights.size(1), 256)
+        self.assertEqual(cache._cache_ways, 1)
+        with self.assertRaisesRegex(ValueError, "owner_cache_match_dram_format"):
+            self._cu_tbe(owner_cache=True, exclusive=True, match_dram_format=False)
+
+    def test_cached_rewrites_refresh_the_existing_slot(self) -> None:
+        device = _cuda_device()
+        keys = torch.tensor([7], device=device)
+        for fmt in ("fp16", "int8", "g8"):
+            for match in (False, True):
+                for associative in (False, True):
+                    with self.subTest(fmt=fmt, match=match, associative=associative):
+                        tbe = self._cu_tbe(
+                            int8_storage=fmt == "int8",
+                            packed_storage=fmt == "g8",
+                            owner_cache=True,
+                            match_dram_format=match,
+                            set_associative=associative,
+                        )
+                        cache = tbe._direct_enrichment_cache
+                        assert cache is not None
+                        tbe.ssd_db.set(
+                            keys.cpu(),
+                            torch.full((1, 132), 1.0, dtype=torch.float16),
+                            torch.tensor([1]),
+                        )
+                        tbe.ssd_db.wait_util_filling_work_done()
+                        before = tbe._direct_enrichment_lookup(keys).cpu()
+                        self.assertTrue(bool(cache._holds(keys).all()))
+                        tbe.ssd_db.set(
+                            keys.cpu(),
+                            torch.full((1, 132), 2.0, dtype=torch.float16),
+                            torch.tensor([1]),
+                        )
+                        tbe.ssd_db.wait_util_filling_work_done()
+                        canonical = torch.empty(1, 132, dtype=torch.float16)
+                        tbe.ssd_db.get(keys.cpu(), canonical, torch.tensor([1]), 0)
+                        cache.populate_from_write(
+                            keys, canonical[:, :128].contiguous().to(device)
+                        )
+                        after = tbe._direct_enrichment_lookup(keys).cpu()
+                        self.assertEqual(cache.last_hit_counts(), (1, 1))
+                        torch.testing.assert_close(
+                            after, canonical[:, :128].float(), rtol=0, atol=1e-6
+                        )
+                        self.assertFalse(torch.equal(before, after))
+
+    def test_direct_hbm_writes_with_the_legacy_cache_format(self) -> None:
+        device = _cuda_device()
+        for fmt in ("fp16", "int8", "g8"):
+            for cache_int8 in (False, True):
+                with self.subTest(fmt=fmt, cache_int8=cache_int8):
+                    tbe = self._direct_write_tbe(
+                        int8_storage=fmt == "int8",
+                        packed_storage=fmt == "g8",
+                        match_dram_format=False,
+                        set_associative=False,
+                        owner_cache_int8=cache_int8,
+                    )
+                    keys = torch.tensor([7], device=device)
+                    rows = torch.full(
+                        (1, 128), 1.75, dtype=torch.float16, device=device
+                    )
+                    tbe.enrichment_write_rows(
+                        keys, torch.tensor([0, 1], device=device), rows
+                    )
+                    out = tbe._direct_enrichment_lookup(keys).cpu()
+                    cache = tbe._direct_enrichment_cache
+                    assert cache is not None
+                    self.assertEqual(cache.last_hit_counts(), (1, 1))
+                    self._wait_for_dram_rows(tbe, 1)
+                    canonical = torch.empty(1, tbe.cache_row_dim, dtype=torch.float16)
+                    tbe.ssd_db.get(keys.cpu(), canonical, torch.tensor([1]), 0)
+                    torch.testing.assert_close(
+                        out, canonical[:, :128].float(), rtol=0, atol=1e-6
+                    )
+
+    def test_batched_int8_reports_preserve_all_victim_rows(self) -> None:
+        device = _cuda_device()
+        slots, n, dim = 1 << 18, 150001, 128
+        state = _full_owner_cache_tags(slots, device)
+        saved_tags = state.clone()
+        weights = torch.full((slots, dim + 8), 17, dtype=torch.uint8, device=device)
+        weights[:, -8:].view(torch.float32)[:, 0] = 1.0
+        weights[:, -8:].view(torch.float32)[:, 1] = 2.0
+        access = torch.ones(slots, dtype=torch.int32, device=device)
+        indices = torch.arange(n, dtype=torch.int64, device=device) + slots
+        rows = torch.full((n, dim), 3.0, dtype=torch.float16, device=device)
+
+        def mapped(shape: tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:
+            return torch.ops.fbgemm.new_unified_tensor(
+                torch.empty(1, dtype=dtype, device=device), shape, is_host_mapped=True
+            )
+
+        promoted = mapped((n,), torch.int64)
+        promoted_count = mapped((1,), torch.int32)
+        victim_keys = mapped((n,), torch.int64)
+        victim_access = mapped((n,), torch.int32)
+        victim_rows = mapped((n, dim + 8), torch.uint8)
+        victim_count = mapped((1,), torch.int32)
+        torch.ops.fbgemm.kvzch_exclusive_cache_insert_int8(
+            state,
+            weights,
+            access,
+            indices,
+            rows,
+            None,
+            promoted,
+            promoted_count,
+            2,
+            False,
+            victim_keys,
+            victim_access,
+            victim_rows,
+            victim_count,
+            True,
+        )
+        torch.cuda.synchronize()
+        count = int(torch.ops.fbgemm.uvm_to_cpu(promoted_count)[0])
+        self.assertEqual(count, int(torch.ops.fbgemm.uvm_to_cpu(victim_count)[0]))
+        self.assertGreater(count, n * 0.9)
+        moved = torch.ops.fbgemm.uvm_to_cpu(promoted)[:count].clone().to(device)
+        evicted = torch.ops.fbgemm.uvm_to_cpu(victim_keys)[:count].clone().to(device)
+        self.assertEqual(moved.unique().numel(), count)
+        self.assertEqual(evicted.unique().numel(), count)
+        self.assertTrue(bool(((moved >= slots) & (moved < slots + n)).all()))
+        self.assertTrue(bool(torch.isin(evicted, saved_tags.view(-1)).all()))
+        old = torch.ops.fbgemm.uvm_to_cpu(victim_rows)[:count]
+        self.assertTrue(bool((old[:, :dim] == 17).all()))
+        self.assertTrue(bool((old[:, -8:].view(torch.float32)[:, 0] == 1).all()))
+        self.assertTrue(bool((old[:, -8:].view(torch.float32)[:, 1] == 2).all()))
+        self.assertTrue(
+            bool((torch.ops.fbgemm.uvm_to_cpu(victim_access)[:count] == 1).all())
+        )
+        actions = torch.empty_like(moved)
+        action_count = torch.empty(1, dtype=torch.int32, device=device)
+        inserted = torch.empty(count, dim, dtype=torch.float16, device=device)
+        addresses = torch.empty_like(moved)
+        torch.ops.fbgemm.kvzch_direct_cache_lookup_int8(
+            moved, state, weights, actions, action_count, inserted, addresses, True
+        )
+        self.assertEqual(int(action_count[0]), 0)
+        gathered = torch.empty_like(inserted)
+        torch.ops.fbgemm.kvzch_direct_cache_gather_int8(
+            gathered, addresses, torch.float16
+        )
+        self.assertTrue(bool((gathered == 3).all()))
+
     def test_hit_metrics_count_hits_conflicts_and_written_rows(self) -> None:
         device = _cuda_device()
         with mock.patch.dict(
@@ -787,6 +1085,8 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         keys = torch.tensor([7, 31], device=device)
         tbe._direct_enrichment_lookup(keys)  # empty slots, read-populated
         tbe._direct_enrichment_lookup(keys)  # hits
+        # A miss in a full set is a conflict miss.
+        _fill_set(cache.cache_state, collider)
         tbe._direct_enrichment_lookup(torch.tensor([collider], device=device))
         metrics = cache.hit_metrics()
         self.assertEqual(metrics["queries"], 5)
@@ -796,7 +1096,9 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertEqual(metrics["nro_written"], 2)
         self.assertEqual(metrics["nro_hbm_landed"], 0)
         self.assertEqual(metrics["nro_hbm_resident_rate"], 1.0)
-        self.assertAlmostEqual(metrics["occupancy"], 2 / num_slots)
+        self.assertAlmostEqual(
+            metrics["occupancy"], (training._OWNER_CACHE_WAYS + 1) / num_slots
+        )
 
         reporter = mock.MagicMock()
         tbe.stats_reporter = reporter
@@ -834,6 +1136,9 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         int8_storage: bool = True,
         packed_storage: bool = False,
         exclusive: bool = False,
+        match_dram_format: bool = True,
+        set_associative: bool = True,
+        owner_cache_int8: bool = True,
     ) -> training.SSDTableBatchedEmbeddingBags:
         with mock.patch.dict(
             os.environ,
@@ -849,21 +1154,30 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 owner_cache=True,
                 packed_storage=packed_storage,
                 exclusive=exclusive,
+                match_dram_format=match_dram_format,
+                set_associative=set_associative,
+                owner_cache_int8=owner_cache_int8,
             )
+
+    def _wait_for_dram_rows(
+        self, tbe: training.SSDTableBatchedEmbeddingBags, expected: int
+    ) -> None:
+        """Waits until the backend holds `expected` DRAM rows: row writes run
+        on the enrichment executor, which wait_util_filling_work_done does not
+        track."""
+        torch.cuda.synchronize()
+        deadline = time.monotonic() + 60
+        while int(tbe.ssd_db.get_dram_kv_perf(1, 1)[22]) != expected:
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.1)
 
     def test_direct_hbm_row_writes_into_inclusive_cache(self) -> None:
         device = _cuda_device()
-        tbe = self._direct_write_tbe()
+        tbe = self._direct_write_tbe(int8_storage=False)
         cache = tbe._direct_enrichment_cache
         assert cache is not None
         self.assertIs(type(cache), training._DirectMappedEnrichmentCache)
-
-        def read_payloads(keys: list[int]) -> torch.Tensor:
-            ids = torch.tensor(keys)
-            raw = torch.empty(ids.numel(), 136, dtype=torch.uint8)
-            tbe.ssd_db.get_int8_payloads(ids, raw, torch.tensor([ids.numel()]))
-            qparams = raw[:, 128:].contiguous().view(torch.float32)
-            return raw[:, :128].float() * qparams[:, :1] + qparams[:, 1:]
+        self.assertFalse(cache._int8)
 
         def write(keys: list[int], rows: torch.Tensor) -> None:
             tbe.enrichment_write_rows(
@@ -872,69 +1186,85 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 rows.to(device),
             )
 
-        def wait_for_rows(keys: list[int]) -> None:
-            torch.cuda.synchronize()
-            deadline = time.monotonic() + 60
-            while bool((read_payloads(keys).abs().amax(1) == 0).any()):
-                self.assertLess(time.monotonic(), deadline)
-                time.sleep(0.1)
-
         generator = torch.Generator().manual_seed(81)
         old_31, new_7, new_31 = (
             (torch.randn(3, 128, generator=generator) * 0.3).half().unbind(0)
         )
         write([31], old_31.unsqueeze(0))
-        wait_for_rows([31])
+        self._wait_for_dram_rows(tbe, 1)
         cache.reset()
+        # The lookup finds 31's row (and read-populates it), but not 7's.
+        tbe._direct_enrichment_lookup(torch.tensor([7, 31], device=device))
 
-        # The first lookup after the write already hits both rows: 7 gets its
-        # written row, 31 keeps the backend row the fill-only write leaves
-        # (warmed from the first write).
+        # The first lookup after the write hits both rows: 7 gets its written
+        # row, 31 keeps the row the lookup found.
         write([7, 31], torch.stack((new_7, new_31)))
         out = tbe._direct_enrichment_lookup(torch.tensor([7, 31], device=device))
         self.assertEqual(cache.last_hit_counts(), (2, 2))
-        wait_for_rows([7, 31])
-        backend = read_payloads([7, 31])
-        torch.testing.assert_close(backend[1], read_payloads([31])[0])
-        torch.testing.assert_close(backend[1], old_31.float(), rtol=5e-3, atol=5e-3)
-        torch.testing.assert_close(out.cpu(), backend, rtol=5e-3, atol=5e-3)
-        # 31 from the first write, then only 7: 31 kept its row the second time.
-        self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], 2)
+        self._wait_for_dram_rows(tbe, 2)
+        # The copy holds fp16 rows, so the hits are the rows exactly.
+        torch.testing.assert_close(
+            out.cpu(), torch.stack((new_7, old_31)).float(), rtol=0, atol=0
+        )
+        # Both writes' rows: 31, then 7 and 31; 31 kept its row the second
+        # time, so only 7 was inserted.
+        metrics = cache.hit_metrics()
+        self.assertEqual(metrics["nro_written"], 3)
+        self.assertEqual(metrics["nro_hbm_landed"], 2)
 
-    def test_direct_hbm_row_writes_into_exclusive_cache(self) -> None:
+    def test_direct_hbm_row_writes_into_raw_copies(self) -> None:
+        """A copy of raw DRAM payloads (here INT8 rows) takes a written row's
+        payload from DRAM right after the write stored it."""
         device = _cuda_device()
-        tbe = self._direct_write_tbe(packed_storage=True, exclusive=True)
+        tbe = self._direct_write_tbe()
         cache = tbe._direct_enrichment_cache
         assert cache is not None
-        self.assertIs(type(cache), training._ExclusiveDirectMappedEnrichmentCache)
+        self.assertTrue(cache._dram_payload_rows)
+        keys = torch.tensor([7])
+        row = (
+            torch.randn(1, 128, generator=torch.Generator().manual_seed(82)) * 0.3
+        ).half()
+        tbe.enrichment_write_rows(
+            keys.to(device), torch.tensor([0, 1], device=device), row.to(device)
+        )
+        out = tbe._direct_enrichment_lookup(keys.to(device))
+        self.assertEqual(cache.last_hit_counts(), (1, 1))
+        torch.testing.assert_close(
+            out.cpu(), self._stored_rows("int8", keys, row).float(), rtol=0, atol=0
+        )
+        metrics = cache.hit_metrics()
+        self.assertEqual(metrics["nro_written"], 1)
+        self.assertEqual(metrics["nro_hbm_landed"], 1)
+
+    def _settle_dram_rows(
+        self, tbe: training.SSDTableBatchedEmbeddingBags, expected: int
+    ) -> None:
+        """Waits until the backend holds `expected` DRAM rows."""
 
         def dram_rows() -> int:
             return int(tbe.ssd_db.get_dram_kv_perf(1, 1)[22])
 
-        def settle(expected_dram_rows: int) -> None:
-            torch.cuda.synchronize()
-            deadline = time.monotonic() + 60
-            while True:
-                tbe.ssd_db.exclusive_hbm_wait()
-                if dram_rows() == expected_dram_rows:
-                    return
-                self.assertLess(
-                    time.monotonic(),
-                    deadline,
-                    f"DRAM rows {dram_rows()}, HBM rows "
-                    f"{tbe.ssd_db.exclusive_hbm_stats()}",
-                )
-                time.sleep(0.1)
+        torch.cuda.synchronize()
+        deadline = time.monotonic() + 60
+        while True:
+            tbe.ssd_db.exclusive_hbm_wait()
+            if dram_rows() == expected:
+                return
+            self.assertLess(
+                time.monotonic(),
+                deadline,
+                f"DRAM rows {dram_rows()}, HBM rows "
+                f"{tbe.ssd_db.exclusive_hbm_stats()}",
+            )
+            time.sleep(0.1)
 
-        def read_checkpoint(keys: torch.Tensor) -> torch.Tensor:
-            tbe.set_int8_checkpoint_rows(True)
-            raw = tbe.split_embedding_weights()[0][0]
-            tbe.set_int8_checkpoint_rows(False)
-            assert isinstance(raw, PartiallyMaterializedTensor)
-            rows = raw.wrapped.get_weights_by_ids(keys.cpu())
-            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
-                rows[:, 16:].contiguous(), 8, 128
-            ).float()
+    def test_direct_hbm_row_writes_into_exclusive_cache(self) -> None:
+        device = _cuda_device()
+        tbe = self._direct_write_tbe(int8_storage=False, exclusive=True)
+        cache = tbe._direct_enrichment_cache
+        assert isinstance(cache, training._ExclusiveDirectMappedEnrichmentCache)
+        # fp16 DRAM rows: the slots hold their 256 fp16 bytes.
+        self.assertEqual(tuple(cache.cache_weights.shape[1:]), (256,))
 
         n = 64
         keys = torch.arange(n) * 7 + 3
@@ -945,45 +1275,174 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             keys.to(device), torch.tensor([0, n], device=device), rows.to(device)
         )
         # The HBM tier holds the only copy of every written row.
-        settle(0)
+        self._settle_dram_rows(tbe, 0)
         self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), n)
         self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], n)
         out = tbe._direct_enrichment_lookup(keys.to(device))
         self.assertEqual(cache.last_hit_counts(), (n, n))
-        # The HBM rows are the INT8 rows of what DRAM stored (the g8 rows).
-        stored = self._stored_rows("g8", keys, rows).float()
-        step = (stored.amax(1) - stored.amin(1)) / 255
-        err = (out.cpu().float() - stored).abs().amax(1)
-        self.assertTrue(bool((err <= step / 2 + 1e-3).all()))
-        # Checkpoint reads fill them from HBM, as g8 rows: within half a g8
-        # step (max |x| / 7 per group of 8) of the HBM rows.
-        hbm = out.cpu().float()
-        half_step = hbm.abs().view(n, 16, 8).amax(2, keepdim=True) / 14
-        self.assertTrue(
-            bool(
-                (
-                    (read_checkpoint(keys) - hbm).abs().view(n, 16, 8)
-                    <= half_step + 1e-2
-                ).all()
-            )
-        )
+        torch.testing.assert_close(out.cpu(), rows.float(), rtol=0, atol=0)
 
         # A row back in DRAM with an empty slot: the write's HBM insert loses
         # to the nonzero DRAM row, which stays the only copy.
         cache.reset()
-        settle(n)
+        self._settle_dram_rows(tbe, n)
         # Without write warming, which would move the demoted rows back first.
         tbe._pending_direct_cache_fill_indices = None
-        demoted = read_checkpoint(keys[:1])
         tbe.enrichment_write_rows(
             keys[:1].to(device),
             torch.tensor([0, 1], device=device),
             torch.full((1, 128), 0.5, device=device).half(),
         )
-        settle(n)
+        self._settle_dram_rows(tbe, n)
         self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), 0)
         self.assertFalse(bool((cache.cache_state == int(keys[0])).any()))
-        torch.testing.assert_close(read_checkpoint(keys[:1]), demoted, rtol=0, atol=0)
+        # The lookup misses and reads the demoted DRAM row, not the write.
+        again = tbe._direct_enrichment_lookup(keys[:1].to(device))
+        torch.testing.assert_close(again.cpu(), rows[:1].float(), rtol=0, atol=0)
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[6]), 0)
+
+    def test_direct_hbm_row_writes_into_packed_exclusive_cache(self) -> None:
+        device = _cuda_device()
+        tbe = self._direct_write_tbe(packed_storage=True, exclusive=True)
+        cache = tbe._direct_enrichment_cache
+        assert isinstance(cache, training._ExclusiveDirectMappedEnrichmentCache)
+
+        n = 64
+        keys = torch.arange(n) * 7 + 3
+        rows = (
+            torch.randn(n, 128, generator=torch.Generator().manual_seed(84)) * 0.3
+        ).half()
+        tbe.enrichment_write_rows(
+            keys.to(device), torch.tensor([0, n], device=device), rows.to(device)
+        )
+        # The g8 rows move into HBM byte for byte from DRAM, which then keeps
+        # no copy; the first lookup hits them as DRAM stored them.
+        out = tbe._direct_enrichment_lookup(keys.to(device))
+        self.assertEqual(cache.last_hit_counts(), (n, n))
+        torch.testing.assert_close(
+            out.cpu(), self._stored_rows("g8", keys, rows).float(), rtol=0, atol=0
+        )
+        self._settle_dram_rows(tbe, 0)
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), n)
+        metrics = cache.hit_metrics()
+        self.assertEqual(metrics["nro_written"], n)
+        self.assertEqual(metrics["nro_hbm_landed"], n)
+
+    def test_direct_hbm_row_writes_for_every_format(self) -> None:
+        """KVZCH_ROW_WRITE_DIRECT_HBM puts a written row into HBM in the same
+        step for fp16, INT8 and g8 DRAM rows, exclusive or not, as exactly
+        what DRAM stores for it; a later DRAM write of the key still wins."""
+        device = _cuda_device()
+        n = 64
+        keys = torch.arange(n) * 7 + 3
+        generator = torch.Generator().manual_seed(87)
+        rows = (torch.randn(n, 128, generator=generator) * 0.3).half()
+        fresh = (torch.randn(1, 128, generator=generator) * 0.3).half()
+        for fmt in ("fp16", "int8", "g8"):
+            want = self._stored_rows(fmt, keys, rows).float()
+            for exclusive in (False, True):
+                with self.subTest(fmt=fmt, exclusive=exclusive):
+                    tbe = self._direct_write_tbe(
+                        int8_storage=fmt == "int8",
+                        packed_storage=fmt == "g8",
+                        exclusive=exclusive,
+                    )
+                    cache = tbe._direct_enrichment_cache
+                    assert cache is not None
+                    tbe.enrichment_write_rows(
+                        keys.to(device),
+                        torch.tensor([0, n], device=device),
+                        rows.to(device),
+                    )
+                    # The next lookup: every row hits HBM, as the row DRAM
+                    # stores.
+                    out = tbe._direct_enrichment_lookup(keys.to(device))
+                    self.assertEqual(cache.last_hit_counts(), (n, n))
+                    torch.testing.assert_close(out.cpu(), want, rtol=0, atol=0)
+                    self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], n)
+                    torch.cuda.synchronize()
+                    tbe.ssd_db.wait_row_writes_done()
+                    if not exclusive:
+                        continue
+                    tbe.ssd_db.exclusive_hbm_wait()
+                    self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), n)
+                    # A later write of a key replaces its HBM row.
+                    tbe.ssd_db.set(keys[:1], fresh, torch.tensor([1]))
+                    tbe.ssd_db.wait_util_filling_work_done()
+                    tbe.ssd_db.exclusive_hbm_wait()
+                    again = tbe._direct_enrichment_lookup(keys[:1].to(device))
+                    torch.testing.assert_close(
+                        again.cpu(),
+                        self._stored_rows(fmt, keys[:1], fresh).float(),
+                        rtol=0,
+                        atol=0,
+                    )
+
+    def test_exclusive_g8_slots_fit_more_rows_in_the_same_budget(self) -> None:
+        device = _cuda_device()
+
+        def slots(int8_storage: bool = False, packed_group_size: int = 0) -> int:
+            cache = training._ExclusiveDirectMappedEnrichmentCache(
+                embedding_dim=128,
+                total_hash_size=1 << 40,
+                cache_dtype=torch.float16,
+                device=device,
+                cache_size_mb=100,
+                backend=mock.MagicMock(),
+                int8_storage=int8_storage,
+                packed_group_size=packed_group_size,
+                set_associative=True,
+            )
+            return cache.cache_state.size(0)
+
+        # Each slot is the row in its DRAM format, an int64 tag and an int32
+        # access time: 256 fp16 bytes, 128 INT8 codes with 8 qparam bytes, or
+        # 64 g8 codes with 16 scales; whole sets of 16.
+        per_set = 100 * 1024 * 1024
+        self.assertEqual(slots(), per_set // 268 // 16 * 16)
+        self.assertEqual(slots(int8_storage=True), per_set // 148 // 16 * 16)
+        self.assertEqual(slots(packed_group_size=8), per_set // 92 // 16 * 16)
+        with self.assertRaises(ValueError):
+            training._ExclusiveDirectMappedEnrichmentCache(
+                embedding_dim=128,
+                total_hash_size=1 << 20,
+                cache_dtype=torch.float32,
+                device=device,
+                cache_size_mb=1,
+                backend=mock.MagicMock(),
+                set_associative=True,
+            )
+
+    def test_raw_gather_decodes_hits_as_the_dram_rows_decode(self) -> None:
+        device = _cuda_device()
+        dim, n = 128, 4096
+        generator = torch.Generator().manual_seed(85)
+        values = (torch.randn(n, dim, generator=generator) * 0.3).half()
+        g8_rows = torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(values, 8)
+        dram_g8 = torch.ops.fbgemm.GroupedInt4E4M3ToHalf(g8_rows, 8, dim)
+        misses = (torch.randn(n, dim, generator=generator) * 0.3).half()
+        hit = torch.rand(n, generator=generator) < 0.7
+        for group_size, slots, decoded in (
+            (8, g8_rows, dram_g8),
+            (0, values.view(torch.uint8), values),
+        ):
+            slots_gpu = slots.contiguous().to(device)
+            misses_gpu = misses.to(device)
+            row_bytes = slots_gpu.size(1)
+            addresses = torch.where(
+                hit,
+                torch.arange(n) * row_bytes + slots_gpu.data_ptr() | 1,
+                torch.arange(n) * dim * 2 + misses_gpu.data_ptr(),
+            ).to(device)
+            want = torch.where(hit.unsqueeze(1), decoded, misses)
+            for out_dtype in (torch.float16, torch.float32, torch.bfloat16):
+                out = torch.empty(n, dim, dtype=out_dtype, device=device)
+                torch.ops.fbgemm.kvzch_direct_cache_gather_raw(
+                    out, addresses, torch.float16, group_size
+                )
+                torch.testing.assert_close(
+                    out.cpu(), want.float().to(out_dtype), rtol=0, atol=0
+                )
 
     @staticmethod
     def _stored_rows(fmt: str, keys: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
@@ -1021,9 +1480,11 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         backend.get(keys.cpu(), stored, torch.tensor([n]), 0)
         return stored
 
-    def test_dropped_direct_row_write_reaches_neither_tier(self) -> None:
-        """A row write the backend drops, because another is still in flight,
-        puts nothing into HBM either, exclusive or not."""
+    def test_direct_write_reaches_hbm_when_its_dram_write_is_dropped(self) -> None:
+        """A row write inserts into HBM before (and regardless of) its DRAM
+        write: when the backend drops that write, because another is still in
+        flight, the row is in HBM only until the next write. The exclusive
+        tier holds its rows as their only copy either way."""
         device = _cuda_device()
         n = 16
         keys = (torch.arange(n) * 7 + 3).to(device)
@@ -1033,27 +1494,113 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         ).half()
         for exclusive in (False, True):
             with self.subTest(exclusive=exclusive):
-                tbe = self._direct_write_tbe(exclusive=exclusive)
+                tbe = self._direct_write_tbe(int8_storage=False, exclusive=exclusive)
                 cache = tbe._direct_enrichment_cache
                 assert cache is not None
                 tbe.ssd_db.hold_row_writes_for_test(True)
                 tbe.enrichment_write_rows(keys, offsets, rows.to(device))
+                out = tbe._direct_enrichment_lookup(keys)
                 torch.cuda.synchronize()
                 tbe.ssd_db.hold_row_writes_for_test(False)
+                self.assertEqual(cache.last_hit_counts(), (n, n))
+                torch.testing.assert_close(out.cpu(), rows.float(), rtol=0, atol=0)
+                self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], n)
+                self.assertEqual(int(tbe.ssd_db.get_dram_kv_perf(1, 1)[22]), 0)
                 if exclusive:
                     tbe.ssd_db.exclusive_hbm_wait()
-                    self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), 0)
+                    self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), n)
 
-                self.assertFalse(bool(torch.isin(cache.cache_state[:, 0], keys).any()))
-                self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], 0)
-                self.assertEqual(int(tbe.ssd_db.get_dram_kv_perf(1, 1)[22]), 0)
+    def test_direct_write_never_replaces_a_nonzero_row(self) -> None:
+        device = _cuda_device()
+        tbe = self._direct_write_tbe(int8_storage=False)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        a, b, c, d = (
+            (torch.randn(4, 1, 128, generator=torch.Generator().manual_seed(91)) * 0.3)
+            .half()
+            .unbind(0)
+        )
 
-                # The next write is stored, and lands in HBM.
-                tbe._pending_direct_cache_fill_indices = None
-                tbe.enrichment_write_rows(keys, offsets, rows.to(device))
-                tbe._direct_enrichment_lookup(keys)
-                self.assertEqual(cache.last_hit_counts(), (n, n))
-                self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], n)
+        def write(key: int, row: torch.Tensor) -> None:
+            tbe.enrichment_write_rows(
+                torch.tensor([key], device=device),
+                torch.tensor([0, 1], device=device),
+                row.to(device),
+            )
+
+        def lookup(key: int) -> torch.Tensor:
+            return tbe._direct_enrichment_lookup(torch.tensor([key], device=device))
+
+        # A row in HBM keeps its bytes.
+        write(7, a)
+        write(7, b)
+        torch.testing.assert_close(lookup(7).cpu(), a.float(), rtol=0, atol=0)
+        self.assertEqual(cache.last_hit_counts(), (1, 1))
+
+        # A row the last lookup found in DRAM is not inserted either.
+        tbe.ssd_db.set(torch.tensor([31]), c, torch.tensor([1]))
+        tbe.ssd_db.wait_util_filling_work_done()
+        lookup(31)
+        cache.reset()
+        write(31, d)
+        torch.testing.assert_close(lookup(31).cpu(), c.float(), rtol=0, atol=0)
+        self.assertEqual(cache.last_hit_counts(), (0, 1))
+
+    def test_direct_fill_only_writes_keep_all_cache_formats(self) -> None:
+        device = _cuda_device()
+        keys = torch.tensor([7], device=device)
+        offsets = torch.tensor([0, 1], device=device)
+        for fmt in ("fp16", "int8", "g8"):
+            for matching in (False, True):
+                for associative in (False, True):
+                    with self.subTest(
+                        fmt=fmt, matching=matching, associative=associative
+                    ):
+                        tbe = self._direct_write_tbe(
+                            int8_storage=fmt == "int8",
+                            packed_storage=fmt == "g8",
+                            match_dram_format=matching,
+                            set_associative=associative,
+                        )
+                        for value in (1.75, 2.75):
+                            tbe.enrichment_write_rows(
+                                keys,
+                                offsets,
+                                torch.full(
+                                    (1, 128), value, dtype=torch.float16, device=device
+                                ),
+                            )
+                        out = tbe._direct_enrichment_lookup(keys)
+                        cache = tbe._direct_enrichment_cache
+                        assert cache is not None
+                        self.assertEqual(cache.last_hit_counts(), (1, 1))
+                        torch.testing.assert_close(
+                            out.cpu(), torch.full((1, 128), 1.75), rtol=0, atol=0
+                        )
+
+    def test_exclusive_direct_write_into_a_full_set_goes_to_dram(self) -> None:
+        """With every slot of its set taken by an insert in flight (nothing
+        to evict), a written row is written to DRAM instead."""
+        device = _cuda_device()
+        tbe = self._direct_write_tbe(int8_storage=False, exclusive=True)
+        cache = tbe._direct_enrichment_cache
+        assert isinstance(cache, training._ExclusiveDirectMappedEnrichmentCache)
+        key = 31
+        base = _set_base(key, cache.cache_state.size(0))
+        ways = training._OWNER_CACHE_WAYS
+        cache.cache_state[base : base + ways, 0] = -(torch.arange(ways) + 10**9) - 2
+        row = torch.randn(1, 128, generator=torch.Generator().manual_seed(93)) * 0.3
+        tbe.enrichment_write_rows(
+            torch.tensor([key], device=device),
+            torch.tensor([0, 1], device=device),
+            row.half().to(device),
+        )
+        self._settle_dram_rows(tbe, 1)
+        self.assertEqual(cache.hit_metrics()["nro_hbm_landed"], 0)
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), 0)
+        out = tbe._direct_enrichment_lookup(torch.tensor([key], device=device))
+        torch.testing.assert_close(out.cpu(), row.half().float(), rtol=0, atol=0)
+        cache.cache_state.fill_(-1)
 
     def test_int8_dram_nonexclusive_read_populate_and_fill_only_writes(self) -> None:
         device = _cuda_device()
@@ -1068,6 +1615,8 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertEqual(cache.cache_weights.dtype, torch.uint8)
         self.assertEqual(cache.cache_weights.size(1), 136)
         self.assertEqual(tbe.ssd_db.get_int8_row_bytes(), 152)
+        # The copy holds the DRAM rows' raw INT8 bytes.
+        self.assertTrue(cache._dram_payload_rows)
 
         def read_payloads(keys: torch.Tensor) -> torch.Tensor:
             ids = keys.cpu()
@@ -1100,17 +1649,15 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         torch.testing.assert_close(cold.cpu(), expected, rtol=1e-3, atol=5e-4)
         warm = tbe._direct_enrichment_lookup(keys)
         self.assertEqual(cache.last_hit_counts(), (2, 2))
-        torch.testing.assert_close(warm.cpu(), expected, rtol=5e-3, atol=5e-3)
+        # Hits decode exactly as the DRAM rows do (the cold misses).
+        torch.testing.assert_close(warm.cpu(), cold.cpu(), rtol=0, atol=0)
         slots = (
             (cache.cache_state.view(1, -1) == keys.view(-1, 1))
             .to(torch.int64)
             .argmax(1)
         )
         torch.testing.assert_close(
-            warm.cpu(),
-            decode_payloads(cache.cache_weights[slots].cpu()).half().float(),
-            rtol=1e-6,
-            atol=1e-6,
+            cache.cache_weights[slots].cpu(), saved, rtol=0, atol=0
         )
         torch.testing.assert_close(read_payloads(keys), saved, rtol=0, atol=0)
 
@@ -1144,7 +1691,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         warm = tbe._direct_enrichment_lookup(query)
         self.assertEqual(cache.last_hit_counts(), (2, 3))
         self.assertFalse(bool((cache.cache_state == 89).any()))
-        torch.testing.assert_close(warm.cpu(), expected, rtol=5e-3, atol=5e-3)
+        torch.testing.assert_close(warm.cpu(), cold.cpu(), rtol=0, atol=0)
         torch.testing.assert_close(warm[-1].cpu(), torch.zeros(128), rtol=0, atol=0)
 
     def test_packed_dram_nonexclusive_read_populate_and_fill_only_writes(
@@ -1159,6 +1706,9 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertTrue(cache._read_populate)
         self.assertEqual(tbe.ssd_db.get_int8_row_bytes(), 0)
         self.assertEqual(tbe.ssd_db.get_raw_row_bytes(), 16 + 64 + 16)
+        # The copy holds the DRAM rows' g8 bytes.
+        self.assertTrue(cache._dram_payload_rows)
+        self.assertEqual(tuple(cache.cache_weights.shape[1:]), (80,))
 
         def read_dram(keys: torch.Tensor) -> torch.Tensor:
             # Decodes the raw g8 checkpoint rows (MetaHeader, codes, scales).
@@ -1200,10 +1750,10 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         expected = saved.float()
         cold = tbe._direct_enrichment_lookup(keys)
         self.assertEqual(cache.last_hit_counts(), (0, 2))
-        torch.testing.assert_close(cold.cpu(), expected, rtol=1e-3, atol=5e-4)
+        torch.testing.assert_close(cold.cpu(), expected, rtol=0, atol=0)
         warm = tbe._direct_enrichment_lookup(keys)
         self.assertEqual(cache.last_hit_counts(), (2, 2))
-        torch.testing.assert_close(warm.cpu(), expected, rtol=5e-3, atol=5e-3)
+        torch.testing.assert_close(warm.cpu(), expected, rtol=0, atol=0)
 
         fresh = (torch.randn(1, 128, generator=generator) * 0.3).half()
         written = tbe.enrichment_write_rows(
@@ -1219,6 +1769,49 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         torch.testing.assert_close(
             read_dram(torch.tensor([53])), g8_fixed_point(fresh), rtol=0, atol=0
         )
+
+    def test_fp16_dram_nonexclusive_copy_format(self) -> None:
+        """An fp16 table's non-exclusive copy is its fp16 rows whatever
+        owner_cache_int8 says, never INT8 rows; a packed table's copy is its g8
+        bytes either way."""
+        device = _cuda_device()
+        generator = torch.Generator().manual_seed(86)
+        rows = (torch.randn(2, 128, generator=generator) * 0.3).half()
+        keys = torch.tensor([7, 31], device=device)
+        for owner_cache_int8 in (True, False):
+            with self.subTest(owner_cache_int8=owner_cache_int8):
+                tbe = self._cu_tbe(
+                    int8_storage=False,
+                    load_without_opt=True,
+                    owner_cache=True,
+                    owner_cache_int8=owner_cache_int8,
+                )
+                cache = tbe._direct_enrichment_cache
+                assert cache is not None
+                self.assertFalse(cache._int8)
+                self.assertFalse(cache._dram_payload_rows)
+                self.assertEqual(cache.cache_weights.dtype, torch.float16)
+                tbe.enrichment_write_rows(
+                    keys, torch.tensor([0, 2], device=device), rows.to(device)
+                )
+                self._wait_for_dram_rows(tbe, 2)
+                cold = tbe._direct_enrichment_lookup(keys)
+                self.assertEqual(cache.last_hit_counts(), (0, 2))
+                torch.testing.assert_close(cold.cpu(), rows.float(), rtol=0, atol=0)
+                warm = tbe._direct_enrichment_lookup(keys)
+                self.assertEqual(cache.last_hit_counts(), (2, 2))
+                torch.testing.assert_close(warm.cpu(), rows.float(), rtol=0, atol=0)
+
+        packed = self._cu_tbe(
+            load_without_opt=True,
+            owner_cache=True,
+            packed_storage=True,
+            owner_cache_int8=False,
+        )
+        packed_cache = packed._direct_enrichment_cache
+        assert packed_cache is not None
+        self.assertTrue(packed_cache._dram_payload_rows)
+        self.assertEqual(tuple(packed_cache.cache_weights.shape[1:]), (80,))
 
     def test_packed_dram_exclusive_promote_demote_and_fill_only_writes(
         self,
@@ -1320,6 +1913,9 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertIs(type(cache), training._ExclusiveDirectMappedEnrichmentCache)
         self.assertEqual(tbe.ssd_db.get_int8_row_bytes(), 0)
         self.assertEqual(tbe.ssd_db.get_raw_row_bytes(), 16 + 64 + 16)
+        # HBM slots hold the g8 bytes: 64 code bytes and 16 e4m3 scales.
+        self.assertEqual(cache._packed_group_size, 8)
+        self.assertEqual(tuple(cache.cache_weights.shape[1:]), (80,))
 
         def g8(rows: torch.Tensor) -> torch.Tensor:
             return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
@@ -1328,15 +1924,16 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 128,
             )
 
-        def read_dram(keys: torch.Tensor) -> torch.Tensor:
+        def read_raw(keys: torch.Tensor) -> torch.Tensor:
+            """The g8 bytes of the raw checkpoint rows (after the MetaHeader)."""
             tbe.set_int8_checkpoint_rows(True)
             raw = tbe.split_embedding_weights()[0][0]
             tbe.set_int8_checkpoint_rows(False)
             assert isinstance(raw, PartiallyMaterializedTensor)
-            rows = raw.wrapped.get_weights_by_ids(keys.cpu())
-            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
-                rows[:, 16:].contiguous(), 8, 128
-            )
+            return raw.wrapped.get_weights_by_ids(keys.cpu())[:, 16:].contiguous()
+
+        def read_dram(keys: torch.Tensor) -> torch.Tensor:
+            return torch.ops.fbgemm.GroupedInt4E4M3ToHalf(read_raw(keys), 8, 128)
 
         def write(
             keys: torch.Tensor, rows: torch.Tensor, landed: torch.Tensor
@@ -1362,19 +1959,21 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         original = (torch.randn(n, 128, generator=generator) * 0.3).half()
         self.assertEqual(write(keys, original, keys).numel(), n)
         stored = read_dram(keys)
+        stored_raw = read_raw(keys)
         torch.testing.assert_close(stored, g8(original), rtol=0, atol=0)
 
-        # Lookups promote rows into the INT8 HBM tier, which then holds the
-        # only copy; a fill-only write of a promoted row leaves it alone.
+        # Lookups promote rows into the HBM tier, which then holds the only
+        # copy as the rows' g8 bytes: hits decode exactly as the DRAM rows did.
         for _ in range(3):
             out = tbe._direct_enrichment_lookup(keys.to(device))
-            step = (stored.float().amax(1) - stored.float().amin(1)) / 255
-            err = (out.cpu().float() - stored.float()).abs().amax(1)
-            self.assertTrue(bool((err <= step / 2 + 1e-3).all()))
+            torch.testing.assert_close(out.cpu(), stored.float(), rtol=0, atol=0)
         torch.cuda.synchronize()
         tbe.ssd_db.exclusive_hbm_wait()
         in_hbm = int(tbe.ssd_db.exclusive_hbm_stats()[0])
         self.assertGreater(in_hbm, n // 2)
+        self.assertGreater(cache.last_hit_counts()[0], n // 2)
+        # A checkpoint saves the rows in HBM as their g8 bytes.
+        torch.testing.assert_close(read_raw(keys), stored_raw, rtol=0, atol=0)
         hbm_rows = tbe._direct_enrichment_lookup(keys.to(device)).cpu().half()
         new_keys = torch.arange(64) * 7 + 5
         fresh = (torch.randn(64, 128, generator=generator) * 0.3).half()
@@ -1393,18 +1992,11 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[5]), 0)
         torch.testing.assert_close(read_dram(new_keys), g8(fresh), rtol=0, atol=0)
 
-        # Demotion re-encodes every HBM row as the g8 fixed point of its INT8
-        # decode, so DRAM holds g8 rows again.
+        # Demotion moves the g8 bytes back unchanged; nothing was re-quantized.
         cache.reset()
         self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[0]), 0)
-        demoted = read_dram(keys)
-        torch.testing.assert_close(demoted, g8(demoted), rtol=0, atol=0)
-        torch.testing.assert_close(
-            demoted.float(), hbm_rows.float(), rtol=0.05, atol=0.05
-        )
-        torch.testing.assert_close(
-            demoted.float(), stored.float(), rtol=0.05, atol=0.05
-        )
+        self.assertEqual(int(tbe.ssd_db.exclusive_hbm_stats()[6]), 0)
+        torch.testing.assert_close(read_raw(keys), stored_raw, rtol=0, atol=0)
 
     def test_tbe_raw_checkpoint_of_packed_rows_and_int8_reload(self) -> None:
         n = 100
@@ -1678,6 +2270,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             backend=backend,
             int8_storage=True,
             promote_max_rows=2048,
+            set_associative=True,
         )
 
         def read_backend_into(
@@ -1736,14 +2329,14 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         self.assertEqual(int(backend.exclusive_hbm_stats()[7]), 0)
         cache.reset()
 
-    def test_insert_claims_only_empty_slots_and_reports_them(self) -> None:
+    def test_insert_without_victims_claims_only_empty_slots(self) -> None:
         device = _cuda_device()
         dim, slots = 128, 4096
         cache_state = torch.full((slots, 1), -1, dtype=torch.int64, device=device)
         cache_weights = torch.zeros(slots, dim + 8, dtype=torch.uint8, device=device)
         last_access = torch.zeros(slots, dtype=torch.int32, device=device)
         occupied_key = 7
-        cache_state[_slot(occupied_key, slots)] = 10**9
+        _fill_set(cache_state, occupied_key)
         keys = torch.arange(1000, device=device)
         rows = torch.randn(1000, dim, device=device).half()
         rows[3].zero_()
@@ -1760,25 +2353,30 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             promoted,
             count,
             1234,
+            set_associative=True,
         )
 
         n = int(count.item())
         claimed = set(promoted[:n].tolist())
         self.assertNotIn(occupied_key, claimed)
         self.assertNotIn(3, claimed)
-        self.assertEqual(cache_state[_slot(occupied_key, slots)].item(), 10**9)
-        # Each claimed key sits in its hashed slot with its access time; a key
-        # that lost its slot to another one in the batch was not reported.
+        self.assertEqual(_held_slot(cache_state.cpu(), occupied_key), -1)
+        # Each claimed key sits in its set with its access time.
+        host_state = cache_state.cpu()
         for key in claimed:
-            slot = _slot(key, slots)
-            self.assertEqual(cache_state[slot].item(), key)
+            slot = _held_slot(host_state, key)
+            self.assertGreaterEqual(slot, 0)
             self.assertEqual(last_access[slot].item(), 1234)
-        self.assertEqual(int((cache_state >= 0).sum().item()), n + 1)
+        self.assertEqual(
+            int((cache_state >= 0).sum().item()), n + training._OWNER_CACHE_WAYS
+        )
 
-        # Hits stamp their slot; misses (even address) do not.
-        slot = _slot(next(iter(claimed)), slots)
+        # Hits (addresses into the cache rows) stamp their slot; misses
+        # (addresses into the inserted rows) do not.
+        slot = _held_slot(host_state, next(iter(claimed)))
         hit = cache_weights.data_ptr() + slot * (dim + 8) | 1
-        miss = cache_weights.data_ptr() + 2 * (dim + 8)
+        inserted = torch.zeros(4, dim + 8, dtype=torch.uint8, device=device)
+        miss = inserted.data_ptr() + 2 * (dim + 8)
         torch.ops.fbgemm.kvzch_exclusive_cache_touch(
             torch.tensor([hit, miss], device=device),
             cache_weights,
@@ -1786,7 +2384,69 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             5678,
         )
         self.assertEqual(last_access[slot].item(), 5678)
-        self.assertNotEqual(last_access[2].item(), 5678)
+        self.assertEqual(int((last_access == 5678).sum().item()), 1)
+
+    def test_full_set_promotion_evicts_the_lru_row_back_to_dram(self) -> None:
+        """A promotion into a full set evicts its least recently used row,
+        which is a DRAM row again (with its bytes) before the next lookup; a
+        row touched in the same second is not evicted."""
+        device = _cuda_device()
+        dim, ways = 128, training._OWNER_CACHE_WAYS
+        for int8_storage in (False, True):
+            with self.subTest(int8_storage=int8_storage):
+                backend = _dram_backend(dim, 1 << 20, int8_storage=int8_storage)
+                cache = training._ExclusiveDirectMappedEnrichmentCache(
+                    embedding_dim=dim,
+                    total_hash_size=1 << 20,
+                    cache_dtype=torch.float16,
+                    device=device,
+                    cache_size_mb=1,
+                    backend=backend,
+                    int8_storage=int8_storage,
+                    set_associative=True,
+                )
+                num_slots = cache.cache_state.size(0)
+                base = _set_base(0, num_slots)
+                keys = [k for k in range(100000) if _set_base(k, num_slots) == base][
+                    : ways + 1
+                ]
+                ids = torch.tensor(keys)
+                table = (torch.randn(ways + 1, dim) * 0.3).half()
+                backend.set(ids, table, torch.tensor([ways + 1]))
+                backend.wait_util_filling_work_done()
+                stored = torch.empty(ways + 1, dim, dtype=torch.float16)
+                backend.get(ids, stored, torch.tensor([ways + 1]), 0)
+
+                read_backend_into = backend.get_cuda
+                cache.lookup(ids[:ways].to(device), read_backend_into)
+                torch.cuda.synchronize()
+                backend.exclusive_hbm_wait()
+                self.assertEqual(int(backend.exclusive_hbm_stats()[0]), ways)
+
+                # Way 3 is the least recently used; way 5 was touched now.
+                now = int(time.time())
+                cache.last_access[base : base + ways] = now - 100
+                cache.last_access[base + 3] = now - 200
+                cache.last_access[base + 5] = now - 300
+                victim = int(cache.cache_state[base + 3].item())
+                touched = int(cache.cache_state[base + 5].item())
+                cache.lookup(torch.tensor([touched], device=device), read_backend_into)
+                cache.lookup(ids[ways:].to(device), read_backend_into)
+                # The victim misses HBM right away and reads its own row.
+                again = cache.lookup(
+                    torch.tensor([victim], device=device), read_backend_into
+                )
+                self.assertEqual(cache.last_hit_counts(), (0, 1))
+                torch.testing.assert_close(
+                    again[0].cpu(), stored[keys.index(victim)], rtol=0, atol=0
+                )
+                torch.cuda.synchronize()
+                backend.exclusive_hbm_wait()
+                stats = backend.exclusive_hbm_stats()
+                self.assertGreaterEqual(int(stats[9]), 1)
+                self.assertEqual(int(cache.cache_state[base + 3].item()), keys[ways])
+                self.assertEqual(int(cache.cache_state[base + 5].item()), touched)
+                cache.reset()
 
     def test_lookup_moves_rows_to_hbm_and_reset_moves_them_back(self) -> None:
         device = _cuda_device()
@@ -1803,6 +2463,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             device=device,
             cache_size_mb=4,
             backend=backend,
+            set_associative=True,
         )
 
         def read_backend_into(
@@ -1825,10 +2486,9 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         hits, queries = cache.last_hit_counts()
         self.assertEqual(hits, in_hbm)
         self.assertEqual(queries, num_rows)
-        # HBM rows are INT8: within half a quantization step of the row range.
-        step = (table.float().amax(1) - table.float().amin(1)) / 255
-        err = (second.cpu().float() - table.float()).abs().amax(1)
-        self.assertTrue(bool((err <= step / 2 + 1e-3).all()))
+        # HBM rows are the DRAM rows' fp16 bytes.
+        torch.testing.assert_close(second.cpu(), table, rtol=0, atol=0)
+        self.assertEqual(int(backend.exclusive_hbm_stats()[6]), 0)
 
         # No lookup reached a row that lived only in HBM.
         self.assertEqual(int(backend.exclusive_hbm_stats()[7]), 0)
@@ -1868,6 +2528,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             cache_size_mb=1,
             backend=backend,
             promote_max_rows=4096,
+            set_associative=True,
         )
 
         def read_backend_into(
@@ -1895,9 +2556,9 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
             check(table, torch.randint(0, num_rows, (30000,), generator=gen))
         torch.cuda.synchronize()
         backend.exclusive_hbm_wait()
+        # No promote_skipped check: a later lookup can evict a slot claimed by
+        # an earlier one (LRU sets) before that claim's promotion runs.
         self.assertGreater(int(backend.exclusive_hbm_stats()[0]), 1000)
-        # No write ran yet, so every claimed slot was promoted.
-        self.assertEqual(int(backend.exclusive_hbm_stats()[2]), 0)
         check(table, ids)
 
         # Rewrite half of the rows, HBM rows included: lookups see the new rows.
@@ -1920,6 +2581,214 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         check(fresh, ids)
         self.assertEqual(int(backend.exclusive_hbm_stats()[7]), 0)
 
+    def test_full_set_inserts_race_checkpoint_fills_and_ttl_without_row_loss(
+        self,
+    ) -> None:
+        device = _cuda_device()
+        ids = torch.arange(256)
+        dims = torch.arange(128)
+        bits = ((ids.unsqueeze(1) >> (dims // 8)) & 1).bool()
+        table = torch.where(bits, 1.75, 0.25).half()
+        for fmt in ("fp16", "int8", "g8"):
+            for snapshot in (False, True):
+                with (
+                    self.subTest(fmt=fmt, snapshot=snapshot),
+                    mock.patch.dict(
+                        os.environ,
+                        {
+                            "KVZCH_EXCLUSIVE_HBM_SNAPSHOT_FILLS": str(int(snapshot)),
+                            "KVZCH_EXCLUSIVE_HBM_BATCHED_FILLS": "1",
+                            "KVZCH_EXCLUSIVE_HBM_CHUNK_ROWS": "16",
+                            "KVZCH_EXCLUSIVE_HBM_TTL_MINS": "1",
+                            "KVZCH_EXCLUSIVE_HBM_TTL_DEMOTE": "1",
+                            "KVZCH_EXCLUSIVE_HBM_SWEEP_S": "0",
+                        },
+                    ),
+                ):
+                    backend = _dram_backend(
+                        128,
+                        10000,
+                        int8_storage=fmt == "int8",
+                        packed_storage=fmt == "g8",
+                    )
+                    backend.set(ids, table, torch.tensor([ids.numel()]))
+                    backend.wait_util_filling_work_done()
+                    expected = torch.empty_like(table)
+                    backend.get(ids, expected, torch.tensor([ids.numel()]), 0)
+                    cache = training._ExclusiveDirectMappedEnrichmentCache(
+                        embedding_dim=128,
+                        total_hash_size=16,
+                        cache_dtype=torch.float16,
+                        device=device,
+                        cache_size_mb=1,
+                        backend=backend,
+                        int8_storage=fmt == "int8",
+                        packed_group_size=8 if fmt == "g8" else 0,
+                        set_associative=True,
+                    )
+                    cache.lookup(ids[:16].to(device), backend.get_cuda)
+                    torch.cuda.synchronize()
+                    backend.exclusive_hbm_wait()
+                    self.assertEqual(int(backend.exclusive_hbm_stats()[0]), 16)
+                    checkpoint_rows: _CheckpointRows = (
+                        torch.classes.fbgemm.KVTensorWrapper(
+                            [ids.numel(), 128], torch.float16, 0, None
+                        )
+                    )
+                    checkpoint_rows.set_dram_db_wrapper(backend)
+                    started = threading.Event()
+
+                    def checkpoint_and_sweep(
+                        target_view: _CheckpointRows,
+                        target_backend: _DramBackend,
+                        target_rows: torch.Tensor,
+                        target_started: threading.Event,
+                    ) -> None:
+                        target_started.set()
+                        for _ in range(12):
+                            out = target_view.narrow(0, 0, target_rows.size(0))
+                            torch.testing.assert_close(out, target_rows, rtol=0, atol=0)
+                            target_backend.exclusive_hbm_sweep(int(time.time()) + 600)
+
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        checkpoint = executor.submit(
+                            checkpoint_and_sweep,
+                            checkpoint_rows,
+                            backend,
+                            expected,
+                            started,
+                        )
+                        self.assertTrue(started.wait(5))
+                        for step in range(96):
+                            begin = (step % 16) * 16
+                            cache.last_access.fill_(1)
+                            out = cache.lookup(
+                                ids[begin : begin + 16].to(device), backend.get_cuda
+                            )
+                            torch.testing.assert_close(
+                                out.cpu(), expected[begin : begin + 16], rtol=0, atol=0
+                            )
+                        checkpoint.result(timeout=60)
+                    torch.cuda.synchronize()
+                    backend.exclusive_hbm_wait()
+                    stats = backend.exclusive_hbm_stats()
+                    self.assertGreater(int(stats[9]), 0)
+                    self.assertEqual(
+                        int(backend.get_dram_kv_perf(1, 1)[22]) + int(stats[0]),
+                        ids.numel(),
+                    )
+                    cache.reset()
+                    after = torch.empty_like(expected)
+                    backend.get(ids, after, torch.tensor([ids.numel()]), 0)
+                    torch.testing.assert_close(after, expected, rtol=0, atol=0)
+
+    @unittest.skipIf(
+        os.environ.get("KVZCH_RAW_INSERT_BENCH") is None,
+        "set KVZCH_RAW_INSERT_BENCH=1",
+    )
+    def test_benchmark_raw_insert_full_cache_host_mapped(self) -> None:
+        device = _cuda_device()
+        slots = 2000 * 1024 * 1024 // 144 // 16 * 16
+        n = int(os.environ.get("KVZCH_RAW_INSERT_BENCH_ROWS", "5000000"))
+        saved_tags = _full_owner_cache_tags(slots, device)
+        expected_sets = torch.arange(slots, device=device) // 16
+        self.assertTrue(
+            torch.equal(
+                training._owner_cache_slots(saved_tags.view(-1), slots // 16),
+                expected_sets,
+            )
+        )
+        indices = torch.arange(n, dtype=torch.int64, device=device) + slots + 37
+
+        def mapped(shape: tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:
+            return torch.ops.fbgemm.new_unified_tensor(
+                torch.empty(1, dtype=dtype, device=device),
+                shape,
+                is_host_mapped=True,
+            )
+
+        for row_bytes in (256, 72):
+            with self.subTest(row_bytes=row_bytes):
+                state = saved_tags.clone()
+                weights = torch.empty(
+                    slots, row_bytes, dtype=torch.uint8, device=device
+                )
+                access = torch.empty(slots, dtype=torch.int32, device=device)
+                rows = mapped((n, row_bytes), torch.uint8)
+                torch.ops.fbgemm.uvm_to_cpu(rows).fill_(11)
+                promoted = mapped((n,), torch.int64)
+                promoted_count = mapped((1,), torch.int32)
+                victim_keys = mapped((n,), torch.int64)
+                victim_access = mapped((n,), torch.int32)
+                victim_rows = mapped((n, row_bytes), torch.uint8)
+                victim_count = mapped((1,), torch.int32)
+                samples = []
+                claims = victims = 0
+                for rep in range(13):
+                    state.copy_(saved_tags)
+                    weights.fill_(3)
+                    access.fill_(1)
+                    start = torch.cuda.Event(enable_timing=True)
+                    end = torch.cuda.Event(enable_timing=True)
+                    start.record()
+                    torch.ops.fbgemm.kvzch_exclusive_cache_insert_raw(
+                        state,
+                        weights,
+                        access,
+                        indices,
+                        rows,
+                        None,
+                        promoted,
+                        promoted_count,
+                        2,
+                        victim_keys,
+                        victim_access,
+                        victim_rows,
+                        victim_count,
+                        set_associative=True,
+                    )
+                    end.record()
+                    torch.cuda.synchronize()
+                    claims = int(torch.ops.fbgemm.uvm_to_cpu(promoted_count)[0])
+                    victims = int(torch.ops.fbgemm.uvm_to_cpu(victim_count)[0])
+                    self.assertEqual(claims, victims)
+                    self.assertGreater(claims, n * 0.9)
+                    sample = min(victims, 4096)
+                    self.assertTrue(
+                        bool(
+                            (
+                                torch.ops.fbgemm.uvm_to_cpu(victim_rows)[:sample] == 3
+                            ).all()
+                        )
+                    )
+                    self.assertTrue(
+                        bool(
+                            (
+                                torch.ops.fbgemm.uvm_to_cpu(victim_access)[:sample] == 1
+                            ).all()
+                        )
+                    )
+                    if rep >= 3:
+                        samples.append(start.elapsed_time(end))
+                print(
+                    json.dumps(
+                        {
+                            "benchmark": "raw_insert_full_cache_host_mapped",
+                            "gpu": torch.cuda.get_device_properties(device).name,
+                            "row_bytes": row_bytes,
+                            "slots": slots,
+                            "rows": n,
+                            "occupancy": 1.0,
+                            "promoted": claims,
+                            "victims": victims,
+                            "median_ms": statistics.median(samples),
+                            "samples_ms": samples,
+                        }
+                    )
+                )
+                del state, weights, access, rows, promoted, promoted_count
+                del victim_keys, victim_access, victim_rows, victim_count
+
     @unittest.skipIf(
         os.environ.get("KVZCH_EXCLUSIVE_HBM_BENCH") is None,
         "set KVZCH_EXCLUSIVE_HBM_BENCH=1",
@@ -1930,7 +2799,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         device = _cuda_device()
         dim = 128
         slot_bytes = dim + 8 + 8 + 4
-        slots = 12000 * 1024 * 1024 // slot_bytes
+        slots = 12000 * 1024 * 1024 // slot_bytes // 16 * 16
         cache_state = torch.full((slots, 1), -1, dtype=torch.int64, device=device)
         cache_weights = torch.zeros(slots, dim + 8, dtype=torch.uint8, device=device)
         last_access = torch.zeros(slots, dtype=torch.int32, device=device)
@@ -1951,6 +2820,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 promoted,
                 count,
                 1,
+                set_associative=True,
             )
         occupancy = float((cache_state >= 0).float().mean().item())
 
@@ -1985,6 +2855,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 actions_count,
                 inserted,
                 row_addresses,
+                set_associative=True,
             )
         )
         hit_rate = 1 - int(actions_count.item()) / n
@@ -2022,6 +2893,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                     promoted_keys,
                     promoted_count,
                     3,
+                    set_associative=True,
                 )
                 end.record()
                 torch.cuda.synchronize()
