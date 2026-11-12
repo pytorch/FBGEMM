@@ -40,7 +40,7 @@ __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
     const int row_end = offsets[b + 1];
     const int length = row_end - row_start;
     if (l < length) {
-      for (int32_t d = static_cast<int32_t>(threadIdx.x); d < D;
+      for (uint32_t d = threadIdx.x; static_cast<int64_t>(d) < D;
            d += blockDim.x) {
         output_values[row_start + l][h * D + d] = x[b_h][l] * y[b_h][d];
       }
