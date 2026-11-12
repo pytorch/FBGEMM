@@ -727,6 +727,9 @@ class ForwardTest(unittest.TestCase):
         not torch.version.hip,
         "V2 kernel overflow test is specific to ROCm - skipping on non-ROCm platforms",
     )
+    @optests.dontGenerateOpCheckTests(
+        "Duplicating large-grid inputs for opcheck exceeds GPU memory."
+    )
     def test_forward_gpu_v2_kernel_large_grid_rocm(
         self,
     ) -> None:

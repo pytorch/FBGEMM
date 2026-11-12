@@ -248,6 +248,7 @@ class PermuteIndicesTest(unittest.TestCase):
     # TorchScript has different behaviors than eager mode. We can see undefined
     # models returned. So we need to add a unittest to ensure the op return
     # real None, not an undefined tensor.
+    @unittest.skipIf(not hasattr(torch.jit, "script"), "TorchScript is unavailable")
     @unittest.skipIf(*gpu_unavailable)
     @optests.dontGenerateOpCheckTests(
         "GPU-only test; opcheck variants only skip on CPU samples and add no op coverage (T191384137)"
@@ -274,7 +275,7 @@ class PermuteIndicesTest(unittest.TestCase):
             permuted_lengths_cpu,
             permuted_indices_cpu,
             permuted_weights_cpu,
-        ) = permute_scripted(permute, lengths, indices)
+        ) = torch.jit.script(permute_scripted)(permute, lengths, indices)
         (
             permuted_lengths_ref,
             permuted_indices_ref,

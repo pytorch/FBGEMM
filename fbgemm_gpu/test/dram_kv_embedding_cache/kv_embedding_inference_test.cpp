@@ -10,6 +10,7 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
 #include <fmt/format.h>
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <atomic>
@@ -169,6 +170,28 @@ class KVEmbeddingInferenceTest : public ::testing::Test {
   std::unique_ptr<DramKVInferenceEmbedding<float>> backend_;
 };
 
+TEST_F(KVEmbeddingInferenceTest, LookupStatsCountHitsAndMisses) {
+  gflags::FlagSaver flags;
+  FLAGS_kv_embedding_table_log_lookup_stats_interval_secs = 0;
+  insertEmbedding(12345);
+  EXPECT_TRUE(verifyEmbedding(readEmbedding(12345), generateEmbedding(12345)));
+  EXPECT_EQ(backend_->lookup_stats_.totals().keys, 0);
+
+  FLAGS_kv_embedding_table_log_lookup_stats_interval_secs = 60;
+  const auto ids = at::tensor({12345, 12345, 45678, 45679}, at::kLong);
+  auto output = at::empty({4, EMBEDDING_DIM}, at::kFloat);
+  backend_->get_kv_db_async(ids, output, at::tensor({4}, at::kLong)).get();
+  const auto counts = backend_->lookup_stats_.totals();
+  EXPECT_EQ(counts.batches, 1);
+  EXPECT_EQ(counts.keys, 4);
+  EXPECT_EQ(counts.lookupKeys, 4);
+  EXPECT_EQ(counts.cacheHits, 2);
+  EXPECT_EQ(counts.indexMisses, 2);
+  EXPECT_EQ(counts.diskReads, 0);
+  EXPECT_EQ(counts.diskBytes, 0);
+  EXPECT_TRUE(at::equal(output[0], output[1]));
+}
+
 TEST_F(KVEmbeddingInferenceTest, InferenceLifecycleWithMetadata) {
   const int64_t embedding_id = 12345;
 
@@ -232,6 +255,38 @@ TEST_F(KVEmbeddingInferenceTest, MarkedRowIsKeptAndStillEvictable) {
   backend_->trigger_feature_evict(9000);
   backend_->wait_until_eviction_done();
   EXPECT_EQ(backend_->get_num_rows(), 0);
+}
+
+// Eviction erases victims in small wlock batches; readers of surviving rows
+// keep getting correct data while it runs, and exactly the stale rows go.
+TEST_F(KVEmbeddingInferenceTest, BatchedEraseEvictsStaleRowsUnderReads) {
+  setenv("FBGEMM_FEATURE_EVICT_ERASE_BATCH", "7", /*overwrite=*/1);
+  bulkInsert(0, 1000, /*base_ts=*/1000);
+  bulkInsert(1000, 1000, /*base_ts=*/5000);
+
+  std::atomic<bool> done{false};
+  std::atomic<int> bad_reads{0};
+  std::thread evictor([&] {
+    backend_->trigger_feature_evict(3000);
+    backend_->wait_until_eviction_done();
+    done = true;
+  });
+  runParallel(8, [&](int t) {
+    std::mt19937 rng(t);
+    std::uniform_int_distribution<int64_t> dist(1000, 1999);
+    while (!done) {
+      const int64_t id = dist(rng);
+      if (!verifyEmbedding(readEmbedding(id), generateEmbedding(id))) {
+        bad_reads++;
+      }
+    }
+  });
+  evictor.join();
+  unsetenv("FBGEMM_FEATURE_EVICT_ERASE_BATCH");
+
+  EXPECT_EQ(bad_reads, 0);
+  EXPECT_EQ(backend_->get_num_rows(), 1000);
+  EXPECT_TRUE(verifyEmbedding(readEmbedding(1500), generateEmbedding(1500)));
 }
 
 // The loader only runs the pre-load evict when something was marked, so ids

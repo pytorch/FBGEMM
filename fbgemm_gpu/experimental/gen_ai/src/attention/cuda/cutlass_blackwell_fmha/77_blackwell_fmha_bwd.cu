@@ -708,6 +708,9 @@ struct BwdRunner {
       block_dK.get(), stride_dK,
       block_dV.get(), stride_dV,
       softmax_scale,
+      nullptr,
+      -1,
+      -1,
       hw_info
     };
 
