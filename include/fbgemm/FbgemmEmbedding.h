@@ -234,6 +234,22 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     const bool no_bag = false,
     int output_bit_rate = -1);
 
+// Unweighted INT4 lookup with GPU Half dequantization and FP32 accumulation.
+// Input strides are bytes; output strides are elements. Scale and bias are
+// binary16, in the same fused-row layout as the N-bit generator above.
+template <
+    typename IndexType,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API EmbeddingSpMDMNBitKernel<false, IndexType, OffsetType, OutType>
+GenerateEmbeddingSpMDMInt4WithGpuRounding(
+    std::int64_t block_size,
+    bool normalize_by_lengths,
+    bool use_offsets,
+    std::int64_t output_stride,
+    std::int64_t input_stride,
+    bool scale_bias_last);
+
 namespace detail {
 // Byte-storage boundary for runtime-configured CPU inference. C++ callers use
 // the typed generator below so the input type determines its FP8 format.
