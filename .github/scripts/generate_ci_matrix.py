@@ -42,6 +42,8 @@ REFS_MAIN = "refs/heads/main"
 EVENT_NAME_PUSH = "push"
 
 ROCM_BASE_IMAGE = "ubuntu:22.04"
+# Fallback when callers do not pass --rocm-versions (e.g. older workflows).
+# Prefer versions from pytorch/test-infra generate_binary_build_matrix.
 ROCM_CONTAINER_IMAGES = {
     "10.0": ROCM_BASE_IMAGE,
     "10.1": ROCM_BASE_IMAGE,
@@ -161,6 +163,10 @@ class BuildConfigScheme:
     variant: str
     jobtype: str
     repo_owner: str
+    # Optional overrides from pytorch/test-infra generate_binary_build_matrix.
+    # Empty means use the hardcoded defaults.
+    rocm_versions_override: tuple[str, ...] = ()
+    python_versions_override: tuple[str, ...] = ()
 
     @classmethod
     def _create_parser(cls) -> argparse.ArgumentParser:
@@ -172,6 +178,8 @@ class BuildConfigScheme:
         )
         parser.add_argument(
             "--targets",
+            "--target",
+            dest="targets",
             required=True,
             type=str,
             help=f"Comma-separated build targets: {', '.join(ALL_TARGETS)}",
@@ -194,6 +202,26 @@ class BuildConfigScheme:
             choices=[REPO_OWNER_PYTORCH, REPO_OWNER_FACEBOOKRESEARCH],
             default=REPO_OWNER_PYTORCH,
             help=f"Repository owner: {', '.join(ALL_REPO_OWNERS)}",
+        )
+        parser.add_argument(
+            "--rocm-versions",
+            required=False,
+            default="",
+            type=str,
+            help=(
+                "Optional comma-separated ROCm versions from test-infra "
+                "generate_binary_build_matrix (overrides ROCM_CONTAINER_IMAGES keys)."
+            ),
+        )
+        parser.add_argument(
+            "--python-versions",
+            required=False,
+            default="",
+            type=str,
+            help=(
+                "Optional comma-separated Python versions from test-infra "
+                "generate_binary_build_matrix (overrides default Python selection)."
+            ),
         )
         return parser
 
@@ -218,12 +246,21 @@ class BuildConfigScheme:
                     f"Invalid target: '{t}'. Allowed: {ALL_TARGETS}"
                 )
 
+        rocm_override = tuple(
+            v.strip() for v in args.rocm_versions.split(",") if v.strip()
+        )
+        python_override = tuple(
+            v.strip() for v in args.python_versions.split(",") if v.strip()
+        )
+
         return [
             cls(
                 target=t,
                 variant=args.variant,
                 jobtype=args.jobtype,
                 repo_owner=args.repo_owner,
+                rocm_versions_override=rocm_override,
+                python_versions_override=python_override,
             ).validated()
             for t in targets
             # Filter out targets that are not relevant for the PR merge commit
@@ -280,6 +317,8 @@ class BuildConfigScheme:
         return self
 
     def python_versions(self) -> list[str]:
+        if self.python_versions_override:
+            return list(self.python_versions_override)
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
             return ["3.14"]
         if self.repo_owner != REPO_OWNER_PYTORCH:
@@ -316,7 +355,12 @@ class BuildConfigScheme:
             return ["12.6.3", "12.8.1", "13.0.2"]
 
     def rocm_versions(self) -> list[str]:
-        versions = list(ROCM_CONTAINER_IMAGES)
+        if self.rocm_versions_override:
+            versions = list(self.rocm_versions_override)
+        else:
+            versions = list(ROCM_CONTAINER_IMAGES)
+        # Keep numeric ascending order so "latest" slicing stays meaningful.
+        versions = sorted(versions, key=lambda v: tuple(map(int, v.split("."))))
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
             return versions[-1:]
         if self.jobtype != JOBTYPE_BUILD:
