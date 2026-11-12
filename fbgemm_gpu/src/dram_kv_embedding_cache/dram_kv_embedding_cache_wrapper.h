@@ -342,8 +342,49 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     half_impl().exclusive_hbm_wait();
   }
 
+  void wait_row_writes_done() {
+    half_impl().wait_row_writes_done();
+  }
+
   std::vector<int64_t> exclusive_hbm_stats() {
     return half_impl().exclusive_hbm_stats();
+  }
+
+  /// Bytes per raw INT8 checkpoint row, or 0 without int8_storage.
+  int64_t get_int8_row_bytes() {
+    return impl_->get_int8_row_bytes();
+  }
+
+  /// Bytes per raw checkpoint row (INT8 or packed INT4), or 0 for fp16 rows.
+  int64_t get_raw_row_bytes() {
+    return impl_->get_raw_row_bytes();
+  }
+
+  void set_raw_source_format(const std::string& format) {
+    half_impl().set_raw_source_format(format);
+  }
+
+  bool accepts_raw_row_bytes(int64_t row_bytes, bool drop_tail) {
+    return half_impl().accepts_raw_row_bytes(row_bytes, drop_tail);
+  }
+
+  void get_int8_payloads_cuda(
+      at::Tensor indices_cpu,
+      at::Tensor rows_cpu,
+      at::Tensor count_cpu) {
+    half_impl().get_int8_payloads_cuda(
+        std::move(indices_cpu), std::move(rows_cpu), std::move(count_cpu));
+  }
+
+  void get_int8_payloads(
+      const at::Tensor& indices,
+      const at::Tensor& rows,
+      const at::Tensor& count) {
+    half_impl().get_int8_payloads(indices, rows, count);
+  }
+
+  std::vector<int64_t> get_int8_write_counts() {
+    return half_impl().get_int8_write_counts();
   }
 
  private:
