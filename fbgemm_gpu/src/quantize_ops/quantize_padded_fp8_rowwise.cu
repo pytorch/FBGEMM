@@ -39,9 +39,9 @@ __global__ inline void _float_to_paddedFP8rowwise_cuda_kernel(
   // On ROCm the launch caps the grid (HIP 2^32 threads-per-launch limit); grid-
   // stride over rows/buckets. On CUDA the grid is not capped and the loop runs
   // exactly once.
+#ifdef USE_ROCM
   const int64_t num_items =
       (nrows == 1) ? ((ncols + row_dim - 1) / row_dim) : nrows;
-#ifdef USE_ROCM
   for (int64_t row =
            static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
        row < num_items;
@@ -207,7 +207,9 @@ __global__ inline void _PaddedFP8rowwise_to_float_1d_cuda_kernel(
     pad = ::max(0, ::min(pad, row_dim));
     const auto pad_offset = offsets[row];
     output_t* output_row = output + row * row_dim - pad_offset;
-    for (auto col = threadIdx.x; col < row_dim - pad; col += blockDim.x) {
+    const uint32_t valid_columns =
+        row_dim > pad ? static_cast<uint32_t>(row_dim - pad) : 0;
+    for (uint32_t col = threadIdx.x; col < valid_columns; col += blockDim.x) {
       const auto output_ = hfp8_to_float(input_row[col], ebit, bias) / scale;
       quantize_float_store(&output_row[col], output_);
     }
