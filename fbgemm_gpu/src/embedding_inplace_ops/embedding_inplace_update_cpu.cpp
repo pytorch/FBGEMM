@@ -128,7 +128,7 @@ void dram_kv_embedding_inplace_update_cpu(
     Tensor update_table_idx,
     Tensor update_row_idx,
     Tensor update_offsets,
-    const int64_t row_alignment) {
+    [[maybe_unused]] const int64_t row_alignment) {
   TENSOR_ON_CPU(weights_placements);
   TENSOR_ON_CPU(weights_offsets);
   TENSOR_ON_CPU(weights_tys);
@@ -143,14 +143,20 @@ void dram_kv_embedding_inplace_update_cpu(
   if (N == 0) {
     return;
   }
+  // update_offsets holds each row's start in update_weights, then the end: rows
+  // are packed back to back, so the offsets increase from 0.
+  TORCH_CHECK(
+      update_offsets.numel() == N + 1,
+      "update_offsets needs ",
+      N + 1,
+      " entries, got ",
+      update_offsets.numel());
   auto embedding_inplace_update_method =
       tbe_module->find_method(tbe_module_update_func_name);
   TORCH_CHECK(embedding_inplace_update_method.has_value());
   auto embedding_log_inplace_update_stats_method =
       tbe_module->find_method("log_inplace_update_stats");
 
-  const uint8_t* weights_tys_ptr = weights_tys.const_data_ptr<uint8_t>();
-  const int32_t* D_offsets_ptr = D_offsets.const_data_ptr<int32_t>();
   uint8_t* update_weights_ptr = update_weights.mutable_data_ptr<uint8_t>();
   const int32_t* update_table_idx_ptr =
       update_table_idx.const_data_ptr<int32_t>();
@@ -166,12 +172,21 @@ void dram_kv_embedding_inplace_update_cpu(
     }
     int window_size = window_end - window_start;
 
-    SparseType weight_ty = static_cast<SparseType>(weights_tys_ptr[0]);
-    int32_t D_start = D_offsets_ptr[0];
-    int32_t D_end = D_offsets_ptr[1];
-    int32_t D = D_end - D_start;
-    int32_t D_bytes =
-        nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
+    // nbit::padded_row_size_in_bytes(D, weight_ty) is wrong for group-wise INT4
+    // rows: at dim 128 it gives the rowwise 68 B (64 B of codes + 4 B scale and
+    // bias), but a group-wise row is 80 B (one scale byte per 8 values). So
+    // take the width the caller packed: this table's bytes / its rows.
+    const int64_t window_bytes =
+        update_offsets_ptr[window_end] - update_offsets_ptr[window_start];
+    TORCH_CHECK(
+        window_bytes % window_size == 0,
+        "update_offsets give ",
+        window_bytes,
+        " bytes for ",
+        window_size,
+        " rows of table ",
+        cur_table);
+    const int64_t D_bytes = window_bytes / window_size;
 
     uint8_t* batched_weights_ptr =
         update_weights_ptr + update_offsets_ptr[window_start];
