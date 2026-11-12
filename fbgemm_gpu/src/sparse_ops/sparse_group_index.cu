@@ -109,8 +109,10 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         member_warp_id = warp_id % warps_per_member;
 
         const int64_t start_row = member_warp_id * rows_per_warp;
-        const auto local_row = (threadIdx.x * UNROLL_FACTOR) / num_cols;
-        const auto col_offset = (threadIdx.x * UNROLL_FACTOR) % num_cols;
+        const int32_t local_row =
+            (static_cast<int32_t>(threadIdx.x) * UNROLL_FACTOR) / num_cols;
+        const int32_t col_offset =
+            (static_cast<int32_t>(threadIdx.x) * UNROLL_FACTOR) % num_cols;
         const int64_t current_row = start_row + local_row;
         if (local_row < rows_per_warp && current_row < num_work_rows) {
           input_t* input =
@@ -134,9 +136,9 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         // Wide-column fallback: >= 1 warp per row.
         // int64 so the row * num_cols address arithmetic below cannot overflow.
         const int64_t row = member_warp_id / warps_per_row;
-        const auto col_offset =
+        const int32_t col_offset =
             ((member_warp_id % warps_per_row) << LOG_COLS_PER_WARP) +
-            (threadIdx.x * UNROLL_FACTOR);
+            (static_cast<int32_t>(threadIdx.x) * UNROLL_FACTOR);
         input_t* input =
             reinterpret_cast<input_t*>(input_ptrs[member_id]) + col_offset;
         output_t* output =

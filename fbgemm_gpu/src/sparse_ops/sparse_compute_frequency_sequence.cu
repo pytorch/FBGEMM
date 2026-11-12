@@ -21,8 +21,9 @@ __launch_bounds__(kMaxThreads) void compute_frequency_sequence_kernel(
     index_t start_input,
     const int input_size) {
 #ifdef USE_ROCM
-  for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < input_size;
-       i += blockDim.x * gridDim.x) {
+  for (int64_t i = static_cast<int64_t>(blockDim.x) * blockIdx.x + threadIdx.x;
+       i < input_size;
+       i += static_cast<int64_t>(blockDim.x) * gridDim.x) {
 #else
   const auto i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= input_size) {
