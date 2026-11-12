@@ -337,41 +337,52 @@ class Permute1DSparseFeaturesTest(unittest.TestCase):
 class Permute2DSparseFeaturesTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     def test_permute_2D_sparse_data(self) -> None:
-        lengths = torch.tensor(
-            [[0, 0, 1], [0, 1, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1]],
-            dtype=torch.int32,
-            device=torch.accelerator.current_accelerator(),
-        )
-        indices = torch.tensor(
-            [500, 1000, 1999],
-            dtype=torch.int32,
-            device=torch.accelerator.current_accelerator(),
-        )
-        permute = torch.tensor(
-            [0, 3, 1, 4, 2, 5],
-            dtype=torch.int32,
-            device=torch.accelerator.current_accelerator(),
-        )
-        weights = torch.rand((3, 64), device=torch.accelerator.current_accelerator())
-        (
-            lengths_actual,
-            values_actual,
-            weights_actual,
-        ) = torch.ops.fbgemm.permute_2D_sparse_data(
-            permute, lengths, indices, weights, indices.numel()
-        )
-        self.assertTrue(
-            torch.equal(
-                lengths_actual,
-                torch.tensor(
-                    [[0, 0, 1], [0, 0, 0], [0, 1, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1]],
+        for lengths_dtype in (torch.int32, torch.int64):
+            with self.subTest(lengths_dtype=lengths_dtype):
+                lengths = torch.tensor(
+                    [[0, 0, 1], [0, 1, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1]],
+                    dtype=lengths_dtype,
+                    device=torch.accelerator.current_accelerator(),
+                )
+                indices = torch.tensor(
+                    [500, 1000, 1999],
                     dtype=torch.int32,
                     device=torch.accelerator.current_accelerator(),
-                ),
-            )
-        )
-        self.assertTrue(torch.equal(values_actual, indices))
-        self.assertTrue(torch.equal(weights_actual, weights))
+                )
+                permute = torch.tensor(
+                    [0, 3, 1, 4, 2, 5],
+                    dtype=torch.int32,
+                    device=torch.accelerator.current_accelerator(),
+                )
+                weights = torch.rand(
+                    (3, 64), device=torch.accelerator.current_accelerator()
+                )
+                (
+                    lengths_actual,
+                    values_actual,
+                    weights_actual,
+                ) = torch.ops.fbgemm.permute_2D_sparse_data(
+                    permute, lengths, indices, weights, indices.numel()
+                )
+                self.assertTrue(
+                    torch.equal(
+                        lengths_actual,
+                        torch.tensor(
+                            [
+                                [0, 0, 1],
+                                [0, 0, 0],
+                                [0, 1, 0],
+                                [0, 0, 0],
+                                [0, 0, 0],
+                                [0, 0, 1],
+                            ],
+                            dtype=lengths_dtype,
+                            device=torch.accelerator.current_accelerator(),
+                        ),
+                    )
+                )
+                self.assertTrue(torch.equal(values_actual, indices))
+                self.assertTrue(torch.equal(weights_actual, weights))
 
 
 extend_test_class(PermuteSparseFeaturesTest)
