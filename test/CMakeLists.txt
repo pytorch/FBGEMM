@@ -62,7 +62,6 @@ function(add_gtest TESTNAME)
       target_compile_options(${TESTNAME} PRIVATE
       -m64
       ${CXX_AVX2_FLAGS}
-      -mfma
       -masm=intel)
     endif()
   endif()
