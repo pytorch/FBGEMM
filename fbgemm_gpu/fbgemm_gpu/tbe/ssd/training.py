@@ -4514,6 +4514,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             should_flush=should_flush,
         )
         state_names = self.optimizer.state_names()
+        if self.kv_zch_params is None and self.optimizer in (
+            OptimType.ADAM,
+            OptimType.PARTIAL_ROWWISE_ADAM,
+        ):
+            # Checkpoint names must match the UVM fused path. KV ZCH keys every
+            # state by name, so its existing checkpoint names stay unchanged.
+            persisted_names = {"momentum1": "exp_avg", "momentum2": "exp_avg_sq"}
+            state_names = [persisted_names.get(name, name) for name in state_names]
         return [dict(zip(state_names, states)) for states in states_list]
 
     @torch.jit.export
