@@ -108,6 +108,10 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const index_t* const __restrict__ block_bucketize_pos_offsets,
     index_t* __restrict__ indices_to_lb) {
   using uindex_t = std::make_unsigned_t<index_t>;
+  using row_counter_t = std::conditional_t<
+      std::is_same_v<offset_t, int32_t> && std::is_same_v<index_t, int32_t>,
+      uint32_t,
+      int64_t>;
   const int64_t bt_start =
       static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
@@ -131,8 +135,8 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     // range of blk_size, we expect the later embedding module to take care
     // of hashing indices calculation.
     if (!use_block_bucketize_pos) {
-      for (offset_t i = rowstart + static_cast<offset_t>(threadIdx.x);
-           i < rowend;
+      for (row_counter_t i = static_cast<row_counter_t>(rowstart) + threadIdx.x;
+           static_cast<int64_t>(i) < rowend;
            i += blockDim.x) {
         uindex_t idx = static_cast<uindex_t>(indices_data[i]);
         const uindex_t unsigned_global_idx_size =
@@ -154,7 +158,8 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const index_t bucketize_max_idx = (t + 1) * (my_size + 1) - 1;
     const uindex_t blk_scalar =
         block_bucketize_pos_concat[bucketize_max_idx] / global_num_blks;
-    for (offset_t i = rowstart + static_cast<offset_t>(threadIdx.x); i < rowend;
+    for (row_counter_t i = static_cast<row_counter_t>(rowstart) + threadIdx.x;
+         static_cast<int64_t>(i) < rowend;
          i += blockDim.x) {
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = 0;
@@ -216,6 +221,10 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
     const bool keep_orig_idx,
     const bool* const __restrict__ keep_orig_idx_per_feature) {
   using uindex_t = std::make_unsigned_t<index_t>;
+  using row_counter_t = std::conditional_t<
+      std::is_same_v<offset_t, int32_t> && std::is_same_v<index_t, int32_t>,
+      uint32_t,
+      int64_t>;
   const int64_t bt_start =
       static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.y;
@@ -228,6 +237,10 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
     const index_t blk_size = block_sizes_data[t];
     const offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     const offset_t rowend = offsets_data[b_t];
+    const row_counter_t rowend_bound =
+        std::is_unsigned_v<row_counter_t> && rowend < 0
+        ? 0
+        : static_cast<row_counter_t>(rowend);
     const auto use_block_bucketize_pos =
         (block_bucketize_pos_concat != nullptr);
 
@@ -251,8 +264,9 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
       // keep_orig_idx settings
       keep_idx = keep_orig_idx_per_feature[t];
     }
-    for (offset_t i = rowstart + static_cast<offset_t>(threadIdx.x); i < rowend;
-         i += static_cast<offset_t>(blockDim.x)) {
+    for (row_counter_t i = static_cast<row_counter_t>(rowstart) + threadIdx.x;
+         i < rowend_bound;
+         i += blockDim.x) {
       // We have use cases using none-hashed raw indices that can be either
       // negative or larger than embedding table hash_size (blk_size *
       // my_size). In cases of none-hashed indices we need to ensure

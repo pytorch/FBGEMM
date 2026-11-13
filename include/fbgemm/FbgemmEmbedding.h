@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2026 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -285,6 +286,7 @@ auto GenerateEmbeddingSpMDMFP8WithStrides(
              const OffsetType* offsets_or_lengths,
              const float* weights,
              OutType* out) {
+    const bool record_stats = is_stats_enabled();
     return detail::embedding_spmdm_fp8(
         block_size,
         output_size,
@@ -301,14 +303,17 @@ auto GenerateEmbeddingSpMDMFP8WithStrides(
         output_stride,
         input_stride,
         [](InType value) { return to_float(value); },
-        [](int64_t rows, int64_t dims, int64_t batch, int64_t length) {
-          constexpr auto output_kind = std::is_same_v<OutType, float>
-              ? detail::FP8OutputKind::Float
-              : (std::is_same_v<OutType, bfloat16>
-                     ? detail::FP8OutputKind::BFloat
-                     : detail::FP8OutputKind::Half);
-          detail::record_fp8_embedding_pattern(
-              rows, dims, batch, length, output_kind);
+        [record_stats](
+            int64_t rows, int64_t dims, int64_t batch, int64_t length) {
+          if (record_stats) {
+            constexpr auto output_kind = std::is_same_v<OutType, float>
+                ? detail::FP8OutputKind::Float
+                : (std::is_same_v<OutType, bfloat16>
+                       ? detail::FP8OutputKind::BFloat
+                       : detail::FP8OutputKind::Half);
+            detail::record_fp8_embedding_pattern(
+                rows, dims, batch, length, output_kind);
+          }
         },
         use_autovec);
   };

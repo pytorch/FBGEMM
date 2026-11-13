@@ -28,8 +28,12 @@ __launch_bounds__(kMaxThreads) void expand_into_jagged_permute_kernel(
     const offsets_t output_start = output_offsets[t];
     const offsets_t segment_length = output_offsets[t + 1] - output_offsets[t];
     const offsets_t input_start = input_offsets[permute[t]];
-    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
-      output_permute[output_start + i] = input_start + i;
+    using loop_index_t = std::
+        conditional_t<std::is_same_v<offsets_t, int32_t>, uint32_t, int64_t>;
+    for (loop_index_t i = threadIdx.x; static_cast<int64_t>(i) < segment_length;
+         i += blockDim.x) {
+      const int64_t index = static_cast<int64_t>(i);
+      output_permute[output_start + index] = input_start + index;
     }
   }
 }

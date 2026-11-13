@@ -184,8 +184,8 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
   {%- endif %}
   int32_t T = weights_offsets.size(0);
   const int32_t num_long_runs = num_long_run_ids[0];
-  const auto warp_id = threadIdx.y;
-  const auto lane_id = threadIdx.x;
+  const int32_t warp_id = static_cast<int32_t>(threadIdx.y);
+  const int32_t lane_id = static_cast<int32_t>(threadIdx.x);
 
   // Copy value to max_vecs to make max_vecs_per_thread known at compile time
   // when kUseVecBlocking == false
@@ -198,7 +198,8 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
   {%- if is_gwd_kernel %}
   const float weight_decay_base = 1 - learning_rate * weight_decay;
   {%- endif %}
-  for (auto long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
+  for (int64_t long_run_id = blockIdx.x; long_run_id < num_long_runs;
+       long_run_id += gridDim.x) {
         // The first thread block in the really long run has run_id in long_run_ids
         // and the rest have the negative of its offset (see find_long_segments kernel).
         int32_t cta_rank_on_current_run = 0;
@@ -251,8 +252,10 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
         int64_t idx = linear_index - hash_size;
 
         const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
-        const int32_t sl_start = SL_per_warp * warp_id;
-        const int32_t sl_end = min(SL_per_warp * (warp_id + 1), SL);
+        const uint32_t sl_start =
+            static_cast<uint32_t>(SL_per_warp) * threadIdx.y;
+        const uint32_t sl_end =
+            min(sl_start + SL_per_warp, static_cast<uint32_t>(SL));
 
         // Accumulate gradients (compute grad_sum)
         Vec4TAcc<cache_t> grad_sum[kFixedMaxVecsPerThread];

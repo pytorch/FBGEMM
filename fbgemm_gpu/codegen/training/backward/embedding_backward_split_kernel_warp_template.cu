@@ -184,9 +184,14 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
       ? smem.getPointer() + threadIdx.y * grad_sum_stride
       : nullptr;
 
-    for (uint32_t run_id = start_run_id;
-         run_id < sorted_linear_indices_run.size(0) && run_id < sorted_linear_indices_num_runs[0];
-             run_id += gridDim.x * blockDim.y) {
+#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000)
+    using run_id_t = uint32_t;
+#else
+    using run_id_t = int64_t;
+#endif
+    for (run_id_t run_id = start_run_id;
+         run_id < static_cast<run_id_t>(sorted_linear_indices_run.size(0)) && run_id < static_cast<run_id_t>(sorted_linear_indices_num_runs[0]);
+         run_id += static_cast<run_id_t>(gridDim.x) * blockDim.y) {
 
         const int64_t linear_index = sorted_linear_indices_run[run_id];
         const int32_t segment_start =
@@ -325,7 +330,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
         const int64_t weights_offset = weights_offsets[t_0];
         {%- else %}
         // Compute offset of sparse gradient
-        const int64_t weights_offset = run_id * max_D;
+        const int64_t weights_offset = static_cast<int64_t>(run_id) * max_D;
         idx = 0;
         {%- endif %}
         store_grad_sum<
@@ -465,9 +470,9 @@ hip_mixed_d_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc
     const int32_t hip_total_L =
         sorted_linear_indices_cumulative_run_lengths[hip_num_unique_runs];
     if (!(hip_num_unique_runs > 0 && hip_total_L <= 2 * hip_num_unique_runs)) {
-        for (uint32_t run_id = start_run_id;
+        for (int64_t run_id = start_run_id;
              run_id < sorted_linear_indices_run.size(0) && run_id < hip_num_unique_runs;
-                 run_id += gridDim.x * blockDim.y) {
+             run_id += static_cast<int64_t>(gridDim.x) * blockDim.y) {
 
             const int64_t linear_index = sorted_linear_indices_run[run_id];
             const int32_t segment_start =

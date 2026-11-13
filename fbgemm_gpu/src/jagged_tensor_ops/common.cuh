@@ -627,7 +627,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
     if ((dense_col < y0.size(1)) && (dense_row < y0.size(0)) &&
         (dense_col < y1.size(1)) && (dense_row < y1.size(0)) &&
         (dense_col >= 0) && (dense_row >= 0)) {
-      for (int64_t tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
+      for (uint32_t tid = threadIdx.x; static_cast<int64_t>(tid) < E / 8;
+           tid += blockDim.x) {
         VecType128 v_x, v_out, v_y0, v_y1;
         v_x.data.mask =
             (reinterpret_cast<const VecType128::TType*>(x_ptr))[tid];
@@ -639,7 +640,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType128::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int64_t tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
+      for (uint32_t tid = threadIdx.x + (E / 8) * 8;
+           static_cast<int64_t>(tid) < E / 4;
            tid += blockDim.x) {
         VecType64 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType64::TType*>(x_ptr))[tid];
@@ -651,7 +653,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType64::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int64_t tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
+      for (uint32_t tid = threadIdx.x + (E / 4) * 4;
+           static_cast<int64_t>(tid) < E / 2;
            tid += blockDim.x) {
         VecType32 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType32::TType*>(x_ptr))[tid];
@@ -663,7 +666,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType32::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int64_t tid = threadIdx.x + (E / 2) * 2; tid < E;
+      for (uint32_t tid = threadIdx.x + (E / 2) * 2;
+           static_cast<int64_t>(tid) < E;
            tid += blockDim.x) {
         __half v_x, v_out, v_y0, v_y1;
         v_x = static_cast<__half>(x_ptr[tid]);
@@ -673,7 +677,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         values_ptr[tid] = v_out;
       }
     } else {
-      for (int64_t tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
+      for (uint32_t tid = threadIdx.x; static_cast<int64_t>(tid) < E / 8;
+           tid += blockDim.x) {
         VecType128 v_x, v_out, v_y0, v_y1;
         v_x.data.mask =
             (reinterpret_cast<const VecType128::TType*>(x_ptr))[tid];
@@ -681,7 +686,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType128::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int64_t tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
+      for (uint32_t tid = threadIdx.x + (E / 8) * 8;
+           static_cast<int64_t>(tid) < E / 4;
            tid += blockDim.x) {
         VecType64 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType64::TType*>(x_ptr))[tid];
@@ -689,7 +695,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType64::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int64_t tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
+      for (uint32_t tid = threadIdx.x + (E / 4) * 4;
+           static_cast<int64_t>(tid) < E / 2;
            tid += blockDim.x) {
         VecType32 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType32::TType*>(x_ptr))[tid];
@@ -697,7 +704,8 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType32::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int64_t tid = threadIdx.x + (E / 2) * 2; tid < E;
+      for (uint32_t tid = threadIdx.x + (E / 2) * 2;
+           static_cast<int64_t>(tid) < E;
            tid += blockDim.x) {
         __half v_x, v_out, v_y0, v_y1;
         v_x = static_cast<__half>(x_ptr[tid]);

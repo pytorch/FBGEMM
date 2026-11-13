@@ -36,13 +36,13 @@ __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
     const int row_end = a_offsets[b + 1];
     const int length = std::min(row_end - row_start, max_L);
     if (length == 0) {
-      for (int32_t d = static_cast<int32_t>(threadIdx.x); d < D;
+      for (uint32_t d = threadIdx.x; static_cast<int64_t>(d) < D;
            d += blockDim.x) {
         output[b_h][d] = 0;
       }
     } else {
       // TODO: use shared memory
-      for (int32_t d = static_cast<int32_t>(threadIdx.x); d < D;
+      for (uint32_t d = threadIdx.x; static_cast<int64_t>(d) < D;
            d += blockDim.x) {
         at::acc_type<scalar_t, true> acc =
             v[b_h][0] * a_values[row_start][h * D + d];
