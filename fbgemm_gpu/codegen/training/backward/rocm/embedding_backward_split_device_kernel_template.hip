@@ -307,7 +307,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     const uint32_t lane_id = threadIdx.x % AMDGCN_WAVE_SIZE;
     const uint32_t run_id  = wave_id + blockIdx.x * waves_per_block;
 
-    if(run_id >= p_sorted_linear_indices_num_runs[0])
+    if(run_id >= static_cast<uint32_t>(p_sorted_linear_indices_num_runs[0]))
     {
         return;
     }
@@ -330,7 +330,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
 
     const int32_t segment_length = segment_end - segment_start;
 
-    if(segment_length >= max_segment_length_per_warp)
+    if(static_cast<uint32_t>(segment_length) >= max_segment_length_per_warp)
         return;
 
     const int32_t segment_length_mod = segment_length & length_mask;
@@ -342,7 +342,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     float indice_weights[segment_unroll];
 
     #pragma unroll
-    for(int i=0; i < dword_per_row; i++)
+    for(int i=0; static_cast<uint32_t>(i) < dword_per_row; i++)
     {
         grad_acc[i] = .0f;
     }

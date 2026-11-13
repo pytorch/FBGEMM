@@ -42,7 +42,7 @@ split_embedding_backward_codegen_find_long_segments(
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms) {
   const int32_t num_runs = sorted_linear_indices_num_runs[0];
-  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs; run_id += blockDim.x * gridDim.x) {
+  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < static_cast<uint32_t>(num_runs); run_id += blockDim.x * gridDim.x) {
     if (sorted_linear_indices_run_lengths[run_id] >= max_segment_length_per_warp) {
         // A segment with length > max_segment_length_per_cta is handled by more than 1 thread block.
         const int num_ctas_for_run =
@@ -87,7 +87,7 @@ void split_embedding_backward_count_unique_indices_kernel(
   const int32_t num_runs = sorted_linear_indices_num_runs[0];
   const auto T = weights_placements.size(0);
   for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x;
-       run_id < num_runs;
+       run_id < static_cast<uint32_t>(num_runs);
        run_id += blockDim.x * gridDim.x) {
     // Obtain the associated table id of the run id
     const auto segment_start = sorted_linear_indices_cumulative_run_lengths[run_id];
@@ -96,13 +96,13 @@ void split_embedding_backward_count_unique_indices_kernel(
 
     int32_t t_next = -1;
     const auto unique_count_offset = run_id + 1;
-    if (unique_count_offset < num_runs) {
+    if (unique_count_offset < static_cast<uint32_t>(num_runs)) {
       const auto segment_start_next = sorted_linear_indices_cumulative_run_lengths[unique_count_offset];
       const auto info_next = reinterpret_cast<const info_t*>(&sorted_infos[0])[segment_start_next];
       t_next = nobag ? (info_next % T) : (info_next >> info_B_num_bits);
     }
 
-    if (t != t_next) {
+    if (t != static_cast<decltype(t)>(t_next)) {
       const auto placement = static_cast<PlacementType>(weights_placements[t]);
       if (placement != PlacementType::MANAGED_CACHING) {
         // Record num unique indices for PlacementType::DEVICE from unique_count_offset
@@ -170,11 +170,11 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
   // On CUDA the grid is not capped and the loop body runs once per warp.
 #ifdef USE_ROCM
   for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-       b_t < total_B;
+       b_t < static_cast<uint32_t>(total_B);
        b_t += blockDim.y * gridDim.x) {
 #else
   auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (b_t >= total_B) {
+  if (b_t >= static_cast<uint32_t>(total_B)) {
     return;
   }
 #endif
@@ -206,13 +206,13 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
   grad_t* shifted_grad_output_mean = &grad_output_mean[grad_outer_offset][grad_offset];
 
   if (L != 0) {
-    for (auto d = threadIdx.x; d * 4 < D; d += blockDim.x) {
+    for (auto d = threadIdx.x; d * 4 < static_cast<uint32_t>(D); d += blockDim.x) {
       Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
       grad_out_vec.mul_(1.0 / L);
       grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
   } else {
-    for (auto d = threadIdx.x; d * 4 < D; d += blockDim.x) {
+    for (auto d = threadIdx.x; d * 4 < static_cast<uint32_t>(D); d += blockDim.x) {
       Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
       grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
