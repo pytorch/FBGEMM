@@ -257,6 +257,26 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Types.h",
     ]
 
+def get_fbgemm_avx2_flags():
+    return [
+        "-m64",
+        "-mavx2",
+        "-mfma",
+        "-mf16c",
+    ]
+
+def get_fbgemm_avx512_flags():
+    return [
+        "-m64",
+        "-mavx2",
+        "-mfma",
+        "-mavx512f",
+        "-mavx512bw",
+        "-mavx512dq",
+        "-mavx512vl",
+        "-mavx512bf16",
+    ]
+
 def get_fbgemm_avx2_srcs(buck = False):
     # These 3 depthwise files are also compiled in fbgemm_sve.  On ARM,
     # exclude them from fbgemm_avx2 to avoid duplicate symbols when
