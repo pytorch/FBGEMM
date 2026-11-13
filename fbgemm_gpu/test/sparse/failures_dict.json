@@ -16,6 +16,7 @@
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},
+    "fbgemm::asynchronous_segmented_complete_cumsum": {},
     "fbgemm::batch_index_select_dim0": {},
     "fbgemm::batch_index_select_dim0_tensor": {},
     "fbgemm::block_bucketize_sparse_features": {},

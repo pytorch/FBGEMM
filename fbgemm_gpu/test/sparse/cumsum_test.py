@@ -227,6 +227,132 @@ class CumSumTest(unittest.TestCase):
 
         torch.testing.assert_close(cumsum_gpu.cpu(), cumsum_cpu)
 
+    @staticmethod
+    def _segmented_complete_cumsum_ref(
+        x: torch.Tensor, segment_sizes: list[int]
+    ) -> torch.Tensor:
+        return torch.cat(
+            [x.new_zeros(0)]
+            + [
+                torch.ops.fbgemm.asynchronous_complete_cumsum(segment)
+                for segment in x.contiguous().split(segment_sizes)
+            ]
+        )
+
+    @given(
+        segment_sizes=st.lists(st.integers(0, 64), max_size=20),
+        dtype=st.sampled_from([torch.int64, torch.int32, torch.float32]),
+        strided=st.booleans(),
+        device=cpu_and_maybe_gpu(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    def test_segmented_complete_cumsum(
+        self,
+        segment_sizes: list[int],
+        dtype: torch.dtype,
+        strided: bool,
+        device: torch.device,
+    ) -> None:
+        # Like asynchronous_complete_cumsum, only the CPU variant supports floats.
+        if device == torch.accelerator.current_accelerator() and dtype is torch.float32:
+            return
+
+        # Citrine C3: create random input directly on the target device.
+        x = torch.randint(0, 100, (2 * sum(segment_sizes),), device=device).to(dtype)
+        x = x[::2] if strided else x[: sum(segment_sizes)]
+        out = torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(x, segment_sizes)
+        torch.testing.assert_close(
+            out, self._segmented_complete_cumsum_ref(x, segment_sizes)
+        )
+
+        meta_out = torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(
+            x.to("meta"), segment_sizes
+        )
+        self.assertEqual(meta_out.size(), out.size())
+
+    def test_segmented_complete_cumsum_cpu_and_meta(self) -> None:
+        for segment_sizes in ([3, 0, 5], []):
+            for dtype in (torch.int32, torch.int64, torch.float32):
+                x = torch.arange(sum(segment_sizes), dtype=dtype)
+                out = torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(
+                    x, segment_sizes
+                )
+                torch.testing.assert_close(
+                    out, self._segmented_complete_cumsum_ref(x, segment_sizes)
+                )
+                meta_out = torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(
+                    x.to("meta"), segment_sizes
+                )
+                self.assertEqual(meta_out.size(), out.size())
+
+    @optests.dontGenerateOpCheckTests("expects the op to raise")
+    def test_segmented_complete_cumsum_invalid_inputs(self) -> None:
+        devices: list[str | torch.device] = ["cpu", "meta"]
+        if torch.cuda.is_available():
+            devices.append(torch.accelerator.current_accelerator())
+        for device in devices:
+            x = torch.arange(6, device=device)
+            for t_in, segment_sizes in (
+                (x, [2, 3]),
+                (x, [7, -1]),
+                (x.view(2, 3), [6]),
+                # Sums to 2**64, which would wrap to the length of t_in.
+                (x[:0], [2**63 - 1, 2**63 - 1, 2]),
+            ):
+                with self.assertRaises(RuntimeError):
+                    torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(
+                        t_in, segment_sizes
+                    )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests("large GPU inputs")
+    def test_segmented_complete_cumsum_long_and_many_segments(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        # Long and empty segments, many long segments, more segments than one
+        # launch takes, and a single segment.
+        for segment_sizes in (
+            [4095, 4096, 4097, 0, 100_000, 1],
+            [70_000] * 50,
+            [i % 97 for i in range(1000)],
+            [300_000],
+        ):
+            for dtype in (torch.int32, torch.int64):
+                # Large int32 values wrap, which must match the per-segment op.
+                x = torch.randint(
+                    0, 2**30, (sum(segment_sizes),), device=device, dtype=dtype
+                )
+                torch.testing.assert_close(
+                    torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(
+                        x, segment_sizes
+                    ),
+                    self._segmented_complete_cumsum_ref(x, segment_sizes),
+                )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @optests.dontGenerateOpCheckTests("CUDA graph capture and replay")
+    def test_segmented_complete_cumsum_cuda_graph(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        segment_sizes = [3, 0, 5000, 7]
+        x = torch.randint(0, 100, (sum(segment_sizes),), device=device)
+
+        side_stream = torch.cuda.Stream()
+        side_stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(side_stream):
+            torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(x, segment_sizes)
+        torch.cuda.current_stream().wait_stream(side_stream)
+
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            out = torch.ops.fbgemm.asynchronous_segmented_complete_cumsum(
+                x, segment_sizes
+            )
+
+        x.copy_(torch.randint(0, 100, x.shape, device=device))
+        graph.replay()
+        torch.testing.assert_close(
+            out, self._segmented_complete_cumsum_ref(x, segment_sizes)
+        )
+
 
 extend_test_class(CumSumTest)
 
