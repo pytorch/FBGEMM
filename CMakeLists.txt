@@ -26,24 +26,6 @@ include(${MODULE_PATH}/CxxCompilerSetup.cmake)
 # Load cpp_library()
 include(${MODULE_PATH}/CppLibrary.cmake)
 
-# Define function to extract filelists from defs.bzl file
-function(get_filelist name outputvar)
-  execute_process(
-    COMMAND "${Python_EXECUTABLE}" -c
-            "exec(open('defs.bzl').read());print(';'.join(${name}))"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    OUTPUT_VARIABLE _tempvar
-    RESULT_VARIABLE _resvar
-    ERROR_VARIABLE _errvar)
-  if(NOT "${_resvar}" EQUAL "0")
-    message(WARNING "Failed to execute Python (${Python_EXECUTABLE})\n"
-      "Result: ${_resvar}\n"
-      "Error: ${_errvar}\n")
-  endif()
-  string(REPLACE "\n" "" _tempvar "${_tempvar}")
-  set(${outputvar} ${_tempvar} PARENT_SCOPE)
-endfunction()
-
 
 ################################################################################
 # FBGEMM Build Kickstart
@@ -347,6 +329,18 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i386|i686" AND CXX_AVX512_
 else()
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will NOT build AVX512 target")
 endif()
+
+################################################################################
+# FBGEMM Platform Kernels Targets
+################################################################################
+
+include(${MODULE_PATH}/PlatformKernels.cmake)
+
+fbgemm_add_platform_kernels_libraries(fbgemm_platform_kernels_targets
+  DEPS
+    $<BUILD_INTERFACE:cpuinfo>
+    fbgemm_generic)
+list(APPEND fbgemm_targets ${fbgemm_platform_kernels_targets})
 
 ################################################################################
 # FBGEMM Neon Target

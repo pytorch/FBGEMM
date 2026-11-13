@@ -5,7 +5,7 @@
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
-load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_inline_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_inline_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers", "get_fbgemm_tests", "get_fbgemm_autovec_srcs", "get_fbgemm_avx2_flags", "get_fbgemm_avx512_flags")
+load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_inline_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_inline_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers", "get_fbgemm_tests", "get_fbgemm_autovec_srcs", "get_fbgemm_platform_kernels_srcs", "get_fbgemm_platform_kernels_isas", "get_fbgemm_platform_kernels_flags", "get_fbgemm_avx2_flags", "get_fbgemm_avx512_flags")
 
 config_setting(
     name = "linux-x86_64",
@@ -67,7 +67,10 @@ cc_library(
         ":fbgemm_avx2",
         ":fbgemm_inline_avx2",
         ":fbgemm_avx512",
-        ":fbgemm_inline_avx512"]}),
+        ":fbgemm_inline_avx512"] + [
+        ":fbgemm_platform_kernels_" + isa
+        for isa in get_fbgemm_platform_kernels_isas("x86_64")
+    ]}),
     linkstatic = 1,
 )
 
@@ -118,6 +121,22 @@ cc_library(
     ],
     linkstatic = 1,
 )
+
+[
+    cc_library(
+        name = "fbgemm_platform_kernels_" + isa,
+        srcs = get_fbgemm_platform_kernels_srcs(),
+        hdrs = glob(["src/*.h", "src/isa_specific/*.h"]),
+        copts = get_fbgemm_platform_kernels_flags(isa),
+        local_defines = ["FBGEMM_SIMD_" + isa.upper()],
+        deps = [
+            ":fbgemm_base",
+            ":fbgemm_headers",
+        ],
+        linkstatic = 1,
+    )
+    for isa in get_fbgemm_platform_kernels_isas("x86_64")
+]
 
 cc_library(
     name = "fbgemm_autovec",
