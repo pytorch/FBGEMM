@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2026 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -349,6 +350,7 @@ bool EmbeddingSpMDM8Bit_Sve(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last) {
+  const bool record_stats = is_stats_enabled();
   constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
@@ -458,14 +460,16 @@ bool EmbeddingSpMDM8Bit_Sve(
       out += output_stride;
     } // m
     // Track every forward pass in the no_bag case
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        EmbeddingStatsTracker::DataType::INT8,
-        isOutput8bit ? EmbeddingStatsTracker::DataType::INT8
-                     : get_output_type<OutType>(),
-        output_size,
-        1);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::INT8,
+          isOutput8bit ? EmbeddingStatsTracker::DataType::INT8
+                       : get_output_type<OutType>(),
+          output_size,
+          1);
+    }
     return true;
   } // no_bag
 
@@ -495,13 +499,15 @@ bool EmbeddingSpMDM8Bit_Sve(
     }
 
     // Track every forward inference with the actual bag size (len)
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        EmbeddingStatsTracker::DataType::INT8,
-        get_output_type<OutType>(),
-        output_size,
-        len);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::INT8,
+          get_output_type<OutType>(),
+          output_size,
+          len);
+    }
 
     if (!normalize_by_lengths) {
       len = 0;
@@ -817,6 +823,7 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last) {
+  const bool record_stats = is_stats_enabled();
   // This kernel is only dispatched for fp16 output (OutType == float16).
   // All paths produce fp16 directly — no fp32 widening.
   if constexpr (!std::is_same_v<OutType, float16>) {
@@ -919,13 +926,15 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
 
       out += output_stride;
     } // m
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        EmbeddingStatsTracker::DataType::INT8,
-        EmbeddingStatsTracker::DataType::FP16,
-        output_size,
-        1);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::INT8,
+          EmbeddingStatsTracker::DataType::FP16,
+          output_size,
+          1);
+    }
     return true;
   } // no_bag
 
@@ -959,13 +968,15 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
       if (end > index_size) {
         return false;
       }
-      EmbeddingStatsTracker::getInstance().recordPattern(
-          data_size,
-          block_size,
-          EmbeddingStatsTracker::DataType::INT8,
-          EmbeddingStatsTracker::DataType::FP16,
-          output_size,
-          raw_len);
+      if (record_stats) {
+        EmbeddingStatsTracker::getInstance().recordPattern(
+            data_size,
+            block_size,
+            EmbeddingStatsTracker::DataType::INT8,
+            EmbeddingStatsTracker::DataType::FP16,
+            output_size,
+            raw_len);
+      }
 
       const int64_t len =
           normalize_by_lengths ? static_cast<int64_t>(raw_len) : 0;
@@ -1514,13 +1525,15 @@ bool EmbeddingSpMDM8Bit_Sve_Fp16(
       return false;
     }
 
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        EmbeddingStatsTracker::DataType::INT8,
-        EmbeddingStatsTracker::DataType::FP16,
-        output_size,
-        len);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::INT8,
+          EmbeddingStatsTracker::DataType::FP16,
+          output_size,
+          len);
+    }
 
     if (!normalize_by_lengths) {
       len = 0;
@@ -1827,6 +1840,7 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
     const int64_t output_stride,
     const int64_t input_stride,
     const bool scale_bias_last) {
+  const bool record_stats = is_stats_enabled();
   static_assert(InputBitRate == 2 || InputBitRate == 4);
 
   // This kernel is only dispatched for fp16 output (OutType == float16).
@@ -1956,14 +1970,16 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
 
       out += output_stride;
     }
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
-                          : EmbeddingStatsTracker::DataType::INT2,
-        EmbeddingStatsTracker::DataType::FP16,
-        output_size,
-        1);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                            : EmbeddingStatsTracker::DataType::INT2,
+          EmbeddingStatsTracker::DataType::FP16,
+          output_size,
+          1);
+    }
     return true;
   } // NoBag
 
@@ -1998,14 +2014,16 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
       if (end > index_size) {
         return false;
       }
-      EmbeddingStatsTracker::getInstance().recordPattern(
-          data_size,
-          block_size,
-          InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
-                            : EmbeddingStatsTracker::DataType::INT2,
-          EmbeddingStatsTracker::DataType::FP16,
-          output_size,
-          raw_len);
+      if (record_stats) {
+        EmbeddingStatsTracker::getInstance().recordPattern(
+            data_size,
+            block_size,
+            InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                              : EmbeddingStatsTracker::DataType::INT2,
+            EmbeddingStatsTracker::DataType::FP16,
+            output_size,
+            raw_len);
+      }
 
       const int64_t len =
           normalize_by_lengths ? static_cast<int64_t>(raw_len) : 0;
@@ -2726,14 +2744,16 @@ bool EmbeddingSpMDMNBit_Sve_Fp16(
       return false;
     }
 
-    EmbeddingStatsTracker::getInstance().recordPattern(
-        data_size,
-        block_size,
-        InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
-                          : EmbeddingStatsTracker::DataType::INT2,
-        EmbeddingStatsTracker::DataType::FP16,
-        output_size,
-        len);
+    if (record_stats) {
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          data_size,
+          block_size,
+          InputBitRate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                            : EmbeddingStatsTracker::DataType::INT2,
+          EmbeddingStatsTracker::DataType::FP16,
+          output_size,
+          len);
+    }
 
     if (!normalize_by_lengths) {
       len = 0;

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2026 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -49,6 +50,9 @@ void detail::record_fp8_embedding_pattern(
     int64_t batch,
     int64_t length,
     FP8OutputKind output_kind) {
+  if (!is_stats_enabled()) {
+    return;
+  }
   const auto dtype = output_kind == FP8OutputKind::Float
       ? EmbeddingStatsTracker::DataType::FP32
       : (output_kind == FP8OutputKind::BFloat
