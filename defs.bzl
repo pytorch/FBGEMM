@@ -215,6 +215,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/PackWeightMatrixForGConv.cc",
         "src/PackWeightsForConv.cc",
         "src/PackWeightsForDirectConv.cc",
+        "src/PlatformSpecificKernels.cc",
         "src/QuantUtils.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
@@ -256,6 +257,48 @@ def get_fbgemm_public_headers():
         "include/fbgemm/UtilsAvx2.h",
         "include/fbgemm/Types.h",
     ]
+
+def get_fbgemm_platform_kernels_srcs():
+    return [
+        "src/isa_specific/FbgemmBfloat16ConvertKernels.cc",
+        "src/isa_specific/PlatformSpecificKernelsIsa.cc",
+    ]
+
+def get_fbgemm_platform_kernels_isas(arch):
+    return ["ref"] + {
+        "aarch64": ["neon", "sve128"],
+        "x86_64": ["avx2", "avx512"],
+    }.get(arch, [])
+
+def get_fbgemm_avx2_flags():
+    return [
+        "-m64",
+        "-mavx2",
+        "-mfma",
+        "-mf16c",
+    ]
+
+def get_fbgemm_avx512_flags():
+    return [
+        "-m64",
+        "-mavx2",
+        "-mfma",
+        "-mavx512f",
+        "-mavx512bw",
+        "-mavx512dq",
+        "-mavx512vl",
+        "-mavx512bf16",
+    ]
+
+def get_fbgemm_platform_kernels_flags(isa):
+    return {
+        "avx2": get_fbgemm_avx2_flags(),
+        "avx512": get_fbgemm_avx512_flags(),
+        "sve128": [
+            "-march=armv8.5-a+sve2",
+            "-msve-vector-bits=128",
+        ],
+    }.get(isa, [])
 
 def get_fbgemm_avx2_srcs(buck = False):
     # These 3 depthwise files are also compiled in fbgemm_sve.  On ARM,
