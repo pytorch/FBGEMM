@@ -310,11 +310,8 @@ constexpr float cpu_bf162float(bfloat16 src) {
 }
 
 constexpr bfloat16 cpu_float2bfloat16(float src) {
-  const uint32_t bits = std::bit_cast<uint32_t>(src);
-  const uint32_t rounded = bits + 0x7FFFu + ((bits >> 16) & 1u);
-  return {static_cast<uint16_t>(
-      (bits & 0x7FFFFFFFu) > 0x7F800000u ? (bits >> 16) | 0x40u
-                                         : rounded >> 16)};
+  uint32_t temp = std::bit_cast<uint32_t>(src);
+  return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
 }
 
 template <FbgemmHalfType T>
