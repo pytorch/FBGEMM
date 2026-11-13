@@ -649,6 +649,32 @@ _DRAM_SSD_PERF_COUNT: int = len(DramSsdPerfStat)
 _REQUIRED_DRAM_KV_PERF_COUNT: int = len(DramKvPerfStat) - len(
     _OPTIONAL_DRAM_KV_PERF_KEYS
 )
+# Opt-in depth for the inserted_rows scratch pad pool; see
+# SSDTableBatchedEmbeddingBags._get_inserted_rows_scratch.
+_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: str = "FBGEMM_SSD_TBE_INSERTED_ROWS_POOL_DEPTH"
+
+
+def _inserted_rows_pool_depth_from_env() -> int | None:
+    raw = os.environ.get(_INSERTED_ROWS_POOL_DEPTH_ENV_VAR, "")
+    if not raw:
+        return None
+    try:
+        depth = int(raw)
+    except ValueError:
+        logging.warning(
+            "Ignoring invalid %s=%r (not an int); using fresh UVA pads.",
+            _INSERTED_ROWS_POOL_DEPTH_ENV_VAR,
+            raw,
+        )
+        return None
+    if depth < 3:
+        logging.warning(
+            "Ignoring invalid %s=%r (need >= 3); using fresh UVA pads.",
+            _INSERTED_ROWS_POOL_DEPTH_ENV_VAR,
+            raw,
+        )
+        return None
+    return depth
 
 
 class SSDTableBatchedEmbeddingBags(nn.Module):
@@ -1822,6 +1848,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             tuple[Tensor, Tensor, Tensor, bool]
         ] = []
         self.ssd_location_update_data: list[tuple[Tensor, Tensor]] = []
+
+        # inserted_rows scratch pad pool; see _get_inserted_rows_scratch.
+        self._inserted_rows_pool_depth: int | None = (
+            _inserted_rows_pool_depth_from_env()
+        )
+        self._inserted_rows_pool: list[torch.Tensor] = []
+        self._inserted_rows_pool_idx: int = 0
+        self._inserted_rows_pool_fallback_count: int = 0
+        self._inserted_rows_pool_fallback_warned: bool = False
 
         if self.prefetch_pipeline:
             # Scratch pad value queue
@@ -3109,6 +3144,104 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._pending_direct_cache_fill_indices = None
         self.clear_prefetched_direct_backend_output()
 
+    def _new_inserted_rows_pad(self, num_rows: int) -> torch.Tensor:
+        return torch.ops.fbgemm.new_unified_tensor(
+            torch.zeros(
+                1,
+                device=self.current_device,
+                dtype=self.lxu_cache_weights.dtype,
+            ),
+            [num_rows, self.cache_row_dim],
+            is_host_mapped=self.uvm_host_mapped,
+        )
+
+    def _inserted_rows_slot_retained(self, buf: torch.Tensor) -> bool:
+        # True while any retention FIFO still references this slot's
+        # storage (e.g. a no_grad forward in train mode appended an entry
+        # no backward will drain). Both FIFOs pair a pad with a later
+        # hook read (evict read / pointer repair / direct_write).
+        ptr = buf.untyped_storage().data_ptr()
+        for entry in self.ssd_scratch_pad_eviction_data:
+            if entry[0].untyped_storage().data_ptr() == ptr:
+                return True
+        for entry in self.ssd_location_update_data:
+            if entry[1].untyped_storage().data_ptr() == ptr:
+                return True
+        return False
+
+    def _get_inserted_rows_scratch(self, num_rows: int) -> tuple[torch.Tensor, bool]:
+        """Per-iteration UVA scratch pad (inserted_rows), pooled when opted in.
+
+        Pooling only applies to non-ZCH TBEs on the SSD (RocksDB) backend and
+        is opt-in via FBGEMM_SSD_TBE_INSERTED_ROWS_POOL_DEPTH, an int >= 3
+        (unset, non-integer or < 3 keeps a fresh pad per iteration). Prefetch
+        then cycles through that many pads instead of allocating and freeing
+        one per iteration, which stalls the issuing thread and the GPU. Three
+        pads are live at once under the pipeline (current prefetch, previous
+        pad kept for the lookup block, in-flight evict), hence the minimum of
+        3; 4 is a good starting value.
+
+        Reuse is fenced on the GPU, not by distance: each pad stays in the
+        eviction/location FIFOs until a bwd hook drains it, recording
+        ssd_event_sp_evict for the evict read. A slot still held by either
+        FIFO is never handed out again (see _inserted_rows_slot_retained):
+        this falls back to a fresh pad, counts it in
+        _inserted_rows_pool_fallback_count and warns once per TBE. Eval,
+        no_grad (no bwd hook drains the FIFOs) and cache mode (sp_evict is
+        never recorded) always take a fresh pad.
+
+        Returns (pad, reused): reused is True only when the pad aliases
+        existing pooled storage, which needs the early sp_evict fence
+        before the lookup write. Fresh pads (pool disabled, new/grown
+        slots, retained fallback) are new memory with no aliasing and
+        keep the original later fence so the lookup still overlaps the
+        previous eviction.
+        """
+        depth = self._inserted_rows_pool_depth
+        if (
+            depth is None
+            or not self.training
+            or not torch.is_grad_enabled()
+            or self.backend_type != BackendType.SSD
+            or self.kv_zch_params is not None
+            or self._embedding_cache_mode
+        ):
+            return self._new_inserted_rows_pad(num_rows), False
+        pool = self._inserted_rows_pool
+        idx = self._inserted_rows_pool_idx
+        self._inserted_rows_pool_idx = (idx + 1) % depth
+        if idx >= len(pool) or pool[idx].size(0) < num_rows:
+            buf = self._new_inserted_rows_pad(num_rows)
+            if idx < len(pool):
+                pool[idx] = buf
+            else:
+                pool.append(buf)
+            return buf, False
+        assert (
+            pool[idx].device == self.current_device
+            and pool[idx].dtype == self.lxu_cache_weights.dtype
+        ), "pooled pad device/dtype drifted since allocation"
+        buf = pool[idx]
+        if self._inserted_rows_slot_retained(buf):
+            # Backward hasn't drained the entry holding this slot: fall
+            # back to a fresh pad rather than aliasing live retention.
+            self._inserted_rows_pool_fallback_count += 1
+            if not self._inserted_rows_pool_fallback_warned:
+                self._inserted_rows_pool_fallback_warned = True
+                logging.warning(
+                    "Inserted-rows pool (depth=%d) slot is still held by a "
+                    "retention FIFO (eviction=%d, location=%d entries); using a "
+                    "fresh UVA pad. A lagging FIFO (e.g. no_grad forward in "
+                    "train mode) keeps hitting this fallback, paying "
+                    "a fresh UVA allocation per prefetch; see "
+                    "_inserted_rows_pool_fallback_count. Warning once per TBE.",
+                    depth,
+                    len(self.ssd_scratch_pad_eviction_data),
+                    len(self.ssd_location_update_data),
+                )
+            return self._new_inserted_rows_pad(num_rows), False
+        return buf.narrow(0, 0, num_rows), True
+
     def prefetch(
         self,
         indices: Tensor,
@@ -3352,9 +3485,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         self.lxu_cache_evicted_count_list[evict_idx],
                     )
 
-            # Allocation a scratch pad for the current iteration. The scratch
-            # pad is a UVA tensor
-            inserted_rows_shape = (assigned_cache_slots.numel(), self.cache_row_dim)
+            # Scratch pad for the current iteration (UVA tensor); pooled
+            # only when opted in (see _get_inserted_rows_scratch).
             if linear_cache_indices.numel() > 0:
                 if self.prefetch_pipeline and self._embedding_cache_mode:
                     # Assumes enrichment. Without it, ssd_location_update_data
@@ -3362,22 +3494,32 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     # are drained by backward hooks that never fire under
                     # no_grad, outliving a ring slot.
                     inserted_rows = self._get_scratch_pad(assigned_cache_slots.numel())
+                    # Pre-existing ring: keep its original (later-only)
+                    # fencing; the gated early fence below covers only the
+                    # pooled path.
+                    inserted_rows_reused = False
                 else:
-                    inserted_rows = torch.ops.fbgemm.new_unified_tensor(
-                        torch.zeros(
-                            1,
-                            device=self.current_device,
-                            dtype=self.lxu_cache_weights.dtype,
-                        ),
-                        inserted_rows_shape,
-                        is_host_mapped=self.uvm_host_mapped,
-                    )
+                    # The ring serves pipeline+cache mode (above); every
+                    # other path takes a fresh pad, or a pooled one when
+                    # _get_inserted_rows_scratch allows it.
+                    (
+                        inserted_rows,
+                        inserted_rows_reused,
+                    ) = self._get_inserted_rows_scratch(assigned_cache_slots.numel())
             else:
                 inserted_rows = torch.empty(
-                    inserted_rows_shape,
+                    (assigned_cache_slots.numel(), self.cache_row_dim),
                     dtype=self.lxu_cache_weights.dtype,
                     device=self.current_device,
                 )
+                inserted_rows_reused = False
+
+            if inserted_rows_reused and not self._enrichment_enabled:
+                # The pad aliases pooled storage whose async evict read
+                # may still be in flight: fence BEFORE the lookup write.
+                # Fresh pads skip this so the lookup below can still
+                # overlap the previous iteration's eviction.
+                current_stream.wait_event(self.ssd_event_sp_evict)
 
             if self.prefetch_pipeline and len(self.ssd_scratch_pads) > 0:
                 # Look up all missed indices from the previous iteration's
@@ -3473,7 +3615,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                                 )
                             )
 
-            # Ensure the previous iterations eviction is complete
+            # Ensure the previous iterations eviction is complete. Fresh
+            # pads take this later fence (their lookup above still
+            # overlapped the eviction); reused pads already fenced
+            # before the lookup, for which this is a no-op.
             if not self._enrichment_enabled:
                 current_stream.wait_event(self.ssd_event_sp_evict)
             # Ensure that D2H is done
@@ -3670,8 +3815,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Store scratch pad info for post backward eviction only for training
             # for eval job, no backward pass, so no need to store this info
             # Skip for enrichment mode: the backward hook only pops without
-            # evicting (embedding_cache_mode skips evict), and the .clear()
-            # in enrichment_query_id triggers expensive cudaFree on UVA tensors.
+            # evicting (embedding_cache_mode skips evict), so retaining
+            # pads would only pin UVA memory.
             if self.training and not self._enrichment_enabled:
                 self.ssd_scratch_pad_eviction_data.append(
                     (
