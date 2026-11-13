@@ -67,10 +67,11 @@ void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
           for (size_t j = 0; j < count; ++j) {
             const uint32_t bits =
                 std::bit_cast<uint32_t>(input[i + j]) & 0x7fffffffu;
-            needs_reference |=
-                bits > 0x7f800000u || (bits != 0 && bits < 0x00800000u);
+            needs_reference |= bits > 0x7f800000u ||
+                (bits != 0 && bits < 0x00800000u) ||
+                (bits & 0xffffu) == 0x8000u;
           }
-          // Preserve reference behavior for NaNs and subnormals.
+          // Native BF16 conversion rounds halfway cases to even.
           if (needs_reference) {
             FloatToBfloat16_ref(input + i, output + i, count);
           } else {
