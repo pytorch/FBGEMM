@@ -559,6 +559,7 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
         enable_raw_embedding_streaming: bool = False,
         optimizer_state_dtypes: dict[str, SparseType] = {},  # noqa: B006
         l2_cache_size: int = 8,
+        uvm_host_mapped: bool = False,
     ) -> tuple[SSDTableBatchedEmbeddingBags, list[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -650,6 +651,8 @@ class SSDSplitTableBatchedEmbeddingsTestCommon(unittest.TestCase):
                 enable_raw_embedding_streaming=enable_raw_embedding_streaming,
                 backend_type=backend_type,
                 res_params=res_params,
+                optimizer_state_dtypes=optimizer_state_dtypes,
+                uvm_host_mapped=uvm_host_mapped,
             ).cuda()
 
         if bulk_init_chunk_size > 0 and lazy_bulk_init_enabled:
