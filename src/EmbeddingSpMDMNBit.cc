@@ -11,14 +11,25 @@
 #include "fbgemm/FbgemmEmbedding.h"
 
 #include <cpuinfo.h>
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && \
+    (defined(__clang__) || defined(__GNUC__))
+#include <immintrin.h>
+#endif
+#include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <cstring>
 #include <iostream>
+#include <limits>
 #include <mutex>
+#include <stdexcept>
 #include <tuple>
+#include <vector>
 #include "./CodeCache.h" // @manual
-#include "./CodeGenHelpers.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h" // @manual
+#include "./GpuCompatibleInt4.h" // @manual
 #include "./JitPerfMap.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
@@ -27,6 +38,341 @@
 using namespace std;
 
 namespace fbgemm {
+
+namespace {
+
+using GpuInt4Accumulate =
+    void (*)(const uint8_t*, const float*, float*, int64_t);
+using GpuInt4StoreFloat = void (*)(const float*, float*, int64_t, float);
+using GpuInt4StoreHalf = void (*)(const float*, float16*, int64_t, float);
+using GpuInt4MakeLut = std::array<float, 32> (*)(uint16_t, uint16_t);
+
+void accumulateGpuInt4Scalar(
+    const uint8_t* packed,
+    const float* lut,
+    float* accumulator,
+    int64_t dimension) {
+  for (int64_t d = 0; d < dimension; ++d) {
+    const uint8_t byte = packed[d / 2];
+    const uint8_t q = (d & 1) ? byte >> 4 : byte & 15;
+    accumulator[d] += lut[q + ((d & 1) ? 16 : 0)];
+  }
+}
+
+void storeGpuInt4FloatScalar(
+    const float* accumulator,
+    float* output,
+    int64_t dimension,
+    float reciprocal) {
+  for (int64_t d = 0; d < dimension; ++d) {
+    output[d] = accumulator[d] * reciprocal;
+  }
+}
+
+void storeGpuInt4HalfScalar(
+    const float* accumulator,
+    float16* output,
+    int64_t dimension,
+    float reciprocal) {
+  for (int64_t d = 0; d < dimension; ++d) {
+    output[d].val = detail::doubleToHalfRne(accumulator[d] * reciprocal);
+  }
+}
+
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && \
+    (defined(__clang__) || defined(__GNUC__))
+int gpuInt4LeastBitExponent(uint16_t bits) {
+  const uint16_t magnitude = bits & 0x7fff;
+  if (magnitude == 0) {
+    return std::numeric_limits<int>::max();
+  }
+  const int exponent = magnitude >> 10;
+  const uint32_t significand =
+      exponent ? 0x400 | (magnitude & 0x3ff) : magnitude;
+  return (exponent ? exponent - 25 : -24) + __builtin_ctz(significand);
+}
+
+__attribute__((target("avx2,f16c"))) std::array<float, 32> makeGpuInt4LutF16c(
+    uint16_t scale,
+    uint16_t bias) {
+  const uint16_t scaleMagnitude = scale & 0x7fff;
+  const uint16_t biasMagnitude = bias & 0x7fff;
+  if (scaleMagnitude >= 0x5800 || biasMagnitude >= 0x7c00) {
+    return detail::makeGpuCompatibleInt4Lut(scale, bias);
+  }
+  std::array<float, 32> result{};
+  if ((scaleMagnitude | biasMagnitude) == 0) {
+    result.fill(detail::halfToFloat(scale & bias & 0x8000));
+    return result;
+  }
+  const float scaleValue = detail::halfToFloat(scale);
+  const float biasValue = detail::halfToFloat(bias);
+  const double bound = 15.0 * std::abs(static_cast<double>(scaleValue)) +
+      std::abs(static_cast<double>(biasValue));
+  if (bound >= 65520.0) {
+    return detail::makeGpuCompatibleInt4Lut(scale, bias);
+  }
+  uint64_t boundBits{};
+  std::memcpy(&boundBits, &bound, sizeof(boundBits));
+  const int maximumExponent =
+      static_cast<int>((boundBits >> 52) & 0x7ff) - 1023;
+  const int minimumExponent =
+      std::min(gpuInt4LeastBitExponent(scale), gpuInt4LeastBitExponent(bias));
+  // Every product/sum is a 2^minimumExponent grid multiple bounded by bound.
+  // At most 24 occupied bit positions makes each FP32 operation exact. The
+  // grid's minimum unit is 2^-24, so no FP32 subnormal handling is involved.
+  if (maximumExponent - minimumExponent + 1 > 24) {
+    return detail::makeGpuCompatibleInt4Lut(scale, bias);
+  }
+  const __m256 scales = _mm256_set1_ps(scaleValue);
+  const __m256 biases = _mm256_set1_ps(biasValue);
+  const uint16_t zeroSign = biasMagnitude == 0 ? scale & bias & 0x8000 : 0;
+  const __m256 zeros = _mm256_set1_ps(detail::halfToFloat(zeroSign));
+  __m256 quantized = _mm256_setr_ps(0, 1, 2, 3, 4, 5, 6, 7);
+  for (int q = 0; q < 16; q += 8) {
+    __m256 values = _mm256_add_ps(_mm256_mul_ps(quantized, scales), biases);
+    values = _mm256_blendv_ps(
+        values, zeros, _mm256_cmp_ps(values, _mm256_setzero_ps(), _CMP_EQ_OQ));
+    const __m128i halves =
+        _mm256_cvtps_ph(values, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+    _mm256_storeu_ps(result.data() + q, _mm256_cvtph_ps(halves));
+    quantized = _mm256_add_ps(quantized, _mm256_set1_ps(8));
+  }
+  std::copy_n(result.begin(), 16, result.begin() + 16);
+  return result;
+}
+
+__attribute__((target("avx2"))) void accumulateGpuInt4Avx2(
+    const uint8_t* packed,
+    const float* lut,
+    float* accumulator,
+    int64_t dimension) {
+  const __m128i nibbleMask = _mm_set1_epi16(15);
+  const __m128i highLut = _mm_set1_epi16(16);
+  int64_t d = 0;
+  for (; d + 8 <= dimension; d += 8) {
+    int32_t word{};
+    std::memcpy(&word, packed + d / 2, sizeof(word));
+    const __m128i bytes = _mm_cvtepu8_epi16(_mm_cvtsi32_si128(word));
+    const __m128i low = _mm_and_si128(bytes, nibbleMask);
+    const __m128i high = _mm_or_si128(_mm_srli_epi16(bytes, 4), highLut);
+    const __m256i indices =
+        _mm256_cvtepu16_epi32(_mm_unpacklo_epi16(low, high));
+    const __m256 values = _mm256_i32gather_ps(lut, indices, sizeof(float));
+    _mm256_storeu_ps(
+        accumulator + d,
+        _mm256_add_ps(_mm256_loadu_ps(accumulator + d), values));
+  }
+  if (d < dimension) {
+    accumulateGpuInt4Scalar(
+        packed + d / 2, lut, accumulator + d, dimension - d);
+  }
+}
+
+__attribute__((target("avx2,avx512f,avx512bw,avx512dq,avx512vl"))) void
+accumulateGpuInt4Avx512(
+    const uint8_t* packed,
+    const float* lut,
+    float* accumulator,
+    int64_t dimension) {
+  const __m512 lowValues = _mm512_loadu_ps(lut);
+  const __m512 highValues = _mm512_loadu_ps(lut + 16);
+  const __m128i nibbleMask = _mm_set1_epi16(15);
+  const __m128i highLut = _mm_set1_epi16(16);
+  int64_t d = 0;
+  for (; d + 16 <= dimension; d += 16) {
+    __m128i word = _mm_setzero_si128();
+    std::memcpy(&word, packed + d / 2, sizeof(uint64_t));
+    const __m128i bytes = _mm_cvtepu8_epi16(word);
+    const __m128i low = _mm_and_si128(bytes, nibbleMask);
+    const __m128i high = _mm_or_si128(_mm_srli_epi16(bytes, 4), highLut);
+    const __m256i interleaved = _mm256_set_m128i(
+        _mm_unpackhi_epi16(low, high), _mm_unpacklo_epi16(low, high));
+    const __m512i indices = _mm512_cvtepu16_epi32(interleaved);
+    const __m512 values =
+        _mm512_permutex2var_ps(lowValues, indices, highValues);
+    _mm512_storeu_ps(
+        accumulator + d,
+        _mm512_add_ps(_mm512_loadu_ps(accumulator + d), values));
+  }
+  if (d < dimension) {
+    accumulateGpuInt4Avx2(packed + d / 2, lut, accumulator + d, dimension - d);
+  }
+}
+
+__attribute__((target("avx2"))) void storeGpuInt4FloatAvx2(
+    const float* accumulator,
+    float* output,
+    int64_t dimension,
+    float reciprocal) {
+  const __m256 multiplier = _mm256_set1_ps(reciprocal);
+  int64_t d = 0;
+  for (; d + 8 <= dimension; d += 8) {
+    _mm256_storeu_ps(
+        output + d,
+        _mm256_mul_ps(_mm256_loadu_ps(accumulator + d), multiplier));
+  }
+  if (d < dimension) {
+    storeGpuInt4FloatScalar(
+        accumulator + d, output + d, dimension - d, reciprocal);
+  }
+}
+
+__attribute__((target("avx2,f16c"))) void storeGpuInt4HalfF16c(
+    const float* accumulator,
+    float16* output,
+    int64_t dimension,
+    float reciprocal) {
+  const __m256 multiplier = _mm256_set1_ps(reciprocal);
+  int64_t d = 0;
+  for (; d + 8 <= dimension; d += 8) {
+    const __m256 values =
+        _mm256_mul_ps(_mm256_loadu_ps(accumulator + d), multiplier);
+    const __m128i halves =
+        _mm256_cvtps_ph(values, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(output + d), halves);
+  }
+  if (d < dimension) {
+    storeGpuInt4HalfScalar(
+        accumulator + d, output + d, dimension - d, reciprocal);
+  }
+}
+#endif
+
+} // namespace
+
+template <typename IndexType, typename OffsetType, typename OutType>
+EmbeddingSpMDMNBitKernel<false, IndexType, OffsetType, OutType>
+GenerateEmbeddingSpMDMInt4WithGpuRounding(
+    int64_t block_size,
+    bool normalize_by_lengths,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    bool scale_bias_last) {
+  static_assert(
+      std::is_same_v<OutType, float> || std::is_same_v<OutType, float16>);
+  if (block_size <= 0 || block_size > std::numeric_limits<int32_t>::max()) {
+    throw std::invalid_argument("Invalid GPU-compatible INT4 dimension");
+  }
+  const int64_t packed_bytes = (block_size + 1) / 2;
+  const int64_t minimum_input_stride =
+      packed_bytes + 2 * static_cast<int64_t>(sizeof(uint16_t));
+  if (input_stride == -1) {
+    input_stride = minimum_input_stride;
+  }
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+  if (input_stride < minimum_input_stride || output_stride < block_size ||
+      output_stride > std::numeric_limits<ptrdiff_t>::max() /
+              static_cast<int64_t>(sizeof(OutType))) {
+    throw std::invalid_argument("Invalid GPU-compatible INT4 stride");
+  }
+  GpuInt4Accumulate accumulateRow = accumulateGpuInt4Scalar;
+  GpuInt4StoreFloat storeFloat = storeGpuInt4FloatScalar;
+  GpuInt4StoreHalf storeHalf = storeGpuInt4HalfScalar;
+  GpuInt4MakeLut makeLut = detail::makeGpuCompatibleInt4Lut;
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && \
+    (defined(__clang__) || defined(__GNUC__))
+  if (cpuinfo_initialize()) {
+    const inst_set_t isa = fbgemmInstructionSet();
+    if ((isYmm(isa) || isZmm(isa)) && fbgemmHasAvx2Support()) {
+      accumulateRow = accumulateGpuInt4Avx2;
+      storeFloat = storeGpuInt4FloatAvx2;
+      if (cpuinfo_has_x86_f16c()) {
+        storeHalf = storeGpuInt4HalfF16c;
+        makeLut = makeGpuInt4LutF16c;
+      }
+      if (isZmm(isa) && fbgemmHasAvx512Support()) {
+        accumulateRow = accumulateGpuInt4Avx512;
+      }
+    }
+  }
+#endif
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const uint8_t* input,
+             const IndexType* indices,
+             const OffsetType* offsets_or_lengths,
+             OutType* out) {
+    if (output_size < 0 || index_size < 0 || data_size < 0 ||
+        (output_size && (!out || !offsets_or_lengths)) ||
+        (index_size && (!input || !indices)) ||
+        data_size > std::numeric_limits<ptrdiff_t>::max() / input_stride ||
+        output_size > std::numeric_limits<ptrdiff_t>::max() /
+                (output_stride * static_cast<int64_t>(sizeof(OutType)))) {
+      return false;
+    }
+    std::vector<float> accumulator(block_size);
+    int64_t position = 0;
+    for (int64_t bag = 0; bag < output_size; ++bag) {
+      int64_t length{};
+      if (use_offsets) {
+        const int64_t begin = offsets_or_lengths[bag];
+        const int64_t end = offsets_or_lengths[bag + 1];
+        if (begin < 0 || end < begin) {
+          return false;
+        }
+        length = end - begin;
+      } else {
+        length = offsets_or_lengths[bag];
+      }
+      if (length < 0 || length > index_size - position) {
+        return false;
+      }
+      accumulator.assign(block_size, 0.0f);
+      for (int64_t n = 0; n < length; ++n) {
+        const int64_t index = indices[position++];
+        // Only the TBE front-metadata layout treats -1 as a pruned row,
+        // matching the legacy embedding kernel.
+        if (index == -1 && !scale_bias_last) {
+          continue;
+        }
+        if (index < 0 || index >= data_size) {
+          return false;
+        }
+        const uint8_t* row = input + index * input_stride;
+        uint16_t scale_bias[2]{};
+        std::memcpy(
+            scale_bias,
+            row + (scale_bias_last ? packed_bytes : 0),
+            sizeof(scale_bias));
+        const auto lut = makeLut(scale_bias[0], scale_bias[1]);
+        const uint8_t* packed =
+            row + (scale_bias_last ? 0 : sizeof(scale_bias));
+        accumulateRow(packed, lut.data(), accumulator.data(), block_size);
+      }
+      const float reciprocal = normalize_by_lengths && length
+          ? 1.0f / static_cast<float>(length)
+          : 1.0f;
+      OutType* destination = out + bag * output_stride;
+      if constexpr (std::is_same_v<OutType, float>) {
+        storeFloat(accumulator.data(), destination, block_size, reciprocal);
+      } else {
+        storeHalf(accumulator.data(), destination, block_size, reciprocal);
+      }
+    }
+    return position == index_size;
+  };
+}
+
+#define INSTANTIATE_GPU_INT4(I, O, T)                          \
+  template FBGEMM_API EmbeddingSpMDMNBitKernel<false, I, O, T> \
+  GenerateEmbeddingSpMDMInt4WithGpuRounding<I, O, T>(          \
+      int64_t, bool, bool, int64_t, int64_t, bool);
+
+INSTANTIATE_GPU_INT4(int32_t, int32_t, float)
+INSTANTIATE_GPU_INT4(int32_t, int64_t, float)
+INSTANTIATE_GPU_INT4(int64_t, int32_t, float)
+INSTANTIATE_GPU_INT4(int64_t, int64_t, float)
+INSTANTIATE_GPU_INT4(int32_t, int32_t, float16)
+INSTANTIATE_GPU_INT4(int32_t, int64_t, float16)
+INSTANTIATE_GPU_INT4(int64_t, int32_t, float16)
+INSTANTIATE_GPU_INT4(int64_t, int64_t, float16)
+
+#undef INSTANTIATE_GPU_INT4
 
 namespace {
 
@@ -357,8 +703,7 @@ GenEmbeddingSpMDMNBitLookup<
         Ymm mask_vreg; // mask for avx2
         Xmm mask2_vreg;
         Xmm mask_fp16_vreg;
-        vec_reg_t bf16_bias_vreg;
-        vec_reg_t bf16_tmp_vreg;
+        vec_reg_t ones_vreg;
 
         // We need 2 vec registers for 1. scale 2. bias
         --unroll_factor;
@@ -368,13 +713,10 @@ GenEmbeddingSpMDMNBitLookup<
 
         if constexpr (is_bf16_out) {
           --unroll_factor;
-          bf16_bias_vreg = vec_reg_t(unroll_factor);
-          a->mov(scratchReg2_, 0x7FFF);
-          a->vpinsrd(
-              bf16_bias_vreg.xmm(), bf16_bias_vreg.xmm(), scratchReg2_, 0);
-          a->vpbroadcastd(bf16_bias_vreg, bf16_bias_vreg.xmm());
-          --unroll_factor;
-          bf16_tmp_vreg = vec_reg_t(unroll_factor);
+          ones_vreg = vec_reg_t(unroll_factor);
+          a->mov(scratchReg2_, 1 << 15);
+          a->vpinsrd(ones_vreg.xmm(), ones_vreg.xmm(), scratchReg2_, 0);
+          a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
         }
 
         --unroll_factor;
@@ -846,8 +1188,8 @@ GenEmbeddingSpMDMNBitLookup<
               // 16-bit output
               if constexpr (instSet == inst_set_t::avx2) {
                 if constexpr (is_bf16_out) {
-                  genBfloat16Rounding(
-                      a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg);
+                  a->vpaddd(out_vreg, out_vreg, ones_vreg);
+                  a->vpsrld(out_vreg, out_vreg, 16);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
                 } else {
@@ -877,20 +1219,19 @@ GenEmbeddingSpMDMNBitLookup<
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if constexpr (is_bf16_out) {
-                    genBfloat16Store(
-                        a,
-                        out_vreg,
-                        bf16_tmp_vreg,
-                        bf16_bias_vreg,
-                        dst_addr,
-                        x86::k(1));
+                    // bf16
+                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
+                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
+                    a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
                   }
                 } else {
                   if constexpr (is_bf16_out) {
-                    genBfloat16Store(
-                        a, out_vreg, bf16_tmp_vreg, bf16_bias_vreg, dst_addr);
+                    // bf16
+                    a->vpaddd(out_vreg, out_vreg, ones_vreg);
+                    a->vpsrld(out_vreg, out_vreg, 16);
+                    a->vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
                   }

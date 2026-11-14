@@ -14,6 +14,7 @@
 #include "./EmbeddingSpMDMTestUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/Utils.h"
 #include "src/RefImplementations.h" // @manual
 
 using namespace std;
@@ -171,6 +172,53 @@ TEST(EmbeddingSpMDMTest, TypedHalfInputsAndOutputs) {
 
   verify_strided_to_float.template operator()<float16>();
   verify_strided_to_float.template operator()<bfloat16>();
+}
+
+static void checkLegacyBfloat16HalfwayRounding(
+    EmbeddingSpMDMKernelChoice dispatch) {
+  const vector<float> values{
+      1.00390625f, 1.01171875f, -1.00390625f, -1.01171875f};
+  const vector<bfloat16> rounded{{0x3f81}, {0x3f82}, {0xbf81}, {0xbf82}};
+  const vector<int32_t> indices{0};
+  const vector<int32_t> offsets{0, 1};
+  ScopedKernelOverride kernel_override(dispatch);
+  for (int64_t block_size = 1; block_size <= 33; ++block_size) {
+    SCOPED_TRACE(
+        testing::Message() << "dispatch=" << dispatch
+                           << " block_size=" << block_size);
+    vector<float> input(block_size);
+    vector<bfloat16> expected(block_size + 2, bfloat16{0xbeef});
+    vector<bfloat16> actual = expected;
+    for (int64_t i = 0; i < block_size; ++i) {
+      input[i] = values[i % values.size()];
+      expected[i + 1] = rounded[i % rounded.size()];
+    }
+    auto kernel = GenerateEmbeddingSpMDM<float, int32_t, int32_t, bfloat16>(
+        block_size, false, false, 16, false, true);
+    ASSERT_TRUE(kernel(
+        1,
+        1,
+        1,
+        input.data(),
+        indices.data(),
+        offsets.data(),
+        nullptr,
+        actual.data() + 1));
+    EXPECT_EQ(actual, expected);
+  }
+}
+
+TEST(EmbeddingSpMDMTest, LegacyBfloat16HalfwayRounding) {
+  checkLegacyBfloat16HalfwayRounding(DISPATCH_DEFAULT);
+}
+
+TEST(EmbeddingSpMDMTest, LegacyBfloat16HalfwayRoundingAutovec) {
+#if defined(__x86_64__) || defined(_M_X64)
+  if (!fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "The x86 autovec library requires AVX-512";
+  }
+#endif
+  checkLegacyBfloat16HalfwayRounding(DISPATCH_AUTOVEC);
 }
 
 template <FbgemmFP8Type InType>

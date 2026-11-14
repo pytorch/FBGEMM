@@ -168,6 +168,7 @@ def cli(
     d_weight_ref = []
     for emb in ref_emb.emb_modules:
         d_weight_ref.append(emb.weight.grad)
+    # pyrefly: ignore [bad-argument-type]
     d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, -1)
     d_weight = unary_emb.weight.grad
     # pyre-fixme[16]: Optional type has no attribute `squeeze`.

@@ -43,7 +43,6 @@ function(add_benchmark BENCHNAME)
       target_compile_options(${BENCHNAME} PRIVATE
         -m64
         ${CXX_AVX2_FLAGS}
-        -mfma
         -masm=intel)
     else()
       target_compile_options(${BENCHNAME} PRIVATE ${CXX_AVX2_FLAGS})
