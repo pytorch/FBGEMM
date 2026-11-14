@@ -8,7 +8,7 @@
 
 import io
 from typing import cast
-from unittest import skipIf, TestCase
+from unittest import skipIf, skipUnless, TestCase
 from unittest.mock import patch
 
 import fbgemm_gpu
@@ -25,6 +25,7 @@ from fbgemm_gpu.tbe.cache.kv_embedding_ops_inference import (
 )
 from fbgemm_gpu.tbe.config.embedding_config import EmbeddingLocation, PoolingMode
 from fbgemm_gpu.tbe.utils import generate_requests
+from fbgemm_gpu.utils.torchscript import has_torchscript
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -49,6 +50,9 @@ class KVEmbeddingTest(TestCase):
         self.assertEqual(kv.row_alignment, 8)
         self.assertEqual(kv.kv_embedding_cache.get_lookup_row_bytes(), 16)
 
+    @skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_int4_module_uses_legacy_schema_before_rollout(self) -> None:
         kv = KVEmbeddingInference(
             [("", 4, 100, SparseType.INT4, EmbeddingLocation.HOST)],
@@ -191,6 +195,9 @@ class KVEmbeddingTest(TestCase):
 
         self.assertTrue(torch.equal(kv(indices, offsets), fp16_table(indices, offsets)))
 
+    @skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_grouped_int4_module_scripts_and_serves(self) -> None:
         dim, group_size, num_embeddings = 128, 8, 16
         # Scripted before the KV store is initialized, as a published module is.
@@ -226,6 +233,9 @@ class KVEmbeddingTest(TestCase):
             )
         )
 
+    @skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_grouped_int4_decode_is_compiled_out_without_groups(self) -> None:
         for group_size, expect_decode in ((0, False), (8, True)):
             with self.subTest(group_size=group_size):
@@ -244,6 +254,9 @@ class KVEmbeddingTest(TestCase):
 
                 self.assertEqual("GroupedInt4E4M3ToHalf" in forward_code, expect_decode)
 
+    @skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_grouped_int4_module_built_on_meta_serves_after_serving_init(
         self,
     ) -> None:

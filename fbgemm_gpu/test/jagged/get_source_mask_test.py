@@ -13,6 +13,7 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
+from fbgemm_gpu.utils.torchscript import has_torchscript
 from hypothesis import given, settings, Verbosity
 
 from .common import additional_decorators, open_source
@@ -316,6 +317,9 @@ class GetSourceMaskTest(unittest.TestCase):
         )
         fx_result = traced_model(num_sources, num_targets)
         self.assertTrue(torch.equal(fx_result, expected))
+
+        if not has_torchscript():
+            return
 
         # Test 2: JIT Scripting with explicit output_size
         # JIT scripting also requires explicit output_size

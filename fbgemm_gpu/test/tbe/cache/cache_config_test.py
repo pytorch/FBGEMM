@@ -18,6 +18,7 @@ Tests cover:
 import unittest
 
 import torch
+from fbgemm_gpu.utils.torchscript import has_torchscript
 
 
 class CacheStateConstructTest(unittest.TestCase):
@@ -90,6 +91,9 @@ class CacheConfigJITTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `not torch.cuda.is_available()` to decorator factory `unittest.skipIf`.
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA required")
+    @unittest.skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_tbe_managed_caching_jit_script(self) -> None:
         """TBE with MANAGED_CACHING must still JIT-script correctly."""
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
