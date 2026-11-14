@@ -19,6 +19,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     _legacy_package_nfp8_dtype,
     _table_embedding_dtype,
 )
+from fbgemm_gpu.utils.torchscript import has_torchscript
 
 
 def _empty_tensor_with_sparse_type_dtype(ty: int) -> torch.Tensor:
@@ -38,6 +39,9 @@ class NFP8DtypeTest(unittest.TestCase):
     def tearDown(self) -> None:
         _nfp8_dtype_for_device_index.cache_clear()
 
+    @unittest.skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_sparse_type_int_to_dtype_is_torchscript_compatible(self) -> None:
         scripted = torch.jit.script(_empty_tensor_with_sparse_type_dtype)
 

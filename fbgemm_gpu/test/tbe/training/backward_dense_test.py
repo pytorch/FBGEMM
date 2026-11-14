@@ -25,6 +25,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
+from fbgemm_gpu.utils.torchscript import has_torchscript
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
@@ -305,7 +306,7 @@ class BackwardDenseTest(unittest.TestCase):
             output_dtype=output_dtype,
         )
         # Test torch JIT script compatibility
-        if not use_cpu:
+        if not use_cpu and has_torchscript():
             cc = torch.jit.script(cc)
 
         for t in range(T):

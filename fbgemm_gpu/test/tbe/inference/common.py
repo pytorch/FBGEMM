@@ -28,6 +28,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
+from fbgemm_gpu.utils.torchscript import has_torchscript
 from hypothesis import assume
 from hypothesis.strategies import composite
 
@@ -265,8 +266,7 @@ class NBitFowardTestCommon(unittest.TestCase):
         # Initialize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
 
-        if not use_cpu:
-            # NOTE: test TorchScript-compatible!
+        if not use_cpu and has_torchscript():
             cc = torch.jit.script(cc)
 
         for t in range(T):

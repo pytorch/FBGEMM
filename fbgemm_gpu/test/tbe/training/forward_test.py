@@ -36,6 +36,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
+from fbgemm_gpu.utils.torchscript import has_torchscript
 from hypothesis import assume, example, given, settings, Verbosity
 
 from .. import common  # noqa E402
@@ -342,7 +343,7 @@ class ForwardTest(unittest.TestCase):
             res_params=res_params,
         )
         # Test torch JIT script compatibility
-        if not use_cpu:
+        if not use_cpu and has_torchscript():
             cc = torch.jit.script(cc)
 
         for t in range(T):
@@ -781,7 +782,7 @@ class ForwardTest(unittest.TestCase):
         total_threads = grid * threads_per_block
 
         assert total_threads > 2**32 - 1, (
-            f"Test parameters should trigger overflow: "
+            "Test parameters should trigger overflow: "
             f"grid={grid}, total_threads={total_threads}"
         )
 
@@ -846,8 +847,8 @@ class ForwardTest(unittest.TestCase):
         except RuntimeError as e:
             # If we get a CUDA error, the fix is not working
             self.fail(
-                f"V2 kernel forward pass failed with large grid size. "
-                f"This suggests D94944619 fix is not applied correctly. "
+                "V2 kernel forward pass failed with large grid size. "
+                "This suggests D94944619 fix is not applied correctly. "
                 f"Error: {e}"
             )
 
