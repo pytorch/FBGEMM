@@ -321,6 +321,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     int64_t fp8_exponent_bits,
     int64_t fp8_exponent_bias,
     bool scale_bias_last
+    {% if not nobag and not weighted %}
+    ,bool gpu_compatible_int4_rounding
+    {% endif %}
 ) {
     TENSOR_ON_CPU(dev_weights);
     TENSOR_ON_CPU(uvm_weights);
@@ -611,6 +614,25 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 {% else %}
                     const index_t* offset_ptr = offsets_begin_ptr;
                 {% endif %}
+                {% if use_nbit and not nobag and not weighted %}
+                if (gpu_compatible_int4_rounding && bit_rate == 4) {
+                  if constexpr (std::is_same_v<fbgemm_out_t, float> ||
+                                std::is_same_v<fbgemm_out_t, float16>) {
+                    const auto kernel =
+                        fbgemm::GenerateEmbeddingSpMDMInt4WithGpuRounding<
+                            index_t, index_t, fbgemm_out_t>(
+                            D, normalize_by_lengths, /*use_offsets=*/true,
+                            output_stride, D_bytes, scale_bias_last);
+                    success = kernel(
+                        n_bags, index_size, num_rows,
+                        reinterpret_cast<const uint8_t*>(weights),
+                        indices_acc + *offsets_begin_ptr, offset_ptr,
+                        reinterpret_cast<fbgemm_out_t*>(chunk_out));
+                  } else {
+                    TORCH_CHECK(false, "GPU-compatible INT4 CPU output must be FP16 or FP32");
+                  }
+                } else {
+                {% endif %}
                 const auto kernel = fbgemm::{{ kernel_name }}<
                     {% if use_nbit %}
                     has_weight,
@@ -673,6 +695,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     indice_weights_ptr,
                     reinterpret_cast<fbgemm_out_t*>(chunk_out));
                     {% endif %}
+                {% if use_nbit and not nobag and not weighted %}
+                }
+                {% endif %}
                 {% endmacro %}
 
                 if (weight_ty == SparseType::FP32) {
