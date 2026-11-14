@@ -126,16 +126,6 @@ mask_load(__m512i zero_v, __mmask8 mask_rem_v, void const* addr) {
 }
 
 template <typename T, std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
-static inline __m512i maskz_load(__mmask16 mask_rem_v, void const* addr) {
-  return _mm512_maskz_loadu_epi32(mask_rem_v, addr);
-}
-
-template <typename T, std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
-static inline __m512i maskz_load(__mmask8 mask_rem_v, void const* addr) {
-  return _mm512_maskz_loadu_epi64(mask_rem_v, addr);
-}
-
-template <typename T, std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512i mask_mov(__m512i src, __mmask16 mask_rem_v, __m512i a) {
   return _mm512_mask_mov_epi32(src, mask_rem_v, a);
 }

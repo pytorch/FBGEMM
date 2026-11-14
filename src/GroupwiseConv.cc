@@ -25,7 +25,7 @@ namespace fbgemm {
 using namespace std;
 
 template <int SPATIAL_DIM>
-static void calculateRowOffsets(
+[[maybe_unused]] static void calculateRowOffsets(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const uint8_t* activations,
     int32_t* rowOffsetBuf,
@@ -832,7 +832,7 @@ void fbgemmGroupwiseConv(
  * This function does exactly the same compute as the JIT'ed kernel
  */
 template <int SPATIAL_DIM>
-static void kernel_compute(
+[[maybe_unused]] static void kernel_compute(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const uint8_t* in_acts,
     int8_t* wghts,
