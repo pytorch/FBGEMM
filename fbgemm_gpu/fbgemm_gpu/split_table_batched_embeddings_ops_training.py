@@ -2951,6 +2951,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         batch_size_per_feature_per_rank: list[list[int]] | None,
         vbe_output: Tensor | None = None,
         vbe_output_offsets: Tensor | None = None,
+        compute_row_metadata: bool = False,
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
@@ -2976,6 +2977,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.current_device,
             vbe_output,
             vbe_output_offsets,
+            compute_row_metadata=compute_row_metadata,
+            D_offsets=self.D_offsets,
+            max_D=self.max_D,
+            info_B_num_bits=self.info_B_num_bits,
         )
 
     @torch.jit.ignore
@@ -5021,8 +5026,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         # Generate VBE metadata
+        # TorchScript doesn't fill in defaults when calling an ignored method,
+        # so pass compute_row_metadata explicitly.
         vbe_metadata = self._generate_vbe_metadata(
-            offsets, batch_size_per_feature_per_rank, vbe_output, vbe_output_offsets
+            offsets,
+            batch_size_per_feature_per_rank,
+            vbe_output,
+            vbe_output_offsets,
+            False,  # compute_row_metadata
         )
 
         vbe = vbe_metadata.B_offsets is not None
