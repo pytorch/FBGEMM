@@ -88,6 +88,9 @@ class FeatureGateName(Enum):
     # Parallelise the CPU NOBAG inference TBE over row ranges, not whole tables
     TBE_NOBAG_ROW_PARALLELISM = auto()
 
+    # Enable the Triton MX4 quantize int32 indexing and e2m1 rounding fast paths
+    TRITON_MX4_QUANTIZE_FAST_PATH = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
