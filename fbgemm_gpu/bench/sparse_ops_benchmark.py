@@ -21,6 +21,7 @@ import fbgemm_gpu
 import numpy as np
 import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
+from fbgemm_gpu.utils.torchscript import has_torchscript
 from torch.profiler import profile, schedule
 
 logger: logging.Logger = logging.getLogger()
@@ -87,7 +88,7 @@ def device(
     if int(jagged_size.item()) > 2**31 - 1:
         raise ValueError(
             f"jagged_size ({int(jagged_size.item())}) exceeds int32 max. "
-            f"Reduce world_size, num_tables, or length range."
+            "Reduce world_size, num_tables, or length range."
         )
 
     permute_tensor = permute_tensor.to(device)
@@ -328,8 +329,8 @@ def jagged_index_select_2d_bench(
     if values_numel > 2**31 - 1:
         raise ValueError(
             f"values numel ({values_numel}) exceeds int32 max. "
-            f"The CUDA kernel uses 32-bit indexing. "
-            f"Reduce num_jagged_tensor_rows, max_seq_length, or num_cols."
+            "The CUDA kernel uses 32-bit indexing. "
+            "Reduce num_jagged_tensor_rows, max_seq_length, or num_cols."
         )
 
     indices, _ = torch.sort(
@@ -411,7 +412,7 @@ def jagged_index_select_2d_bench(
         )
 
     logging.info(
-        f"jagged_index_select_2d_bench "
+        "jagged_index_select_2d_bench "
         f"(max_seq_length={max_seq_length}, "
         f"batch_size={batch_size}, "
         f"num_cols={num_cols}, "
@@ -841,13 +842,18 @@ def asynchronous_complete_cumsum_2d_bench(
     trace_url: str,
 ) -> None:
     # Reference code from TorchRec https://github.com/pytorch/torchrec/pull/332
-    @torch.jit.script
     def asynchronous_complete_cumsum_2d_ref(lengths: torch.Tensor) -> torch.Tensor:
         f, b = lengths.shape
         offsets_0 = lengths.new_zeros((f, 1))
         offsets_1 = torch.cumsum(lengths, dim=-1).to(lengths.dtype)
         offsets = torch.cat([offsets_0, offsets_1], dim=-1)
         return offsets
+
+    torchscript_available = has_torchscript()
+    if torchscript_available:
+        asynchronous_complete_cumsum_2d_ref = torch.jit.script(
+            asynchronous_complete_cumsum_2d_ref
+        )
 
     assert dtype == "int" or dtype == "long", "Only int and long are supported"
     index_dtype = torch.int64 if dtype == "long" else torch.int32
@@ -898,7 +904,11 @@ def asynchronous_complete_cumsum_2d_bench(
     logging.info(
         f"asynchronous_complete_cumsum_2d_bench: input shape {x.shape}, dtype {dtype}"
     )
-    logging.info(f"ref time: {time_ref:.5f} sec")
+    logging.info(
+        "ref time (%s): %.5f sec",
+        "TorchScript" if torchscript_available else "eager",
+        time_ref,
+    )
     logging.info(f"fbgemm_gpu time: {time:.5f} sec")
 
 
@@ -1174,7 +1184,7 @@ def reorder_batched_ad_lengths_bench(
         raise ValueError(
             f"num_ads_in_batch = batch_size * num_ads = {batch_size} * {num_ads} "
             f"= {num_ads_in_batch} exceeds int32 max ({2**31 - 1}). "
-            f"The kernel uses int32 indexing. Reduce batch_size or num_ads."
+            "The kernel uses int32 indexing. Reduce batch_size or num_ads."
         )
     if broadcast_indices:
         num_lengths = batch_size * table_size
@@ -1297,7 +1307,7 @@ def reorder_batched_sequence_embeddings_bench(
     tensor_numel = batch_size * table_size * num_items * length * dim
     assert tensor_numel < 2**31 - 1, (
         f"B*T*A*L*D = {tensor_numel} exceeds int32 max ({2**31 - 1}). "
-        f"The CUDA kernel uses PackedTensorAccessor32, which requires "
+        "The CUDA kernel uses PackedTensorAccessor32, which requires "
         f"tensor numel < 2^31. Reduce parameters (currently B={batch_size}, "
         f"T={table_size}, A={num_items}, L={length}, D={dim})."
     )
@@ -1937,7 +1947,7 @@ def permute_1d_sparse_data_bench(
         )
 
     logging.info(
-        f"permute_1D_sparse_data_bench ("
+        "permute_1D_sparse_data_bench ("
         f"num_segments={num_segments}, "
         f"max_segment_length={max_segment_length}, "
         f"total_indices={total_indices}, "
@@ -2130,7 +2140,7 @@ def permute_2d_sparse_data_bench(
         )
 
     logging.info(
-        f"permute_2D_sparse_data_bench ("
+        "permute_2D_sparse_data_bench ("
         f"num_tables={num_segments}, "
         f"batch_size={batch_size}, "
         f"max_segment_length={max_segment_length}, "

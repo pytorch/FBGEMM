@@ -22,6 +22,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     RESParams,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.utils.torchscript import has_torchscript
 
 from ..common import open_source, running_in_oss
 
@@ -510,7 +511,8 @@ class ResEnabledTablesTest(unittest.TestCase):
         # `_prefetch` has no `@torch.jit.ignore` and is reached from `forward`.
         # Reading `res_params` there compiles fine until a TBE is scripted, and
         # nothing else in this file scripts one.
-        torch.jit.script(tbe)
+        if has_torchscript():
+            torch.jit.script(tbe)
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
