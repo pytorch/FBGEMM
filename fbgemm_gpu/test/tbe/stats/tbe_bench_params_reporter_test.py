@@ -34,6 +34,7 @@ from fbgemm_gpu.tbe.bench.tbe_data_config_bench_helper import (
 from fbgemm_gpu.tbe.config.embedding_config import ComputeDevice, EmbeddingLocation
 from fbgemm_gpu.tbe.monitoring.bench_params_reporter import TBEBenchmarkParamsReporter
 from fbgemm_gpu.tbe.utils import get_device
+from fbgemm_gpu.utils.torchscript import has_torchscript
 from hypothesis import given, settings
 
 from .. import common  # noqa E402
@@ -293,6 +294,9 @@ class TestInferenceTBEBenchmarkParamsReporter(unittest.TestCase):
         self.assertEqual(extracted_config.pooling_params.L, L)
         self.assertEqual(extracted_config.batch_params.B, B)
 
+    @unittest.skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_inference_jit_script_with_eeg(self) -> None:
         """Confirm TorchScript compatibility is preserved when EEG is initialized."""
         T = 2
