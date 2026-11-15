@@ -21,6 +21,7 @@ import enum
 import unittest
 
 import torch
+from fbgemm_gpu.utils.torchscript import has_torchscript
 
 try:
     # pyre-ignore[21]
@@ -182,6 +183,9 @@ class EmbeddingConfigJITTest(unittest.TestCase):
 
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_tbe_jit_script_with_new_import_paths(self) -> None:
         """Critical: Ensure TBE can still be JIT-scripted."""
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (

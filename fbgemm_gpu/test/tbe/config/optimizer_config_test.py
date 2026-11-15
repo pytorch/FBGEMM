@@ -21,6 +21,7 @@ import unittest
 from typing import Any, Final
 
 import torch
+from fbgemm_gpu.utils.torchscript import has_torchscript
 
 CUDA_NOT_AVAILABLE: Final[bool] = not torch.cuda.is_available()
 
@@ -288,6 +289,9 @@ class OptimizerConfigJITTest(unittest.TestCase):
     """Verify optimizer types don't interfere with TBE JIT scripting."""
 
     @unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA required")
+    @unittest.skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_tbe_jit_script_with_weight_decay_l2(self) -> None:
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
             ComputeDevice,
@@ -314,6 +318,9 @@ class OptimizerConfigJITTest(unittest.TestCase):
         self.assertEqual(output.shape, (2, 16))
 
     @unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA required")
+    @unittest.skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_tbe_jit_script_with_counter_regularization(self) -> None:
         """Counter-based regularization exercises the most complex dataclass path."""
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
@@ -344,6 +351,9 @@ class OptimizerConfigJITTest(unittest.TestCase):
         self.assertEqual(output.shape, (2, 16))
 
     @unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA required")
+    @unittest.skipUnless(
+        has_torchscript(), "torch.jit.script is unavailable in this PyTorch build"
+    )
     def test_tbe_jit_script_with_per_row_warmup(self) -> None:
         from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
             ComputeDevice,
