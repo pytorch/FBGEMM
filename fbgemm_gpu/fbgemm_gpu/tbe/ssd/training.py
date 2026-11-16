@@ -753,8 +753,22 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         pg: dist.ProcessGroup | None = None,
         device: torch.device | int | None = None,
         max_physical_l1_cache_size_mb: int | None = None,
+        ssd_rocksdb_stats_dump_period_sec: int | None = None,
     ) -> None:
         super().__init__()
+        if ssd_rocksdb_stats_dump_period_sec is not None:
+            if backend_type not in (BackendType.SSD, BackendType.DRAM_SSD):
+                logging.warning(
+                    "Ignoring ssd_rocksdb_stats_dump_period_sec=%s for backend %s, "
+                    "which does not use RocksDB",
+                    ssd_rocksdb_stats_dump_period_sec,
+                    backend_type,
+                )
+                ssd_rocksdb_stats_dump_period_sec = None
+            elif not 0 <= ssd_rocksdb_stats_dump_period_sec <= 2**32 - 1:
+                raise ValueError(
+                    "ssd_rocksdb_stats_dump_period_sec must fit an unsigned 32-bit integer"
+                )
 
         # Set the optimizer
         assert optimizer in (
@@ -1324,6 +1338,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         self.eviction_free_mem_floor_bytes: int = 0
         self.eviction_ttl_sweep_interval_s: float | None = None
+        stats_dump_options = (
+            {"stats_dump_period_sec": ssd_rocksdb_stats_dump_period_sec}
+            if ssd_rocksdb_stats_dump_period_sec is not None
+            else {}
+        )
         if self.backend_type == BackendType.SSD:
             logging.info(
                 f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, "
@@ -1338,7 +1357,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"uniform_init_lower={ssd_uniform_init_lower}, uniform_init_upper={ssd_uniform_init_upper}, "
                 f"row_storage_bitwidth={weights_precision.bit_rate()}, block_cache_size_per_tbe={ssd_block_cache_size_per_tbe}, "
                 f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB, "
-                f"enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}, flushing_block_size:{flushing_block_size}"
+                f"enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}, flushing_block_size:{flushing_block_size}, "
+                f"stats_dump_period_sec={ssd_rocksdb_stats_dump_period_sec if ssd_rocksdb_stats_dump_period_sec is not None else 600}"
             )
             # pyre-fixme[4]: Attribute must be annotated.
             self._ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
@@ -1380,6 +1400,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ),
                 flushing_block_size,
                 self._embedding_cache_mode,  # disable_random_init
+                **stats_dump_options,
             )
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
@@ -1539,7 +1560,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"feature_dims={self.feature_dims},"
                 f"hash_size_cumsum={self.hash_size_cumsum},"
                 f"backend_return_whole_row={self.backend_return_whole_row},"
-                f"ssd_directory={ssd_directory}"
+                f"ssd_directory={ssd_directory},"
+                f"stats_dump_period_sec={ssd_rocksdb_stats_dump_period_sec if ssd_rocksdb_stats_dump_period_sec is not None else 600}"
             )
 
             assert (
@@ -1674,6 +1696,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 l2_cache_size_gb=l2_cache_size,
                 ssd_enable_async_update=enable_async_update,
                 flushing_block_size=flushing_block_size,
+                **stats_dump_options,
             )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")

@@ -75,7 +75,8 @@ class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t l2_cache_size_gb = 0,
       bool ssd_enable_async_update = false,
       int64_t flushing_block_size = 2000000000 /*2GB*/,
-      bool enable_blob_db = false) {
+      bool enable_blob_db = false,
+      int64_t stats_dump_period_sec = 600) {
     row_storage_bitwidth_ = row_storage_bitwidth;
     writeback_queue_size_ = writeback_queue_size;
     writeback_batch_size_ = writeback_batch_size;
@@ -116,7 +117,8 @@ class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           l2_cache_size_gb,
           ssd_enable_async_update,
           flushing_block_size,
-          enable_blob_db);
+          enable_blob_db,
+          stats_dump_period_sec);
     } else if (row_storage_bitwidth == 32) {
       init_composite<float>(
           max_D,
@@ -153,7 +155,8 @@ class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           l2_cache_size_gb,
           ssd_enable_async_update,
           flushing_block_size,
-          enable_blob_db);
+          enable_blob_db,
+          stats_dump_period_sec);
     } else {
       throw std::runtime_error(
           fmt::format(
@@ -431,7 +434,8 @@ class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t l2_cache_size_gb,
       bool ssd_enable_async_update,
       int64_t flushing_block_size,
-      bool enable_blob_db) {
+      bool enable_blob_db,
+      int64_t stats_dump_period_sec) {
     // DRAM (L2) cache. enable_ssd_backend=true turns on dirty-bit tracking so
     // the composite can write back dirty DRAM blocks to SSD.
     auto dram_cache =
@@ -503,7 +507,8 @@ class DramSsdKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
         disable_random_init,
         enable_blob_db,
         /*enable_metadata_cf=*/true,
-        /*metadata_dim=*/metaheader_dim);
+        /*metadata_dim=*/metaheader_dim,
+        /*stats_dump_period_sec=*/stats_dump_period_sec);
 
     // Assemble the composite (DRAM L2 + RocksDB L3).
     auto composite =

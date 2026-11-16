@@ -1231,7 +1231,8 @@ auto embedding_rocks_db_wrapper =
                 std::optional<at::Tensor>,
                 int64_t,
                 bool,
-                bool>(),
+                bool,
+                int64_t>(),
             "",
             {
                 torch::arg("path"),
@@ -1265,6 +1266,7 @@ auto embedding_rocks_db_wrapper =
                 torch::arg("flushing_block_size") = 2000000000 /* 2GB */,
                 torch::arg("disable_random_init") = false,
                 torch::arg("enable_blob_db") = false,
+                torch::arg("stats_dump_period_sec") = 600,
             })
         .def(
             "set_cuda",
@@ -1676,7 +1678,8 @@ auto dram_ssd_kv_embedding_cache_wrapper =
                 int64_t,
                 bool,
                 int64_t,
-                bool>(),
+                bool,
+                int64_t>(),
             "",
             {
                 torch::arg("max_D"),
@@ -1716,6 +1719,7 @@ auto dram_ssd_kv_embedding_cache_wrapper =
                 torch::arg("ssd_enable_async_update") = false,
                 torch::arg("flushing_block_size") = 2000000000,
                 torch::arg("enable_blob_db") = false,
+                torch::arg("stats_dump_period_sec") = 600,
             })
         .def(
             "set_cuda",
