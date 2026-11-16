@@ -55,7 +55,7 @@ static inline void transpose_kernel_4x4_sse(
 // kernel for transpose mxn where m, n <= 4
 // M + (M + 1) / 2 * 2 + 2 * N instructions
 template <unsigned M>
-static void transpose_kernel_mxn_sse(
+static inline void transpose_kernel_mxn_sse(
     unsigned N,
     const float* src,
     int64_t ld_src,
@@ -199,7 +199,7 @@ static inline void transpose_kernel_8x8_avx2(
 // kernel for transposing mxn where m, n <= 8
 // M + (M + 1) / 2 * 2 + (M + 3) / 4 * 4 + 2 * N instructions
 template <unsigned M>
-static void transpose_kernel_mxn_avx2(
+static inline void transpose_kernel_mxn_avx2(
     unsigned N,
     const float* src,
     int64_t ld_src,
@@ -717,7 +717,7 @@ inline static void transpose_kernel_8x16_avx2(
 // kernel for transposing mxn where m, n <= 8
 // M + (M + 1) / 2 * 2 + (M + 3) / 4 * 4 + 2 * N instructions
 template <unsigned M>
-static void transpose_kernel_mxn_avx2_uint8(
+static inline void transpose_kernel_mxn_avx2_uint8(
     unsigned N,
     const uint8_t* src,
     int64_t ld_src,

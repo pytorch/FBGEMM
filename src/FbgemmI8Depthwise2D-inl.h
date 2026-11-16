@@ -501,7 +501,7 @@ template <
     bool HAS_BIAS,
     QuantizationGranularity Q_GRAN,
     typename BIAS_TYPE>
-static void depthwise_2d_(
+static inline void depthwise_2d_(
     int N,
     int H,
     int W,
@@ -649,7 +649,7 @@ template <
     bool FUSE_RELU,
     QuantizationGranularity Q_GRAN,
     typename BIAS_TYPE>
-static void depthwise_2d_(
+static inline void depthwise_2d_(
     int N,
     int H,
     int W,
