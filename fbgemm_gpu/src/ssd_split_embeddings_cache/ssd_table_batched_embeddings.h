@@ -2587,13 +2587,19 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
       const int64_t start,
       const int64_t length,
       const int64_t width_offset) {
+    // The reader ignores width_offset (both the zero-fill and the copy
+    // path); fail loud rather than zeroing/copying the wrong region.
+    TORCH_CHECK(
+        width_offset == 0,
+        "ReadOnlyEmbeddingKVDB does not support width_offset");
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
 
+    // .get(), not .wait(): shard I/O errors must propagate to the caller.
     get_kv_db_async_impl</*use_iterator=*/true>(
         seq_indices, weights, count, width_offset)
-        .wait();
+        .get();
   }
 
   void delete_rocksdb_checkpoint_dir() {
@@ -2623,6 +2629,10 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
     return *reinterpret_cast<const int64_t*>(key_slice.data());
   }
 
+  // NOTE: this cold-fill loop is duplicated in
+  // aiplatform/modelstore/transformation/ssd_table_batch_embeddings.h
+  // (ReadOnlyEmbeddingKVDB); keep the two in sync — every fix here must
+  // land there too.
   template <typename VALUE_T>
   void ssd_get_weights_iterator(
       const std::vector<rocksdb::Slice>& keys,
@@ -2634,18 +2644,57 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
       int /*weight_offset*/) {
     auto iterator_ro = local_ro;
     iterator_ro.total_order_seek = true; // disable prefix filter
-    auto it = dbs_[shard_id]->NewIterator(iterator_ro, cfs[0]);
+    std::unique_ptr<rocksdb::Iterator> it(
+        dbs_[shard_id]->NewIterator(iterator_ro, cfs[0]));
 
     it->Seek(keys[0]);
+    int64_t missing_keys = 0;
+    int64_t first_missing_key = 0;
+    bool has_missing_key = false;
     for (auto j = 0; j < keys.size(); ++j) {
       int64_t i = key_indices[j];
-      CHECK(it->Valid()) << "missing key: " << get_key(keys[j])
-                         << " must exist in rocksdb";
-
       const rocksdb::Slice& expected_key = keys[j];
-      CHECK_EQ(it->key().compare(expected_key), 0)
-          << "readonly rocksdb iterator key: " << get_key(it->key())
-          << "doesn't match passed-in key:" << get_key(expected_key);
+      if (!it->Valid() || it->key().compare(expected_key) != 0) {
+        // The row was never written to RocksDB (cold row in a sparse
+        // table). The live-DB iterator fills such rows from the random
+        // initializer; the read-only checkpoint reader has no initializer
+        // state, so emit zeros (same as disable_random_init_). Do not
+        // advance the iterator: it already points at-or-past the next key.
+        if (!it->Valid()) {
+          // A non-ok status here is a real read error (e.g. a transient
+          // checkpoint I/O failure), not a cold row: throw a typed error
+          // through the enclosing folly future instead of aborting, so the
+          // caller fails this read and can retry.
+          TORCH_CHECK(
+              it->status().ok(),
+              "ReadOnlyEmbeddingKVDB iterator error: ",
+              it->status().ToString());
+        } else {
+          // The DB holds a key the query never asked for: the checkpoint
+          // was written with a different shard/hash layout than the reader
+          // uses. Fail loud — zero-filling here would silently zero every
+          // later row in this shard.
+          TORCH_CHECK(
+              get_key(it->key()) > get_key(expected_key),
+              "ReadOnlyEmbeddingKVDB[",
+              tbe_uuid_,
+              "] shard ",
+              shard_id,
+              ": iterator key ",
+              get_key(it->key()),
+              " behind expected ",
+              get_key(expected_key),
+              " (shard/hash mismatch?)");
+        }
+        if (!has_missing_key) {
+          first_missing_key = get_key(expected_key);
+          has_missing_key = true;
+        }
+        std::memset(
+            &(weights_data_ptr[i * max_D_]), 0, max_D_ * sizeof(VALUE_T));
+        ++missing_keys;
+        continue;
+      }
 
       const auto value = it->value();
       if constexpr (!std::is_same_v<VALUE_T, uint8_t>) {
@@ -2658,8 +2707,21 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
 
       it->Next();
     }
-
-    delete it;
+    // A failed final Next() surfaces only here: no later iteration would
+    // observe the invalid iterator.
+    TORCH_CHECK(
+        it->status().ok(),
+        "ReadOnlyEmbeddingKVDB iterator error: ",
+        it->status().ToString());
+    if (missing_keys > 0) {
+      // Sampled process-wide: LOG_EVERY_N keys off this call site (one
+      // counter per VALUE_T instantiation), so heavy tables can starve
+      // others' diagnostics.
+      LOG_EVERY_N(WARNING, 100)
+          << "ReadOnlyEmbeddingKVDB[" << tbe_uuid_ << "] filled "
+          << missing_keys << " missing keys with zeros (cold rows), shard "
+          << shard_id << ", first missing key " << first_missing_key;
+    }
   }
 
   // use_iterator=true is only efficient when the key sequence being looked up
@@ -2756,7 +2818,16 @@ class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
               });
       futures.emplace_back(std::move(f));
     }
-    return folly::collect(futures);
+    // collectAll, not collect: every shard must join before any exception
+    // propagates, otherwise stragglers outlive the caller's indices/weights
+    // storage (use-after-free). Rethrow-first once all are done.
+    return folly::collectAll(futures).deferValue(
+        [](const std::vector<folly::Try<folly::Unit>>& tries) {
+          for (auto& t : tries) {
+            t.throwUnlessValue();
+          }
+          return std::vector<folly::Unit>(tries.size());
+        });
   }
 
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
