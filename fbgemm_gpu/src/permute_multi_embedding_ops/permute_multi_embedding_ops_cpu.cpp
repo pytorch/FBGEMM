@@ -47,12 +47,16 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
   }
   FBGEMM_DISPATCH_FLOATING_TYPES(
       pooled_embs[0].scalar_type(), "permute_multi_embs_cpu", [&] {
+        const auto permutes_contig = permutes.expect_contiguous();
+        const int32_t* const permutes_base =
+            permutes_contig->const_data_ptr<int32_t>();
+        const int64_t permutes_stride = permutes_contig->stride(0);
         at::parallel_for(0, B, 0, [&](int32_t start, int32_t end) {
           int32_t in_tensor, out_tensor, in_offset, out_offset, length,
               next = 0;
           for (const auto i : c10::irange(permutes.size(0))) {
             const int32_t* __restrict__ pp =
-                permutes[i].const_data_ptr<int32_t>();
+                permutes_base + i * permutes_stride;
             if (reverse_permute) {
               out_tensor = pp[PermuteParam::in_tensor];
               in_tensor = pp[PermuteParam::out_tensor];
