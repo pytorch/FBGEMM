@@ -26,7 +26,13 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
+    from test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+        use_cpu_strategy,
+    )
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import (
@@ -34,6 +40,7 @@ else:
         gpu_memory_lt_gb,
         gpu_unavailable,
         optests,
+        use_cpu_strategy,
     )
 
 
@@ -49,7 +56,7 @@ class IndexSelectTest(unittest.TestCase):
             st.lists(st.integers(1, 16), min_size=2, max_size=2),
         ),
         dtype=st.sampled_from([torch.float, torch.half, torch.uint8, torch.int8]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=use_cpu_strategy(),
         consecutive_indices=st.booleans(),
         skip_indices_sorting_fwd=st.booleans(),
         use_inference_mode=st.booleans(),
@@ -125,7 +132,7 @@ class IndexSelectTest(unittest.TestCase):
         max_num_input_rows=st.integers(1, 32),
         shape=st.lists(st.integers(1, 32), min_size=1, max_size=2),
         dtype=st.sampled_from([torch.float, torch.half]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=use_cpu_strategy(),
         num_groups=st.integers(1, 32),
         use_var_cols=st.booleans(),
         use_var_num_input_rows=st.booleans(),
@@ -566,7 +573,7 @@ class IndexSelectTest(unittest.TestCase):
         max_output_rows=st.integers(2, 32),
         permute_output_dim_0_1=st.booleans(),
         dtype=st.sampled_from([torch.float, torch.half]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=use_cpu_strategy(),
         op=st.sampled_from(
             [
                 torch.ops.fbgemm.batch_index_select_dim0,
