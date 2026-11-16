@@ -206,6 +206,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/GroupwiseConv.cc",
         "src/GroupwiseConvAcc32Avx2.cc",
         "src/GroupwiseConvAcc32Avx512.cc",
+        "src/InstructionSet.cc",
         "src/PackAMatrix.cc",
         "src/PackAWithIm2Col.cc",
         "src/PackAWithQuantRowOffset.cc",
