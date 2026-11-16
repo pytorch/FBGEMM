@@ -3425,6 +3425,13 @@ class ScaledFP4QuantTests(unittest.TestCase):
         if major == 10:
             self.skipTest("SM100-family GPUs support scaled_fp4_quant")
         device = torch.accelerator.current_accelerator()
+        expected_error = (
+            f"scaled_fp4_quant requires an SM100-family GPU.*got sm_{major}{minor}"
+        )
+        if torch.version.cuda is not None and tuple(
+            int(part) for part in torch.version.cuda.split(".")[:2]
+        ) < (12, 8):
+            expected_error = r"CUDA version is older than 12\.8"
 
         for dtype in (torch.float16, torch.bfloat16):
             with self.subTest(dtype=dtype):
@@ -3432,11 +3439,7 @@ class ScaledFP4QuantTests(unittest.TestCase):
                 xq = torch.full((1, 8), 0xFF, dtype=torch.uint8, device=device)
                 scales = torch.full((128, 1), -1, dtype=torch.int32, device=device)
                 global_scale = torch.ones((), dtype=torch.float32, device=device)
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    "scaled_fp4_quant requires an SM100-family GPU.*"
-                    f"got sm_{major}{minor}",
-                ):
+                with self.assertRaisesRegex(RuntimeError, expected_error):
                     torch.ops.fbgemm.scaled_fp4_quant(xq, x, scales, global_scale)
                 torch.cuda.synchronize()
                 self.assertTrue(torch.all(xq == 0xFF))
