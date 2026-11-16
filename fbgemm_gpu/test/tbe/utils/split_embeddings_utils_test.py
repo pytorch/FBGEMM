@@ -260,6 +260,58 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             self.assertGreater(warning.item(), 0)
 
     @unittest.skipIf(*gpu_unavailable)
+    def test_prefetch_bounds_check_short_bags(self) -> None:
+        # lint-fixme: TorchDeviceCuda, TorchFunctionCallCudaDevice
+        # OSS FBGEMM supports PyTorch versions without torch.accelerator.
+        device = torch.device("cuda")
+        for dtype in (torch.int32, torch.int64):
+            for mode in (
+                BoundsCheckMode.WARNING,
+                BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES,
+            ):
+                with self.subTest(dtype=dtype, mode=mode):
+                    lengths = torch.zeros(6000, dtype=dtype, device=device)
+                    positions = [0, 1, 63, 64, 127, 128, 1023, 1024, 2047, 2048, 5999]
+                    lengths[positions] = torch.tensor(
+                        [1, 3, 7, 15, 31, 33, 65, 129, 257, 511, 4096],
+                        dtype=dtype,
+                        device=device,
+                    )
+                    offsets = torch.cat(
+                        (
+                            torch.zeros(1, dtype=dtype, device=device),
+                            lengths.cumsum(0, dtype=dtype),
+                        )
+                    )
+                    count = int(lengths.sum().item())
+                    indices = torch.full(
+                        (count,), torch.iinfo(dtype).max, dtype=dtype, device=device
+                    )
+                    indices[::11] = -1
+                    expected = torch.zeros_like(indices)
+                    expected[::11] = -1
+                    invalid_count = count - (count + 10) // 11
+                    if mode == BoundsCheckMode.WARNING_ALLOW_TRAILING_INDICES:
+                        trailing = torch.full((17,), 99, dtype=dtype, device=device)
+                        indices = torch.cat((indices, trailing))
+                        expected = torch.cat((expected, trailing))
+                    rows = torch.tensor([13, 31, 57], dtype=torch.int64, device=device)
+                    warning = torch.zeros(1, dtype=torch.int64, device=device)
+                    original_offsets = offsets.clone()
+                    torch.ops.fbgemm.bounds_check_indices(
+                        rows,
+                        indices,
+                        offsets,
+                        mode.value,
+                        warning,
+                        bounds_check_version=2,
+                        prefetch_pipeline=True,
+                    )
+                    torch.testing.assert_close(indices, expected)
+                    torch.testing.assert_close(offsets, original_offsets)
+                    self.assertEqual(warning.item(), invalid_count)
+
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=10, max_value=25),
         T=st.integers(min_value=5, max_value=20),

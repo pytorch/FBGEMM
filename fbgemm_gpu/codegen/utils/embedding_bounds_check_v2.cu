@@ -339,6 +339,14 @@ void _bounds_check_indices_cuda_v2(
       }
     }
   }
+#else
+  // The prefetch launch is capped at eight blocks, so with warp-wide groups
+  // most lanes idle on short bags. Four lanes per bag keeps up to 8x more bags
+  // in flight while one group still covers a mean bag length of four.
+  if (prefetch_pipeline && !vbe && is_warning_mode &&
+      indices.numel() <= 4 * total_B) {
+    thread_group_size = 4;
+  }
 #endif
   auto grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
       cuda_calc_xblock_count(total_B, num_threads / thread_group_size),
