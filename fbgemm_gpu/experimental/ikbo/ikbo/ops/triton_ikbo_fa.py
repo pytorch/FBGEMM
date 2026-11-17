@@ -89,7 +89,7 @@ def _attn_fwd_inner_tma(
 
 @triton.autotune(
     configs=_get_fw_configs(),
-    key=["d_model", "q_seq_len"],
+    key=["q_seq_len"],
 )
 @triton.jit  # pragma: no cover
 def _attn_fwd_tma(
