@@ -53,6 +53,45 @@ class BlockBucketize2DWeightsTest(unittest.TestCase):
                     self.assertAlmostEqual(left, right)
         return
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_block_bucketize_2d_weights_long_sequence_warp_matches_cpu(
+        self,
+    ) -> None:
+        """Exercise the long-sequence warp path and require stable CPU parity."""
+        lengths = torch.tensor([257, 513, 0, 300], dtype=torch.long)
+        indices = (torch.arange(int(lengths.sum())) * 7919) % 500_000
+        weights = torch.arange(indices.numel() * 2, dtype=torch.float32).reshape(-1, 2)
+        block_sizes = torch.tensor([1_000, 2_000], dtype=torch.long)
+        total_num_blocks = torch.tensor([320, 320], dtype=torch.long)
+        args = (
+            lengths,
+            indices,
+            False,
+            True,
+            block_sizes,
+            160,
+            weights,
+            2,
+        )
+        expected = torch.ops.fbgemm.block_bucketize_sparse_features_2d_weights(
+            *args, total_num_blocks=total_num_blocks
+        )
+        actual = torch.ops.fbgemm.block_bucketize_sparse_features_2d_weights(
+            *(
+                tensor.cuda() if isinstance(tensor, torch.Tensor) else tensor
+                for tensor in args
+            ),
+            total_num_blocks=total_num_blocks.cuda(),
+        )
+        for expected_tensor, actual_tensor in zip(expected, actual):
+            if expected_tensor is None:
+                self.assertIsNone(actual_tensor)
+            else:
+                self.assertIsNotNone(actual_tensor)
+                torch.testing.assert_close(
+                    actual_tensor.cpu(), expected_tensor, rtol=0, atol=0
+                )
+
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         bucketize_pos=st.booleans(),
