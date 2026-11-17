@@ -1362,6 +1362,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._owner_cache_exclusive: bool = False
         self._owner_cache_exclusive_promote_max_rows: int = 0
         self._owner_cache_exclusive_promote_every_n: int = 1
+        self._masked_write_promote: bool = False
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -1432,6 +1433,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
                 self._owner_cache_exclusive_promote_every_n = (
                     enrichment_policy.owner_cache_exclusive_promote_every_n
+                )
+                self._masked_write_promote = (
+                    enrichment_policy.owner_cache_exclusive_masked_write_promote
                 )
                 if (
                     enrichment_policy.serving_qdq_bit_rate
@@ -3690,6 +3694,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         current_stream = torch.cuda.current_stream()
         current_stream.wait_event(self.prefetch_complete_event)
         pending_indices.record_stream(current_stream)
+        if self._masked_write_promote and isinstance(
+            owner_cache, _ExclusiveDirectMappedEnrichmentCache
+        ):
+            return self._populate_exclusive_cache_masked(owner_cache, pending_indices)
         rows, found_mask = self._read_direct_backend_rows_with_found_mask(
             pending_indices
         )
@@ -3703,6 +3711,34 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         current_stream.record_event(self._direct_cache_insert_complete_event)
         self._pending_direct_cache_fill_indices = None
         return pending_indices[found_mask == 0]
+
+    def _populate_exclusive_cache_masked(
+        self,
+        owner_cache: "_ExclusiveDirectMappedEnrichmentCache",
+        pending_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        """_populate_direct_enrichment_cache_from_pending without host syncs
+        (EnrichmentPolicy.owner_cache_exclusive_masked_write_promote). Rows not
+        found in DRAM (found mask 0) or already in HBM (2) are skipped: their
+        rows are zeroed, which the exclusive insert skips, and with
+        int8_storage, where the insert re-reads each key's payload from DRAM,
+        neither has a DRAM payload, so it reads back as zero too. Only the
+        indices past the promote_max_rows cap are handed back for retry:
+        picking out the unlanded ones would need a host sync, and a lookup
+        promotes them on their first read anyway."""
+        current_stream = torch.cuda.current_stream()
+        cap = owner_cache._promote_max_rows
+        indices = pending_indices[:cap] if cap > 0 else pending_indices
+        rows, found_mask = self._read_direct_backend_rows_with_found_mask(indices)
+        # Not a multiply: rows that were not read hold stale pinned bytes, and
+        # NaN * 0 is NaN.
+        owner_cache.populate_from_write(
+            indices,
+            torch.where((found_mask == 1).unsqueeze(1), rows, torch.zeros_like(rows)),
+        )
+        current_stream.record_event(self._direct_cache_insert_complete_event)
+        self._pending_direct_cache_fill_indices = None
+        return pending_indices[cap:] if cap > 0 else pending_indices[:0]
 
     def owner_local_cache_last_hit_counts(self) -> tuple[int, int] | None:
         owner_cache = self._direct_enrichment_cache
