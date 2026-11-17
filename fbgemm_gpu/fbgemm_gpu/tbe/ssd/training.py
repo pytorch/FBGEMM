@@ -214,6 +214,36 @@ _cu_func_set_attribute_fn: Callable[[int, int, int], int] | None = None
 # fp32 scale and bias after the codes of each INT8 owner-cache row.
 _INT8_ROWWISE_QPARAMS_BYTES = 8
 
+# MurmurHash3 finalizer constants of cache_slot() as signed int64.
+_CACHE_SLOT_MIX_1 = 0xFF51AFD7ED558CCD - (1 << 64)
+_CACHE_SLOT_MIX_2 = 0xC4CEB9FE1A85EC53 - (1 << 64)
+
+
+# EnrichmentPolicy.owner_cache_hit_metrics stats, as owner_cache.tbe_id<N>.<name>.
+_OWNER_CACHE_STATS = (
+    "hit_rate_pct",
+    "queries",
+    "hits",
+    "conflict_miss",
+    "empty_miss",
+    "occupancy_pct",
+    "nro_written",
+    "nro_hbm_resident_rate_pct",
+)
+
+
+def _owner_cache_slots(keys: torch.Tensor, num_slots: int) -> torch.Tensor:
+    """cache_slot() of split_embeddings_cache_cuda.cuh with int64 tensor ops:
+    the direct-mapped slot of each key."""
+    h = keys.to(torch.int64)
+    for mix in (_CACHE_SLOT_MIX_1, _CACHE_SLOT_MIX_2):
+        h = h ^ ((h >> 33) & 0x7FFFFFFF)
+        h = h * mix
+    h = h ^ ((h >> 33) & 0x7FFFFFFF)
+    # h as uint64 modulo num_slots, from its top 63 bits and its low bit.
+    high = (h >> 1) & 0x7FFFFFFFFFFFFFFF
+    return ((high % num_slots) * 2 + (h & 1)) % num_slots
+
 
 def _get_kvzch_gather_int8_cast_triton_kernel() -> (
     "tuple[triton.JITFunction, dict[torch.dtype, tl.dtype]]"
@@ -497,6 +527,7 @@ class _DirectMappedEnrichmentCache(nn.Module):
         fused_float_gather: bool = False,
         output_dtype: torch.dtype | None = None,
         gather_reserved_sms: int = 0,
+        hit_metrics_every_n: int = 0,
     ) -> None:
         super().__init__()
         if int8 and embedding_dim % 4 != 0:
@@ -554,6 +585,11 @@ class _DirectMappedEnrichmentCache(nn.Module):
         )
         self._read_populate = read_populate
         self._read_populate_max_lookups = read_populate_max_lookups
+        # EnrichmentPolicy.owner_cache_hit_metrics: probe every this-many
+        # lookups (0 = off).
+        self.hit_metrics_every_n = hit_metrics_every_n
+        self._metric_lookup_count = 0
+        self._last_write_indices: torch.Tensor | None = None
         self._last_query_count = 0
         self._last_miss_count: torch.Tensor | None = None
         self._action_indices: torch.Tensor | None = None
@@ -582,6 +618,14 @@ class _DirectMappedEnrichmentCache(nn.Module):
             torch.zeros(1, dtype=torch.int64, device=device),
             persistent=False,
         )
+        if hit_metrics_every_n:
+            # Probed queries, hits, conflict misses, empty-slot misses and
+            # trainer rows written, counted on device until a report reads them.
+            self.register_buffer(
+                "_metric_counts",
+                torch.zeros(5, dtype=torch.int64, device=device),
+                persistent=False,
+            )
         logging.info(
             "Direct enrichment owner cache has %d rows (%.2f GiB); "
             "read_populate=%s; read_populate_max_lookups=%d; storage=%s; "
@@ -678,6 +722,10 @@ class _DirectMappedEnrichmentCache(nn.Module):
                 ),
                 device=indices.device,
             )
+        if self.hit_metrics_every_n:
+            if self._metric_lookup_count % self.hit_metrics_every_n == 0:
+                self._probe_lookup(indices)
+            self._metric_lookup_count += 1
         (
             action_indices,
             action_indices_cpu,
@@ -788,6 +836,55 @@ class _DirectMappedEnrichmentCache(nn.Module):
             None,
         )
 
+    def _probe_lookup(self, indices: torch.Tensor) -> None:
+        """Counts, on device, the hits, conflict misses (the slot holds another
+        key) and empty-slot misses the coming lookup of `indices` sees. Negative
+        (padding) indices are not counted."""
+        valid = indices >= 0
+        tags = self.cache_state[
+            _owner_cache_slots(indices.clamp(min=0), self.cache_state.size(0)), 0
+        ]
+        hit = valid & (tags == indices)
+        miss = valid & ~hit
+        self._metric_counts[:4] += torch.stack(
+            (
+                valid.sum(),
+                hit.sum(),
+                (miss & (tags >= 0)).sum(),
+                (miss & (tags == -1)).sum(),
+            )
+        )
+
+    def note_write(self, indices: torch.Tensor) -> None:
+        """Counts the trainer rows written to the backend."""
+        if not self.hit_metrics_every_n:
+            return
+        self._metric_counts[4] += indices.numel()
+        self._last_write_indices = indices
+
+    def hit_metrics(self) -> dict[str, float]:
+        """Cumulative counters, current occupancy and the share of the last
+        trainer write that is in the cache; syncs the device."""
+        queries, hits, conflict, empty, written = self._metric_counts.tolist()
+        metrics = {
+            "queries": float(queries),
+            "hits": float(hits),
+            "conflict_miss": float(conflict),
+            "empty_miss": float(empty),
+            "nro_written": float(written),
+            "occupancy": float((self.cache_state >= 0).sum())
+            / self.cache_state.size(0),
+        }
+        last = self._last_write_indices
+        if last is not None and last.numel() > 0:
+            tags = self.cache_state[
+                _owner_cache_slots(last, self.cache_state.size(0)), 0
+            ]
+            metrics["nro_hbm_resident_rate"] = (
+                float((tags == last).sum()) / last.numel()
+            )
+        return metrics
+
     def last_hit_counts(self) -> tuple[int, int]:
         if self._last_miss_count is None:
             return 0, self._last_query_count
@@ -854,6 +951,7 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
         output_dtype: torch.dtype | None = None,
         gather_reserved_sms: int = 0,
         int8_storage: bool = False,
+        hit_metrics_every_n: int = 0,
     ) -> None:
         # Codes and qparams, the int64 tag and the int32 last-access time.
         slot_bytes = embedding_dim + _INT8_ROWWISE_QPARAMS_BYTES + 8 + 4
@@ -871,6 +969,7 @@ class _ExclusiveDirectMappedEnrichmentCache(_DirectMappedEnrichmentCache):
             fused_float_gather=fused_float_gather,
             output_dtype=output_dtype,
             gather_reserved_sms=gather_reserved_sms,
+            hit_metrics_every_n=hit_metrics_every_n,
         )
         self.register_buffer(
             "last_access",
@@ -1363,6 +1462,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self._owner_cache_exclusive_promote_max_rows: int = 0
         self._owner_cache_exclusive_promote_every_n: int = 1
         self._masked_write_promote: bool = False
+        self._owner_cache_hit_metrics_every_n: int = 0
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
@@ -1437,6 +1537,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._masked_write_promote = (
                     enrichment_policy.owner_cache_exclusive_masked_write_promote
                 )
+                if enrichment_policy.owner_cache_hit_metrics:
+                    self._owner_cache_hit_metrics_every_n = (
+                        enrichment_policy.owner_cache_hit_metrics_every_n
+                    )
                 if (
                     enrichment_policy.serving_qdq_bit_rate
                     and self.backend_type != BackendType.DRAM
@@ -2350,6 +2454,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 fused_float_gather=self._owner_cache_int8_fused_float,
                 output_dtype=self._direct_enrichment_output_dtype,
                 gather_reserved_sms=self._owner_cache_gather_reserved_sms,
+                hit_metrics_every_n=self._owner_cache_hit_metrics_every_n,
             )
         elif self._owner_cache_size_mb > 0:
             self._direct_enrichment_cache = _DirectMappedEnrichmentCache(
@@ -2364,6 +2469,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 fused_float_gather=self._owner_cache_int8_fused_float,
                 output_dtype=self._direct_enrichment_output_dtype,
                 gather_reserved_sms=self._owner_cache_gather_reserved_sms,
+                hit_metrics_every_n=self._owner_cache_hit_metrics_every_n,
             )
 
         if self.prefetch_pipeline:
@@ -2636,6 +2742,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.overall_hit_rate_stats_name: str = (
             f"ssd_tbe.tbe_id{tbe_unique_id}.overall_hit_rate_pct"
         )
+        self.owner_cache_stats_names: dict[str, str] = (
+            {
+                name: f"owner_cache.tbe_id{tbe_unique_id}.{name}"
+                for name in _OWNER_CACHE_STATS
+            }
+            if self._owner_cache_hit_metrics_every_n
+            else {}
+        )
+        self._last_owner_cache_metrics: dict[str, float] = {}
 
         self.eviction_sum_evicted_counts_stats_name: str = (
             f"eviction.tbe_id.{tbe_unique_id}.sum_evicted_counts"
@@ -2721,6 +2836,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.dram_ssd_kv_ssd_total_rows_written_stats_name
             )
             self.stats_reporter.register_stats(self.dram_ssd_kv_ssd_hit_rate_stats_name)
+            for name in self.owner_cache_stats_names.values():
+                self.stats_reporter.register_stats(name)
             for t in self.feature_table_map:
                 self.stats_reporter.register_stats(
                     f"eviction.feature_table.{t}.evicted_counts"
@@ -6545,6 +6662,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if not stats_reporter.should_report(self.step):
             return
         self._report_ssd_l1_cache_stats()
+        self._report_owner_cache_stats()
 
         if self.backend_type == BackendType.SSD:
             self._report_ssd_io_stats()
@@ -6559,6 +6677,46 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._report_eviction_stats()
             if self.backend_type == BackendType.DRAM_SSD:
                 self._report_dram_ssd_perf_stats(raw_dram_kv_perf_stats)
+
+    @torch.jit.ignore
+    def _report_owner_cache_stats(self) -> None:
+        """EnrichmentPolicy.owner_cache_hit_metrics since the last report. A
+        report with no probed lookup has no hit rate."""
+        owner_cache = self._direct_enrichment_cache
+        stats_reporter = self.stats_reporter
+        if (
+            owner_cache is None
+            or stats_reporter is None
+            or not self.owner_cache_stats_names
+        ):
+            return
+        current = owner_cache.hit_metrics()
+        last = self._last_owner_cache_metrics
+        self._last_owner_cache_metrics = current
+        values = {
+            name: current[name] - last.get(name, 0.0)
+            for name in (
+                "queries",
+                "hits",
+                "conflict_miss",
+                "empty_miss",
+                "nro_written",
+            )
+        }
+        if values["queries"] > 0:
+            values["hit_rate_pct"] = 100.0 * values["hits"] / values["queries"]
+        values["occupancy_pct"] = 100.0 * current["occupancy"]
+        if "nro_hbm_resident_rate" in current:
+            values["nro_hbm_resident_rate_pct"] = (
+                100.0 * current["nro_hbm_resident_rate"]
+            )
+        for name, value in values.items():
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=self.owner_cache_stats_names[name],
+                data_bytes=value,
+                enable_tb_metrics=True,
+            )
 
     @torch.jit.ignore
     def _report_ssd_l1_cache_stats(self) -> None:
@@ -8202,6 +8360,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     keep[1:] = sorted_indices[1:] != sorted_indices[:-1]
                     keep &= sorted_rows.abs().amax(dim=1) > 0
                     kept_indices = sorted_indices[keep]
+                    if self._direct_enrichment_cache is not None:
+                        self._direct_enrichment_cache.note_write(kept_indices)
                     indices_cpu = self.to_pinned_cpu(kept_indices)
                     rows_cpu = self.to_pinned_cpu(sorted_rows[keep])
 
