@@ -16,6 +16,7 @@ set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
   "${FBGEMM}/src/FbgemmBfloat16Convert.cc"
   "${FBGEMM}/src/FbgemmFloat16Convert.cc"
+  "${FBGEMM}/src/InstructionSet.cc"
   "${FBGEMM}/src/JitPerfMap.cc"
   "${FBGEMM}/src/QuantUtils.cc"
   "${FBGEMM}/src/QuantUtilsNeon.cc"

@@ -1632,6 +1632,10 @@ def _setup() -> None:
             int_nbit_split_embedding_codegen_lookup_function_meta,
         )
         impl_abstract(
+            "fbgemm::int_nbit_split_embedding_codegen_lookup_function_epo_gpu_compatible_cpu",
+            int_nbit_split_embedding_codegen_lookup_function_meta,
+        )
+        impl_abstract(
             "fbgemm::block_bucketize_sparse_features",
             block_bucketize_sparse_features_meta,
         )

@@ -46,7 +46,8 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     int64_t output_dtype,
     int64_t fp8_exponent_bits,
     int64_t fp8_exponent_bias,
-    bool scale_bias_last);
+    bool scale_bias_last,
+    bool gpu_compatible_int4_rounding);
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor dev_weights,
@@ -82,7 +83,8 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
     int64_t fp8_exponent_bias,
     bool scale_bias_last);
 
-Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
+Tensor
+int_nbit_split_embedding_codegen_lookup_function_cpu_with_gpu_rounding_impl(
     Tensor dev_weights,
     Tensor uvm_weights, // to match the interface of CUDA op using UVM
     Tensor weights_placements, // to match the interface of CUDA op using UVM
@@ -108,7 +110,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
     std::optional<int64_t> max_float8_D,
     std::optional<int64_t> fp8_exponent_bits,
     std::optional<int64_t> fp8_exponent_bias,
-    std::optional<bool> scale_bias_last) {
+    std::optional<bool> scale_bias_last,
+    bool gpu_compatible_int4_rounding = false) {
   if (offsets.scalar_type() != indices.scalar_type()) {
     offsets = offsets.to(indices.scalar_type());
   }
@@ -154,7 +157,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
         output_dtype,
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
         fp8_exponent_bias ? *fp8_exponent_bias : -1,
-        scale_bias_last_val);
+        scale_bias_last_val,
+        gpu_compatible_int4_rounding);
   }
   return int_nbit_split_embedding_codegen_forward_weighted_cpu(
       std::move(dev_weights),
@@ -173,6 +177,61 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
       fp8_exponent_bits ? *fp8_exponent_bits : -1,
       fp8_exponent_bias ? *fp8_exponent_bias : -1,
       scale_bias_last_val);
+}
+
+Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
+    Tensor dev_weights,
+    Tensor uvm_weights, // to match the interface of CUDA op using UVM
+    Tensor weights_placements, // to match the interface of CUDA op using UVM
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    int64_t total_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
+    int64_t max_float16_D,
+    int64_t max_float32_D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    std::optional<Tensor> indice_weights,
+    int64_t output_dtype,
+    std::optional<Tensor> lxu_cache_weights
+    [[maybe_unused]], // Not used, to match cache interface for CUDA op
+    std::optional<Tensor> lxu_cache_locations
+    [[maybe_unused]], // Not used, to match cache interface for CUDA op
+    std::optional<int64_t> row_alignment,
+    std::optional<int64_t> max_float8_D,
+    std::optional<int64_t> fp8_exponent_bits,
+    std::optional<int64_t> fp8_exponent_bias,
+    std::optional<bool> scale_bias_last) {
+  return int_nbit_split_embedding_codegen_lookup_function_cpu_with_gpu_rounding_impl(
+      std::move(dev_weights),
+      std::move(uvm_weights),
+      std::move(weights_placements),
+      std::move(weights_offsets),
+      std::move(weights_tys),
+      std::move(D_offsets),
+      total_D,
+      max_int2_D,
+      max_int4_D,
+      max_int8_D,
+      max_float16_D,
+      max_float32_D,
+      std::move(indices),
+      std::move(offsets),
+      pooling_mode,
+      std::move(indice_weights),
+      output_dtype,
+      std::move(lxu_cache_weights),
+      std::move(lxu_cache_locations),
+      std::move(row_alignment),
+      std::move(max_float8_D),
+      std::move(fp8_exponent_bits),
+      std::move(fp8_exponent_bias),
+      std::move(scale_bias_last),
+      false);
 }
 
 ///@ingroup embedding-cpu
@@ -200,7 +259,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     std::optional<int64_t> max_float8_D,
     std::optional<int64_t> fp8_exponent_bits,
     std::optional<int64_t> fp8_exponent_bias) {
-  return int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
+  return int_nbit_split_embedding_codegen_lookup_function_cpu_with_gpu_rounding_impl(
       std::move(dev_weights),
       std::move(uvm_weights),
       std::move(weights_placements),
@@ -225,6 +284,78 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       std::move(fp8_exponent_bits),
       std::move(fp8_exponent_bias),
       false);
+}
+
+Tensor int_nbit_split_embedding_codegen_lookup_function_epo_gpu_compatible_cpu(
+    Tensor dev_weights,
+    Tensor uvm_weights,
+    Tensor weights_placements,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    int64_t total_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
+    int64_t max_float16_D,
+    int64_t max_float32_D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    std::optional<Tensor> indice_weights,
+    int64_t output_dtype,
+    std::optional<Tensor> lxu_cache_weights,
+    std::optional<Tensor> lxu_cache_locations,
+    std::optional<int64_t> row_alignment,
+    std::optional<int64_t> max_float8_D,
+    std::optional<int64_t> fp8_exponent_bits,
+    std::optional<int64_t> fp8_exponent_bias) {
+  TENSOR_ON_CPU(dev_weights);
+  TENSOR_ON_CPU(weights_tys);
+  const auto* tys = weights_tys.const_data_ptr<uint8_t>();
+  const bool has_int4 =
+      weights_tys.numel() != 0 &&
+      std::any_of(tys, tys + weights_tys.numel(), [](uint8_t ty) {
+        return static_cast<SparseType>(ty) == SparseType::INT4;
+      });
+  if (has_int4) {
+    TORCH_CHECK(
+        !indice_weights || indice_weights->numel() == 0,
+        "GPU-compatible INT4 CPU rounding requires unweighted tables");
+    TORCH_CHECK(
+        static_cast<PoolingMode>(pooling_mode) != PoolingMode::NONE,
+        "GPU-compatible INT4 CPU rounding does not support no-bag lookup");
+    TORCH_CHECK(
+        output_dtype == static_cast<int64_t>(SparseType::FP16) ||
+            output_dtype == static_cast<int64_t>(SparseType::FP32),
+        "GPU-compatible INT4 CPU rounding requires FP16 or FP32 output");
+  }
+  return int_nbit_split_embedding_codegen_lookup_function_cpu_with_gpu_rounding_impl(
+      std::move(dev_weights),
+      std::move(uvm_weights),
+      std::move(weights_placements),
+      std::move(weights_offsets),
+      std::move(weights_tys),
+      std::move(D_offsets),
+      total_D,
+      max_int2_D,
+      max_int4_D,
+      max_int8_D,
+      max_float16_D,
+      max_float32_D,
+      std::move(indices),
+      std::move(offsets),
+      pooling_mode,
+      std::move(indice_weights),
+      output_dtype,
+      std::move(lxu_cache_weights),
+      std::move(lxu_cache_locations),
+      std::move(row_alignment),
+      std::move(max_float8_D),
+      std::move(fp8_exponent_bits),
+      std::move(fp8_exponent_bias),
+      false,
+      true);
 }
 
 ///@ingroup embedding-cpu
@@ -320,6 +451,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function_cpu);
+
+  m.def(
+      "int_nbit_split_embedding_codegen_lookup_function_epo_gpu_compatible_cpu(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1) -> Tensor",
+      {PT2_COMPLIANT_TAG});
+  DISPATCH_TO_CPU(
+      "int_nbit_split_embedding_codegen_lookup_function_epo_gpu_compatible_cpu",
+      int_nbit_split_embedding_codegen_lookup_function_epo_gpu_compatible_cpu);
 
   m.def(
       "int_nbit_split_embedding_uvm_caching_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights=None, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment=-1, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1, Tensor? cache_hash_size_cumsum=None, int? total_cache_hash_size=-1, Tensor? cache_index_table_map=None, Tensor? lxu_cache_state=None, Tensor? lxu_state=None) -> Tensor");
