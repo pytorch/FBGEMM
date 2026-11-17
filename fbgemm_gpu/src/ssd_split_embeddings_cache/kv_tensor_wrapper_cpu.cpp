@@ -60,6 +60,14 @@ void KVTensorWrapper::set_dram_ssd_db_wrapper(
   FBEXCEPTION("Not implemented");
 }
 
+c10::intrusive_ptr<KVTensorWrapper> KVTensorWrapper::fp16_publish_view() const {
+  return nullptr;
+}
+
+bool KVTensorWrapper::stores_raw_rows() const {
+  return false;
+}
+
 at::Tensor KVTensorWrapper::narrow(
     int64_t dim [[maybe_unused]],
     int64_t start [[maybe_unused]],
