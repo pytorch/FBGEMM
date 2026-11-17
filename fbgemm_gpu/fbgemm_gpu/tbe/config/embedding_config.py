@@ -136,6 +136,7 @@ class ComputeDevice(enum.IntEnum):
     CPU = 0
     CUDA = 1
     MTIA = 2
+    XPU = 3
 
     @classmethod
     def get_available(cls) -> "ComputeDevice":
@@ -148,6 +149,8 @@ class ComputeDevice(enum.IntEnum):
             return ComputeDevice.CUDA
         elif torch.mtia.is_available():
             return ComputeDevice.MTIA
+        elif torch.xpu.is_available():
+            return ComputeDevice.XPU
         else:
             return ComputeDevice.CPU
 
