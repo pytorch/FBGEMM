@@ -371,6 +371,12 @@ class EnrichmentPolicy(NamedTuple):
     # only the rows past the cap are returned for retry (the others are promoted
     # on their first lookup). Requires owner_cache_exclusive.
     owner_cache_exclusive_masked_write_promote: bool = False
+    # Probe every owner_cache_hit_metrics_every_n-th owner-cache lookup for its
+    # hits, conflict misses (the slot holds another key) and empty-slot misses,
+    # and count the trainer rows written; reported with the KV backend stats
+    # (gather_ssd_cache_stats). Requires owner_cache_size_mb.
+    owner_cache_hit_metrics: bool = False
+    owner_cache_hit_metrics_every_n: int = 100
     # Store DRAM rows as row-wise INT8 (enrichment_dim codes, then fp32 scale
     # and bias: the INT8 publish row and the owner-local HBM row) instead of
     # fp16; reads and writes stay fp16. With
@@ -436,6 +442,12 @@ class EnrichmentPolicy(NamedTuple):
             not self.owner_cache_exclusive_masked_write_promote
             or self.owner_cache_exclusive
         ), "owner_cache_exclusive_masked_write_promote requires owner_cache_exclusive"
+        assert (
+            not self.owner_cache_hit_metrics or self.owner_cache_size_mb > 0
+        ), "owner_cache_hit_metrics requires owner_cache_size_mb"
+        assert (
+            self.owner_cache_hit_metrics_every_n >= 1
+        ), "owner_cache_hit_metrics_every_n must be positive"
         assert not self.int8_storage or (
             not self.packed_storage and self.serving_qdq_bit_rate == 0
         ), "int8_storage excludes packed_storage and serving_qdq_bit_rate"
