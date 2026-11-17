@@ -266,11 +266,20 @@ class KVZCHParamsValidateTest(unittest.TestCase):
             owner_cache_exclusive_promote_every_n=2,
         )
         KVZCHParams(enrichment_policy=exclusive).validate()
+        KVZCHParams(
+            enrichment_policy=exclusive._replace(
+                owner_cache_exclusive_masked_write_promote=True
+            )
+        ).validate()
         for policy in (
             exclusive._replace(owner_cache_int8=False),
             exclusive._replace(owner_cache_read_populate=True),
             exclusive._replace(owner_cache_exclusive_promote_max_rows=-1),
             exclusive._replace(owner_cache_exclusive_promote_every_n=0),
+            exclusive._replace(
+                owner_cache_exclusive=False,
+                owner_cache_exclusive_masked_write_promote=True,
+            ),
         ):
             with self.assertRaises(AssertionError):
                 KVZCHParams(enrichment_policy=policy).validate()

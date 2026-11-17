@@ -365,6 +365,12 @@ class EnrichmentPolicy(NamedTuple):
     owner_cache_exclusive_promote_max_rows: int = 0
     # Move missed rows into HBM on every this-many lookups.
     owner_cache_exclusive_promote_every_n: int = 1
+    # The write-side promotion of trainer-written rows is also capped at
+    # owner_cache_exclusive_promote_max_rows, and runs without a host sync: rows
+    # not found in DRAM or already in HBM are skipped instead of picked out, and
+    # only the rows past the cap are returned for retry (the others are promoted
+    # on their first lookup). Requires owner_cache_exclusive.
+    owner_cache_exclusive_masked_write_promote: bool = False
     # Store DRAM rows as row-wise INT8 (enrichment_dim codes, then fp32 scale
     # and bias: the INT8 publish row and the owner-local HBM row) instead of
     # fp16; reads and writes stay fp16. With
@@ -426,6 +432,10 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             self.owner_cache_exclusive_promote_every_n >= 1
         ), "owner_cache_exclusive_promote_every_n must be positive"
+        assert (
+            not self.owner_cache_exclusive_masked_write_promote
+            or self.owner_cache_exclusive
+        ), "owner_cache_exclusive_masked_write_promote requires owner_cache_exclusive"
         assert not self.int8_storage or (
             not self.packed_storage and self.serving_qdq_bit_rate == 0
         ), "int8_storage excludes packed_storage and serving_qdq_bit_rate"
