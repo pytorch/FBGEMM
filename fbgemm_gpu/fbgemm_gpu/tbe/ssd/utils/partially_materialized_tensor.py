@@ -175,7 +175,7 @@ class PartiallyMaterializedTensor:
     def dtype(self) -> torch.dtype:
         if isinstance(self._wrapped, torch.Tensor):
             return self._wrapped.dtype
-        mapping = {"c10::Half": "half"}
+        mapping = {"c10::Half": "half", "unsigned char": "uint8"}
         dtype_str: str = self._wrapped.dtype_str
         dtype_str = mapping.get(dtype_str, dtype_str)
 
