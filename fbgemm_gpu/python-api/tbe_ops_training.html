@@ -490,6 +490,14 @@ virtual memory and using the GPU global memory (HBM) as a cache</p></li>
 <li><p><cite>CPU</cite> = performing table lookup on CPU</p></li>
 <li><p><cite>CUDA</cite> = performing table lookup on GPU</p></li>
 <li><p><cite>MTIA</cite> = performing table lookup on MTIA</p></li>
+<li><dl class="simple">
+<dt><cite>XPU</cite> = performing table lookup on an Intel GPU,</dt><dd><p>using kernels supplied by an out-of-tree plugin
+(fbgemm-xpu in intel/torchlib-xpu). Supported
+configurations depend on the plugin and FBGEMM’s
+frontend restrictions.</p>
+</dd>
+</dl>
+</li>
 </ol>
 </p></li>
 <li><p><strong>feature_table_map</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a><em>] </em><em>| </em><em>None = None</em>) – An optional list that
