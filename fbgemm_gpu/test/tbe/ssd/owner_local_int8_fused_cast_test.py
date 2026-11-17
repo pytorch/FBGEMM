@@ -640,6 +640,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         backend_type: BackendType = BackendType.DRAM,
         packed_storage: bool = False,
         exclusive: bool = False,
+        masked_write_promote: bool = False,
     ) -> training.SSDTableBatchedEmbeddingBags:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -670,6 +671,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 enrichment_policy = enrichment_policy._replace(
                     owner_cache_read_populate=False,
                     owner_cache_read_populate_max_lookups=0,
+                    owner_cache_exclusive_masked_write_promote=masked_write_promote,
                 )
         params = KVZCHParams(
             bucket_offsets=[(0, 10)],
@@ -917,12 +919,120 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
     def test_packed_dram_exclusive_promote_demote_and_fill_only_writes(
         self,
     ) -> None:
+        self._check_packed_dram_exclusive()
+
+    def test_packed_dram_exclusive_with_fast_checkpoint_and_masked_promote(
+        self,
+    ) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "KVZCH_EXCLUSIVE_HBM_BATCHED_FILLS": "1",
+                "KVZCH_EXCLUSIVE_HBM_SKIP_TAIL_FILL": "1",
+            },
+        ):
+            self._check_packed_dram_exclusive(masked_write_promote=True)
+
+    def _masked_promote_tbe(
+        self, promote_max_rows: int, int8_storage: bool = False
+    ) -> training.SSDTableBatchedEmbeddingBags:
+        tbe = self._cu_tbe(
+            int8_storage=int8_storage,
+            load_without_opt=True,
+            owner_cache=True,
+            packed_storage=not int8_storage,
+            exclusive=True,
+            masked_write_promote=True,
+        )
+        cache = tbe._direct_enrichment_cache
+        assert isinstance(cache, training._ExclusiveDirectMappedEnrichmentCache)
+        cache._promote_max_rows = promote_max_rows
+        return tbe
+
+    def _promote_pending(
+        self, tbe: training.SSDTableBatchedEmbeddingBags, pending: torch.Tensor
+    ) -> torch.Tensor:
+        tbe._pending_direct_cache_fill_indices = pending.to(_cuda_device())
+        retry = tbe._populate_direct_enrichment_cache_from_pending()
+        torch.cuda.synchronize()
+        tbe.ssd_db.exclusive_hbm_wait()
+        assert retry is not None
+        return retry
+
+    def _set_rows(
+        self, tbe: training.SSDTableBatchedEmbeddingBags, keys: torch.Tensor
+    ) -> None:
+        rows = torch.randn(keys.numel(), tbe.cache_row_dim) * 0.3
+        tbe.ssd_db.set(keys, rows.half(), torch.tensor([keys.numel()]))
+
+    def test_masked_write_promote_claims_no_unread_rows(self) -> None:
+        for int8_storage in (False, True):
+            with self.subTest(int8_storage=int8_storage):
+                tbe = self._masked_promote_tbe(0, int8_storage=int8_storage)
+                in_dram = torch.arange(32) * 7 + 3
+                missing = torch.arange(32) * 7 + 5
+                self._set_rows(tbe, in_dram)
+                pending = torch.cat((in_dram, missing))
+                # Stale NaN bytes in the pinned pool that the found-mask read
+                # reuses: the rows it does not read (missing keys) keep them.
+                poison = torch.full(
+                    (pending.numel(), tbe.cache_row_dim),
+                    float("nan"),
+                    dtype=torch.float16,
+                    pin_memory=True,
+                )
+                del poison
+                retry = self._promote_pending(tbe, pending)
+                stats = [int(v) for v in tbe.ssd_db.exclusive_hbm_stats()]
+                self.assertEqual(stats[0], in_dram.numel())
+                # No missing key claimed a slot (its promotion would be skipped).
+                self.assertEqual(stats[2], 0)
+                self.assertEqual(retry.numel(), 0)
+
+    def test_masked_write_promote_skips_rows_already_in_hbm(self) -> None:
+        for int8_storage in (False, True):
+            with self.subTest(int8_storage=int8_storage):
+                tbe = self._masked_promote_tbe(0, int8_storage=int8_storage)
+                in_hbm = torch.arange(16) * 7 + 3
+                in_dram = torch.arange(16) * 7 + 5
+                self._set_rows(tbe, in_hbm)
+                self.assertEqual(self._promote_pending(tbe, in_hbm).numel(), 0)
+                before = [int(v) for v in tbe.ssd_db.exclusive_hbm_stats()]
+                self.assertEqual(before[0], in_hbm.numel())
+                self._set_rows(tbe, in_dram)
+                # found mask 2 for in_hbm: neither re-inserted nor retried.
+                retry = self._promote_pending(tbe, torch.cat((in_hbm, in_dram)))
+                after = [int(v) for v in tbe.ssd_db.exclusive_hbm_stats()]
+                self.assertEqual(after[0], in_hbm.numel() + in_dram.numel())
+                self.assertEqual(after[2], before[2])
+                self.assertEqual(retry.numel(), 0)
+
+    def test_masked_write_promote_retries_only_the_rows_past_the_cap(self) -> None:
+        device = _cuda_device()
+        tbe = self._masked_promote_tbe(4)
+        keys = torch.arange(10) * 7 + 3
+        self._set_rows(tbe, keys)
+        pending: torch.Tensor | None = keys.to(device)
+        in_hbm = []
+        for left in (6, 2, 0):
+            tbe._pending_direct_cache_fill_indices = pending
+            pending = tbe._populate_direct_enrichment_cache_from_pending()
+            torch.cuda.synchronize()
+            tbe.ssd_db.exclusive_hbm_wait()
+            assert pending is not None
+            self.assertEqual(pending.numel(), left)
+            in_hbm.append(int(tbe.ssd_db.exclusive_hbm_stats()[0]))
+        # Each cadence promotes the next promote_max_rows rows.
+        self.assertEqual(in_hbm, [4, 8, 10])
+
+    def _check_packed_dram_exclusive(self, masked_write_promote: bool = False) -> None:
         device = _cuda_device()
         tbe = self._cu_tbe(
             load_without_opt=True,
             owner_cache=True,
             packed_storage=True,
             exclusive=True,
+            masked_write_promote=masked_write_promote,
         )
         cache = tbe._direct_enrichment_cache
         assert cache is not None
