@@ -73,6 +73,14 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 
+  // Read-only logical rows with the same IDs and snapshot as raw INT8 rows.
+  // Returns nullptr for wrappers that do not expose raw INT8 whole rows.
+  c10::intrusive_ptr<KVTensorWrapper> fp16_publish_view() const;
+
+  // Whether the backend stores raw rows (DRAM int8_storage), whatever the
+  // wrapper's dtype.
+  bool stores_raw_rows() const;
+
   void logss();
 
   /// @brief if the backend storage is SSD, use this function
@@ -150,6 +158,10 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const at::Tensor& weights,
       const at::Tensor& ids,
       bool weights_include_metadata);
+
+  // Writes the backend's raw INT8 rows as is: rows not marked used are
+  // skipped and view ids are rewritten to storage ids.
+  void set_raw_rows(const at::Tensor& rows, const at::Tensor& view_ids);
 
   std::shared_ptr<kv_db::EmbeddingKVDB> db_;
   // For DRAM_SSD backend: stores the underlying EmbeddingRocksDB separately

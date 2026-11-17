@@ -178,7 +178,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         max_D_(max_D),
         num_shards_(num_shards),
         packed_(packed_layout(max_D, enrichment_config)),
-        block_size_(row_block_size(max_D, packed_)),
+        int8_(int8_layout(max_D, enrichment_config)),
+        block_size_(row_block_size(max_D, packed_, int8_)),
         block_alignment_(
             FixedBlockPool::calculate_block_alignment<weight_type>()),
         kv_store_(
@@ -360,6 +361,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       LOG(INFO) << "KVZCH packed DRAM rows: dim=" << packed_->dim
                 << " group_size=" << packed_->group_size
                 << " tail=" << packed_->tail << " block_size=" << block_size_
+                << " (fp16 block_size="
+                << FixedBlockPool::calculate_block_size<weight_type>(max_D_)
+                << ")";
+    }
+    if (int8_) {
+      check_int8_storage_supported();
+      LOG(INFO) << "KVZCH INT8 DRAM rows: dim=" << int8_->dim
+                << " tail=" << int8_->tail << " block_size=" << block_size_
                 << " (fp16 block_size="
                 << FixedBlockPool::calculate_block_size<weight_type>(max_D_)
                 << ")";
@@ -937,6 +946,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         });
   }
 
+  /// The write epoch an enrichment write captures before it is queued.
+  uint64_t laser_write_epoch() const {
+    return laser_write_epoch_.load();
+  }
+
+  /// Waits until no set_embedding_cache_rows_async write is in flight.
+  void wait_row_writes_done() const {
+    while (row_write_in_progress_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+
   /// Separate write path for enrichment that runs on enrichment_executor_
   /// instead of the main executor_. This avoids competing with forward/backward
   /// for thread pool resources. Uses pause/resume to yield to fwd/bwd —
@@ -1085,6 +1106,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // bookkeeping cannot share.
     TORCH_CHECK(
         !packed_, "inference_set_kv_db_async does not support packed rows");
+    TORCH_CHECK(!int8_, "inference_set_kv_db_async does not support INT8 rows");
     auto shardid_to_indexes = shard_input(indices, count);
     std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
     futures.reserve(shardid_to_indexes.size());
@@ -1598,7 +1620,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                     indices = std::move(indices),
                     weights = std::move(weights),
                     count = std::move(count)](folly::Unit) mutable {
-          if (packed_ && serving_qdq_format().bit_rate != 0) {
+          // Snapped to the serving fixed point like Laser fills, so training
+          // reads what serving decodes; a no-op without serving QDQ.
+          if (serving_qdq_format().bit_rate != 0) {
             weights = weights.clone();
             apply_serving_qdq(weights, count.item<int64_t>());
           }
@@ -2421,7 +2445,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           const auto* const row_bytes =
                               reinterpret_cast<const char*>(
                                   cached_data_ptr + width_offset);
-                          if (packed_) {
+                          if (packed_ || int8_) {
                             // Every line the payload touches: a payload
                             // shorter than its block often straddles one
                             // more line than its length suggests.
@@ -2430,7 +2454,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 ~(kCacheLineBytes - 1);
                             const auto end =
                                 reinterpret_cast<uintptr_t>(row_bytes) +
-                                packed_->payload_bytes();
+                                payload_end_bytes() -
+                                sizeof(FixedBlockPool::MetaHeader);
                             for (auto line = first; line < end;
                                  line += kCacheLineBytes) {
                               __builtin_prefetch(
@@ -2609,6 +2634,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) override {
+    if (is_raw_rows(weights)) {
+      set_int8_rows_with_metaheader(weights);
+      return;
+    }
     if (backend_return_whole_row_) {
       auto pause_state = pause_for_stream_write();
       SCOPE_EXIT {
@@ -2634,6 +2663,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
 
+    if (is_raw_rows(weights)) {
+      CHECK_EQ(width_offset, 0);
+      get_int8_rows_with_metaheader(seq_indices, weights);
+      return;
+    }
     auto tombstoned = hbm_tombstoned_positions(seq_indices);
     if (backend_return_whole_row_) {
       get_kv_with_metaheader_from_storage(seq_indices, weights);
@@ -2660,6 +2694,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights)
       override {
+    if (is_raw_rows(weights)) {
+      set_int8_rows_with_metaheader(weights, ids);
+      return;
+    }
     if (backend_return_whole_row_) {
       auto pause_state = pause_for_stream_write();
       SCOPE_EXIT {
@@ -2680,6 +2718,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       std::optional<int64_t> width_length = std::nullopt) override {
     CHECK(snapshot_handle == nullptr);
 
+    if (is_raw_rows(weights)) {
+      CHECK_EQ(width_offset, 0);
+      get_int8_rows_with_metaheader(ids, weights);
+      return;
+    }
     auto tombstoned = hbm_tombstoned_positions(ids);
     if (backend_return_whole_row_) {
       get_kv_with_metaheader_from_storage(
@@ -2735,6 +2778,77 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     set_kv_db_with_metaheader_async_impl<false>(
         ids, weights_with_metaheader, count)
         .get();
+  }
+
+  /// Raw INT8 rows for the checkpoint: row i of `rows` ([n,
+  /// get_int8_row_bytes()] uint8) gets the bytes of ids[i]'s block (MetaHeader,
+  /// codes, fp32 scale and bias, fp16 tail columns), the HBM copy of a row
+  /// that lives only in HBM, or zeros for a missing id.
+  void get_int8_rows_with_metaheader(
+      const at::Tensor& ids,
+      const at::Tensor& rows) {
+    check_int8_rows(rows);
+    const auto id_values = ids.to(at::kLong).contiguous();
+    CHECK_EQ(id_values.numel(), rows.size(0));
+    auto tombstoned = hbm_tombstoned_positions(id_values);
+    read_int8_blocks(id_values, rows);
+    hbm_fill_int8_rows(id_values, rows, std::move(tombstoned));
+  }
+
+  /// Writes raw rows (as read by get_int8_rows_with_metaheader, the key in
+  /// each row's first 8 bytes) without re-quantizing them. Rows saved in the
+  /// other raw format (INT8 into a packed table, packed into an INT8 table)
+  /// are decoded and re-quantized like fp16 writes.
+  void set_int8_rows_with_metaheader(
+      const at::Tensor& rows,
+      std::optional<at::Tensor> ids = std::nullopt) {
+    TORCH_CHECK(
+        int8_ || packed_, "uint8 rows need int8_storage or packed_storage");
+    TORCH_CHECK(
+        rows.dim() == 2 && rows.scalar_type() == at::kByte &&
+            rows.is_contiguous() && rows.device().is_cpu(),
+        "Raw rows must be a contiguous 2D uint8 CPU tensor");
+    const int64_t n = rows.size(0);
+    const int64_t row_bytes = rows.size(1);
+    TORCH_CHECK(
+        raw_row_source(row_bytes).has_value(),
+        "Raw rows of ",
+        row_bytes,
+        " bytes are neither INT8 nor packed rows (a MetaHeader, the encoded "
+        "dims and an fp16 tail) of this table");
+    // A complete-row restore, like set_kv_with_metaheader_to_storage.
+    auto pause_state = pause_for_stream_write();
+    SCOPE_EXIT {
+      resume_after_stream_write(pause_state);
+    };
+    const auto* src = rows.const_data_ptr<uint8_t>();
+    std::vector<int64_t> keys(n);
+    if (ids.has_value()) {
+      const auto local_ids = ids->to(at::kLong).contiguous();
+      TORCH_CHECK(local_ids.device().is_cpu() && local_ids.numel() == n);
+      std::copy(
+          local_ids.const_data_ptr<int64_t>(),
+          local_ids.const_data_ptr<int64_t>() + n,
+          keys.begin());
+    } else {
+      for (int64_t i = 0; i < n; ++i) {
+        std::memcpy(&keys[i], src + i * row_bytes, sizeof(int64_t));
+      }
+    }
+    const auto indices = torch::from_blob(keys.data(), {n}, torch::kInt64);
+    const auto count = at::tensor({n}, at::ScalarType::Long);
+    std::vector<folly::Future<folly::Unit>> futures;
+    for (const auto& [shard_id, indexes] : shard_input(indices, count)) {
+      futures.emplace_back(
+          folly::via(executor_.get())
+              .thenValue([this, shard_id, indexes, &keys, src, row_bytes](
+                             folly::Unit) {
+                set_int8_rows_of_shard(shard_id, indexes, keys, src, row_bytes);
+              }));
+    }
+    for (auto& done : folly::collectAll(std::move(futures)).get()) {
+      done.throwUnlessValue();
+    }
   }
 
   void compact() override {}
@@ -2988,6 +3102,163 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return {packed_requantized_writes_.load(), packed_fallback_writes_.load()};
   }
 
+  /// INT8 row writes [needing more than one re-quantization, with non-finite
+  /// values, not converged].
+  std::vector<int64_t> get_int8_write_counts() const {
+    return {
+        int8_multi_pass_writes_.load(),
+        int8_non_finite_writes_.load(),
+        int8_not_converged_writes_.load()};
+  }
+
+  /// Bytes of a raw INT8 checkpoint row (MetaHeader, codes, fp32 scale and
+  /// bias, fp16 tail columns), or 0 without int8_storage.
+  int64_t get_int8_row_bytes() override {
+    return int8_ ? static_cast<int64_t>(payload_end_bytes()) : 0;
+  }
+
+  /// Bytes of a raw checkpoint row in the stored format (INT8 or packed
+  /// INT4), or 0 for fp16 rows.
+  int64_t get_raw_row_bytes() override {
+    return (int8_ || packed_) ? static_cast<int64_t>(payload_end_bytes()) : 0;
+  }
+
+  /// A packed table also loads raw INT8 rows, which are wider.
+  int64_t get_max_raw_row_bytes() override {
+    if (!packed_) {
+      return get_raw_row_bytes();
+    }
+    return sizeof(FixedBlockPool::MetaHeader) +
+        serving_qdq::Int8Layout{packed_->dim, packed_->tail}.payload_bytes();
+  }
+
+  /// Names the raw format of the next raw rows loaded ("int8" or "packed"),
+  /// so raw_row_source takes it from the caller rather than the width; ""
+  /// goes back to telling it by width.
+  void set_raw_source_format(const std::string& format) {
+    TORCH_CHECK(
+        format.empty() || format == "int8" || format == "packed",
+        "raw source format must be int8, packed or empty, got ",
+        format);
+    raw_source_format_.store(
+        format.empty()         ? -1
+            : format == "int8" ? static_cast<int>(RawRowFormat::kInt8)
+                               : static_cast<int>(RawRowFormat::kPacked));
+  }
+
+  /// Whether set_int8_rows_with_metaheader can load raw rows `row_bytes`
+  /// wide: their format is known (raw_row_source) and their fp16 tail fits
+  /// this table's, or is wider and `drop_tail` (load_ckpt_without_opt).
+  bool accepts_raw_row_bytes(int64_t row_bytes, bool drop_tail) const {
+    if (!int8_ && !packed_) {
+      return false;
+    }
+    const auto source = raw_row_source(row_bytes);
+    if (!source) {
+      return false;
+    }
+    const auto own = int8_ ? RawRowFormat::kInt8 : RawRowFormat::kPacked;
+    return drop_tail ||
+        *raw_tail_cols(*source, row_bytes) <=
+        *raw_tail_cols(own, static_cast<int64_t>(payload_end_bytes()));
+  }
+
+  /// Raw payloads for HBM promotion. Missing rows are zero-filled. All tensors
+  /// must be CPU views, including host-mapped workspaces used by CUDA callers.
+  void get_int8_payloads(
+      const at::Tensor& indices,
+      const at::Tensor& rows,
+      const at::Tensor& count) {
+    TORCH_CHECK(int8_, "INT8 DRAM storage is disabled");
+    check_int8_payload_args(indices, rows, count);
+    // A promotion capped at promote_max_rows passes only that many keys with
+    // the uncapped miss count.
+    const int64_t n = std::min<int64_t>(count.item<int64_t>(), indices.numel());
+    TORCH_CHECK(n >= 0);
+    if (n == 0) {
+      return;
+    }
+    const auto ids = indices.to(at::kLong);
+    const auto* keys = ids.const_data_ptr<int64_t>();
+    auto* dst = rows.data_ptr<uint8_t>();
+    const int64_t row_bytes = int8_->row_bytes();
+    std::memset(dst, 0, n * row_bytes);
+    auto by_shard = shard_input(ids, at::tensor({n}, at::kLong));
+    std::vector<folly::Future<folly::Unit>> futures;
+    for (auto& [shard_id, positions] : by_shard) {
+      futures.push_back(
+          folly::via(
+              executor_.get(), [&, shard_id, positions = std::move(positions)] {
+                const auto lock = kv_store_.by(shard_id).rlock();
+                for (const auto pos : positions) {
+                  const auto it = lock->find(keys[pos]);
+                  if (it != lock->end()) {
+                    std::memcpy(
+                        dst + pos * row_bytes,
+                        FixedBlockPool::data_ptr<weight_type>(it->second),
+                        row_bytes);
+                  }
+                }
+              }));
+    }
+    for (auto& done : folly::collectAll(std::move(futures)).get()) {
+      done.throwUnlessValue();
+    }
+  }
+
+  void get_int8_payloads_cuda(
+      at::Tensor indices_cpu,
+      at::Tensor rows_cpu,
+      at::Tensor count_cpu) {
+    TORCH_CHECK(int8_, "INT8 DRAM storage is disabled");
+    hbm_rethrow_async_error();
+    // Checked here: the host callback cannot raise.
+    check_int8_payload_args(indices_cpu, rows_cpu, count_cpu);
+    auto functor = std::make_unique<std::function<void()>>(
+        [self =
+             std::static_pointer_cast<DramKVEmbeddingCache>(shared_from_this()),
+         indices = std::move(indices_cpu),
+         rows = std::move(rows_cpu),
+         count = std::move(count_cpu)]() mutable {
+          self->hbm_run_async([&] {
+            try {
+              self->get_int8_payloads(indices, rows, count);
+            } catch (...) {
+              // Zero rows are skipped by the exclusive insert.
+              rows.zero_();
+              throw;
+            }
+          });
+        });
+    AT_CUDA_CHECK(cudaLaunchHostFunc(
+        at::cuda::getCurrentCUDAStream(),
+        kv_db_utils::cuda_host_func,
+        functor.get()));
+    // The callback owns it once launched.
+    functor.release();
+  }
+
+  void check_int8_payload_args(
+      const at::Tensor& indices,
+      const at::Tensor& rows,
+      const at::Tensor& count) const {
+    TORCH_CHECK(
+        indices.device().is_cpu() && indices.is_contiguous() &&
+            indices.dim() == 1,
+        "INT8 payload indices must be a contiguous 1D CPU tensor");
+    TORCH_CHECK(
+        rows.device().is_cpu() && rows.is_contiguous() &&
+            rows.scalar_type() == at::kByte && rows.dim() == 2 &&
+            rows.size(0) == indices.numel() &&
+            rows.size(1) == int8_->row_bytes(),
+        "INT8 payload rows must be a contiguous CPU uint8 [n, ",
+        int8_->row_bytes(),
+        "] tensor matching the indices");
+    TORCH_CHECK(
+        count.device().is_cpu() && count.numel() == 1,
+        "INT8 payload count must be a one-element CPU tensor");
+  }
+
   /// Exclusive HBM tier: the owner-local cache's INT8 copy is the only copy of
   /// a promoted row. The backend keeps the row's MetaHeader word (timestamp,
   /// count) as a tombstone in hbm_rows_ instead of a block, so lookups through
@@ -3041,6 +3312,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         cache_weights.dim() == 2 && cache_weights.scalar_type() == at::kByte &&
         cache_weights.size(0) == cache_state.size(0));
     const int64_t hbm_dim = cache_weights.size(1) - kHbmQparamsBytes;
+    TORCH_CHECK(
+        !int8_ || hbm_dim == int8_->dim,
+        "INT8 DRAM and exclusive HBM must hold the same embedding dimension");
     TORCH_CHECK(
         hbm_dim > 0 && hbm_dim <= max_D_ &&
             (!enrichment_config_.has_value() ||
@@ -3354,9 +3628,40 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// Bytes from the block start through the end of the row payload; the
   /// rest of the block, if any, is alignment padding.
   size_t payload_end_bytes() const {
+    if (int8_) {
+      return sizeof(FixedBlockPool::MetaHeader) +
+          static_cast<size_t>(int8_->payload_bytes());
+    }
     return packed_ ? sizeof(FixedBlockPool::MetaHeader) +
             static_cast<size_t>(packed_->payload_bytes())
                    : block_size_;
+  }
+
+  static std::optional<serving_qdq::Int8Layout> int8_layout(
+      int64_t max_D,
+      const std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>&
+          enrichment_config) {
+    if (!enrichment_config.has_value() ||
+        !enrichment_config.value()->int8_storage_) {
+      return std::nullopt;
+    }
+    const auto& config = *enrichment_config.value();
+    TORCH_CHECK(
+        !config.packed_storage_ && config.serving_qdq_bit_rate_ == 0,
+        "int8_storage excludes packed_storage and serving_qdq_bit_rate, got ",
+        config.packed_storage_,
+        " and ",
+        config.serving_qdq_bit_rate_);
+    TORCH_CHECK(
+        config.enrichment_dim_ > 0 && config.enrichment_dim_ % 4 == 0 &&
+            config.enrichment_dim_ <= max_D,
+        "int8_storage needs an enrichment_dim that is a positive multiple of "
+        "4 and at most max_D ",
+        max_D,
+        ", got ",
+        config.enrichment_dim_);
+    return serving_qdq::Int8Layout{
+        config.enrichment_dim_, max_D - config.enrichment_dim_};
   }
 
   static std::optional<serving_qdq::PackedLayout> packed_layout(
@@ -3391,15 +3696,42 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   static size_t row_block_size(
       int64_t max_D,
-      const std::optional<serving_qdq::PackedLayout>& packed) {
-    if (!packed) {
+      const std::optional<serving_qdq::PackedLayout>& packed,
+      const std::optional<serving_qdq::Int8Layout>& int8) {
+    if (!packed && !int8) {
       return FixedBlockPool::calculate_block_size<weight_type>(max_D);
     }
     const size_t alignment =
         FixedBlockPool::calculate_block_alignment<weight_type>();
     const size_t bytes = sizeof(FixedBlockPool::MetaHeader) +
-        static_cast<size_t>(packed->payload_bytes());
+        static_cast<size_t>(int8 ? int8->payload_bytes()
+                                 : packed->payload_bytes());
     return (bytes + alignment - 1) / alignment * alignment;
+  }
+
+  /// INT8 rows are read and written only through read_payload /
+  /// write_payload and the raw INT8 row paths, so every path that touches
+  /// payload bytes some other way is refused here.
+  void check_int8_storage_supported() const {
+    TORCH_CHECK(
+        (std::is_same_v<weight_type, at::Half>),
+        "int8_storage needs FP16 weights");
+    const auto type = enrichment_config_.value()->enrichment_type_;
+    TORCH_CHECK(
+        type == EnrichmentType::IGR_LASER_EMBEDDING ||
+            type == EnrichmentType::IN_MEMORY_TEST_ONLY,
+        "int8_storage needs an embedding enrichment payload");
+    TORCH_CHECK(disable_random_init_, "int8_storage needs disable_random_init");
+    TORCH_CHECK(
+        !enable_ssd_backend_,
+        "int8_storage does not support the SSD backend (it writes back raw "
+        "blocks)");
+    TORCH_CHECK(
+        !feature_evict_config_.has_value() ||
+            feature_evict_config_.value()->trigger_strategy_ !=
+                EvictTriggerStrategy::BY_L2WEIGHT,
+        "int8_storage does not support L2 weight eviction (it reads raw "
+        "blocks)");
   }
 
   /// Packed rows are read and written only through read_payload /
@@ -3434,6 +3766,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t offset,
       int64_t width,
       weight_type* dst) const {
+    if (int8_) {
+      read_int8_payload(data, offset, width, dst);
+      return;
+    }
     if (!packed_) {
       std::copy(data + offset, data + offset + width, dst);
       return;
@@ -3466,6 +3802,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       weight_type* data,
       const weight_type* src,
       int64_t width) {
+    if (int8_) {
+      write_int8_payload(data, src, width);
+      return;
+    }
     if (!packed_) {
       std::copy(src, src + width, data);
       return;
@@ -3498,7 +3838,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t offset,
       int64_t width,
       weight_type* dst) const {
-    if (!packed_) {
+    if (!packed_ && !int8_) {
       const auto* from =
           FixedBlockPool::ptr_offset_from_front<weight_type>(block, offset);
       std::copy(from, from + width, dst);
@@ -3523,7 +3863,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       weight_type* block,
       const weight_type* src,
       int64_t width) {
-    if (!packed_) {
+    if (!packed_ && !int8_) {
       std::copy(src, src + width, block);
       return;
     }
@@ -3633,6 +3973,86 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       return write_packed_dims(shard_id, payload, row.data());
     }
     return serving_qdq::RowResult::kAlreadyFixed;
+  }
+
+  /// read_payload for an INT8 row: the codes decode to columns [0, dim), the
+  /// tail columns are stored as fp16.
+  void read_int8_payload(
+      const weight_type* data,
+      int64_t offset,
+      int64_t width,
+      weight_type* dst) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const auto& layout = *int8_;
+      CHECK_LE(offset + width, max_D_);
+      const auto* payload = reinterpret_cast<const uint8_t*>(data);
+      const auto* tail = payload + layout.row_bytes();
+      if (offset == 0 && width >= layout.dim) {
+        serving_qdq::decode_int8_row(payload, layout.dim, dst);
+        std::memcpy(
+            dst + layout.dim, tail, (width - layout.dim) * sizeof(weight_type));
+        return;
+      }
+      // Optimizer-state reads only touch the fp16 tail.
+      if (offset >= layout.dim) {
+        std::memcpy(
+            dst,
+            tail + (offset - layout.dim) * sizeof(weight_type),
+            width * sizeof(weight_type));
+        return;
+      }
+      thread_local std::vector<weight_type> row;
+      row.resize(max_D_);
+      serving_qdq::decode_int8_row(payload, layout.dim, row.data());
+      std::memcpy(
+          row.data() + layout.dim, tail, layout.tail * sizeof(weight_type));
+      std::copy(row.data() + offset, row.data() + offset + width, dst);
+    }
+  }
+
+  /// write_payload for an INT8 row: columns [0, dim) are quantized, tail
+  /// columns copied; a write narrower than dim re-encodes the merged row.
+  void
+  write_int8_payload(weight_type* data, const weight_type* src, int64_t width) {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const auto& layout = *int8_;
+      CHECK_LE(width, max_D_);
+      auto* payload = reinterpret_cast<uint8_t*>(data);
+      if (width < layout.dim) {
+        thread_local std::vector<weight_type> row;
+        row.resize(layout.dim);
+        serving_qdq::decode_int8_row(payload, layout.dim, row.data());
+        std::copy(src, src + width, row.data());
+        record_int8_write(
+            serving_qdq::encode_int8_row(row.data(), layout.dim, payload));
+        return;
+      }
+      record_int8_write(serving_qdq::encode_int8_row(src, layout.dim, payload));
+      std::memcpy(
+          payload + layout.row_bytes(),
+          src + layout.dim,
+          (width - layout.dim) * sizeof(weight_type));
+    }
+  }
+
+  void record_int8_write(serving_qdq::Int8Result result) {
+    switch (result) {
+      case serving_qdq::Int8Result::kFixed:
+        return;
+      case serving_qdq::Int8Result::kMultiPass:
+        int8_multi_pass_writes_++;
+        return;
+      case serving_qdq::Int8Result::kNonFinite:
+        int8_non_finite_writes_++;
+        break;
+      case serving_qdq::Int8Result::kNotConverged:
+        int8_not_converged_writes_++;
+        break;
+    }
+    XLOG_EVERY_MS(WARN, 60000)
+        << "[EmbeddingCacheEnrich] INT8 rows: non_finite="
+        << int8_non_finite_writes_.load()
+        << " not_converged=" << int8_not_converged_writes_.load();
   }
 
   // fp32 scale and bias after the codes of each INT8 HBM row.
@@ -3894,6 +4314,24 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return std::memcmp(encoded.data(), slot_row, encoded.size()) == 0;
   }
 
+  /// Whether an HBM row is byte for byte the INT8 part of a backend row, so
+  /// promotion and demotion move bytes without re-quantizing.
+  bool hbm_rows_are_int8_rows() const {
+    return int8_.has_value() && hbm_->dim == int8_->dim;
+  }
+
+  /// Stores an HBM row's codes, scale and bias as a block's payload; the tail
+  /// columns, which HBM rows do not hold, read back as zero.
+  void copy_hbm_row_to_int8_block(const uint8_t* hbm_row, weight_type* block) {
+    auto* payload = reinterpret_cast<uint8_t*>(
+        FixedBlockPool::data_ptr<weight_type>(block));
+    std::memcpy(payload, hbm_row, int8_->row_bytes());
+    std::memset(
+        payload + int8_->row_bytes(),
+        0,
+        int8_->payload_bytes() - int8_->row_bytes());
+  }
+
   /// While forward/backward has paused backend writes, waits up to
   /// kHbmPauseWaitMs for the resume, so the step's backend reads take the
   /// shard locks ahead of HBM tier work. Bounded: forward never waits on
@@ -3924,6 +4362,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       for (auto i = begin; i < end; ++i) {
         slots.push_back(hbm_slot(keys[i]));
       }
+      const bool raw_int8 = hbm_rows_are_int8_rows();
       const auto held = hbm_read_slots(slots, /*rows=*/true);
       const int64_t row_bytes = hbm_->dim + kHbmQparamsBytes;
       std::vector<std::vector<size_t>> by_shard(num_shards_);
@@ -3962,14 +4401,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               continue;
             }
             const auto it = wlmap->find(key);
+            const auto* slot_row =
+                held.rows.template const_data_ptr<uint8_t>() + j * row_bytes;
             // No backend row: the evictor dropped it after the GPU read. A
             // backend row that changed after that read supersedes the slot.
             if (it == wlmap->end() ||
-                !hbm_slot_matches_block(
-                    shard_id,
-                    it->second,
-                    held.rows.template const_data_ptr<uint8_t>() +
-                        j * row_bytes)) {
+                (raw_int8
+                     ? std::memcmp(
+                           FixedBlockPool::data_ptr<weight_type>(it->second),
+                           slot_row,
+                           row_bytes) != 0
+                     : !hbm_slot_matches_block(
+                           shard_id, it->second, slot_row))) {
               stale_slots.push_back(slots[j]);
               hbm_promote_skipped_++;
               continue;
@@ -4051,9 +4494,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                 meta_timestamp(it->second),
                 static_cast<uint32_t>(held.last_access[j]));
             if (!drop && !wlmap->contains(key)) {
-              hbm_decode_row(
-                  held.rows.template const_data_ptr<uint8_t>() + j * row_bytes,
-                  row.data());
+              const auto* hbm_row =
+                  held.rows.template const_data_ptr<uint8_t>() + j * row_bytes;
               auto* block = pool->template allocate_t<weight_type>();
               std::memcpy(
                   reinterpret_cast<char*>(block) + sizeof(int64_t),
@@ -4062,11 +4504,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               FixedBlockPool::set_key(block, key);
               FixedBlockPool::set_used(block, true);
               FixedBlockPool::set_timestamp(block, timestamp);
-              write_payload(
-                  shard_id,
-                  FixedBlockPool::data_ptr<weight_type>(block),
-                  row.data(),
-                  max_D_);
+              if (hbm_rows_are_int8_rows()) {
+                copy_hbm_row_to_int8_block(hbm_row, block);
+              } else {
+                hbm_decode_row(hbm_row, row.data());
+                write_payload(
+                    shard_id,
+                    FixedBlockPool::data_ptr<weight_type>(block),
+                    row.data(),
+                    max_D_);
+              }
               wlmap->insert({key, block});
             }
             tombstones.erase(it);
@@ -4363,6 +4810,381 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             .wait();
       }
       weights.index_copy_(0, index, again);
+      return int64_t{0};
+    });
+  }
+
+  void check_int8_rows(const at::Tensor& rows) const {
+    TORCH_CHECK(
+        int8_ || packed_, "uint8 rows need int8_storage or packed_storage");
+    TORCH_CHECK(
+        rows.dim() == 2 && rows.scalar_type() == at::kByte &&
+            rows.is_contiguous() && rows.device().is_cpu(),
+        "Raw rows must be a contiguous 2D uint8 CPU tensor");
+    TORCH_CHECK(
+        rows.size(1) == static_cast<int64_t>(payload_end_bytes()),
+        "Raw rows hold ",
+        payload_end_bytes(),
+        " bytes, got ",
+        rows.size(1));
+  }
+
+  bool is_raw_rows(const at::Tensor& weights) const {
+    return (int8_ || packed_) && weights.scalar_type() == at::kByte;
+  }
+
+  enum class RawRowFormat { kInt8, kPacked };
+
+  /// Format of raw rows `row_bytes` wide: this table's own (its row width, or
+  /// a MetaHeader, its encoded dims and fp16 tail columns), or rows of the
+  /// other raw format with the same enrichment dim (packed rows with 8-dim
+  /// groups), preferring whichever needs this table's tail width. Away from
+  /// those two exact widths, a tail must be shorter than the gap between the
+  /// INT8 and packed dims (raw_format_tail_gap_cols, 28 columns at dim 128):
+  /// an INT8 row and a packed row of the same width differ in tail by exactly
+  /// that gap, so no width matches both formats. nullopt when neither fits.
+  std::optional<RawRowFormat> raw_row_source(int64_t row_bytes) const {
+    const auto own = int8_ ? RawRowFormat::kInt8 : RawRowFormat::kPacked;
+    if (const int named = raw_source_format_.load(); named >= 0) {
+      // A format the caller named, with the same tail bound, so even a named
+      // format never reads a row that is plausible only as the other one.
+      const auto format = static_cast<RawRowFormat>(named);
+      if (row_bytes == static_cast<int64_t>(payload_end_bytes())) {
+        return format == own ? std::optional(own) : std::nullopt;
+      }
+      const auto tail = raw_tail_cols(format, row_bytes);
+      return tail.has_value() && *tail < raw_format_tail_gap_cols()
+          ? std::optional(format)
+          : std::nullopt;
+    }
+    if (row_bytes == static_cast<int64_t>(payload_end_bytes())) {
+      return own;
+    }
+    const auto fits = [&](RawRowFormat format) {
+      const auto tail = raw_tail_cols(format, row_bytes);
+      return tail.has_value() && *tail < raw_format_tail_gap_cols();
+    };
+    const auto other = int8_ ? RawRowFormat::kPacked : RawRowFormat::kInt8;
+    const int64_t own_tail_bytes = static_cast<int64_t>(payload_end_bytes()) -
+        static_cast<int64_t>(sizeof(FixedBlockPool::MetaHeader)) -
+        raw_dims_bytes(own, raw_dim());
+    if (row_bytes ==
+        static_cast<int64_t>(sizeof(FixedBlockPool::MetaHeader)) +
+            raw_dims_bytes(other, raw_dim()) + own_tail_bytes) {
+      return other;
+    }
+    if (fits(own)) {
+      return own;
+    }
+    if (fits(other)) {
+      return other;
+    }
+    return std::nullopt;
+  }
+
+  static int64_t raw_dims_bytes(RawRowFormat format, int64_t dim) {
+    return format == RawRowFormat::kInt8
+        ? serving_qdq::Int8Layout{dim, 0}.row_bytes()
+        : serving_qdq::PackedLayout{dim, 8, 0}.packed_bytes();
+  }
+
+  int64_t raw_dim() const {
+    return int8_ ? int8_->dim : packed_->dim;
+  }
+
+  /// fp16 tail columns of a `row_bytes` raw row in `format`; nullopt when the
+  /// width does not fit the format.
+  std::optional<int64_t> raw_tail_cols(RawRowFormat format, int64_t row_bytes)
+      const {
+    const int64_t rest = row_bytes -
+        static_cast<int64_t>(sizeof(FixedBlockPool::MetaHeader)) -
+        raw_dims_bytes(format, raw_dim());
+    if (rest < 0 || rest % static_cast<int64_t>(sizeof(weight_type)) != 0) {
+      return std::nullopt;
+    }
+    return rest / static_cast<int64_t>(sizeof(weight_type));
+  }
+
+  int64_t raw_format_tail_gap_cols() const {
+    return (raw_dims_bytes(RawRowFormat::kInt8, raw_dim()) -
+            raw_dims_bytes(RawRowFormat::kPacked, raw_dim())) /
+        static_cast<int64_t>(sizeof(weight_type));
+  }
+
+  /// Decodes a raw row payload of `payload_bytes` in `format` to max_D_ fp16
+  /// columns: the encoded dims, then the fp16 tail columns both rows have;
+  /// columns the source lacks are zero.
+  void decode_raw_payload(
+      RawRowFormat format,
+      const uint8_t* payload,
+      int64_t payload_bytes,
+      weight_type* dst) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const int64_t dim = int8_ ? int8_->dim : packed_->dim;
+      if (format == RawRowFormat::kInt8) {
+        serving_qdq::decode_int8_row(payload, dim, dst);
+      } else {
+        serving_qdq::unpack_row(
+            payload, serving_qdq::PackedLayout{dim, 8, 0}, dst);
+      }
+      const int64_t dims_bytes = raw_dims_bytes(format, dim);
+      const int64_t tail_cols = std::min<int64_t>(
+          (payload_bytes - dims_bytes) /
+              static_cast<int64_t>(sizeof(weight_type)),
+          max_D_ - dim);
+      std::memcpy(
+          dst + dim, payload + dims_bytes, tail_cols * sizeof(weight_type));
+      std::fill(dst + dim + tail_cols, dst + max_D_, weight_type(0));
+    }
+  }
+
+  /// A packed row kept as fp16 outside its block has only a marker in the
+  /// block, so its raw row gets the plain (lossy) packing of those values.
+  void encode_fallback_raw_row(
+      int shard_id,
+      const weight_type* block,
+      uint8_t* dst_payload) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const auto& layout = *packed_;
+      if (dst_payload[layout.code_bytes()] != serving_qdq::kFallbackScale) {
+        return;
+      }
+      const auto& fallback = fallback_rows_[shard_id];
+      const auto it = fallback.find(
+          static_cast<const void*>(FixedBlockPool::data_ptr(block)));
+      if (it == fallback.end()) {
+        // As read_packed_dims: a block allocated without a row write.
+        packed_fallback_missing_++;
+        XLOG_EVERY_MS(ERR, 60000)
+            << "[EmbeddingCacheEnrich] packed rows with no fp16 fallback row: "
+            << packed_fallback_missing_.load();
+        std::memset(dst_payload, 0, layout.packed_bytes());
+        return;
+      }
+      std::vector<weight_type> values(max_D_);
+      std::copy(it->second.begin(), it->second.end(), values.begin());
+      std::memcpy(
+          values.data() + layout.dim,
+          dst_payload + layout.packed_bytes(),
+          layout.tail * sizeof(weight_type));
+      encode_packed_raw_payload(values.data(), dst_payload);
+    }
+  }
+
+  /// Packed raw payload of a max_D_-column fp16 row outside the table (no
+  /// fallback bookkeeping): exact for serving fixed points, the plain packing
+  /// of the clamped values otherwise.
+  void encode_packed_raw_payload(weight_type* row, uint8_t* payload) const {
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const auto& layout = *packed_;
+      serving_qdq::clamp_non_finite(row, layout.dim);
+      if (!serving_qdq::pack_row(row, layout, payload)) {
+        // A fallback row (no g8 fixed point) loses precision in its raw row,
+        // while an fp16 checkpoint keeps it exactly.
+        packed_lossy_raw_rows_++;
+        XLOG_EVERY_MS(WARN, 60000)
+            << "[EmbeddingCacheEnrich] packed raw rows saved lossily (rows "
+               "kept as fp16 in the table): "
+            << packed_lossy_raw_rows_.load();
+      }
+      std::memcpy(
+          payload + layout.packed_bytes(),
+          row + layout.dim,
+          layout.tail * sizeof(weight_type));
+    }
+  }
+
+  void read_int8_blocks(const at::Tensor& id_values, const at::Tensor& rows) {
+    const int64_t row_bytes = rows.size(1);
+    const auto* id_ptr = id_values.const_data_ptr<int64_t>();
+    auto* out = rows.data_ptr<uint8_t>();
+    const auto count = at::tensor({id_values.numel()}, at::ScalarType::Long);
+    std::vector<folly::Future<folly::Unit>> futures;
+    for (const auto& [shard_id, indexes] : shard_input(id_values, count)) {
+      futures.emplace_back(
+          folly::via(executor_.get())
+              .thenValue([this, shard_id, indexes, id_ptr, out, row_bytes](
+                             folly::Unit) {
+                const auto rlmap = kv_store_.by(shard_id).rlock();
+                for (const auto i : indexes) {
+                  auto* dst = out + i * row_bytes;
+                  const auto it = rlmap->find(id_ptr[i]);
+                  if (it == rlmap->end()) {
+                    std::memset(dst, 0, row_bytes);
+                  } else {
+                    std::memcpy(dst, it->second, row_bytes);
+                    if (packed_) {
+                      encode_fallback_raw_row(
+                          shard_id,
+                          it->second,
+                          dst + sizeof(FixedBlockPool::MetaHeader));
+                    }
+                  }
+                }
+              }));
+    }
+    folly::collect(futures).wait();
+  }
+
+  void set_int8_rows_of_shard(
+      int shard_id,
+      const std::vector<int64_t>& indexes,
+      const std::vector<int64_t>& keys,
+      const uint8_t* src,
+      int64_t row_bytes) {
+    auto wlmap = kv_store_.by(shard_id).wlock();
+    auto* pool = kv_store_.pool_by(shard_id);
+    const bool restamp = restamp_on_restore_ && is_training_;
+    const uint32_t restore_ts =
+        restamp ? FixedBlockPool::current_timestamp() : 0;
+    const auto source = raw_row_source(row_bytes).value();
+    const bool convert =
+        source != (int8_ ? RawRowFormat::kInt8 : RawRowFormat::kPacked);
+    std::vector<weight_type> decoded(convert ? max_D_ : 0);
+    for (const auto i : indexes) {
+      const auto key = keys[i];
+      weight_type* block = nullptr;
+      const auto it = wlmap->find(key);
+      const bool new_block = it == wlmap->end();
+      if (new_block) {
+        block = pool->template allocate_t<weight_type>();
+        wlmap->insert({key, block});
+        hbm_take_tombstone_locked(shard_id, key);
+      } else {
+        block = it->second;
+      }
+      const auto* row = src + i * row_bytes;
+      if (convert) {
+        constexpr int64_t kMetaBytes = sizeof(FixedBlockPool::MetaHeader);
+        std::memcpy(block, row, kMetaBytes);
+        decode_raw_payload(
+            source, row + kMetaBytes, row_bytes - kMetaBytes, decoded.data());
+        write_payload(
+            shard_id, FixedBlockPool::data_ptr(block), decoded.data(), max_D_);
+      } else {
+        const int64_t copied_bytes =
+            std::min<int64_t>(row_bytes, payload_end_bytes());
+        std::memcpy(block, row, copied_bytes);
+        std::memset(
+            reinterpret_cast<uint8_t*>(block) + copied_bytes,
+            0,
+            payload_end_bytes() - copied_bytes);
+        if (packed_ && !fallback_rows_[shard_id].empty()) {
+          fallback_rows_[shard_id].erase(
+              static_cast<const void*>(FixedBlockPool::data_ptr(block)));
+        }
+      }
+      FixedBlockPool::set_key(block, key);
+      FixedBlockPool::set_used(block, true);
+      if (restamp) {
+        FixedBlockPool::set_timestamp(block, restore_ts);
+      }
+      if (new_block && is_eviction_enabled()) {
+        auto* feature_score_evict =
+            dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+                feature_evict_.get());
+        if (feature_score_evict) {
+          feature_score_evict->update_feature_score_statistics(
+              block, 0, shard_id, true);
+        }
+      }
+    }
+    hbm_post_invalidations_locked(shard_id);
+  }
+
+  /// get_int8_rows_with_metaheader for rows that live only in HBM: the
+  /// MetaHeader from the tombstone (with the later access time) and the HBM
+  /// row's bytes. Resolves the same rows as hbm_fill_rows (missing rows read
+  /// back all zero), on hbm_executor_.
+  void hbm_fill_int8_rows(
+      const at::Tensor& id_values,
+      const at::Tensor& rows,
+      std::vector<int64_t> tombstoned_before) {
+    if (!hbm_ || id_values.numel() == 0) {
+      return;
+    }
+    const auto* id_ptr = id_values.const_data_ptr<int64_t>();
+    auto positions = hbm_tombstoned_positions(id_values);
+    positions.insert(
+        positions.end(), tombstoned_before.begin(), tombstoned_before.end());
+    const auto zero_rows = at::nonzero(rows.ne(0).sum(1) == 0).view(-1);
+    const auto* zero_ptr = zero_rows.const_data_ptr<int64_t>();
+    positions.insert(positions.end(), zero_ptr, zero_ptr + zero_rows.numel());
+    std::ranges::sort(positions);
+    positions.erase(std::ranges::unique(positions).begin(), positions.end());
+    if (positions.empty()) {
+      return;
+    }
+    const int64_t row_bytes = rows.size(1);
+    const int64_t hbm_row_bytes = hbm_->dim + kHbmQparamsBytes;
+    auto* out = rows.data_ptr<uint8_t>();
+    via_hbm_executor([&] {
+      std::vector<int64_t> reread;
+      std::vector<weight_type> decoded(max_D_);
+      for (size_t begin = 0; begin < positions.size();
+           begin += static_cast<size_t>(hbm_chunk_rows_)) {
+        const auto end = std::min(
+            positions.size(), begin + static_cast<size_t>(hbm_chunk_rows_));
+        std::vector<int64_t> slots;
+        slots.reserve(end - begin);
+        for (auto i = begin; i < end; ++i) {
+          slots.push_back(hbm_slot(id_ptr[positions[i]]));
+        }
+        const auto held = hbm_read_slots(slots, /*rows=*/true);
+        for (auto i = begin; i < end; ++i) {
+          const auto key = id_ptr[positions[i]];
+          std::optional<uint64_t> meta;
+          if (held.tags[i - begin] == key) {
+            const auto shard_id = kv_db_utils::hash_shard(key, num_shards_);
+            const auto lock = kv_store_.by(shard_id).rlock();
+            const auto it = hbm_rows_[shard_id].find(key);
+            if (it != hbm_rows_[shard_id].end()) {
+              meta = it->second;
+            }
+          }
+          if (!meta) {
+            reread.push_back(positions[i]);
+            continue;
+          }
+          FixedBlockPool::MetaHeader header{};
+          std::memcpy(
+              reinterpret_cast<char*>(&header) + sizeof(int64_t),
+              &*meta,
+              sizeof(uint64_t));
+          header.key = key;
+          header.used = true;
+          header.timestamp = std::max<uint32_t>(
+              header.timestamp,
+              static_cast<uint32_t>(held.last_access[i - begin]));
+          auto* dst = out + positions[i] * row_bytes;
+          std::memset(dst, 0, row_bytes);
+          std::memcpy(dst, &header, sizeof(header));
+          auto* block = reinterpret_cast<weight_type*>(dst);
+          const auto* hbm_row = held.rows.template const_data_ptr<uint8_t>() +
+              (i - begin) * hbm_row_bytes;
+          if (hbm_rows_are_int8_rows()) {
+            copy_hbm_row_to_int8_block(hbm_row, block);
+          } else if (packed_) {
+            hbm_decode_row(hbm_row, decoded.data());
+            encode_packed_raw_payload(
+                decoded.data(),
+                reinterpret_cast<uint8_t*>(
+                    FixedBlockPool::data_ptr<weight_type>(block)));
+          } else {
+            hbm_decode_row(hbm_row, decoded.data());
+            write_int8_payload(
+                FixedBlockPool::data_ptr<weight_type>(block),
+                decoded.data(),
+                max_D_);
+          }
+        }
+      }
+      if (!reread.empty()) {
+        const auto index = at::tensor(reread, at::kLong);
+        auto again = at::zeros({index.numel(), row_bytes}, rows.options());
+        read_int8_blocks(id_values.index_select(0, index), again);
+        rows.index_copy_(0, index, again);
+      }
       return int64_t{0};
     });
   }
@@ -5050,8 +5872,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     auto copy_width = width_length.value_or(row_width);
     CHECK_LE(
         row_width,
-        packed_ ? FixedBlockPool::get_metaheader_dim<weight_type>() + max_D_
-                : block_size_);
+        (packed_ || int8_)
+            ? FixedBlockPool::get_metaheader_dim<weight_type>() + max_D_
+            : block_size_);
     CHECK_EQ(copy_width, row_width);
     auto shardid_to_indexes = shard_input(indices, count);
     std::vector<folly::Future<folly::Unit>> futures;
@@ -5241,6 +6064,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   int64_t num_shards_;
   // Set when rows are stored in their group-wise INT4 publish encoding
   std::optional<serving_qdq::PackedLayout> packed_;
+  // Set when rows are stored as row-wise INT8 (int8_storage)
+  std::optional<serving_qdq::Int8Layout> int8_;
   // mempool params
   size_t block_size_;
   size_t block_alignment_;
@@ -5363,9 +6188,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::vector<folly::F14FastMap<const void*, std::vector<weight_type>>>
       fallback_rows_;
   std::atomic<int64_t> packed_fallback_writes_{0};
+  mutable std::atomic<int64_t> packed_lossy_raw_rows_{0};
+  // set_raw_source_format: a RawRowFormat, or -1 to tell it by width.
+  std::atomic<int> raw_source_format_{-1};
   mutable std::atomic<int64_t> packed_fallback_missing_{0};
   std::atomic<int64_t> packed_inexact_fixed_points_{0};
   std::atomic<int64_t> packed_requantized_writes_{0};
+  // INT8 row writes whose encoding needed more than one re-quantization, held
+  // a non-finite value (clamped), or did not converge.
+  std::atomic<int64_t> int8_multi_pass_writes_{0};
+  std::atomic<int64_t> int8_non_finite_writes_{0};
+  std::atomic<int64_t> int8_not_converged_writes_{0};
 
   // Exclusive HBM tier (exclusive_hbm_register); unset when off.
   std::optional<HbmTier> hbm_;
