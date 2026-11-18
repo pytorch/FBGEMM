@@ -331,6 +331,22 @@ else()
 endif()
 
 ################################################################################
+# FBGEMM Platform Kernels Targets
+################################################################################
+
+include(${MODULE_PATH}/PlatformKernels.cmake)
+
+fbgemm_add_platform_kernels_libraries(fbgemm_platform_kernels_targets
+  PREPROCESSOR_MACROS_VAR
+    fbgemm_platform_kernels_preprocessor_macros
+  DEPS
+    $<BUILD_INTERFACE:cpuinfo>
+    fbgemm_generic)
+list(APPEND fbgemm_targets ${fbgemm_platform_kernels_targets})
+target_compile_definitions(fbgemm_generic
+  PRIVATE ${fbgemm_platform_kernels_preprocessor_macros})
+
+################################################################################
 # FBGEMM Neon Target
 ################################################################################
 

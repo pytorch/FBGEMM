@@ -31,7 +31,7 @@ function(read_from_defs_bzl name outputvar)
   endif()
   execute_process(
     COMMAND "${python}" -c
-            "exec(open('defs.bzl').read());print(';'.join(${name}))"
+            "def fail(msg): raise SystemExit(msg)\nexec(open('defs.bzl').read());print(';'.join(${name}))"
     WORKING_DIRECTORY "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../.."
     OUTPUT_VARIABLE _tempvar
     OUTPUT_STRIP_TRAILING_WHITESPACE

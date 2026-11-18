@@ -18,6 +18,7 @@ set(fbgemm_sources_normal
   "${FBGEMM}/src/FbgemmFloat16Convert.cc"
   "${FBGEMM}/src/InstructionSet.cc"
   "${FBGEMM}/src/JitPerfMap.cc"
+  "${FBGEMM}/src/PlatformSpecificKernels.cc"
   "${FBGEMM}/src/QuantUtils.cc"
   "${FBGEMM}/src/QuantUtilsNeon.cc"
   "${FBGEMM}/src/RefImplementations.cc"
@@ -79,6 +80,13 @@ endif()
 set_source_files_properties(${fbgemm_sources} PROPERTIES
   INCLUDE_DIRECTORIES "${fbgemm_sources_include_directories}")
 
+include(${CMAKEMODULES}/PlatformKernels.cmake)
+fbgemm_add_platform_kernels_libraries(fbgemm_platform_kernels_targets
+  PREPROCESSOR_MACROS_VAR
+    fbgemm_platform_kernels_preprocessor_macros
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories})
+
 
 ################################################################################
 # Build Intermediate Target (Static)
@@ -99,5 +107,9 @@ gpu_cpp_library(
     ${fbgemm_sources}
   DEPS
     asmjit
+    ${fbgemm_platform_kernels_targets}
   DESTINATION
     fbgemm_gpu)
+
+target_compile_definitions(fbgemm
+  PRIVATE ${fbgemm_platform_kernels_preprocessor_macros})
