@@ -10,6 +10,7 @@
 import random
 import unittest
 from collections.abc import Callable
+from itertools import product
 from unittest import mock
 
 import fbgemm_gpu.tbe.ssd  # noqa F401
@@ -173,6 +174,47 @@ class SSDUtilsTest(unittest.TestCase):
             is_index_put=False,
             use_pipeline=use_pipeline,
         )
+
+    def test_masked_index_bytes(self) -> None:
+        device = torch.accelerator.current_accelerator()
+        indices = torch.tensor([2, -1, 0], dtype=torch.long, device=device)
+        for dtype, D, use_pipeline, count_val, is_index_put in product(
+            (torch.int8, torch.uint8),
+            (16, 48, 528, 16400),
+            (False, True),
+            (0, 3),
+            (False, True),
+        ):
+            with self.subTest(
+                dtype=dtype,
+                D=D,
+                use_pipeline=use_pipeline,
+                count=count_val,
+                is_index_put=is_index_put,
+            ):
+                values = (
+                    torch.arange(3 * D, device=device)
+                    .remainder(256)
+                    .to(dtype)
+                    .reshape(3, D)
+                )
+                count = torch.tensor([count_val], dtype=torch.int, device=device)
+                output = torch.full_like(values, 7)
+                expected = output.clone()
+                valid = indices[:count_val] >= 0
+                locations = torch.arange(count_val, device=device)[valid]
+                selected = indices[:count_val][valid]
+                if is_index_put:
+                    expected[selected] = values[locations]
+                else:
+                    expected[locations] = values[selected]
+                op = (
+                    torch.ops.fbgemm.masked_index_put
+                    if is_index_put
+                    else torch.ops.fbgemm.masked_index_select
+                )
+                actual = op(output, indices, values, count, use_pipeline)
+                self.assertTrue(torch.equal(actual, expected))
 
     def test_kvzch_direct_cache_lookup(self) -> None:
         device = torch.accelerator.current_accelerator()
