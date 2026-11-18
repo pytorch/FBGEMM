@@ -231,17 +231,25 @@ gen_py_files_defused_optim = [
 # C++ Training Code - Forward Split
 ################################################################################
 
+# Must match FORWARD_EMB_TYPES x FORWARD_CACHE_TYPES in codegen/genscript/jinja_environment.py
+FORWARD_KERNEL_SHARDS = [
+    "{}_{}".format(emb, cache)
+    for emb in ["fp32", "fp16", "fp8"]
+    for cache in ["fp32", "fp16"]
+]
+
 gen_cpu_files_forward_split = ["gen_embedding_forward_split_pt2_cpu_wrapper.cpp"]
 
 gen_gpu_files_forward_split = (
     [
-        fstring.format(wdesc)
-        for wdesc in WEIGHT_OPTIONS
-        for fstring in [
-            "gen_embedding_forward_split_{}_kernel.cu",
-            "gen_embedding_forward_dense_{}_kernel.cu",
-            "gen_embedding_forward_ssd_{}_kernel.cu",
-        ]
+        "gen_embedding_forward_{}_unweighted_nobag_kernel.cu".format(desc)
+        for desc in DENSE_OPTIONS
+    ]
+    + [
+        "gen_embedding_forward_{}_{}_kernel_{}.cu".format(desc, wdesc, shard)
+        for desc in DENSE_OPTIONS
+        for wdesc in PARTIAL_WEIGHT_OPTIONS
+        for shard in FORWARD_KERNEL_SHARDS
     ]
     + [
         fstring.format(desc, wdesc)
@@ -258,17 +266,24 @@ gen_gpu_files_forward_split = (
         for fstring in [
             "gen_embedding_forward_split_{}_vbe_codegen_cuda.cu",
             "gen_embedding_forward_split_{}_vbe_codegen_meta.cpp",
-            "gen_embedding_forward_split_{}_vbe_kernel.cu",
             "gen_embedding_forward_split_{}_v2_kernel.cu",
             "gen_embedding_forward_split_{}_gwd_codegen_cuda.cu",
             "gen_embedding_forward_split_{}_vbe_gwd_codegen_cuda.cu",
-            "gen_embedding_forward_split_{}_gwd_kernel.cu",
             "gen_embedding_forward_dense_{}_vbe_codegen_cuda.cu",
-            "gen_embedding_forward_dense_{}_vbe_kernel.cu",
-            "gen_embedding_forward_split_{}_vbe_gwd_kernel.cu",
             "gen_embedding_forward_ssd_{}_vbe_codegen_cuda.cu",
             "gen_embedding_forward_ssd_{}_vbe_codegen_meta.cpp",
-            "gen_embedding_forward_ssd_{}_vbe_kernel.cu",
+        ]
+    ]
+    + [
+        fstring.format(wdesc, shard)
+        for wdesc in PARTIAL_WEIGHT_OPTIONS
+        for shard in FORWARD_KERNEL_SHARDS
+        for fstring in [
+            "gen_embedding_forward_split_{}_vbe_kernel_{}.cu",
+            "gen_embedding_forward_split_{}_gwd_kernel_{}.cu",
+            "gen_embedding_forward_dense_{}_vbe_kernel_{}.cu",
+            "gen_embedding_forward_split_{}_vbe_gwd_kernel_{}.cu",
+            "gen_embedding_forward_ssd_{}_vbe_kernel_{}.cu",
         ]
     ]
     + [

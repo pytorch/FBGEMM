@@ -13,10 +13,14 @@ import sys
 
 try:
     from .common import CodeTemplate
+    from .jinja_environment import FORWARD_CACHE_TYPES, FORWARD_EMB_TYPES
     from .optimizer_args import annotation_dict
 except ImportError:
     # pyre-ignore[21]
     from common import CodeTemplate
+
+    # pyre-ignore[21]
+    from jinja_environment import FORWARD_CACHE_TYPES, FORWARD_EMB_TYPES
 
     # pyre-ignore[21]
     from optimizer_args import annotation_dict
@@ -32,6 +36,7 @@ class ForwardSplitGenerator:
         vbe_options: list[bool],
         ssd_options: list[bool],
         is_gwd: bool = False,
+        sharded: bool = False,
     ) -> None:
         template = CodeTemplate.load(template_filepath)
         weighted_options = [True, False]
@@ -55,16 +60,25 @@ class ForwardSplitGenerator:
                 ]
             )
             fname = filename_format.format(desc)
-            template.write(
-                fname,
-                dense=dense,
-                weighted=weighted,
-                nobag=nobag,
-                vbe=vbe,
-                ssd=ssd,
-                is_index_select=False,
-                is_gwd=is_gwd,
-            )
+            kwargs = {
+                "dense": dense,
+                "weighted": weighted,
+                "nobag": nobag,
+                "vbe": vbe,
+                "ssd": ssd,
+                "is_index_select": False,
+                "is_gwd": is_gwd,
+            }
+            if not sharded:
+                template.write(fname, **kwargs)
+                continue
+            for emb, cache in itertools.product(FORWARD_EMB_TYPES, FORWARD_CACHE_TYPES):
+                template.write(
+                    f"{fname.removesuffix('.cu')}_{emb}_{cache}.cu",
+                    shard_emb=emb,
+                    shard_cache=cache,
+                    **kwargs,
+                )
 
     @staticmethod
     def generate_pt2_wrappers() -> None:
@@ -155,9 +169,18 @@ class ForwardSplitGenerator:
             "training/forward/embedding_forward_split_kernel_template.cu",
             "gen_embedding_forward_{}_kernel.cu",
             dense_options=[True, False],
-            nobag_options=[True, False],
+            nobag_options=[True],
             vbe_options=[True, False],
             ssd_options=[True, False],
+        )
+        ForwardSplitGenerator.render_forward_templates(
+            "training/forward/embedding_forward_split_kernel_template.cu",
+            "gen_embedding_forward_{}_kernel.cu",
+            dense_options=[True, False],
+            nobag_options=[False],
+            vbe_options=[True, False],
+            ssd_options=[True, False],
+            sharded=True,
         )
         # Generate the global weight decay CUDA kernels
         ForwardSplitGenerator.render_forward_templates(
@@ -168,6 +191,7 @@ class ForwardSplitGenerator:
             vbe_options=[True, False],
             ssd_options=[False],
             is_gwd=True,
+            sharded=True,
         )
 
         # Generate the v2 CUDA kernels

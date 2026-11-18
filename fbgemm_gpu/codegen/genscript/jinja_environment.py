@@ -92,6 +92,16 @@ env.globals["dense"] = False
 # pyrefly: ignore [unsupported-operation]
 env.globals["is_rocm"] = args.is_rocm
 
+# Forward kernel instantiation types, keyed by the tags used in shard filenames.
+FORWARD_EMB_TYPES: dict[str, str] = {
+    "fp32": "float",
+    "fp16": "at::Half",
+    "fp8": "at::Float8_e4m3fnuz" if args.is_rocm else "at::Float8_e4m3fn",
+}
+FORWARD_CACHE_TYPES: dict[str, str] = {"fp32": "float", "fp16": "at::Half"}
+template_globals["forward_emb_types"] = FORWARD_EMB_TYPES
+template_globals["forward_cache_types"] = FORWARD_CACHE_TYPES
+
 # Wave-size set in scope for this build. CUDA is always wave32. On ROCm the
 # values come from cmake/Hip.cmake parsing PYTORCH_ROCM_ARCH. The host
 # dispatcher emits a runtime warp_size branch only when both are present.
