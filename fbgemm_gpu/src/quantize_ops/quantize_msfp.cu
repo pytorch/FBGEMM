@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
 
@@ -94,7 +95,7 @@ __global__ inline void _compute_msfp_shared_exponent_cuda_kernel(
           ::min(boundingbox_start + bounding_box_size, ncols);
 
       int32_t max_exponent = 0;
-      for (int i = boundingbox_start; i < boundingbox_end; i++) {
+      for (const auto i : c10::irange(boundingbox_start, boundingbox_end)) {
         // update the max_exponent
         fbgemm_gpu::fint32 org_data;
         org_data.F = input_row[i];

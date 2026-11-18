@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/bitonic_sort.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
@@ -67,7 +68,7 @@ void run_and_check_sort() {
       torch::empty({W}, torch::dtype(c10::CppTypeToScalarType<V>::value));
   auto* seed_k_host = seed_k_cpu.template data_ptr<K>();
   auto* seed_v_host = seed_v_cpu.template data_ptr<V>();
-  for (int32_t i = 0; i < W; ++i) {
+  for (const auto i : c10::irange(W)) {
     seed_k_host[i] = static_cast<K>(W - 1 - i);
     seed_v_host[i] = static_cast<V>(i);
   }
@@ -95,7 +96,7 @@ void run_and_check_sort() {
   const auto* out_k_host = out_k_cpu.template data_ptr<K>();
   const auto* out_v_host = out_v_cpu.template data_ptr<V>();
 
-  for (int32_t i = 0; i < W; ++i) {
+  for (const auto i : c10::irange(W)) {
     if (Dir) {
       // Ascending: k[i] == i, v[i] == W - 1 - i.
       EXPECT_EQ(out_k_host[i], static_cast<K>(i)) << "lane=" << i;

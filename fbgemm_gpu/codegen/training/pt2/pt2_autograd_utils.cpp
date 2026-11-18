@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
+#include <c10/util/irange.h>
 
 using Tensor = at::Tensor;
 
@@ -49,7 +50,7 @@ Tensor reshape_vbe_output(
   const int32_t R = B_offsets_rank_per_feature.size(1) - 1;
   auto B_offsets_rank_per_feature_acc =
       B_offsets_rank_per_feature.accessor<int32_t, 2>();
-  for (int32_t r = 0; r < R; r++) {
+  for (const auto r : c10::irange(R)) {
     auto D_offset = 0;
     for (int32_t t = 0; t < T; t++) {
       const int32_t b_begin = B_offsets_rank_per_feature_acc[t][r];
@@ -129,7 +130,7 @@ Tensor reshape_vbe_offsets(
   auto reshaped_offsets_acc = reshaped_offsets.accessor<index_t, 1>();
   auto offsets_acc = offsets.accessor<index_t, 1>();
   auto begin = 0;
-  for (int32_t t = 0; t < T; t++) {
+  for (const auto t : c10::irange(T)) {
     const auto batch_size =
         B_offsets_rank_per_feature_acc[t]
                                       [B_offsets_rank_per_feature[t].numel() -
