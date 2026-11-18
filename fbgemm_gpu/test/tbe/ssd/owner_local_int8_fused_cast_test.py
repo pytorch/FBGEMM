@@ -570,6 +570,17 @@ def _dram_backend(dim: int, num_rows: int, int8_storage: bool = False) -> _DramB
     )
 
 
+class OwnerCacheSlotTest(unittest.TestCase):
+    def test_owner_cache_slots_match_cache_slot(self) -> None:
+        keys = [0, 1, 7, 31, -1, -2, 123456789, (1 << 62) + 5, -(1 << 63)]
+        keys += torch.randint(
+            -(1 << 62), 1 << 62, (200,), generator=torch.Generator().manual_seed(3)
+        ).tolist()
+        for num_slots in (1, 7, 4096, 85_019_675):
+            slots = training._owner_cache_slots(torch.tensor(keys), num_slots)
+            self.assertEqual(slots.tolist(), [_slot(k, num_slots) for k in keys])
+
+
 @unittest.skipIf(_OPEN_SOURCE, "requires the internal KV ZCH ops")
 @unittest.skipIf(not torch.cuda.is_available(), "requires a CUDA device")
 class ExclusiveOwnerCacheTest(unittest.TestCase):
@@ -641,6 +652,7 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
         packed_storage: bool = False,
         exclusive: bool = False,
         masked_write_promote: bool = False,
+        hit_metrics_every_n: int = 0,
     ) -> training.SSDTableBatchedEmbeddingBags:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -666,6 +678,8 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 owner_cache_int8_fused_float=True,
                 owner_cache_gather_reserved_sms=32,
                 owner_cache_exclusive=exclusive,
+                owner_cache_hit_metrics=hit_metrics_every_n > 0,
+                owner_cache_hit_metrics_every_n=max(1, hit_metrics_every_n),
             )
             if exclusive:
                 enrichment_policy = enrichment_policy._replace(
@@ -750,6 +764,97 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                 torch.equal(outputs[0].view(torch.int16), outputs[1].view(torch.int16))
             )
         self.assertEqual(fused_cache.last_hit_counts(), (64, 64))
+
+    def test_hit_metrics_count_hits_conflicts_and_written_rows(self) -> None:
+        for exclusive in (False, True):
+            with self.subTest(exclusive=exclusive):
+                self._check_hit_metrics(exclusive)
+
+    def _check_hit_metrics(self, exclusive: bool) -> None:
+        device = _cuda_device()
+        # Both store INT8 DRAM rows (int8_storage).
+        tbe = self._cu_tbe(
+            load_without_opt=exclusive,
+            owner_cache=True,
+            exclusive=exclusive,
+            hit_metrics_every_n=1,
+        )
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        num_slots = cache.cache_state.size(0)
+        collider = next(
+            k for k in range(1000, 10000) if _slot(k, num_slots) == _slot(7, num_slots)
+        )
+        rows = torch.randn(2, 128, generator=torch.Generator().manual_seed(5)) * 0.3
+        tbe.enrichment_write_rows(
+            torch.tensor([7, 31], device=device),
+            torch.tensor([0, 2], device=device),
+            rows.half().to(device),
+        )
+        torch.cuda.synchronize()
+        tbe.ssd_db.wait_util_filling_work_done()
+        tbe.ssd_db.wait_row_writes_done()
+        keys = torch.tensor([7, 31], device=device)
+        tbe._direct_enrichment_lookup(keys)  # empty slots, then filled
+        if exclusive:
+            tbe.ssd_db.exclusive_hbm_wait()
+        tbe._direct_enrichment_lookup(keys)  # hits
+        tbe._direct_enrichment_lookup(torch.tensor([collider], device=device))
+        # A padding index is not counted.
+        cache._probe_lookup(torch.tensor([-1], device=device))
+        metrics = cache.hit_metrics()
+        self.assertEqual(metrics["queries"], 5)
+        self.assertEqual(metrics["hits"], 2)
+        self.assertEqual(metrics["empty_miss"], 2)
+        self.assertEqual(metrics["conflict_miss"], 1)
+        self.assertEqual(metrics["nro_written"], 2)
+        self.assertEqual(metrics["nro_hbm_resident_rate"], 1.0)
+        self.assertAlmostEqual(metrics["occupancy"], 2 / num_slots)
+
+        reporter = mock.MagicMock()
+        tbe.stats_reporter = reporter
+        tbe._report_owner_cache_stats()
+        reported = {
+            call.kwargs["event_name"].rsplit(".", 1)[1]: call.kwargs["data_bytes"]
+            for call in reporter.report_data_amount.call_args_list
+        }
+        self.assertEqual(reported["hit_rate_pct"], 100.0 * 2 / 5)
+        self.assertEqual(reported["conflict_miss"], 1)
+        self.assertEqual(reported["nro_written"], 2)
+        reporter.reset_mock()
+        tbe._report_owner_cache_stats()
+        reported = {
+            call.kwargs["event_name"].rsplit(".", 1)[1]: call.kwargs["data_bytes"]
+            for call in reporter.report_data_amount.call_args_list
+        }
+        self.assertEqual(reported["queries"], 0)
+        # No probed lookup since the last report: no hit rate.
+        self.assertNotIn("hit_rate_pct", reported)
+
+    def test_hit_metrics_probe_every_nth_lookup(self) -> None:
+        device = _cuda_device()
+        tbe = self._cu_tbe(owner_cache=True, hit_metrics_every_n=2)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        keys = torch.tensor([7, 31, 45], device=device)
+        for _ in range(5):
+            tbe._direct_enrichment_lookup(keys)
+        # Lookups 0, 2 and 4 are probed.
+        self.assertEqual(cache.hit_metrics()["queries"], 9)
+
+    def test_hit_metrics_off_by_default(self) -> None:
+        tbe = self._cu_tbe(owner_cache=True)
+        cache = tbe._direct_enrichment_cache
+        assert cache is not None
+        self.assertEqual(cache.hit_metrics_every_n, 0)
+        self.assertEqual(tbe.owner_cache_stats_names, {})
+        tbe._direct_enrichment_lookup(torch.tensor([7], device=_cuda_device()))
+        self.assertFalse(hasattr(cache, "_metric_counts"))
+        self.assertEqual(cache._metric_lookup_count, 0)
+        reporter = mock.MagicMock()
+        tbe.stats_reporter = reporter
+        tbe._report_owner_cache_stats()
+        reporter.report_data_amount.assert_not_called()
 
     def test_int8_dram_nonexclusive_read_populate_and_fill_only_writes(self) -> None:
         device = _cuda_device()
