@@ -23,6 +23,22 @@ macro(handle_genfiles variable)
   list(TRANSFORM ${variable} PREPEND "${CMAKE_BINARY_DIR}/")
 endmacro()
 
+# Evaluates a Python expression (e.g. "get_fbgemm_avx2_srcs()") against FBGEMM's defs.bzl and returns the resulting list.
+function(read_from_defs_bzl name outputvar)
+  set(python "${Python_EXECUTABLE}")
+  if(NOT python)
+    set(python "${PYTHON_EXECUTABLE}")
+  endif()
+  execute_process(
+    COMMAND "${python}" -c
+            "exec(open('defs.bzl').read());print(';'.join(${name}))"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../.."
+    OUTPUT_VARIABLE _tempvar
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY)
+  set(${outputvar} ${_tempvar} PARENT_SCOPE)
+endfunction()
+
 # Re-export a third-party target's public include directories as SYSTEM
 # includes, so that warnings originating inside its headers are suppressed in
 # every target that consumes it.
