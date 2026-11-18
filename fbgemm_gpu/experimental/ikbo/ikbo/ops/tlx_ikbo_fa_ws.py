@@ -62,7 +62,7 @@ def _get_bufidx_phase(accum_cnt, NUM_BUFFERS):
 
 @triton.autotune(
     configs=configs_tlx_persistent,
-    key=["d_model", "q_seq_len", "H"],
+    key=["q_seq_len", "H"],
 )
 @triton.jit  # pragma: no cover
 def _attn_fwd_tlx_tma_pipeline_persistent_general(

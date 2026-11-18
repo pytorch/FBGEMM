@@ -26,24 +26,6 @@ include(${MODULE_PATH}/CxxCompilerSetup.cmake)
 # Load cpp_library()
 include(${MODULE_PATH}/CppLibrary.cmake)
 
-# Define function to extract filelists from defs.bzl file
-function(get_filelist name outputvar)
-  execute_process(
-    COMMAND "${Python_EXECUTABLE}" -c
-            "exec(open('defs.bzl').read());print(';'.join(${name}))"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    OUTPUT_VARIABLE _tempvar
-    RESULT_VARIABLE _resvar
-    ERROR_VARIABLE _errvar)
-  if(NOT "${_resvar}" EQUAL "0")
-    message(WARNING "Failed to execute Python (${Python_EXECUTABLE})\n"
-      "Result: ${_resvar}\n"
-      "Error: ${_errvar}\n")
-  endif()
-  string(REPLACE "\n" "" _tempvar "${_tempvar}")
-  set(${outputvar} ${_tempvar} PARENT_SCOPE)
-endfunction()
-
 
 ################################################################################
 # FBGEMM Build Kickstart
@@ -222,7 +204,7 @@ endif()
 # FBGEMM Generic Target
 ################################################################################
 
-get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
+read_from_defs_bzl("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 
 set(fbgemm_generic_defs "${fbgemm_arm_defs}")
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
@@ -288,8 +270,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i386|i686")
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX2 target")
 
-  get_filelist("get_fbgemm_avx2_srcs()" FBGEMM_AVX2_SRCS)
-  get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
+  read_from_defs_bzl("get_fbgemm_avx2_srcs()" FBGEMM_AVX2_SRCS)
+  read_from_defs_bzl("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
 
   cpp_library(
     PREFIX
@@ -322,8 +304,8 @@ endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i386|i686" AND CXX_AVX512_FOUND)
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build AVX512 target")
 
-  get_filelist("get_fbgemm_avx512_srcs()" FBGEMM_AVX512_SRCS)
-  get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+  read_from_defs_bzl("get_fbgemm_avx512_srcs()" FBGEMM_AVX512_SRCS)
+  read_from_defs_bzl("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
 
   cpp_library(
     PREFIX
@@ -372,7 +354,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
 
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build Neon target")
 
-  get_filelist("get_fbgemm_inline_neon_srcs(msvc=${MSVC_BOOL})" FBGEMM_NEON_SRCS)
+  read_from_defs_bzl("get_fbgemm_inline_neon_srcs(msvc=${MSVC_BOOL})" FBGEMM_NEON_SRCS)
 
   cpp_library(
     PREFIX
@@ -428,7 +410,7 @@ endif()
 if(FBGEMM_BUILD_SVE)
   message(STATUS "Processor is ${CMAKE_SYSTEM_PROCESSOR}; will build SVE target")
 
-  get_filelist("get_fbgemm_inline_sve_srcs(msvc=${MSVC_BOOL})" FBGEMM_SVE_SRCS)
+  read_from_defs_bzl("get_fbgemm_inline_sve_srcs(msvc=${MSVC_BOOL})" FBGEMM_SVE_SRCS)
 
   cpp_library(
     PREFIX
@@ -462,7 +444,7 @@ endif()
 if(NOT DISABLE_FBGEMM_AUTOVEC)
   message(STATUS "Will build autovec target")
 
-  get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+  read_from_defs_bzl("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
 
   cpp_library(
     PREFIX
@@ -496,7 +478,7 @@ cpp_library(
     ${fbgemm_targets}
 )
 
-get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
+read_from_defs_bzl("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
 foreach(header IN LISTS FBGEMM_PUBLIC_HEADERS)
   # Preserve internal subdirectories used by installed public headers.

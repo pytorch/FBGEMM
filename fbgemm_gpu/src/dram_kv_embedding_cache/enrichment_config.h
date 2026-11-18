@@ -65,6 +65,13 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
   /// @param serving_qdq_group_size 0 for the rowwise publish (fp16 scale and
   /// bias); else the group size of a group-wise INT4 publish with
   /// float8_e4m3fn scales (requires serving_qdq_bit_rate 4).
+  /// @param packed_storage Store rows in DRAM in that group-wise INT4 encoding
+  /// instead of fp16 (requires serving_qdq_group_size); reads still return
+  /// fp16.
+  /// @param int8_storage Store rows in DRAM as row-wise INT8 (codes, then fp32
+  /// scale and bias, the INT8 publish and owner-local HBM row format) instead
+  /// of fp16; reads and writes stay fp16. Excludes packed_storage and
+  /// serving_qdq_bit_rate.
   explicit EnrichmentConfig(
       int64_t enrichment_type,
       std::string provider_name,
@@ -89,7 +96,9 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
       std::string laser_key_suffix = "",
       std::vector<std::string> laser_key_suffixes = {},
       int64_t serving_qdq_bit_rate = 0,
-      int64_t serving_qdq_group_size = 0)
+      int64_t serving_qdq_group_size = 0,
+      bool packed_storage = false,
+      bool int8_storage = false)
       : enrichment_type_(static_cast<EnrichmentType>(enrichment_type)),
         provider_name_(std::move(provider_name)),
         client_id_(std::move(client_id)),
@@ -117,7 +126,9 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
                 ? std::vector<std::string>{laser_key_suffix_}
                 : std::move(laser_key_suffixes)),
         serving_qdq_bit_rate_(serving_qdq_bit_rate),
-        serving_qdq_group_size_(serving_qdq_group_size) {}
+        serving_qdq_group_size_(serving_qdq_group_size),
+        packed_storage_(packed_storage),
+        int8_storage_(int8_storage) {}
 
   EnrichmentType enrichment_type_;
   std::string provider_name_;
@@ -164,6 +175,12 @@ struct EnrichmentConfig : public torch::jit::CustomClassHolder {
 
   // Group size of a group-wise INT4 (e4m3 scales) publish; 0 = rowwise
   int64_t serving_qdq_group_size_;
+
+  // Store rows packed in the group-wise INT4 publish encoding
+  bool packed_storage_;
+
+  // Store rows as row-wise INT8 (fp32 scale and bias)
+  bool int8_storage_;
 };
 
 } // namespace kv_mem
