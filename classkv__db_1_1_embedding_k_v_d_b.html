@@ -138,6 +138,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:aaebbc42c26c398bec2abb2614bfaeffa" id="r_aaebbc42c26c398bec2abb2614bfaeffa"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aaebbc42c26c398bec2abb2614bfaeffa">invalidate_l2_cache</a> ()</td></tr>
 <tr class="memitem:aa3aa254d79fa50d50e96756c84c24023" id="r_aa3aa254d79fa50d50e96756c84c24023"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aa3aa254d79fa50d50e96756c84c24023">resize_l2_cache_for_testing</a> (size_t cache_size_bytes)</td></tr>
 <tr class="memitem:aa7d2bd75a8b0a0026b041075e9cab46b" id="r_aa7d2bd75a8b0a0026b041075e9cab46b"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#aa7d2bd75a8b0a0026b041075e9cab46b">get_unique_id</a> () const</td></tr>
+<tr class="memitem:afbe66f48664356d97f025909ddc04ca0" id="r_afbe66f48664356d97f025909ddc04ca0"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#afbe66f48664356d97f025909ddc04ca0">get_int8_row_bytes</a> ()</td></tr>
+<tr class="memitem:a6b420853ebb82d3ce4ee8af4bbecc72e" id="r_a6b420853ebb82d3ce4ee8af4bbecc72e"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a6b420853ebb82d3ce4ee8af4bbecc72e">get_raw_row_bytes</a> ()</td></tr>
+<tr class="memitem:a82df16b8bc2a35de20ffd39b6ae67cb2" id="r_a82df16b8bc2a35de20ffd39b6ae67cb2"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a82df16b8bc2a35de20ffd39b6ae67cb2">get_max_raw_row_bytes</a> ()</td></tr>
 <tr class="memitem:a7018d9315165cf036f89adbcfb5a3e4b" id="r_a7018d9315165cf036f89adbcfb5a3e4b"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a7018d9315165cf036f89adbcfb5a3e4b">get_estimated_num_keys</a> ()</td></tr>
 <tr class="memitem:a4c05590f980ab14c02331f1323b62091" id="r_a4c05590f980ab14c02331f1323b62091"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a4c05590f980ab14c02331f1323b62091">get_total_rows_written</a> () const</td></tr>
 </table>
@@ -335,6 +338,34 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 
 </div>
 </div>
+<a id="afbe66f48664356d97f025909ddc04ca0" name="afbe66f48664356d97f025909ddc04ca0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afbe66f48664356d97f025909ddc04ca0">&#9670;&#160;</a></span>get_int8_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual int64_t get_int8_row_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Bytes per row of the raw INT8 row format read and written through uint8 tensors (MetaHeader included), or 0 when the backend has no INT8 rows. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a6c7ea776bcc00759535def63602feaca">DramKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a6c7ea776bcc00759535def63602feaca">DramKVEmbeddingCache&lt; float &gt;</a>.</p>
+
+</div>
+</div>
 <a id="ae8b2f3eb052878276da373e6acc3f1f5" name="ae8b2f3eb052878276da373e6acc3f1f5"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ae8b2f3eb052878276da373e6acc3f1f5">&#9670;&#160;</a></span>get_kv_db_async_with_guard()</h2>
 
@@ -503,6 +534,62 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 <dl class="section return"><dt>Returns</dt><dd>Size of memory used by the map in bytes. </dd></dl>
 
 <p>Reimplemented in <a class="el" href="classkv__db_1_1_dram_ssd_k_v_embedding_cache.html#ab046b99f3345b44e6ff583b776c4a3d1">DramSsdKVEmbeddingCache&lt; weight_type &gt;</a>, <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#ab046b99f3345b44e6ff583b776c4a3d1">DramKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#ab046b99f3345b44e6ff583b776c4a3d1">DramKVEmbeddingCache&lt; float &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a82df16b8bc2a35de20ffd39b6ae67cb2" name="a82df16b8bc2a35de20ffd39b6ae67cb2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a82df16b8bc2a35de20ffd39b6ae67cb2">&#9670;&#160;</a></span>get_max_raw_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual int64_t get_max_raw_row_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Widest raw row the backend accepts on a load: rows of another raw format are re-quantized into its own. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a5506a34c012a41c27b31a88746b9aedc">DramKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a5506a34c012a41c27b31a88746b9aedc">DramKVEmbeddingCache&lt; float &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a6b420853ebb82d3ce4ee8af4bbecc72e" name="a6b420853ebb82d3ce4ee8af4bbecc72e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6b420853ebb82d3ce4ee8af4bbecc72e">&#9670;&#160;</a></span>get_raw_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual int64_t get_raw_row_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Bytes per row of the backend's raw row format (INT8 or packed group-wise INT4, MetaHeader included), or 0 when the backend stores fp16 rows. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a5ab5544fe847669f4d6c38293089f687">DramKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a5ab5544fe847669f4d6c38293089f687">DramKVEmbeddingCache&lt; float &gt;</a>.</p>
 
 </div>
 </div>

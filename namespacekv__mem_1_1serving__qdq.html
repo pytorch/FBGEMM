@@ -98,7 +98,8 @@ document.addEventListener('DOMContentLoaded', codefold.init);
 <div class="header">
   <div class="summary">
 <a href="#nested-classes">Classes</a> &#124;
-<a href="#func-members">Functions</a>  </div>
+<a href="#func-members">Functions</a> &#124;
+<a href="#var-members">Variables</a>  </div>
   <div class="headertitle"><div class="title">kv_mem::serving_qdq Namespace Reference</div></div>
 </div><!--header-->
 <div class="contents">
@@ -107,6 +108,9 @@ document.addEventListener('DOMContentLoaded', codefold.init);
 Classes</h2></td></tr>
 <tr class="memitem:Scratch" id="r_Scratch"><td class="memItemLeft">struct &#160;</td><td class="memItemRight"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a></td></tr>
 <tr class="memitem:Format" id="r_Format"><td class="memItemLeft">struct &#160;</td><td class="memItemRight"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a></td></tr>
+<tr class="memitem:PackedLayout" id="r_PackedLayout"><td class="memItemLeft">struct &#160;</td><td class="memItemRight"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_packed_layout.html">PackedLayout</a></td></tr>
+<tr class="memitem:DecodeTable" id="r_DecodeTable"><td class="memItemLeft">struct &#160;</td><td class="memItemRight"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_decode_table.html">DecodeTable</a></td></tr>
+<tr class="memitem:Int8Layout" id="r_Int8Layout"><td class="memItemLeft">struct &#160;</td><td class="memItemRight"><a class="el" href="structkv__mem_1_1serving__qdq_1_1_int8_layout.html">Int8Layout</a></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-func-members" class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -114,6 +118,16 @@ Functions</h2></td></tr>
 <tr class="memitem:ad66047ffc90dcf7b3e12f1e0452ea16c" id="r_ad66047ffc90dcf7b3e12f1e0452ea16c"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ad66047ffc90dcf7b3e12f1e0452ea16c">quantize_dequantize</a> (const fbgemm::float16 *values, int64_t dim, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;format, <a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a> &amp;scratch)</td></tr>
 <tr class="memitem:af19b421ec615bd887aa8084cac03d5a6" id="r_af19b421ec615bd887aa8084cac03d5a6"><td class="memItemLeft">RowResult&#160;</td><td class="memItemRight"><a class="el" href="#af19b421ec615bd887aa8084cac03d5a6">round_trip_row</a> (c10::Half *row, int64_t dim, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;format, <a class="el" href="structkv__mem_1_1serving__qdq_1_1_scratch.html">Scratch</a> &amp;scratch, int max_passes=4)</td></tr>
 <tr class="memitem:a070099c67b1ad5f3c734ae40f3ba22e2" id="r_a070099c67b1ad5f3c734ae40f3ba22e2"><td class="memItemLeft">Stats&#160;</td><td class="memItemRight"><a class="el" href="#a070099c67b1ad5f3c734ae40f3ba22e2">round_trip_rows</a> (c10::Half *rows, int64_t num_rows, int64_t stride, int64_t dim, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_format.html">Format</a> &amp;format)</td></tr>
+<tr class="memitem:ae39db88ceaf8a3628ba8664cdf1bd1a8" id="r_ae39db88ceaf8a3628ba8664cdf1bd1a8"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ae39db88ceaf8a3628ba8664cdf1bd1a8">unpack_g8</a> (const uint8_t *codes, const uint8_t *scales, int64_t num_groups, uint8_t *out)</td></tr>
+<tr class="memitem:a2c6da41c476349782bff3fa2756180fb" id="r_a2c6da41c476349782bff3fa2756180fb"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a2c6da41c476349782bff3fa2756180fb">unpack_row</a> (const uint8_t *payload, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_packed_layout.html">PackedLayout</a> &amp;layout, c10::Half *out)</td></tr>
+<tr class="memitem:a0a5fcb6db4eab596e4c30b74969a22ef" id="r_a0a5fcb6db4eab596e4c30b74969a22ef"><td class="memItemLeft">bool&#160;</td><td class="memItemRight"><a class="el" href="#a0a5fcb6db4eab596e4c30b74969a22ef">pack_row</a> (const c10::Half *row, const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_packed_layout.html">PackedLayout</a> &amp;layout, uint8_t *payload)</td></tr>
+<tr class="memitem:a0d61d827110e77eba89a5a04009aca30" id="r_a0d61d827110e77eba89a5a04009aca30"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a0d61d827110e77eba89a5a04009aca30">decode_int8_row</a> (const uint8_t *src, int64_t dim, c10::Half *dst)</td></tr>
+<tr class="memitem:a649f47b00a314420b16c66478e01dbfb" id="r_a649f47b00a314420b16c66478e01dbfb"><td class="memItemLeft">bool&#160;</td><td class="memItemRight"><a class="el" href="#a649f47b00a314420b16c66478e01dbfb">clamp_non_finite</a> (c10::Half *row, int64_t dim)</td></tr>
+<tr class="memitem:ad463f143f9c0ea507a18b63d416cb35d" id="r_ad463f143f9c0ea507a18b63d416cb35d"><td class="memItemLeft">Int8Result&#160;</td><td class="memItemRight"><a class="el" href="#ad463f143f9c0ea507a18b63d416cb35d">encode_int8_row</a> (const c10::Half *row, int64_t dim, uint8_t *dst, int max_passes=4)</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 id="header-var-members" class="groupheader"><a id="var-members" name="var-members"></a>
+Variables</h2></td></tr>
+<tr class="memitem:a5771b06c9d6a1b9a20063f7db615fd02" id="r_a5771b06c9d6a1b9a20063f7db615fd02"><td class="memItemLeft">constexpr uint8_t&#160;</td><td class="memItemRight"><a class="el" href="#a5771b06c9d6a1b9a20063f7db615fd02">kFallbackScale</a> = 0x7F</td></tr>
 </table>
 <a name="details" id="details"></a><h2 id="header-details" class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Rewrites embedding rows as the values serving decodes after the table's publish encoding (rowwise N-bit with an fp16 scale and bias, or group-wise INT4 with float8_e4m3fn scales), so training reads exactly what the published table serves. </p>
@@ -145,6 +159,146 @@ Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 <p>The scratch buffers hold exactly <span class="tt">dim</span> values, so <span class="tt">dim</span> must fill whole packed bytes (and whole groups). </p>
+
+</div>
+</div>
+<a id="a649f47b00a314420b16c66478e01dbfb" name="a649f47b00a314420b16c66478e01dbfb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a649f47b00a314420b16c66478e01dbfb">&#9670;&#160;</a></span>clamp_non_finite()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool clamp_non_finite </td>
+          <td>(</td>
+          <td class="paramtype">c10::Half *</td>          <td class="paramname"><span class="paramname"><em>row</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>dim</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Replaces nan with 0 and +-inf with +-65504; returns whether all were finite. </p>
+
+</div>
+</div>
+<a id="a0d61d827110e77eba89a5a04009aca30" name="a0d61d827110e77eba89a5a04009aca30"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0d61d827110e77eba89a5a04009aca30">&#9670;&#160;</a></span>decode_int8_row()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void decode_int8_row </td>
+          <td>(</td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>src</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>dim</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::Half *</td>          <td class="paramname"><span class="paramname"><em>dst</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Decodes an INT8 row as the owner-local HBM gather does: fp16 of code * scale + bias. </p>
+
+</div>
+</div>
+<a id="ad463f143f9c0ea507a18b63d416cb35d" name="ad463f143f9c0ea507a18b63d416cb35d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad463f143f9c0ea507a18b63d416cb35d">&#9670;&#160;</a></span>encode_int8_row()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">Int8Result encode_int8_row </td>
+          <td>(</td>
+          <td class="paramtype">const c10::Half *</td>          <td class="paramname"><span class="paramname"><em>row</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>dim</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>dst</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>max_passes</em></span><span class="paramdefsep"> = </span><span class="paramdefval">4</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Encodes row[0, dim) into <span class="tt">dst</span> (row_bytes() bytes) as codes that a publish of the decoded row re-derives bit for bit: the row is quantized, then its fp16 decode is re-quantized until the encoding stops changing (one extra pass for almost every row). Non-finite values are clamped first. </p>
+
+</div>
+</div>
+<a id="a0a5fcb6db4eab596e4c30b74969a22ef" name="a0a5fcb6db4eab596e4c30b74969a22ef"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0a5fcb6db4eab596e4c30b74969a22ef">&#9670;&#160;</a></span>pack_row()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool pack_row </td>
+          <td>(</td>
+          <td class="paramtype">const c10::Half *</td>          <td class="paramname"><span class="paramname"><em>row</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_packed_layout.html">PackedLayout</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>layout</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>payload</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Encodes row[0, dim) into <span class="tt">payload</span> and returns whether it decodes back bit-for-bit (true exactly for serving fixed points). An all-zero group gets scale 0, so a zero row packs to zero bytes. On false the payload holds the encoding of the row, which is not the row. </p>
 
 </div>
 </div>
@@ -275,6 +429,105 @@ Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 <p>Round-trips the first <span class="tt">dim</span> columns of <span class="tt">num_rows</span> rows laid out <span class="tt">stride</span> elements apart. Columns past <span class="tt">dim</span> (e.g. optimizer state) are untouched. </p>
+
+</div>
+</div>
+<a id="ae39db88ceaf8a3628ba8664cdf1bd1a8" name="ae39db88ceaf8a3628ba8664cdf1bd1a8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae39db88ceaf8a3628ba8664cdf1bd1a8">&#9670;&#160;</a></span>unpack_g8()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void unpack_g8 </td>
+          <td>(</td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>codes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>scales</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>num_groups</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>out</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Decodes <span class="tt">num_groups</span> groups of 8: 4 code bytes and 1 scale byte each make 8 fp16 values (16 output bytes). </p>
+
+</div>
+</div>
+<a id="a2c6da41c476349782bff3fa2756180fb" name="a2c6da41c476349782bff3fa2756180fb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2c6da41c476349782bff3fa2756180fb">&#9670;&#160;</a></span>unpack_row()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void unpack_row </td>
+          <td>(</td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>payload</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="structkv__mem_1_1serving__qdq_1_1_packed_layout.html">PackedLayout</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>layout</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">c10::Half *</td>          <td class="paramname"><span class="paramname"><em>out</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Decodes the packed first <span class="tt">layout.dim</span> columns; bit-identical to grouped_int4_e4m3::dequantize_row. </p>
+
+</div>
+</div>
+<a name="doc-var-members" id="doc-var-members"></a><h2 id="header-doc-var-members" class="groupheader">Variable Documentation</h2>
+<a id="a5771b06c9d6a1b9a20063f7db615fd02" name="a5771b06c9d6a1b9a20063f7db615fd02"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5771b06c9d6a1b9a20063f7db615fd02">&#9670;&#160;</a></span>kFallbackScale</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint8_t kFallbackScale = 0x7F</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel constexpr">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>First scale byte of a row whose values are kept outside the packed slot. It is an e4m3fn NaN, which the encoder never writes (scales are clamped to [2^-9, 448], and an all-zero group gets scale 0). </p>
 
 </div>
 </div>

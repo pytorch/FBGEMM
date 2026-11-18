@@ -127,13 +127,36 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a21de68b41d1b90ba153697a3bc5df60e" id="r_a21de68b41d1b90ba153697a3bc5df60e"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a21de68b41d1b90ba153697a3bc5df60e">refresh_hit_timestamps_under_wlock</a> (int shard_id, const std::vector&lt; int64_t &gt; &amp;ids)</td></tr>
 <tr class="memitem:ad17849fed7f6bdcbfc48edf4988db3af" id="r_ad17849fed7f6bdcbfc48edf4988db3af"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ad17849fed7f6bdcbfc48edf4988db3af">refresh_hit_timestamps_async</a> (at::Tensor hashed_indices, at::Tensor count)</td></tr>
 <tr class="memitem:a58eb28cfbab45e80e851ce501f8e4406" id="r_a58eb28cfbab45e80e851ce501f8e4406"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a58eb28cfbab45e80e851ce501f8e4406">set_embedding_cache_rows_async</a> (at::Tensor indices, at::Tensor weights, at::Tensor count) override</td></tr>
-<tr class="memitem:ab5172028ec58fd3ef007fc016b049265" id="r_ab5172028ec58fd3ef007fc016b049265"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ab5172028ec58fd3ef007fc016b049265">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt, const std::optional&lt; at::Tensor &gt; &amp;found_mask=std::nullopt)</td></tr>
+<tr class="memitem:ac9072d0c6b57bcc613b09ddc30057c45" id="r_ac9072d0c6b57bcc613b09ddc30057c45"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ac9072d0c6b57bcc613b09ddc30057c45">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt, const std::optional&lt; at::Tensor &gt; &amp;found_mask=std::nullopt, bool count_tombstone_reads=false)</td></tr>
 <tr class="memitem:a5ad7f6df6f124e625b38d688ba41077a" id="r_a5ad7f6df6f124e625b38d688ba41077a"><td class="memItemLeft">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a5ad7f6df6f124e625b38d688ba41077a">get_kv_db_async_with_found_mask</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const at::Tensor &amp;found_mask) override</td></tr>
+<tr class="memitem:adb7c4e4065ab4702cc3a4237c0c2972a" id="r_adb7c4e4065ab4702cc3a4237c0c2972a"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#adb7c4e4065ab4702cc3a4237c0c2972a">get_int8_rows_with_metaheader</a> (const at::Tensor &amp;ids, const at::Tensor &amp;rows)</td></tr>
+<tr class="memitem:a8a6fb8ef01fc54b86b5a40f85649d1c0" id="r_a8a6fb8ef01fc54b86b5a40f85649d1c0"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a8a6fb8ef01fc54b86b5a40f85649d1c0">set_int8_rows_with_metaheader</a> (const at::Tensor &amp;rows, std::optional&lt; at::Tensor &gt; ids=std::nullopt)</td></tr>
 <tr class="memitem:a2cfdd9b35d0899e30e21d9a6d2199925" id="r_a2cfdd9b35d0899e30e21d9a6d2199925"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a2cfdd9b35d0899e30e21d9a6d2199925">trigger_feature_evict</a> (bool force=false) override</td></tr>
 <tr class="memitem:a0a133e05fcf768611f2cca9f1d84bc67" id="r_a0a133e05fcf768611f2cca9f1d84bc67"><td class="memItemLeft">std::tuple&lt; bool, bool, int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a0a133e05fcf768611f2cca9f1d84bc67">should_trigger_evict</a> (int64_t step, int64_t free_mem_bytes) override</td></tr>
 <tr class="memitem:ab046b99f3345b44e6ff583b776c4a3d1" id="r_ab046b99f3345b44e6ff583b776c4a3d1"><td class="memItemLeft">size_t&#160;</td><td class="memItemRight"><a class="el" href="#ab046b99f3345b44e6ff583b776c4a3d1">get_map_used_memsize_in_bytes</a> () const override</td></tr>
+<tr class="memitem:a03d322cb54591505c40b506b249da1d1" id="r_a03d322cb54591505c40b506b249da1d1"><td class="memItemLeft">std::vector&lt; int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a03d322cb54591505c40b506b249da1d1">packed_fallback_stats</a> ()</td></tr>
 <tr class="memitem:a42920b99a9357b46809d511f1f593151" id="r_a42920b99a9357b46809d511f1f593151"><td class="memItemLeft">bool&#160;</td><td class="memItemRight"><a class="el" href="#a42920b99a9357b46809d511f1f593151">begin_laser_write</a> (uint64_t write_epoch)</td></tr>
 <tr class="memitem:a882b3d3ba64e812e22bc8bdb3c78d2b9" id="r_a882b3d3ba64e812e22bc8bdb3c78d2b9"><td class="memItemLeft">FeatureEvict&lt; weight_type &gt; *&#160;</td><td class="memItemRight"><a class="el" href="#a882b3d3ba64e812e22bc8bdb3c78d2b9">get_feature_evict</a> ()</td></tr>
+<tr class="memitem:ac777c5bf2e0e1e3558609fbe578426ef" id="r_ac777c5bf2e0e1e3558609fbe578426ef"><td class="memItemLeft">std::pair&lt; int64_t, int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#ac777c5bf2e0e1e3558609fbe578426ef">get_packed_write_counts</a> () const</td></tr>
+<tr class="memitem:a4e59a94eb2c5e1c481f712f637a3ca25" id="r_a4e59a94eb2c5e1c481f712f637a3ca25"><td class="memItemLeft">std::vector&lt; int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a4e59a94eb2c5e1c481f712f637a3ca25">get_int8_write_counts</a> () const</td></tr>
+<tr class="memitem:a6c7ea776bcc00759535def63602feaca" id="r_a6c7ea776bcc00759535def63602feaca"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a6c7ea776bcc00759535def63602feaca">get_int8_row_bytes</a> () override</td></tr>
+<tr class="memitem:a5ab5544fe847669f4d6c38293089f687" id="r_a5ab5544fe847669f4d6c38293089f687"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a5ab5544fe847669f4d6c38293089f687">get_raw_row_bytes</a> () override</td></tr>
+<tr class="memitem:a87275605c63b40884b007b79a186cfa1" id="r_a87275605c63b40884b007b79a186cfa1"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a87275605c63b40884b007b79a186cfa1">set_raw_source_format</a> (const std::string &amp;format)</td></tr>
+<tr class="memitem:adc8dd8e6572db3389d79a043823370c5" id="r_adc8dd8e6572db3389d79a043823370c5"><td class="memItemLeft">bool&#160;</td><td class="memItemRight"><a class="el" href="#adc8dd8e6572db3389d79a043823370c5">accepts_raw_row_bytes</a> (int64_t row_bytes, bool drop_tail) const</td></tr>
+<tr class="memitem:a9c4aaff752ea96506a5eedb69e7ae6f9" id="r_a9c4aaff752ea96506a5eedb69e7ae6f9"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a9c4aaff752ea96506a5eedb69e7ae6f9">get_int8_payloads</a> (const at::Tensor &amp;indices, const at::Tensor &amp;rows, const at::Tensor &amp;count)</td></tr>
+<tr class="memitem:a8a18d5e082684abadabcd14b4f6ba42f" id="r_a8a18d5e082684abadabcd14b4f6ba42f"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a8a18d5e082684abadabcd14b4f6ba42f">hbm_written_row_bytes</a> () const</td></tr>
+<tr class="memitem:a5e51c0aef9d56553c76f0738a599dda1" id="r_a5e51c0aef9d56553c76f0738a599dda1"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a5e51c0aef9d56553c76f0738a599dda1">encode_written_rows</a> (const at::Tensor &amp;rows, const at::Tensor &amp;out, const at::Tensor &amp;count) const</td></tr>
+<tr class="memitem:a900d25009134efe6f034377e0c4f6396" id="r_a900d25009134efe6f034377e0c4f6396"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a900d25009134efe6f034377e0c4f6396">encode_written_rows_cuda</a> (at::Tensor rows_cpu, at::Tensor out_cpu, at::Tensor count_cpu)</td></tr>
+<tr class="memitem:a3b40d6b323a5aeba451f0c5ceaf5dc6d" id="r_a3b40d6b323a5aeba451f0c5ceaf5dc6d"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a3b40d6b323a5aeba451f0c5ceaf5dc6d">raw_hbm_row_bytes</a> () const</td></tr>
+<tr class="memitem:a8df013510f865ac4f22d394b78062ec7" id="r_a8df013510f865ac4f22d394b78062ec7"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a8df013510f865ac4f22d394b78062ec7">exclusive_hbm_register</a> (at::Tensor cache_state, at::Tensor cache_weights, at::Tensor last_access, bool set_associative=false)</td></tr>
+<tr class="memitem:a7ae9f14164a73e7a1d95b4058fd58316" id="r_a7ae9f14164a73e7a1d95b4058fd58316"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a7ae9f14164a73e7a1d95b4058fd58316">exclusive_hbm_promote_cuda</a> (at::Tensor promoted_keys_cpu, at::Tensor promoted_count_cpu, std::optional&lt; at::Tensor &gt; victim_keys_cpu=std::nullopt, std::optional&lt; at::Tensor &gt; victim_access_cpu=std::nullopt, std::optional&lt; at::Tensor &gt; victim_rows_cpu=std::nullopt, std::optional&lt; at::Tensor &gt; victim_count_cpu=std::nullopt, bool from_write=false)</td></tr>
+<tr class="memitem:a9be7d73ce172df237700186acb96ced8" id="r_a9be7d73ce172df237700186acb96ced8"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a9be7d73ce172df237700186acb96ced8">hbm_land_victims</a> (const int64_t *keys, const int32_t *last_access, const uint8_t *rows, int64_t count)</td></tr>
+<tr class="memitem:aa8ccd3a1f37adbc245283940d9e85f21" id="r_aa8ccd3a1f37adbc245283940d9e85f21"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#aa8ccd3a1f37adbc245283940d9e85f21">exclusive_hbm_demote_all</a> ()</td></tr>
+<tr class="memitem:a3fdfe6815439804f84fb6e0f18886c1f" id="r_a3fdfe6815439804f84fb6e0f18886c1f"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a3fdfe6815439804f84fb6e0f18886c1f">exclusive_hbm_sweep</a> (int64_t now=-1)</td></tr>
+<tr class="memitem:ab70f882ab4506c4e52f69027b5732e09" id="r_ab70f882ab4506c4e52f69027b5732e09"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#ab70f882ab4506c4e52f69027b5732e09">fail_next_hbm_promotion_for_test</a> ()</td></tr>
+<tr class="memitem:aa00ab455eb251a0fef8f20847f169743" id="r_aa00ab455eb251a0fef8f20847f169743"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#aa00ab455eb251a0fef8f20847f169743">set_hbm_metadata_pass_hook_for_test</a> (std::function&lt; void()&gt; hook)</td></tr>
+<tr class="memitem:a923f55fddb491bc19a47cd23c49879b4" id="r_a923f55fddb491bc19a47cd23c49879b4"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a923f55fddb491bc19a47cd23c49879b4">set_hbm_fill_chunk_hook_for_test</a> (std::function&lt; void()&gt; hook)</td></tr>
+<tr class="memitem:a9b94af6dde7abd7a72f32a7d90097241" id="r_a9b94af6dde7abd7a72f32a7d90097241"><td class="memItemLeft">std::vector&lt; int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a9b94af6dde7abd7a72f32a7d90097241">exclusive_hbm_stats</a> ()</td></tr>
 <tr class="memitem:a7dde1fffca13afabaec71226ee39758f" id="r_a7dde1fffca13afabaec71226ee39758f"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a7dde1fffca13afabaec71226ee39758f">serving_qdq_existing_rows</a> () override</td></tr>
 <tr class="inherit_header pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td colspan="2">Public Member Functions inherited from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
@@ -309,6 +332,38 @@ template&lt;typename weight_type&gt; </div>
 </div>
 </div>
 <a name="doc-func-members" id="doc-func-members"></a><h2 id="header-doc-func-members" class="groupheader">Member Function Documentation</h2>
+<a id="adc8dd8e6572db3389d79a043823370c5" name="adc8dd8e6572db3389d79a043823370c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adc8dd8e6572db3389d79a043823370c5">&#9670;&#160;</a></span>accepts_raw_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool accepts_raw_row_bytes </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>row_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>drop_tail</em></span>&#160;) const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Whether set_int8_rows_with_metaheader can load raw rows <span class="tt">row_bytes</span> wide: their format is known (raw_row_source) and their fp16 tail fits this table's, or is wider and <span class="tt">drop_tail</span> (load_ckpt_without_opt). </p>
+
+</div>
+</div>
 <a id="a42920b99a9357b46809d511f1f593151" name="a42920b99a9357b46809d511f1f593151"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a42920b99a9357b46809d511f1f593151">&#9670;&#160;</a></span>begin_laser_write()</h2>
 
@@ -414,6 +469,294 @@ template&lt;typename FetchFn, typename PrepareFn&gt; </div>
 
 </div>
 </div>
+<a id="a5e51c0aef9d56553c76f0738a599dda1" name="a5e51c0aef9d56553c76f0738a599dda1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5e51c0aef9d56553c76f0738a599dda1">&#9670;&#160;</a></span>encode_written_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void encode_written_rows </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>out</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;) const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>The first <span class="tt">count</span> rows of a trainer row write (CPU fp16 <span class="tt">rows</span>) as the bytes DRAM stores for them, into <span class="tt">out</span> ([n, <a class="el" href="#a8a18d5e082684abadabcd14b4f6ba42f">hbm_written_row_bytes()</a>] uint8): snapped to the serving fixed point like set_embedding_cache_rows, then encoded with the storage format's write path. A row DRAM would keep as fp16 outside its packed block reads as zero, which inserts skip. </p>
+
+</div>
+</div>
+<a id="a900d25009134efe6f034377e0c4f6396" name="a900d25009134efe6f034377e0c4f6396"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a900d25009134efe6f034377e0c4f6396">&#9670;&#160;</a></span>encode_written_rows_cuda()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void encode_written_rows_cuda </td>
+          <td>(</td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>rows_cpu</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>out_cpu</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>count_cpu</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>encode_written_rows once earlier work on the current stream is done, as get_int8_payloads_cuda: <span class="tt">out_cpu</span> is the host view of a host-mapped buffer a later GPU insert reads. </p>
+
+</div>
+</div>
+<a id="aa8ccd3a1f37adbc245283940d9e85f21" name="aa8ccd3a1f37adbc245283940d9e85f21"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa8ccd3a1f37adbc245283940d9e85f21">&#9670;&#160;</a></span>exclusive_hbm_demote_all()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t exclusive_hbm_demote_all </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Moves every HBM row back to the backend, emptying its slots. Callers must first let earlier GPU inserts and their promotion callbacks finish. </p>
+
+</div>
+</div>
+<a id="a7ae9f14164a73e7a1d95b4058fd58316" name="a7ae9f14164a73e7a1d95b4058fd58316"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7ae9f14164a73e7a1d95b4058fd58316">&#9670;&#160;</a></span>exclusive_hbm_promote_cuda()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void exclusive_hbm_promote_cuda </td>
+          <td>(</td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>promoted_keys_cpu</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>promoted_count_cpu</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>victim_keys_cpu</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>victim_access_cpu</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>victim_rows_cpu</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>victim_count_cpu</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>from_write</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Queues the promotion of the keys a GPU insert claimed: once earlier GPU work on the current stream is done, a host callback copies the first <span class="tt">promoted_count_cpu[0]</span> keys of <span class="tt">promoted_keys_cpu</span> (host views of the insert's host-mapped outputs) and hands them to hbm_executor_.</p>
+<p>With the insert's victim outputs, the callback first writes the rows it evicted from full sets back to the backend (hbm_land_victims), so a lookup ordered after the callback finds them there.</p>
+<p>With <span class="tt">from_write</span>, the keys come from a trainer row write inserted straight into HBM (EnrichmentPolicy.owner_cache_write_direct): see hbm_promote. </p>
+
+</div>
+</div>
+<a id="a8df013510f865ac4f22d394b78062ec7" name="a8df013510f865ac4f22d394b78062ec7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8df013510f865ac4f22d394b78062ec7">&#9670;&#160;</a></span>exclusive_hbm_register()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void exclusive_hbm_register </td>
+          <td>(</td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>cache_state</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>cache_weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>last_access</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>set_associative</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Exclusive HBM tier: the owner-local cache's copy is the only copy of a promoted row. The backend keeps the row's MetaHeader word (timestamp, count) as a tombstone in hbm_rows_ instead of a block, so lookups through the GPU cache, enrichment, eviction counts and checkpoints still see it. <span class="tt">cache_state</span> ([C, 1] int64 tags), <span class="tt">cache_weights</span> (uint8 rows in the DRAM storage format: [C, packed_bytes] g8 bytes for a packed_storage table, [C, dim + 8] INT8 codes then fp32 scale and bias for an int8_storage table, [C, dim * 2] fp16 columns for an fp16 table, which may instead use INT8 rows; columns past the enrichment dim, unused optimizer state in an embedding cache, are left out and read back as zero) and <span class="tt">last_access</span> ([C] int32 seconds) are the GPU cache's tensors (CPU tensors in tests).</p>
+<p>Tombstones account for rows held in HBM or awaiting victim writeback. A GPU insert can evict a slot before its promotion runs; the promotion rechecks that slot under the shard lock used by victim writeback. </p>
+
+</div>
+</div>
+<a id="a9b94af6dde7abd7a72f32a7d90097241" name="a9b94af6dde7abd7a72f32a7d90097241"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9b94af6dde7abd7a72f32a7d90097241">&#9670;&#160;</a></span>exclusive_hbm_stats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::vector&lt; int64_t &gt; exclusive_hbm_stats </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>[HBM rows, promoted, promotions skipped (slot no longer held the key, or the backend row changed or was evicted after the GPU read), demoted, dropped, invalidated, rows rewritten to a serving fixed point on demotion, lookups that found only a tombstone (a lost row; expected 0), found-mask reads that found only a tombstone (reported as kFoundOnlyInHbm)] </p>
+
+</div>
+</div>
+<a id="a3fdfe6815439804f84fb6e0f18886c1f" name="a3fdfe6815439804f84fb6e0f18886c1f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3fdfe6815439804f84fb6e0f18886c1f">&#9670;&#160;</a></span>exclusive_hbm_sweep()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t exclusive_hbm_sweep </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>now</em></span><span class="paramdefsep"> = </span><span class="paramdefval">-1</span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Runs one TTL pass now: HBM rows whose last access (the later of the tombstone timestamp and the slot's GPU access time) is older than the TTL are moved back to the backend, or dropped from both tiers when KVZCH_EXCLUSIVE_HBM_TTL_DEMOTE=0. Returns the number of rows that left. </p>
+
+</div>
+</div>
+<a id="ab70f882ab4506c4e52f69027b5732e09" name="ab70f882ab4506c4e52f69027b5732e09"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab70f882ab4506c4e52f69027b5732e09">&#9670;&#160;</a></span>fail_next_hbm_promotion_for_test()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void fail_next_hbm_promotion_for_test </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Tests: makes the next promotion fail after its GPU insert claimed the slots, as a CUDA error on the HBM stream would. </p>
+
+</div>
+</div>
 <a id="aa8c1bbe2a7ab1e8e1d54118019abca60" name="aa8c1bbe2a7ab1e8e1d54118019abca60"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aa8c1bbe2a7ab1e8e1d54118019abca60">&#9670;&#160;</a></span>fetch_sids_sync()</h2>
 
@@ -481,6 +824,133 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
+<a id="a9c4aaff752ea96506a5eedb69e7ae6f9" name="a9c4aaff752ea96506a5eedb69e7ae6f9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9c4aaff752ea96506a5eedb69e7ae6f9">&#9670;&#160;</a></span>get_int8_payloads()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void get_int8_payloads </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Raw payloads for HBM promotion: the INT8 rows of an int8_storage table, or the g8 bytes of a packed_storage table's rows. Missing rows, and packed rows kept as fp16 outside their block (which therefore stay in DRAM), are zero-filled. All tensors must be CPU views, including host-mapped workspaces used by CUDA callers. </p>
+
+</div>
+</div>
+<a id="a6c7ea776bcc00759535def63602feaca" name="a6c7ea776bcc00759535def63602feaca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6c7ea776bcc00759535def63602feaca">&#9670;&#160;</a></span>get_int8_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t get_int8_row_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Bytes of a raw INT8 checkpoint row (MetaHeader, codes, fp32 scale and bias, fp16 tail columns), or 0 without int8_storage. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#afbe66f48664356d97f025909ddc04ca0">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="adb7c4e4065ab4702cc3a4237c0c2972a" name="adb7c4e4065ab4702cc3a4237c0c2972a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adb7c4e4065ab4702cc3a4237c0c2972a">&#9670;&#160;</a></span>get_int8_rows_with_metaheader()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void get_int8_rows_with_metaheader </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>ids</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>rows</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Raw INT8 rows for the checkpoint: row i of <span class="tt">rows</span> ([n, <a class="el" href="#a6c7ea776bcc00759535def63602feaca">get_int8_row_bytes()</a>] uint8) gets the bytes of ids[i]'s block (MetaHeader, codes, fp32 scale and bias, fp16 tail columns), the HBM copy of a row that lives only in HBM, or zeros for a missing id. </p>
+
+</div>
+</div>
+<a id="a4e59a94eb2c5e1c481f712f637a3ca25" name="a4e59a94eb2c5e1c481f712f637a3ca25"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4e59a94eb2c5e1c481f712f637a3ca25">&#9670;&#160;</a></span>get_int8_write_counts()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::vector&lt; int64_t &gt; get_int8_write_counts </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>INT8 row writes [needing more than one re-quantization, with non-finite values, not converged]. </p>
+
+</div>
+</div>
 <a id="a3ec3ec693cdf42996def471797fcbba9" name="a3ec3ec693cdf42996def471797fcbba9"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a3ec3ec693cdf42996def471797fcbba9">&#9670;&#160;</a></span>get_keys_in_range_impl()</h2>
 
@@ -521,8 +991,8 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
-<a id="ab5172028ec58fd3ef007fc016b049265" name="ab5172028ec58fd3ef007fc016b049265"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab5172028ec58fd3ef007fc016b049265">&#9670;&#160;</a></span>get_kv_db_async_impl()</h2>
+<a id="ac9072d0c6b57bcc613b09ddc30057c45" name="ac9072d0c6b57bcc613b09ddc30057c45"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac9072d0c6b57bcc613b09ddc30057c45">&#9670;&#160;</a></span>get_kv_db_async_impl()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -560,7 +1030,12 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const std::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>found_mask</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
+          <td class="paramtype">const std::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>found_mask</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>count_tombstone_reads</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -655,6 +1130,190 @@ template&lt;typename weight_type&gt; </div>
 <dl class="section return"><dt>Returns</dt><dd>Size of memory used by the map in bytes. </dd></dl>
 
 <p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a9ef4e4f1a94c7994e58011a3c276c9cf">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="ac777c5bf2e0e1e3558609fbe578426ef" name="ac777c5bf2e0e1e3558609fbe578426ef"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac777c5bf2e0e1e3558609fbe578426ef">&#9670;&#160;</a></span>get_packed_write_counts()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::pair&lt; int64_t, int64_t &gt; get_packed_write_counts </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Packed writes that rewrote a row as its serving fixed point, and writes of rows with none, which are kept as fp16. </p>
+
+</div>
+</div>
+<a id="a5ab5544fe847669f4d6c38293089f687" name="a5ab5544fe847669f4d6c38293089f687"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5ab5544fe847669f4d6c38293089f687">&#9670;&#160;</a></span>get_raw_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t get_raw_row_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Bytes of a raw checkpoint row in the stored format (INT8 or packed INT4), or 0 for fp16 rows. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a6b420853ebb82d3ce4ee8af4bbecc72e">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="a9be7d73ce172df237700186acb96ced8" name="a9be7d73ce172df237700186acb96ced8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9be7d73ce172df237700186acb96ced8">&#9670;&#160;</a></span>hbm_land_victims()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void hbm_land_victims </td>
+          <td>(</td>
+          <td class="paramtype">const int64_t *</td>          <td class="paramname"><span class="paramname"><em>keys</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>last_access</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Writes the rows a GPU insert evicted from full sets back to the backend before the next lookup can miss them in HBM. Tombstoned victims and pending direct-written claims get their blocks from the evicted bytes. An ordinary victim without a tombstone kept its backend row. Inflight promotion records mark victims whose slot copies are being read. </p>
+
+</div>
+</div>
+<a id="a8a18d5e082684abadabcd14b4f6ba42f" name="a8a18d5e082684abadabcd14b4f6ba42f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8a18d5e082684abadabcd14b4f6ba42f">&#9670;&#160;</a></span>hbm_written_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t hbm_written_row_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Bytes of an HBM row holding a written row: what DRAM stores for it, in the storage format (g8 bytes, INT8 row, or the first enrichment-dim fp16 columns). </p>
+
+</div>
+</div>
+<a id="a03d322cb54591505c40b506b249da1d1" name="a03d322cb54591505c40b506b249da1d1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a03d322cb54591505c40b506b249da1d1">&#9670;&#160;</a></span>packed_fallback_stats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::vector&lt; int64_t &gt; packed_fallback_stats </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>[fp16 rows kept for packed rows with no serving fixed point, packed rows read with the fallback marker but no fp16 row (expected 0)] </p>
+
+</div>
+</div>
+<a id="a3b40d6b323a5aeba451f0c5ceaf5dc6d" name="a3b40d6b323a5aeba451f0c5ceaf5dc6d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3b40d6b323a5aeba451f0c5ceaf5dc6d">&#9670;&#160;</a></span>raw_hbm_row_bytes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t raw_hbm_row_bytes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Bytes of a raw HBM row: INT8 codes with fp32 scale and bias, or the g8 encoding of a packed row (its tail columns stay out of HBM). </p>
 
 </div>
 </div>
@@ -791,6 +1450,94 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
+<a id="a923f55fddb491bc19a47cd23c49879b4" name="a923f55fddb491bc19a47cd23c49879b4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a923f55fddb491bc19a47cd23c49879b4">&#9670;&#160;</a></span>set_hbm_fill_chunk_hook_for_test()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void set_hbm_fill_chunk_hook_for_test </td>
+          <td>(</td>
+          <td class="paramtype">std::function&lt; void()&gt;</td>          <td class="paramname"><span class="paramname"><em>hook</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Tests: runs the hook after the next checkpoint chunk, before the continuation is queued on hbm_executor_. </p>
+
+</div>
+</div>
+<a id="aa00ab455eb251a0fef8f20847f169743" name="aa00ab455eb251a0fef8f20847f169743"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa00ab455eb251a0fef8f20847f169743">&#9670;&#160;</a></span>set_hbm_metadata_pass_hook_for_test()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void set_hbm_metadata_pass_hook_for_test </td>
+          <td>(</td>
+          <td class="paramtype">std::function&lt; void()&gt;</td>          <td class="paramname"><span class="paramname"><em>hook</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Tests: runs <span class="tt">hook</span> between the two passes of the next eviction-metadata read, where rows can still move between the tiers. </p>
+
+</div>
+</div>
+<a id="a8a6fb8ef01fc54b86b5a40f85649d1c0" name="a8a6fb8ef01fc54b86b5a40f85649d1c0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8a6fb8ef01fc54b86b5a40f85649d1c0">&#9670;&#160;</a></span>set_int8_rows_with_metaheader()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void set_int8_rows_with_metaheader </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>rows</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>ids</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Writes raw rows (as read by get_int8_rows_with_metaheader, the key in each row's first 8 bytes) without re-quantizing them. Rows saved in the other raw format (INT8 into a packed table, packed into an INT8 table) are decoded and re-quantized like fp16 writes. </p>
+
+</div>
+</div>
 <a id="ab197c34bb53bdad19a2521898a341ffc" name="ab197c34bb53bdad19a2521898a341ffc"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ab197c34bb53bdad19a2521898a341ffc">&#9670;&#160;</a></span>set_kv_db_async()</h2>
 
@@ -888,6 +1635,34 @@ template&lt;typename weight_type&gt; </div>
 </table>
 </div><div class="memdoc">
 <p>Separate write path for enrichment that runs on enrichment_executor_ instead of the main executor_. This avoids competing with forward/backward for thread pool resources. Uses pause/resume to yield to fwd/bwd — removing this and reusing the main write path causes QPS regression. With skip_nonzero_rows, a key whose row is already non-zero keeps it. </p>
+
+</div>
+</div>
+<a id="a87275605c63b40884b007b79a186cfa1" name="a87275605c63b40884b007b79a186cfa1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a87275605c63b40884b007b79a186cfa1">&#9670;&#160;</a></span>set_raw_source_format()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void set_raw_source_format </td>
+          <td>(</td>
+          <td class="paramtype">const std::string &amp;</td>          <td class="paramname"><span class="paramname"><em>format</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Names the raw format of the next raw rows loaded ("int8" or "packed"), so raw_row_source takes it from the caller rather than the width; "" goes back to telling it by width. </p>
 
 </div>
 </div>

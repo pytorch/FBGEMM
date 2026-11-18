@@ -1,17 +1,18 @@
 var searchData=
 [
-  ['accesspatternentry_0',['AccessPatternEntry',['../structfbgemm_1_1_embedding_stats_tracker_1_1_access_pattern_entry.html',1,'EmbeddingStatsTracker::AccessPatternEntry'],['../structfbgemm_1_1_embedding_stats_tracker_1_1_access_pattern_entry.html#a8ce693341187d778bedae16cd1ade01c',1,'fbgemm::EmbeddingStatsTracker::AccessPatternEntry::AccessPatternEntry()']]],
-  ['accesspatternentryhash_1',['AccessPatternEntryHash',['../structfbgemm_1_1_embedding_stats_tracker_1_1_access_pattern_entry_hash.html',1,'fbgemm::EmbeddingStatsTracker']]],
-  ['acquire_5fread_5fguard_2',['acquire_read_guard',['../classkv__db_1_1_embedding_k_v_d_b.html#acdafe1b671fd430a85347dc5250c70b3',1,'kv_db::EmbeddingKVDB']]],
-  ['addr_3',['addr',['../classfbgemm_1_1_pack_a_matrix.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackAMatrix::addr()'],['../classfbgemm_1_1_pack_b_matrix.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackBMatrix::addr()'],['../classfbgemm_1_1_pack_a_with_row_offset.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackAWithRowOffset::addr()'],['../classfbgemm_1_1_pack_a_with_quant_row_offset.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackAWithQuantRowOffset::addr()']]],
-  ['ai_20attention_4',['Experimental-gen-ai-attention',['../group__experimental-gen-ai-attention.html',1,'']]],
-  ['alignedfreedeleter_5',['AlignedFreeDeleter',['../structfbgemm_1_1_aligned_free_deleter.html',1,'fbgemm']]],
-  ['alpha_6',['alpha',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html#a9d3e28bcd79d22eacaa7134ed1e99219',1,'cutlass::epilogue::thread::LinearCombinationOnDevice::Params']]],
-  ['alpha_5fptr_7',['alpha_ptr',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html#a9435df535a1645bbb0d0920854b87dba',1,'cutlass::epilogue::thread::LinearCombinationOnDevice::Params']]],
-  ['and_20motivation_8',['Background and motivation',['../77__blackwell__fmha__bwd_8cu.html#autotoc_md4',1,'']]],
-  ['arguments_9',['Arguments',['../structcutlass_1_1fmha_1_1device_1_1_sm100_fmha_bwd_1_1_arguments.html',1,'cutlass::fmha::device::Sm100FmhaBwd']]],
-  ['attention_10',['Experimental-gen-ai-attention',['../group__experimental-gen-ai-attention.html',1,'']]],
-  ['autovectorization_20fp8_2016_2032_11',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
-  ['avx2_12',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
-  ['avx512_13',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]]
+  ['accepts_5fraw_5frow_5fbytes_0',['accepts_raw_row_bytes',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#adc8dd8e6572db3389d79a043823370c5',1,'kv_mem::DramKVEmbeddingCache']]],
+  ['accesspatternentry_1',['AccessPatternEntry',['../structfbgemm_1_1_embedding_stats_tracker_1_1_access_pattern_entry.html',1,'EmbeddingStatsTracker::AccessPatternEntry'],['../structfbgemm_1_1_embedding_stats_tracker_1_1_access_pattern_entry.html#a8ce693341187d778bedae16cd1ade01c',1,'fbgemm::EmbeddingStatsTracker::AccessPatternEntry::AccessPatternEntry()']]],
+  ['accesspatternentryhash_2',['AccessPatternEntryHash',['../structfbgemm_1_1_embedding_stats_tracker_1_1_access_pattern_entry_hash.html',1,'fbgemm::EmbeddingStatsTracker']]],
+  ['acquire_5fread_5fguard_3',['acquire_read_guard',['../classkv__db_1_1_embedding_k_v_d_b.html#acdafe1b671fd430a85347dc5250c70b3',1,'kv_db::EmbeddingKVDB']]],
+  ['addr_4',['addr',['../classfbgemm_1_1_pack_a_matrix.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackAMatrix::addr()'],['../classfbgemm_1_1_pack_b_matrix.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackBMatrix::addr()'],['../classfbgemm_1_1_pack_a_with_row_offset.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackAWithRowOffset::addr()'],['../classfbgemm_1_1_pack_a_with_quant_row_offset.html#a04b923ddb781752fe65992543729422c',1,'fbgemm::PackAWithQuantRowOffset::addr()']]],
+  ['ai_20attention_5',['Experimental-gen-ai-attention',['../group__experimental-gen-ai-attention.html',1,'']]],
+  ['alignedfreedeleter_6',['AlignedFreeDeleter',['../structfbgemm_1_1_aligned_free_deleter.html',1,'fbgemm']]],
+  ['alpha_7',['alpha',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html#a9d3e28bcd79d22eacaa7134ed1e99219',1,'cutlass::epilogue::thread::LinearCombinationOnDevice::Params']]],
+  ['alpha_5fptr_8',['alpha_ptr',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html#a9435df535a1645bbb0d0920854b87dba',1,'cutlass::epilogue::thread::LinearCombinationOnDevice::Params']]],
+  ['and_20motivation_9',['Background and motivation',['../77__blackwell__fmha__bwd_8cu.html#autotoc_md4',1,'']]],
+  ['arguments_10',['Arguments',['../structcutlass_1_1fmha_1_1device_1_1_sm100_fmha_bwd_1_1_arguments.html',1,'cutlass::fmha::device::Sm100FmhaBwd']]],
+  ['attention_11',['Experimental-gen-ai-attention',['../group__experimental-gen-ai-attention.html',1,'']]],
+  ['autovectorization_20fp8_2016_2032_12',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
+  ['avx2_13',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
+  ['avx512_14',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]]
 ];
