@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
+#include "./PlatformSpecificKernels.h"
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
@@ -155,6 +156,7 @@ void fbgemmForceIsa(inst_set_t isa) {
   isa = inst_set_t::anyarch;
 #endif
   g_forced_isa.store(isa, std::memory_order_relaxed);
+  initializePlatformDispatch(/*force=*/true);
 }
 
 /**
