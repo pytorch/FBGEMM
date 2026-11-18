@@ -541,6 +541,9 @@
     <span class="c1"># Parallelise the CPU NOBAG inference TBE over row ranges, not whole tables</span>
     <span class="n">TBE_NOBAG_ROW_PARALLELISM</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
+    <span class="c1"># Enable the thread-per-bag kernel in the NVIDIA V2 bounds check</span>
+    <span class="n">BOUNDS_CHECK_THREAD_PER_BAG</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
 
