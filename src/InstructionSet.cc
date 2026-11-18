@@ -11,20 +11,22 @@
 #define FBGEMM_EXPORTS
 #include <cpuinfo.h>
 #include <algorithm>
-#include <cassert>
+#include <atomic>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
-#include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
 namespace {
-inst_set_t g_forced_isa = inst_set_t::anyarch;
-std::optional<bool> g_Avx512_Ymm_enabled{std::nullopt};
+enum class Avx512YmmOverride : uint8_t { unset, disabled, enabled };
+
+constinit std::atomic<inst_set_t> g_forced_isa{inst_set_t::anyarch};
+constinit std::atomic<Avx512YmmOverride> g_Avx512_Ymm_override{
+    Avx512YmmOverride::unset};
 
 inst_set_t fbgemmEnvGetIsa() {
   static const char* isa_env = "FBGEMM_ENABLE_INSTRUCTIONS";
@@ -72,26 +74,66 @@ bool fbgemmEnvAvx512_256Enabled() {
   return val == "true" || val == "1";
 }
 
-std::unordered_map<inst_set_t, std::unordered_set<inst_set_t>> isaSupportMap = {
-    {inst_set_t::anyarch, {inst_set_t::anyarch}},
-    {inst_set_t::avx2, {inst_set_t::avx2, inst_set_t::anyarch}},
-    {inst_set_t::avx512,
-     {inst_set_t::avx512, inst_set_t::avx512_ymm, inst_set_t::avx2}},
-    {inst_set_t::avx512_ymm,
-     {inst_set_t::avx512, inst_set_t::avx512_ymm, inst_set_t::avx2}},
-    {inst_set_t::avx512_vnni,
-     {inst_set_t::avx512_vnni,
-      inst_set_t::avx512_vnni_ymm,
-      inst_set_t::avx512,
-      inst_set_t::avx512_ymm,
-      inst_set_t::avx2}},
-    {inst_set_t::avx512_vnni_ymm,
-     {inst_set_t::avx512_vnni,
-      inst_set_t::avx512_vnni_ymm,
-      inst_set_t::avx512,
-      inst_set_t::avx512_ymm,
-      inst_set_t::avx2}},
-};
+bool isForcedIsaSupported(inst_set_t detected, inst_set_t forced) {
+  using enum inst_set_t;
+  switch (detected) {
+    case avx512_vnni:
+    case avx512_vnni_ymm:
+      if (forced == avx512_vnni || forced == avx512_vnni_ymm) {
+        return true;
+      }
+      [[fallthrough]];
+    case avx512:
+    case avx512_ymm:
+      if (forced == avx512 || forced == avx512_ymm) {
+        return true;
+      }
+      [[fallthrough]];
+    case avx2:
+      if (forced == avx2) {
+        return true;
+      }
+      [[fallthrough]];
+    case anyarch:
+      return forced == anyarch;
+    default:
+      return false;
+  }
+}
+
+inst_set_t getForcedIsa() {
+  static const inst_set_t env_forced_isa = fbgemmEnvGetIsa();
+  const inst_set_t forced_isa = g_forced_isa.load(std::memory_order_relaxed);
+  return forced_isa != inst_set_t::anyarch ? forced_isa : env_forced_isa;
+}
+
+bool getUseYmmOverZmm() {
+  static const bool env_avx512_ymm_enabled = fbgemmEnvAvx512_256Enabled();
+  const Avx512YmmOverride ymm_override =
+      g_Avx512_Ymm_override.load(std::memory_order_relaxed);
+  const bool avx512_ymm_enabled = ymm_override == Avx512YmmOverride::unset
+      ? env_avx512_ymm_enabled
+      : ymm_override == Avx512YmmOverride::enabled;
+  return fbgemmIsIntelXeonD() && avx512_ymm_enabled;
+}
+
+inst_set_t detectIsa() {
+  using enum inst_set_t;
+  if (!cpuinfo_initialize()) {
+    return anyarch;
+  }
+  const bool useYmm = getUseYmmOverZmm();
+  if (fbgemmHasAvx512VnniSupport()) {
+    return useYmm ? avx512_vnni_ymm : avx512_vnni;
+  }
+  if (fbgemmHasAvx512Support()) {
+    return useYmm ? avx512_ymm : avx512;
+  }
+  if (fbgemmHasAvx2Support()) {
+    return avx2;
+  }
+  return anyarch;
+}
 
 } // namespace
 
@@ -106,13 +148,13 @@ std::unordered_map<inst_set_t, std::unordered_set<inst_set_t>> isaSupportMap = {
  *     AVX512_E1_256 inst_set_t::avx512_vnni_ymm
  */
 void fbgemmForceIsa(inst_set_t isa) {
-  g_forced_isa = isa;
 #ifdef __aarch64__
 #ifdef VLOG
   VLOG(0) << "[anyarch] forced on aarch64";
 #endif
-  g_forced_isa = inst_set_t::anyarch;
+  isa = inst_set_t::anyarch;
 #endif
+  g_forced_isa.store(isa, std::memory_order_relaxed);
 }
 
 /**
@@ -122,7 +164,9 @@ void fbgemmForceIsa(inst_set_t isa) {
  * @param flag True enables / False disables
  */
 void fbgemmEnableAvx512Ymm(bool flag) {
-  g_Avx512_Ymm_enabled = flag;
+  g_Avx512_Ymm_override.store(
+      flag ? Avx512YmmOverride::enabled : Avx512YmmOverride::disabled,
+      std::memory_order_relaxed);
 }
 
 /**
@@ -135,51 +179,18 @@ void fbgemmEnableAvx512Ymm(bool flag) {
  *        of the kernels will be executed.
  */
 inst_set_t fbgemmInstructionSet() {
-  static const inst_set_t env_forced_isa = fbgemmEnvGetIsa();
-  static const bool isAvx512_Ymm_enabled = fbgemmEnvAvx512_256Enabled();
-
   if (fbgemmHasArmSveSupport()) {
     return inst_set_t::sve;
   }
 
-  inst_set_t forced_isa =
-      g_forced_isa != inst_set_t::anyarch ? g_forced_isa : env_forced_isa;
-  static const inst_set_t detected_isa = ([]() {
-    inst_set_t isa = inst_set_t::anyarch;
-    // Check environment
-    if (cpuinfo_initialize()) {
-      const bool isXeonD = fbgemmIsIntelXeonD() &&
-          (g_Avx512_Ymm_enabled.value_or(isAvx512_Ymm_enabled));
-      if (fbgemmHasAvx512VnniSupport()) {
-        if (isXeonD) {
-          isa = inst_set_t::avx512_vnni_ymm;
-        } else {
-          isa = inst_set_t::avx512_vnni;
-        }
-      } else if (fbgemmHasAvx512Support()) {
-        if (isXeonD) {
-          isa = inst_set_t::avx512_ymm;
-        } else {
-          isa = inst_set_t::avx512;
-        }
-      } else if (fbgemmHasAvx2Support()) {
-        isa = inst_set_t::avx2;
-      }
-    }
-    return isa;
-  })();
+  const inst_set_t forced_isa = getForcedIsa();
+  static const inst_set_t detected_isa = detectIsa();
 
   if (forced_isa == inst_set_t::anyarch) {
     return detected_isa;
   }
-  const auto supported_isa = isaSupportMap.find(detected_isa);
-  assert(
-      supported_isa != isaSupportMap.end() &&
-      "Detected ISA can't be located in Supported ISA map");
-  if (supported_isa == isaSupportMap.end()) {
-    return detected_isa;
-  }
-  return supported_isa->second.count(forced_isa) ? forced_isa : detected_isa;
+  return isForcedIsaSupported(detected_isa, forced_isa) ? forced_isa
+                                                        : detected_isa;
 }
 
 bool isZmm(inst_set_t isa) {
