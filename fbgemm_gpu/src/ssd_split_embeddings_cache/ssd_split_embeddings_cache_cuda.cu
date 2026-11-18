@@ -12,6 +12,7 @@
 #include <c10/cuda/CUDADeviceAssertion.h>
 #include <c10/cuda/CUDADeviceAssertionHost.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <c10/util/Float8_e4m3fn.h>
 #include <limits>
 #include <optional>
 // clang-format off
@@ -872,6 +873,136 @@ DEVICE_INLINE void atomic_exchange_int64(
       static_cast<unsigned long long>(value));
 }
 
+// The set-associative layout packs 16 int64 tags in one 128-byte line.
+constexpr int32_t kOwnerCacheWays = 16;
+
+DEVICE_INLINE int32_t owner_cache_set_base(
+    const int64_t key,
+    const int32_t num_slots,
+    const bool set_associative) {
+  const auto ways = set_associative ? kOwnerCacheWays : 1;
+  return static_cast<int32_t>(cache_slot(key, num_slots / ways)) * ways;
+}
+
+DEVICE_INLINE int32_t owner_cache_find(
+    const int64_t* __restrict__ tags,
+    const int64_t key,
+    const int32_t num_slots,
+    const bool set_associative) {
+  const auto base = owner_cache_set_base(key, num_slots, set_associative);
+  if (!set_associative) {
+    return ::__ldg(&tags[base]) == key ? base : -1;
+  }
+  const auto* const line = reinterpret_cast<const longlong2*>(&tags[base]);
+#pragma unroll
+  for (int32_t pair = 0; pair < kOwnerCacheWays / 2; ++pair) {
+    const auto two = ::__ldg(&line[pair]);
+    if (two.x == key) {
+      return base + 2 * pair;
+    }
+    if (two.y == key) {
+      return base + 2 * pair + 1;
+    }
+  }
+  return -1;
+}
+
+// A claimed slot stays pending (-key - 2) until its row is published.
+// Fill-only inserts keep existing keys; canonical row refreshes replace them.
+DEVICE_INLINE int32_t owner_cache_claim(
+    int64_t* tags,
+    const int32_t* last_access,
+    const int32_t num_slots,
+    const int64_t key,
+    const int32_t now,
+    const uint32_t lane,
+    int64_t* victim,
+    const bool set_associative,
+    const bool update_existing) {
+  const auto base = owner_cache_set_base(key, num_slots, set_associative);
+  const auto pending = -key - 2;
+  if (!set_associative) {
+    int32_t slot = -1;
+    if (lane == 0) {
+      const auto observed =
+          *reinterpret_cast<volatile const int64_t*>(&tags[base]);
+      if ((update_existing ? observed >= -1 : observed == -1) &&
+          atomic_cas_int64(&tags[base], observed, pending) == observed) {
+        slot = base;
+      }
+    }
+    *victim = -1;
+    return shfl_sync(slot, 0);
+  }
+  const bool reader = lane < kOwnerCacheWays;
+  for (int32_t attempt = 0; attempt < kOwnerCacheWays; ++attempt) {
+    int64_t tag = -1;
+    int32_t touched = now;
+    if (reader) {
+      tag = *reinterpret_cast<volatile const int64_t*>(&tags[base + lane]);
+      if (last_access != nullptr) {
+        touched = *reinterpret_cast<volatile const int32_t*>(
+            &last_access[base + lane]);
+      }
+    }
+    if (fbgemm_gpu::ballot_sync(reader && tag == pending)) {
+      return -1;
+    }
+    int32_t way = -1;
+    int64_t observed = -1;
+    const auto existing = fbgemm_gpu::ballot_sync(reader && tag == key);
+    const auto empty = fbgemm_gpu::ballot_sync(reader && tag == -1);
+    if (existing) {
+      if (!update_existing) {
+        return -1;
+      }
+      way = __ffsll(static_cast<unsigned long long>(existing)) - 1;
+      observed = key;
+    } else if (empty) {
+      way = __ffsll(static_cast<unsigned long long>(empty)) - 1;
+    } else {
+      const bool evictable = reader && tag >= 0 && touched != now;
+      int64_t oldest = evictable
+          ? (static_cast<int64_t>(static_cast<uint32_t>(touched)) << 8) | lane
+          : std::numeric_limits<int64_t>::max();
+      for (int32_t offset = kWarpSize / 2; offset > 0; offset /= 2) {
+        const auto other = shfl_xor(oldest, offset);
+        oldest = other < oldest ? other : oldest;
+      }
+      if (oldest == std::numeric_limits<int64_t>::max()) {
+        return -1;
+      }
+      way = static_cast<int32_t>(oldest & 0xFF);
+      observed = shfl_sync(tag, way);
+    }
+    int32_t claimed = 0;
+    if (static_cast<int32_t>(lane) == way) {
+      claimed =
+          atomic_cas_int64(&tags[base + way], observed, pending) == observed;
+      if (claimed && observed >= 0 && observed != key &&
+          last_access != nullptr &&
+          *reinterpret_cast<volatile const int32_t*>(
+              &last_access[base + way]) == now) {
+        atomic_exchange_int64(&tags[base + way], observed);
+        claimed = 0;
+      }
+    }
+    if (shfl_sync(claimed, way)) {
+      *victim = observed == key ? -1 : observed;
+      return base + way;
+    }
+  }
+  return -1;
+}
+
+// All-null victim outputs disable eviction from full sets.
+struct OwnerCacheVictims {
+  int64_t* keys;
+  int32_t* last_access;
+  uint8_t* rows;
+  int32_t* count;
+};
+
 template <typename value_t>
 __global__
 __launch_bounds__(kMaxThreads) void ssd_gather_from_row_addresses_kernel(
@@ -904,7 +1035,8 @@ __global__ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_lookup_kernel(
     const uint64_t inserted_rows_address,
     const uint64_t cache_row_bytes,
     const uint64_t inserted_row_bytes,
-    const uint64_t hit_tag) {
+    const uint64_t hit_tag,
+    const bool set_associative) {
   using BlockScan = cub::BlockScan<int32_t, kMaxThreads>;
   __shared__ typename BlockScan::TempStorage scan_storage;
   __shared__ int32_t block_action_base;
@@ -920,10 +1052,8 @@ __global__ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_lookup_kernel(
     if (n < N) {
       key = static_cast<int64_t>(indices[n]);
       if (key >= 0) {
-        const auto slot = static_cast<int32_t>(cache_slot(key, C));
-        if (::__ldg(&cache_state[slot][0]) == key) {
-          cache_slot_index = slot;
-        }
+        cache_slot_index =
+            owner_cache_find(&cache_state[0][0], key, C, set_associative);
       }
     }
 
@@ -963,7 +1093,11 @@ __global__ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_kernel(
     pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> cache_state,
     pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits>
         cache_weights,
-    const int32_t* __restrict__ count) {
+    const int32_t* __restrict__ count,
+    int32_t* last_access,
+    const int32_t now,
+    const bool set_associative,
+    const bool update_existing) {
   constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
   const auto lane = threadIdx.x;
   const auto warp = threadIdx.y;
@@ -992,25 +1126,26 @@ __global__ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_kernel(
       continue;
     }
 
-    int32_t slot = -1;
-    int32_t should_publish = 0;
-    if (lane == 0) {
-      slot = static_cast<int32_t>(cache_slot(key, C));
-      auto* const tag = &cache_state[slot][0];
-      const auto observed = ::__ldg(tag);
-      if (observed >= -1) {
-        const auto pending_key = -key - 2;
-        should_publish =
-            atomic_cas_int64(tag, observed, pending_key) == observed;
-      }
-    }
-    slot = shfl_sync(slot, 0);
-    should_publish = shfl_sync(should_publish, 0);
-    if (slot < 0 || !should_publish) {
+    // A copy of DRAM rows: an evicted row still has its DRAM copy.
+    int64_t victim = -1;
+    const int32_t slot = owner_cache_claim(
+        &cache_state[0][0],
+        last_access,
+        C,
+        key,
+        now,
+        lane,
+        &victim,
+        set_associative,
+        update_existing);
+    if (slot < 0) {
       continue;
     }
     for (auto d = lane; d < rows.size(1); d += kWarpSize) {
       cache_weights[slot][d] = rows[n][d];
+    }
+    if (lane == 0 && last_access != nullptr) {
+      last_access[slot] = now;
     }
     syncwarp();
     if (lane == 0) {
@@ -1035,7 +1170,11 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_int8_kernel(
     pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> cache_state,
     pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
         cache_weights,
-    const int32_t* __restrict__ count) {
+    const int32_t* __restrict__ count,
+    int32_t* last_access,
+    const int32_t now,
+    const bool set_associative,
+    const bool update_existing) {
   constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
   const auto lane = threadIdx.x;
   const auto warp = threadIdx.y;
@@ -1066,21 +1205,19 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_int8_kernel(
       continue;
     }
 
-    int32_t slot = -1;
-    int32_t should_publish = 0;
-    if (lane == 0) {
-      slot = static_cast<int32_t>(cache_slot(key, C));
-      auto* const tag = &cache_state[slot][0];
-      const auto observed = ::__ldg(tag);
-      if (observed >= -1) {
-        const auto pending_key = -key - 2;
-        should_publish =
-            atomic_cas_int64(tag, observed, pending_key) == observed;
-      }
-    }
-    slot = shfl_sync(slot, 0);
-    should_publish = shfl_sync(should_publish, 0);
-    if (slot < 0 || !should_publish) {
+    // A copy of DRAM rows: an evicted row still has its DRAM copy.
+    int64_t victim = -1;
+    const int32_t slot = owner_cache_claim(
+        &cache_state[0][0],
+        last_access,
+        C,
+        key,
+        now,
+        lane,
+        &victim,
+        set_associative,
+        update_existing);
+    if (slot < 0) {
       continue;
     }
 
@@ -1102,6 +1239,9 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_insert_int8_kernel(
       auto* const qparams = reinterpret_cast<float*>(dst + D);
       qparams[0] = scale;
       qparams[1] = bias;
+      if (last_access != nullptr) {
+        last_access[slot] = now;
+      }
     }
     syncwarp();
     if (lane == 0) {
@@ -1203,6 +1343,67 @@ __launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_int8_float_kernel(
   }
 }
 
+// The fp16 value of one group-wise INT4 code, as the CPU decode
+// (grouped_int4_e4m3::decode, then fp16) and serving produce it: code * scale
+// is exact in float, so only the fp16 rounding remains.
+DEVICE_INLINE float decode_grouped_int4(
+    const uint32_t nibble,
+    const uint8_t scale_bits) {
+  const int32_t code = static_cast<int32_t>(nibble ^ 0x8) - 0x8;
+  const float scale = static_cast<float>(
+      c10::Float8_e4m3fn(scale_bits, c10::Float8_e4m3fn::from_bits()));
+  return __half2float(__float2half_rn(static_cast<float>(code) * scale));
+}
+
+// Gathers rows whose hits are tagged rows in the DRAM storage format and whose
+// misses are row_t rows. With a group_size, a hit is a g8 row (D / 2 code
+// bytes, two's complement nibbles with the even column low, then D /
+// group_size float8_e4m3fn scales) that decodes to the fp16 values the DRAM
+// backend and serving decode, rounded through row_t; without one, a hit is a
+// row_t row. Every value is then converted to out_t, as gather + to() would.
+template <typename out_t, typename row_t>
+__global__
+__launch_bounds__(kMaxThreads) void kvzch_direct_cache_gather_raw_kernel(
+    pta::PackedTensorAccessor64<out_t, 2, at::RestrictPtrTraits> output,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        row_addresses,
+    const int32_t group_size) {
+  const auto N = row_addresses.size(0);
+  const int32_t D = output.size(1);
+  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < N;
+       n += blockDim.y * gridDim.x) {
+    const auto row_address = static_cast<uint64_t>(row_addresses[n]);
+    CUDA_KERNEL_ASSERT(row_address != 0 && "row address must be nonzero");
+    if (group_size > 0 && (row_address & 1)) {
+      const auto* const codes =
+          reinterpret_cast<const uint8_t*>(row_address & ~uint64_t{1});
+      const auto* const scales = codes + D / 2;
+      for (auto d = threadIdx.x * 8; d < D; d += blockDim.x * 8) {
+        const uint32_t q = *reinterpret_cast<const uint32_t*>(codes + d / 2);
+        float v[8];
+#pragma unroll
+        for (int32_t k = 0; k < 8; ++k) {
+          v[k] = round_through<row_t>(decode_grouped_int4(
+              (q >> (4 * k)) & 0xF, scales[(d + k) / group_size]));
+        }
+        Vec4T<float> lo;
+        lo.acc = make_float4(v[0], v[1], v[2], v[3]);
+        lo.store(&output[n][d]);
+        Vec4T<float> hi;
+        hi.acc = make_float4(v[4], v[5], v[6], v[7]);
+        hi.store(&output[n][d + 4]);
+      }
+    } else {
+      const auto* const row =
+          reinterpret_cast<const row_t*>(row_address & ~uint64_t{1});
+      for (auto d = threadIdx.x * 4; d < D; d += blockDim.x * 4) {
+        const Vec4T<float> x(&row[d]);
+        x.store(&output[n][d]);
+      }
+    }
+  }
+}
+
 // The gather kernels grid-stride over rows, so any grid size gives the same
 // output. A cap below the SM count keeps whole SMs free for kernels that cannot
 // share an SM with a gather CTA, such as NCCL collectives on another stream.
@@ -1271,7 +1472,8 @@ Tensor kvzch_direct_cache_lookup_impl(
     Tensor row_addresses,
     const int64_t cache_row_bytes,
     const int64_t inserted_row_bytes,
-    const uint64_t hit_tag) {
+    const uint64_t hit_tag,
+    const bool set_associative) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       indices,
       cache_state,
@@ -1304,6 +1506,8 @@ Tensor kvzch_direct_cache_lookup_impl(
   TORCH_CHECK_GE(inserted_rows.size(0), indices.numel());
   TORCH_CHECK_EQ(row_addresses.numel(), indices.numel());
   TORCH_CHECK_GT(cache_state.size(0), 0);
+  TORCH_CHECK_EQ(
+      cache_state.size(0) % (set_associative ? kOwnerCacheWays : 1), 0);
   TORCH_CHECK_LE(cache_state.size(0), std::numeric_limits<int32_t>::max());
   TORCH_CHECK_LE(indices.numel(), std::numeric_limits<int32_t>::max());
 
@@ -1334,7 +1538,8 @@ Tensor kvzch_direct_cache_lookup_impl(
             reinterpret_cast<uint64_t>(inserted_rows.data_ptr()),
             static_cast<uint64_t>(cache_row_bytes),
             static_cast<uint64_t>(inserted_row_bytes),
-            hit_tag);
+            hit_tag,
+            set_associative);
       });
   return row_addresses;
 }
@@ -1348,7 +1553,8 @@ Tensor kvzch_direct_cache_lookup_cuda(
     Tensor action_indices,
     Tensor actions_count,
     Tensor inserted_rows,
-    Tensor row_addresses) {
+    Tensor row_addresses,
+    const bool set_associative) {
   TORCH_CHECK_EQ(cache_weights.dim(), 2);
   TORCH_CHECK_EQ(inserted_rows.dim(), 2);
   TORCH_CHECK_EQ(cache_weights.scalar_type(), inserted_rows.scalar_type());
@@ -1364,7 +1570,8 @@ Tensor kvzch_direct_cache_lookup_cuda(
       row_addresses,
       row_bytes,
       row_bytes,
-      0);
+      0,
+      set_associative);
 }
 
 Tensor kvzch_direct_cache_lookup_int8_cuda(
@@ -1374,7 +1581,8 @@ Tensor kvzch_direct_cache_lookup_int8_cuda(
     Tensor action_indices,
     Tensor actions_count,
     Tensor inserted_rows,
-    Tensor row_addresses) {
+    Tensor row_addresses,
+    const bool set_associative) {
   TORCH_CHECK_EQ(cache_weights.dim(), 2);
   TORCH_CHECK_EQ(inserted_rows.dim(), 2);
   TORCH_CHECK_EQ(cache_weights.scalar_type(), at::ScalarType::Byte);
@@ -1400,17 +1608,81 @@ Tensor kvzch_direct_cache_lookup_int8_cuda(
       row_addresses,
       cache_weights.size(1),
       D * inserted_rows.element_size(),
-      1);
+      1,
+      set_associative);
 }
+
+namespace {
+
+void check_owner_cache_last_access(
+    const Tensor& cache_state,
+    const std::optional<Tensor>& last_access,
+    const bool set_associative) {
+  TORCH_CHECK_EQ(
+      cache_state.size(0) % (set_associative ? kOwnerCacheWays : 1), 0);
+  if (last_access.has_value()) {
+    TENSOR_CONTIGUOUS(last_access.value());
+    TORCH_CHECK_EQ(last_access->scalar_type(), at::ScalarType::Int);
+    TORCH_CHECK_EQ(last_access->dim(), 1);
+    TORCH_CHECK_EQ(last_access->size(0), cache_state.size(0));
+  }
+}
+
+// The victim outputs of an exclusive insert of up to `num_rows` rows of
+// `row_bytes`: all given (host-mapped in production) or none.
+OwnerCacheVictims owner_cache_victims(
+    const std::optional<Tensor>& victim_keys,
+    const std::optional<Tensor>& victim_access,
+    const std::optional<Tensor>& victim_rows,
+    const std::optional<Tensor>& victim_count,
+    const int64_t num_rows,
+    const int64_t row_bytes) {
+  const bool any = victim_keys.has_value() || victim_access.has_value() ||
+      victim_rows.has_value() || victim_count.has_value();
+  if (!any) {
+    return {nullptr, nullptr, nullptr, nullptr};
+  }
+  TORCH_CHECK(
+      victim_keys.has_value() && victim_access.has_value() &&
+          victim_rows.has_value() && victim_count.has_value(),
+      "exclusive insert victims need keys, access times, rows and a count");
+  TENSOR_CONTIGUOUS(victim_keys.value());
+  TENSOR_CONTIGUOUS(victim_access.value());
+  TENSOR_CONTIGUOUS(victim_rows.value());
+  TENSOR_CONTIGUOUS(victim_count.value());
+  TORCH_CHECK_EQ(victim_keys->scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(victim_access->scalar_type(), at::ScalarType::Int);
+  TORCH_CHECK_EQ(victim_rows->scalar_type(), at::ScalarType::Byte);
+  TORCH_CHECK_EQ(victim_count->scalar_type(), at::ScalarType::Int);
+  TORCH_CHECK_GE(victim_keys->numel(), num_rows);
+  TORCH_CHECK_GE(victim_access->numel(), num_rows);
+  TORCH_CHECK_EQ(victim_rows->dim(), 2);
+  TORCH_CHECK_GE(victim_rows->size(0), num_rows);
+  TORCH_CHECK_EQ(victim_rows->size(1), row_bytes);
+  TORCH_CHECK_EQ(victim_count->numel(), 1);
+  victim_count->zero_();
+  return {
+      victim_keys->data_ptr<int64_t>(),
+      victim_access->data_ptr<int32_t>(),
+      victim_rows->data_ptr<uint8_t>(),
+      victim_count->data_ptr<int32_t>()};
+}
+
+} // namespace
 
 Tensor kvzch_direct_cache_insert_cuda(
     Tensor cache_state,
     Tensor cache_weights,
     Tensor indices,
     Tensor rows,
-    const std::optional<Tensor>& count) {
+    const std::optional<Tensor>& count,
+    const std::optional<Tensor>& last_access,
+    const int64_t now,
+    const bool set_associative,
+    const bool update_existing) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      cache_state, cache_weights, indices, rows, count);
+      cache_state, cache_weights, indices, rows, count, last_access);
+  check_owner_cache_last_access(cache_state, last_access, set_associative);
   TENSOR_CONTIGUOUS(cache_state);
   TENSOR_CONTIGUOUS(cache_weights);
   TENSOR_CONTIGUOUS(indices);
@@ -1445,8 +1717,12 @@ Tensor kvzch_direct_cache_insert_cuda(
       div_round_up(indices.numel(), kWarpsPerBlock),
       kMaxThreads,
       at::cuda::getCurrentCUDAStream());
-  FBGEMM_DISPATCH_FLOATING_TYPES(
-      cache_weights.scalar_type(), "kvzch_direct_cache_insert_value", [&] {
+  // Byte rows are raw rows in the DRAM storage format (g8 bytes).
+  FBGEMM_DISPATCH_FLOATING_TYPES_AND(
+      at::ScalarType::Byte,
+      cache_weights.scalar_type(),
+      "kvzch_direct_cache_insert_value",
+      [&] {
         AT_DISPATCH_INDEX_TYPES(
             indices.scalar_type(), "kvzch_direct_cache_insert_index", [&] {
               FBGEMM_LAUNCH_KERNEL(
@@ -1459,7 +1735,12 @@ Tensor kvzch_direct_cache_insert_cuda(
                   PTA_B(rows, scalar_t, 2, 64),
                   PTA_B(cache_state, int64_t, 2, 32),
                   PTA_B(cache_weights, scalar_t, 2, 64),
-                  count.has_value() ? count->data_ptr<int32_t>() : nullptr);
+                  count.has_value() ? count->data_ptr<int32_t>() : nullptr,
+                  last_access.has_value() ? last_access->data_ptr<int32_t>()
+                                          : nullptr,
+                  static_cast<int32_t>(now),
+                  set_associative,
+                  update_existing);
             });
       });
   return cache_weights;
@@ -1470,9 +1751,14 @@ Tensor kvzch_direct_cache_insert_int8_cuda(
     Tensor cache_weights,
     Tensor indices,
     Tensor rows,
-    const std::optional<Tensor>& count) {
+    const std::optional<Tensor>& count,
+    const std::optional<Tensor>& last_access,
+    const int64_t now,
+    const bool set_associative,
+    const bool update_existing) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      cache_state, cache_weights, indices, rows, count);
+      cache_state, cache_weights, indices, rows, count, last_access);
+  check_owner_cache_last_access(cache_state, last_access, set_associative);
   TENSOR_CONTIGUOUS(cache_state);
   TENSOR_CONTIGUOUS(cache_weights);
   TENSOR_CONTIGUOUS(indices);
@@ -1526,7 +1812,12 @@ Tensor kvzch_direct_cache_insert_int8_cuda(
                   PTA_B(rows, scalar_t, 2, 64),
                   PTA_B(cache_state, int64_t, 2, 32),
                   PTA_B(cache_weights, uint8_t, 2, 64),
-                  count.has_value() ? count->data_ptr<int32_t>() : nullptr);
+                  count.has_value() ? count->data_ptr<int32_t>() : nullptr,
+                  last_access.has_value() ? last_access->data_ptr<int32_t>()
+                                          : nullptr,
+                  static_cast<int32_t>(now),
+                  set_associative,
+                  update_existing);
             });
       });
   return cache_weights;
@@ -1625,14 +1916,125 @@ Tensor kvzch_direct_cache_gather_int8_float_cuda(
   return output;
 }
 
-// Exclusive owner-local cache: the HBM copy of a row is its only copy, so a
-// slot is only ever claimed when empty (an occupied slot is never overwritten)
-// and every claimed key is reported so the backend can drop its DRAM row.
 namespace {
 
-template <typename value_t, typename index_t>
+// A g8 row holds D / 2 code bytes then D / group_size scale bytes; the gather
+// reads codes 4 bytes (8 values) at a time from 4-byte aligned rows.
+void check_g8_rows(const int64_t D, const int64_t group_size) {
+  TORCH_CHECK(
+      group_size > 0 && group_size % 2 == 0 && D % group_size == 0,
+      "g8 rows need an even group size dividing the dim ",
+      D,
+      ", got ",
+      group_size);
+  TORCH_CHECK_EQ(D % 8, 0);
+  TORCH_CHECK_EQ((D / 2 + D / group_size) % 4, 0);
+}
+
+} // namespace
+
+Tensor kvzch_direct_cache_lookup_raw_cuda(
+    Tensor indices,
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor action_indices,
+    Tensor actions_count,
+    Tensor inserted_rows,
+    Tensor row_addresses,
+    const bool set_associative) {
+  TORCH_CHECK_EQ(cache_weights.dim(), 2);
+  TORCH_CHECK_EQ(inserted_rows.dim(), 2);
+  TORCH_CHECK_EQ(cache_weights.scalar_type(), at::ScalarType::Byte);
+  const auto inserted_dtype = inserted_rows.scalar_type();
+  TORCH_CHECK(
+      inserted_dtype == at::ScalarType::Float ||
+          inserted_dtype == at::ScalarType::Half ||
+          inserted_dtype == at::ScalarType::BFloat16,
+      "inserted_rows must be float, half, or bfloat16");
+  const auto D = inserted_rows.size(1);
+  TORCH_CHECK_EQ(D % 4, 0);
+  TORCH_CHECK_EQ(cache_weights.size(1) % 4, 0);
+  // Bit 0 of every row address is the hit tag, so both row bases must be even.
+  TORCH_CHECK_EQ(reinterpret_cast<uintptr_t>(cache_weights.data_ptr()) % 4, 0);
+  TORCH_CHECK_EQ(reinterpret_cast<uintptr_t>(inserted_rows.data_ptr()) % 4, 0);
+  return kvzch_direct_cache_lookup_impl(
+      indices,
+      cache_state,
+      cache_weights,
+      action_indices,
+      actions_count,
+      inserted_rows,
+      row_addresses,
+      cache_weights.size(1),
+      D * inserted_rows.element_size(),
+      1,
+      set_associative);
+}
+
+Tensor kvzch_direct_cache_gather_raw_cuda(
+    Tensor output,
+    Tensor row_addresses,
+    at::ScalarType row_dtype,
+    const int64_t group_size,
+    const int64_t max_ctas) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(output, row_addresses);
+  TENSOR_CONTIGUOUS(output);
+  TENSOR_CONTIGUOUS(row_addresses);
+  TORCH_CHECK_EQ(output.dim(), 2);
+  TORCH_CHECK_EQ(row_addresses.dim(), 1);
+  TORCH_CHECK_EQ(output.size(0), row_addresses.numel());
+  TORCH_CHECK_EQ(row_addresses.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_GE(group_size, 0);
+  if (group_size > 0) {
+    check_g8_rows(output.size(1), group_size);
+  } else {
+    TORCH_CHECK_EQ(output.size(1) % 4, 0);
+  }
+
+  if (row_addresses.numel() == 0) {
+    return output;
+  }
+
+  CUDA_DEVICE_GUARD(output);
+  const auto D = output.size(1);
+  const int32_t threads_per_row =
+      std::min<int32_t>(D / (group_size > 0 ? 8 : 4), kMaxThreads);
+  const dim3 threads(threads_per_row, kMaxThreads / threads_per_row);
+  const auto grid_size = cap_gather_grid(
+      utils::cuda::cap_grid_dim_x(
+          div_round_up(row_addresses.numel(), threads.y),
+          kMaxThreads,
+          at::cuda::getCurrentCUDAStream()),
+      max_ctas);
+
+  FBGEMM_DISPATCH_FLOATING_TYPES(
+      output.scalar_type(), "kvzch_direct_cache_gather_raw_output", [&] {
+        using out_t = scalar_t;
+        FBGEMM_DISPATCH_FLOATING_TYPES(
+            row_dtype, "kvzch_direct_cache_gather_raw_row", [&] {
+              FBGEMM_LAUNCH_KERNEL(
+                  (kvzch_direct_cache_gather_raw_kernel<out_t, scalar_t>),
+                  grid_size,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(output, out_t, 2, 64),
+                  PTA_B(row_addresses, int64_t, 1, 32),
+                  static_cast<int32_t>(group_size));
+            });
+      });
+  return output;
+}
+
+// Exclusive owner-local cache: the HBM copy of a row is its only copy, so every
+// claimed key is reported for the backend to drop its DRAM row, and a row
+// evicted from a full set is reported (with its bytes) for the backend to write
+// back to DRAM.
+namespace {
+
+template <typename value_t, typename index_t, bool RawRows>
 __global__
-__launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
+__launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
     const pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits> rows,
@@ -1643,7 +2045,9 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
     const int32_t* __restrict__ count,
     int64_t* __restrict__ promoted_keys,
     int32_t* __restrict__ promoted_count,
-    const int32_t now) {
+    const int32_t now,
+    const OwnerCacheVictims victims,
+    const bool set_associative) {
   constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
   const auto lane = threadIdx.x;
   const auto warp = threadIdx.y;
@@ -1652,15 +2056,81 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
       N >= 0 && N <= indices.size(0) &&
       "exclusive-cache insert count exceeds input size");
   const int32_t C = cache_state.size(0);
-  const int32_t D = cache_weights.size(1) - kINT8QparamsBytes;
+  const int32_t row_bytes = cache_weights.size(1);
+  const int32_t D = row_bytes - kINT8QparamsBytes;
   const int32_t num_vecs = D / 4;
-  // promoted_count and promoted_keys are host-mapped in production, so each
-  // warp reports its claims in batches of up to kWarpSize keys: one atomic
-  // and one coalesced store per batch instead of per key. Lane i holds the
-  // batch's i-th key.
+  // Lane i holds one pending claim. Host-mapped key/count outputs are
+  // reported once per warp batch, for both promotions and victims.
   int64_t batch_key = 0;
+  int64_t batch_victim = -1;
+  int32_t batch_slot = -1;
+  int32_t batch_n = 0;
+  int32_t batch_access = 0;
+  float batch_min = 0;
+  float batch_max = 0;
   int32_t batch_size = 0;
   const auto report_batch = [&]() {
+    const auto victim_mask = fbgemm_gpu::ballot_sync(
+        static_cast<int32_t>(lane) < batch_size && batch_victim >= 0);
+    int32_t victim_base = 0;
+    if (lane == 0 && victim_mask != 0) {
+      victim_base = atomicAdd(victims.count, __popc(victim_mask));
+    }
+    victim_base = shfl_sync(victim_base, 0);
+    if (static_cast<int32_t>(lane) < batch_size && batch_victim >= 0) {
+      const auto position =
+          victim_base + __popc(victim_mask & ((uint32_t{1} << lane) - 1));
+      victims.keys[position] = batch_victim;
+      victims.last_access[position] = batch_access;
+    }
+    for (int32_t i = 0; i < batch_size; ++i) {
+      const auto slot = shfl_sync(batch_slot, i);
+      const auto n = shfl_sync(batch_n, i);
+      auto* const dst = &cache_weights[slot][0];
+      if ((victim_mask & (uint32_t{1} << i)) != 0) {
+        const auto position =
+            victim_base + __popc(victim_mask & ((uint32_t{1} << i) - 1));
+        auto* const victim_row = reinterpret_cast<uint32_t*>(
+            victims.rows + static_cast<int64_t>(position) * row_bytes);
+        const auto* const old_row = reinterpret_cast<const uint32_t*>(dst);
+        for (auto v = lane; v < row_bytes / 4; v += kWarpSize) {
+          victim_row[v] = old_row[v];
+        }
+        syncwarp();
+      }
+      if constexpr (RawRows || std::is_same_v<value_t, uint8_t>) {
+        const auto* const src = reinterpret_cast<const uint32_t*>(&rows[n][0]);
+        for (auto v = lane; v < row_bytes / 4; v += kWarpSize) {
+          reinterpret_cast<uint32_t*>(dst)[v] = src[v];
+        }
+      } else {
+        const float bias = shfl_sync(batch_min, i);
+        const float range = shfl_sync(batch_max, i) - bias;
+        const float scale = range == 0.0f ? 1.0f : range / 255.0f;
+        for (auto v = lane; v < num_vecs; v += kWarpSize) {
+          const Vec4T<float> x(&rows[n][4 * v]);
+          reinterpret_cast<uint32_t*>(dst)[v] =
+              quantize_uint8(x.acc.x, bias, scale) |
+              (quantize_uint8(x.acc.y, bias, scale) << 8) |
+              (quantize_uint8(x.acc.z, bias, scale) << 16) |
+              (quantize_uint8(x.acc.w, bias, scale) << 24);
+        }
+        if (lane == 0) {
+          auto* const qparams = reinterpret_cast<float*>(dst + D);
+          qparams[0] = scale;
+          qparams[1] = bias;
+        }
+      }
+      if (lane == 0) {
+        last_access[slot] = now;
+      }
+      syncwarp();
+      const auto key = shfl_sync(batch_key, i);
+      if (lane == 0) {
+        __threadfence();
+        atomic_exchange_int64(&cache_state[slot][0], key);
+      }
+    }
     int32_t base = 0;
     if (lane == 0) {
       base = atomicAdd(promoted_count, batch_size);
@@ -1679,7 +2149,12 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
     float row_min = std::numeric_limits<float>::max();
     float row_max = std::numeric_limits<float>::lowest();
     if (key >= 0) {
-      if constexpr (std::is_same_v<value_t, uint8_t>) {
+      if constexpr (RawRows) {
+        const auto* const src = reinterpret_cast<const uint32_t*>(&rows[n][0]);
+        for (auto v = lane; v < row_bytes / 4; v += kWarpSize) {
+          lane_has_nonzero |= src[v] != 0;
+        }
+      } else if constexpr (std::is_same_v<value_t, uint8_t>) {
         const auto* qparams = reinterpret_cast<const float*>(&rows[n][D]);
         if (!isfinite(qparams[0]) || !isfinite(qparams[1]) || qparams[0] < 0) {
           continue;
@@ -1698,59 +2173,35 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_int8_kernel(
         }
       }
     }
-    // An all-zero row is a backend miss, not a row to move into HBM.
     if (fbgemm_gpu::ballot_sync(lane_has_nonzero) == 0) {
       continue;
     }
-
-    int32_t slot = -1;
-    int32_t claimed = 0;
-    if (lane == 0) {
-      slot = static_cast<int32_t>(cache_slot(key, C));
-      claimed = atomic_cas_int64(&cache_state[slot][0], -1, -key - 2) == -1;
-    }
-    slot = shfl_sync(slot, 0);
-    claimed = shfl_sync(claimed, 0);
-    if (!claimed) {
+    int64_t victim = -1;
+    const auto slot = owner_cache_claim(
+        &cache_state[0][0],
+        victims.count == nullptr ? nullptr : &last_access[0],
+        C,
+        key,
+        now,
+        lane,
+        &victim,
+        set_associative,
+        /*update_existing=*/false);
+    if (slot < 0) {
       continue;
     }
-
-    uint8_t* const dst = &cache_weights[slot][0];
-    if constexpr (std::is_same_v<value_t, uint8_t>) {
-      for (auto v = lane; v < (D + kINT8QparamsBytes) / 4; v += kWarpSize) {
-        reinterpret_cast<uint32_t*>(dst)[v] =
-            reinterpret_cast<const uint32_t*>(&rows[n][0])[v];
-      }
-    } else {
+    if constexpr (!RawRows && !std::is_same_v<value_t, uint8_t>) {
       row_min = warp_reduce_min(row_min);
       row_max = warp_reduce_max(row_max);
-      const float bias = row_min;
-      const float range = row_max - row_min;
-      const float scale = range == 0.0f ? 1.0f : range / 255.0f;
-      for (auto v = lane; v < num_vecs; v += kWarpSize) {
-        const Vec4T<float> x(&rows[n][4 * v]);
-        reinterpret_cast<uint32_t*>(dst)[v] =
-            quantize_uint8(x.acc.x, bias, scale) |
-            (quantize_uint8(x.acc.y, bias, scale) << 8) |
-            (quantize_uint8(x.acc.z, bias, scale) << 16) |
-            (quantize_uint8(x.acc.w, bias, scale) << 24);
-      }
-      if (lane == 0) {
-        auto* const qparams = reinterpret_cast<float*>(dst + D);
-        qparams[0] = scale;
-        qparams[1] = bias;
-      }
-    }
-    if (lane == 0) {
-      last_access[slot] = now;
-    }
-    syncwarp();
-    if (lane == 0) {
-      __threadfence();
-      atomic_exchange_int64(&cache_state[slot][0], key);
     }
     if (static_cast<int32_t>(lane) == batch_size) {
       batch_key = key;
+      batch_victim = victim;
+      batch_slot = slot;
+      batch_n = n;
+      batch_access = last_access[slot];
+      batch_min = row_min;
+      batch_max = row_max;
     }
     if (++batch_size == kWarpSize) {
       report_batch();
@@ -1770,14 +2221,16 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_touch_kernel(
     const uint64_t cache_row_bytes,
     const int32_t now) {
   const auto N = row_addresses.size(0);
+  const auto num_slots = static_cast<uint64_t>(last_access.size(0));
   for (auto n = blockIdx.x * blockDim.x + threadIdx.x; n < N;
        n += blockDim.x * gridDim.x) {
-    const auto row_address = static_cast<uint64_t>(row_addresses[n]);
-    // Bit 0 tags an INT8 cache hit; misses point into the inserted rows.
-    if (row_address & 1) {
-      const auto slot = ((row_address & ~uint64_t{1}) - cache_weights_address) /
-          cache_row_bytes;
-      last_access[slot] = now;
+    // Hits point into the cache rows (bit 0 may tag them); misses point into
+    // the inserted rows.
+    const auto offset =
+        (static_cast<uint64_t>(row_addresses[n]) & ~uint64_t{1}) -
+        cache_weights_address;
+    if (offset < num_slots * cache_row_bytes) {
+      last_access[offset / cache_row_bytes] = now;
     }
   }
 }
@@ -1794,7 +2247,12 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
     Tensor promoted_keys,
     Tensor promoted_count,
     const int64_t now,
-    const bool input_is_packed) {
+    const bool input_is_packed,
+    const std::optional<Tensor>& victim_keys,
+    const std::optional<Tensor>& victim_access,
+    const std::optional<Tensor>& victim_rows,
+    const std::optional<Tensor>& victim_count,
+    const bool set_associative) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cache_state,
       cache_weights,
@@ -1804,6 +2262,7 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
       count,
       promoted_keys,
       promoted_count);
+  check_owner_cache_last_access(cache_state, last_access, set_associative);
   TENSOR_CONTIGUOUS(cache_state);
   TENSOR_CONTIGUOUS(cache_weights);
   TENSOR_CONTIGUOUS(last_access);
@@ -1850,6 +2309,13 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
 
   CUDA_DEVICE_GUARD(cache_weights);
   promoted_count.zero_();
+  const auto victims = owner_cache_victims(
+      victim_keys,
+      victim_access,
+      victim_rows,
+      victim_count,
+      indices.numel(),
+      cache_weights.size(1));
   if (indices.numel() == 0) {
     return promoted_count;
   }
@@ -1867,7 +2333,7 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
     AT_DISPATCH_INDEX_TYPES(
         indices.scalar_type(), "kvzch_exclusive_cache_insert_int8_index", [&] {
           FBGEMM_LAUNCH_KERNEL(
-              (kvzch_exclusive_cache_insert_int8_kernel<value_t, index_t>),
+              (kvzch_exclusive_cache_insert_kernel<value_t, index_t, false>),
               grid_size,
               threads,
               0,
@@ -1880,7 +2346,9 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
               count.has_value() ? count->data_ptr<int32_t>() : nullptr,
               promoted_keys.data_ptr<int64_t>(),
               promoted_count.data_ptr<int32_t>(),
-              static_cast<int32_t>(now));
+              static_cast<int32_t>(now),
+              victims,
+              set_associative);
         });
   };
   if (input_is_packed) {
@@ -1891,6 +2359,110 @@ Tensor kvzch_exclusive_cache_insert_int8_cuda(
           launch(scalar_t{});
         });
   }
+  return promoted_count;
+}
+
+Tensor kvzch_exclusive_cache_insert_raw_cuda(
+    Tensor cache_state,
+    Tensor cache_weights,
+    Tensor last_access,
+    Tensor indices,
+    Tensor rows,
+    const std::optional<Tensor>& count,
+    Tensor promoted_keys,
+    Tensor promoted_count,
+    const int64_t now,
+    const std::optional<Tensor>& victim_keys,
+    const std::optional<Tensor>& victim_access,
+    const std::optional<Tensor>& victim_rows,
+    const std::optional<Tensor>& victim_count,
+    const bool set_associative) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      cache_state,
+      cache_weights,
+      last_access,
+      indices,
+      rows,
+      count,
+      promoted_keys,
+      promoted_count);
+  check_owner_cache_last_access(cache_state, last_access, set_associative);
+  TENSOR_CONTIGUOUS(cache_state);
+  TENSOR_CONTIGUOUS(cache_weights);
+  TENSOR_CONTIGUOUS(last_access);
+  TENSOR_CONTIGUOUS(indices);
+  TENSOR_CONTIGUOUS(rows);
+  TENSOR_CONTIGUOUS(promoted_keys);
+  TENSOR_CONTIGUOUS(promoted_count);
+  if (count.has_value()) {
+    TENSOR_CONTIGUOUS(count.value());
+    TORCH_CHECK_EQ(count->scalar_type(), at::ScalarType::Int);
+    TORCH_CHECK_EQ(count->numel(), 1);
+  }
+  TORCH_CHECK_EQ(cache_state.dim(), 2);
+  TORCH_CHECK_EQ(cache_state.size(1), 1);
+  TORCH_CHECK_EQ(cache_weights.dim(), 2);
+  TORCH_CHECK_EQ(last_access.dim(), 1);
+  TORCH_CHECK_EQ(indices.dim(), 1);
+  TORCH_CHECK_EQ(rows.dim(), 2);
+  TORCH_CHECK_EQ(cache_state.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(cache_weights.scalar_type(), at::ScalarType::Byte);
+  TORCH_CHECK_EQ(rows.scalar_type(), at::ScalarType::Byte);
+  TORCH_CHECK_EQ(last_access.scalar_type(), at::ScalarType::Int);
+  TORCH_CHECK_EQ(promoted_keys.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(promoted_count.scalar_type(), at::ScalarType::Int);
+  TORCH_CHECK_EQ(promoted_count.numel(), 1);
+  TORCH_CHECK_EQ(cache_weights.size(0), cache_state.size(0));
+  TORCH_CHECK_EQ(last_access.size(0), cache_state.size(0));
+  TORCH_CHECK_EQ(rows.size(1), cache_weights.size(1));
+  TORCH_CHECK_EQ(rows.size(1) % 4, 0);
+  TORCH_CHECK_EQ(reinterpret_cast<uintptr_t>(cache_weights.data_ptr()) % 4, 0);
+  TORCH_CHECK_EQ(reinterpret_cast<uintptr_t>(rows.data_ptr()) % 4, 0);
+  TORCH_CHECK_EQ(rows.size(0), indices.numel());
+  TORCH_CHECK_GE(promoted_keys.numel(), indices.numel());
+  TORCH_CHECK_GT(cache_state.size(0), 0);
+  TORCH_CHECK_LE(cache_state.size(0), std::numeric_limits<int32_t>::max());
+  TORCH_CHECK_LE(indices.numel(), std::numeric_limits<int32_t>::max());
+
+  CUDA_DEVICE_GUARD(cache_weights);
+  promoted_count.zero_();
+  const auto victims = owner_cache_victims(
+      victim_keys,
+      victim_access,
+      victim_rows,
+      victim_count,
+      indices.numel(),
+      cache_weights.size(1));
+  if (indices.numel() == 0) {
+    return promoted_count;
+  }
+
+  constexpr int32_t kWarpsPerBlock = kMaxThreads / kWarpSize;
+  const dim3 threads(kWarpSize, kWarpsPerBlock);
+  constexpr int64_t kBlocksPerSm = 4;
+  const auto grid_size = std::min<int64_t>(
+      div_round_up(indices.numel(), kWarpsPerBlock),
+      kBlocksPerSm * get_device_sm_cnt_());
+  AT_DISPATCH_INDEX_TYPES(
+      indices.scalar_type(), "kvzch_exclusive_cache_insert_raw", [&] {
+        FBGEMM_LAUNCH_KERNEL(
+            (kvzch_exclusive_cache_insert_kernel<uint8_t, index_t, true>),
+            grid_size,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(indices, index_t, 1, 32),
+            PTA_B(rows, uint8_t, 2, 64),
+            PTA_B(cache_state, int64_t, 2, 32),
+            PTA_B(cache_weights, uint8_t, 2, 64),
+            PTA_B(last_access, int32_t, 1, 32),
+            count.has_value() ? count->data_ptr<int32_t>() : nullptr,
+            promoted_keys.data_ptr<int64_t>(),
+            promoted_count.data_ptr<int32_t>(),
+            static_cast<int32_t>(now),
+            victims,
+            set_associative);
+      });
   return promoted_count;
 }
 
@@ -1907,7 +2479,6 @@ Tensor kvzch_exclusive_cache_touch_cuda(
   TORCH_CHECK_EQ(row_addresses.dim(), 1);
   TORCH_CHECK_EQ(row_addresses.scalar_type(), at::ScalarType::Long);
   TORCH_CHECK_EQ(cache_weights.dim(), 2);
-  TORCH_CHECK_EQ(cache_weights.scalar_type(), at::ScalarType::Byte);
   TORCH_CHECK_EQ(last_access.dim(), 1);
   TORCH_CHECK_EQ(last_access.scalar_type(), at::ScalarType::Int);
   TORCH_CHECK_EQ(last_access.size(0), cache_weights.size(0));
@@ -1929,7 +2500,56 @@ Tensor kvzch_exclusive_cache_touch_cuda(
       PTA_B(row_addresses, int64_t, 1, 32),
       PTA_B(last_access, int32_t, 1, 32),
       reinterpret_cast<uint64_t>(cache_weights.data_ptr()),
-      static_cast<uint64_t>(cache_weights.size(1)),
+      static_cast<uint64_t>(
+          cache_weights.size(1) * cache_weights.element_size()),
       static_cast<int32_t>(now));
   return last_access;
+}
+
+namespace {
+
+__global__
+__launch_bounds__(kMaxThreads) void kvzch_owner_cache_clear_tags_kernel(
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> cache_state,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> slots,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> keys) {
+  for (auto n = blockIdx.x * blockDim.x + threadIdx.x; n < slots.size(0);
+       n += blockDim.x * gridDim.x) {
+    atomic_cas_int64(&cache_state[slots[n]][0], keys[n], -1);
+  }
+}
+
+} // namespace
+
+Tensor kvzch_owner_cache_clear_tags_cuda(
+    Tensor cache_state,
+    Tensor slots,
+    Tensor keys) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(cache_state, slots, keys);
+  TENSOR_CONTIGUOUS(cache_state);
+  TENSOR_CONTIGUOUS(slots);
+  TENSOR_CONTIGUOUS(keys);
+  TORCH_CHECK_EQ(cache_state.dim(), 2);
+  TORCH_CHECK_EQ(cache_state.size(1), 1);
+  TORCH_CHECK_EQ(cache_state.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(slots.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(keys.scalar_type(), at::ScalarType::Long);
+  TORCH_CHECK_EQ(slots.numel(), keys.numel());
+  CUDA_DEVICE_GUARD(cache_state);
+  if (slots.numel() == 0) {
+    return cache_state;
+  }
+  FBGEMM_LAUNCH_KERNEL(
+      kvzch_owner_cache_clear_tags_kernel,
+      utils::cuda::cap_grid_dim_x(
+          div_round_up(slots.numel(), kMaxThreads),
+          kMaxThreads,
+          at::cuda::getCurrentCUDAStream()),
+      kMaxThreads,
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(cache_state, int64_t, 2, 32),
+      PTA_B(slots, int64_t, 1, 32),
+      PTA_B(keys, int64_t, 1, 32));
+  return cache_state;
 }
