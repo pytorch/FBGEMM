@@ -961,8 +961,10 @@ batch_index_select_dim0_codegen_forward_kernel
 
 {%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kSubwarpDivisor) %}
     {%- set max_vecs_per_thread = kMaxVecsPerThread %}
-    {%- for emb_type in (['float', 'at::Half'] + (['at::Float8_e4m3fnuz'] if is_rocm else ['at::Float8_e4m3fn'])) %}
-    {%- for cache_type in ['float', 'at::Half'] %}
+    {%- for emb_tag, emb_type in forward_emb_types.items()
+          if shard_emb is not defined or emb_tag == shard_emb %}
+    {%- for cache_tag, cache_type in forward_cache_types.items()
+          if shard_cache is not defined or cache_tag == shard_cache %}
     {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for index_type in ['int32_t', 'int64_t'] %}
         {{ template_instantiation(
@@ -1037,7 +1039,9 @@ batch_index_select_dim0_codegen_forward_kernel
       launches this configuration; kSubwarpDivisor 2 is a 32-lane group on a
       wave64 arch. Wave32 builds do not take the override: their default
       MAX_D <= 128 dispatch is already a 32-lane group. */ #}
-{%- if has_wave64 and is_rocm and vbe and not dense and not ssd and not weighted and not is_gwd %}
+{%- if has_wave64 and is_rocm and vbe and not dense and not ssd and not weighted and not is_gwd
+      and (shard_emb is not defined or shard_emb == "fp16")
+      and (shard_cache is not defined or shard_cache == "fp16") %}
 {{ template_instantiation(
     "at::Half",
     "at::Half",
