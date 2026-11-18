@@ -352,7 +352,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       // We want to stagger memory flushes (and then later
       // stagger all compactions)
 
-      for (int64_t i = 0; i < num_shards; i++) {
+      for (const auto i : c10::irange(num_shards)) {
         shard_flush_compaction_deadlines_.push_back(
             memtable_flush_offset_ + (i * period_per_shard));
       }
@@ -859,7 +859,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             initializers_[shard]
                                 ->row_storage_.data_ptr<value_t>();
                       }
-                      for (size_t j = 0; j < keys.size(); ++j) {
+                      for (const auto j : c10::irange(keys.size())) {
                         const auto& s = statuses[j];
                         int64_t i = key_indices[j];
                         const auto& value = values[j];
@@ -1683,7 +1683,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
       auto f =
           folly::via(executor_.get()).thenValue([=, this](folly::Unit) -> bool {
-            for (int attempt = 0; attempt < max_retries; ++attempt) {
+            for (const auto attempt : c10::irange(max_retries)) {
               auto val = enable ? "false" : "true";
               auto s =
                   set_rocksdb_option(shard, "disable_auto_compactions", val);
@@ -1722,7 +1722,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     int num_mem_component = rocks_db_mem_properties.size();
     std::vector<int64_t> mem_usages(num_mem_component);
     for (auto& db : dbs_) {
-      for (int i = 0; i < num_mem_component; i++) {
+      for (const auto i : c10::irange(num_mem_component)) {
         std::string property = rocks_db_mem_properties[i];
         std::string val;
         db->GetProperty(property, &val);

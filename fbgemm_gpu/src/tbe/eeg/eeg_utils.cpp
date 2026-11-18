@@ -8,6 +8,7 @@
 
 #include "eeg_utils.h"
 
+#include <c10/util/irange.h>
 #include <array>
 #include <cmath>
 #include <fstream>
@@ -140,7 +141,7 @@ double hurwitzZeta(double s, double q) {
 double directSumOfHarmonicSeries(double s, double q, int64_t n) {
   double ans = 0.0;
   double compensator = 0.0;
-  for (int64_t i = 0; i < n; ++i) {
+  for (const auto i : c10::irange(n)) {
     double term = std::pow(n - 1 - i + q, -s);
     double y = term - compensator;
     double t = ans + y;

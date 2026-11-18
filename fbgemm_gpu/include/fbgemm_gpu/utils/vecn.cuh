@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/float.cuh"
 #include "fbgemm_gpu/utils/types.h"
@@ -194,7 +195,7 @@ dequantize_packed_hfp8(uint32_t vals, int exp_bits, int exp_bias) {
   multiplier.I = (127 + (127 - exp_bias)) << 23;
 
 #pragma unroll
-  for (int i = 0; i < 4; i++) {
+  for (const auto i : c10::irange(4)) {
     sign.I[i] = v.S[i] & 0x80;
     res.I[i] = v.S[i] & 0x7F;
   }
@@ -530,7 +531,7 @@ struct VecNT<2, PrimitiveType::FP> {
       *reinterpret_cast<float2*>(output_ptr) = acc;
     } else {
 #pragma unroll
-      for (int i = 0; i < 2; ++i) {
+      for (const auto i : c10::irange(2)) {
         if (i < num_valid_outputs) {
           output_ptr[i] = *(&acc.x + i);
         }
@@ -545,7 +546,7 @@ struct VecNT<2, PrimitiveType::FP> {
       *reinterpret_cast<half2*>(output_ptr) = val;
     } else {
 #pragma unroll
-      for (int i = 0; i < 2; ++i) {
+      for (const auto i : c10::irange(2)) {
         if (i < num_valid_outputs) {
           output_ptr[i] = *reinterpret_cast<const at::Half*>(&val.x + i);
         }
@@ -563,7 +564,7 @@ struct VecNT<2, PrimitiveType::FP> {
       *reinterpret_cast<__nv_bfloat162*>(output_ptr) = val;
     } else {
 #pragma unroll
-      for (int i = 0; i < 2; ++i) {
+      for (const auto i : c10::irange(2)) {
         if (i < num_valid_outputs) {
           output_ptr[i] = *reinterpret_cast<const at::BFloat16*>(&val.x + i);
         }
@@ -582,7 +583,7 @@ struct VecNT<2, PrimitiveType::FP> {
   store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 2) {
     const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
 #pragma unroll
-    for (int i = 0; i < 2; ++i) {
+    for (const auto i : c10::irange(2)) {
       if (i < num_valid_outputs) {
         output_ptr[i] = lrintf(((&acc.x)[i] - qparams.y) * inv_scale);
       }
@@ -659,7 +660,7 @@ struct VecNT<4, PrimitiveType::FP> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
+      for (const auto i : c10::irange(4)) {
         if (i < num_valid_outputs) {
           output_ptr[i] = *(&(acc.x) + i);
         }
@@ -688,7 +689,7 @@ struct VecNT<4, PrimitiveType::FP> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
+      for (const auto i : c10::irange(4)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
@@ -721,7 +722,7 @@ struct VecNT<4, PrimitiveType::FP> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
+      for (const auto i : c10::irange(4)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
@@ -741,7 +742,7 @@ struct VecNT<4, PrimitiveType::FP> {
   store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 4) {
     const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
 #pragma unroll
-    for (int i = 0; i < 4; ++i) {
+    for (const auto i : c10::irange(4)) {
       if (i < num_valid_outputs) {
         output_ptr[i] = lrintf(((&(acc.x))[i] - qparams.y) * inv_scale);
       }
@@ -820,7 +821,7 @@ struct VecNT<4, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
+      for (const auto i : c10::irange(4)) {
         if (i < num_valid_outputs) {
           output_ptr[i] = *(&(acc.x) + i);
         }
@@ -849,7 +850,7 @@ struct VecNT<4, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
+      for (const auto i : c10::irange(4)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
@@ -882,7 +883,7 @@ struct VecNT<4, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 4; ++i) {
+      for (const auto i : c10::irange(4)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
@@ -902,7 +903,7 @@ struct VecNT<4, PrimitiveType::INT> {
   store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 4) {
     const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
 #pragma unroll
-    for (int i = 0; i < 4; ++i) {
+    for (const auto i : c10::irange(4)) {
       if (i < num_valid_outputs) {
         output_ptr[i] = lrintf(((&(acc.x))[i] - qparams.y) * inv_scale);
       }
@@ -987,7 +988,7 @@ struct VecNT<8, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 8; ++i) {
+      for (const auto i : c10::irange(8)) {
         if (i < num_valid_outputs) {
           output_ptr[i] = *(&(acc.vals[0].x) + i);
         }
@@ -1025,7 +1026,7 @@ struct VecNT<8, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 8; ++i) {
+      for (const auto i : c10::irange(8)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
@@ -1067,7 +1068,7 @@ struct VecNT<8, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 8; ++i) {
+      for (const auto i : c10::irange(8)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
@@ -1087,7 +1088,7 @@ struct VecNT<8, PrimitiveType::INT> {
   store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 8) {
     const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
 #pragma unroll
-    for (int i = 0; i < 8; ++i) {
+    for (const auto i : c10::irange(8)) {
       if (i < num_valid_outputs) {
         output_ptr[i] = lrintf(
             (reinterpret_cast<const float*>(&(acc.vals[0].x))[i] - qparams.y) *
@@ -1174,7 +1175,7 @@ struct VecNT<16, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 16; ++i) {
+      for (const auto i : c10::irange(16)) {
         if (i < num_valid_outputs) {
           *reinterpret_cast<float*>(output_ptr + i) =
               *reinterpret_cast<const float*>(&(acc.vals[0].vals[0]) + i);
@@ -1218,7 +1219,7 @@ struct VecNT<16, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 16; ++i) {
+      for (const auto i : c10::irange(16)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::Half*>(&(val.vals[0].x) + i);
@@ -1265,7 +1266,7 @@ struct VecNT<16, PrimitiveType::INT> {
       }
     } else {
 #pragma unroll
-      for (int i = 0; i < 16; ++i) {
+      for (const auto i : c10::irange(16)) {
         if (i < num_valid_outputs) {
           output_ptr[i] =
               *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
@@ -1285,7 +1286,7 @@ struct VecNT<16, PrimitiveType::INT> {
   store(uint8_t* output_ptr, float2 qparams, int num_valid_outputs = 16) {
     const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
 #pragma unroll
-    for (int i = 0; i < 16; ++i) {
+    for (const auto i : c10::irange(16)) {
       if (i < num_valid_outputs) {
         output_ptr[i] = lrintf(
             (reinterpret_cast<const float*>(&(acc.vals[0].vals[0]))[i] -

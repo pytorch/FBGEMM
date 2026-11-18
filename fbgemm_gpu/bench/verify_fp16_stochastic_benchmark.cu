@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <iostream>
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/utils/device_cache_flusher.cuh"
 #include "fbgemm_gpu/utils/host_device_buffer_pair.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
@@ -286,7 +287,7 @@ int main(int argc, char* argv[]) {
     f16_assemblefloat.syncToHost();
     f16_fbgemmrand.syncToHost();
 
-    for (int i = 0; i < test_size; i++) {
+    for (const auto i : c10::irange(test_size)) {
       // std::cout << std::hexfloat << f32[i] << ":\t(up:" << std::hexfloat
       //           << __half2float(__float2half_ru(f32[i]))
       //           << "\tdown:" << std::hexfloat

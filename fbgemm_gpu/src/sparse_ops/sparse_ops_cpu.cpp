@@ -21,6 +21,7 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include <c10/util/irange.h>
 #include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
@@ -292,7 +293,8 @@ void _permute_2D_lengths_cpu_kernel(
         index_t current_input_offset = 0;
         // Have a separate loop for summing up lengths because lengths_size
         // can be smaller than T * B.
-        for (int64_t tb = tb_begin; tb < std::min(tb_end, lengths_size); ++tb) {
+        for (const auto tb :
+             c10::irange(tb_begin, std::min(tb_end, lengths_size))) {
           current_input_offset += lengths[tb];
         }
 
@@ -887,9 +889,8 @@ void _permute_1D_lengths_cpu_kernel(
       [&](int64_t tb_begin, int64_t tb_end) {
         // Have a separate loop for summing up lengths
         index_t current_output_offset = 0;
-        for (int64_t tb = tb_begin;
-             tb < std::min(tb_end, permuted_lengths_size);
-             ++tb) {
+        for (const auto tb :
+             c10::irange(tb_begin, std::min(tb_end, permuted_lengths_size))) {
           auto permuted_length = lengths[permute[tb]];
           permuted_lengths[tb] = permuted_length;
           current_output_offset += permuted_length;
@@ -919,9 +920,8 @@ void _permute_1D_indices_weights_kernel_cpu(
       permuted_lengths_size,
       FALSE_SHARING_PAD,
       [&](int64_t tb_begin, int64_t tb_end) {
-        for (int64_t tb = tb_begin;
-             tb < std::min(tb_end, permuted_lengths_size);
-             ++tb) {
+        for (const auto tb :
+             c10::irange(tb_begin, std::min(tb_end, permuted_lengths_size))) {
           offsets_t permuted_length = permuted_lengths[tb];
           const offsets_t input_start = input_offsets[permute[tb]];
           const offsets_t output_start = output_offsets[tb];
@@ -1046,7 +1046,8 @@ void _expand_into_jagged_permute_cpu_kernel(
     index_t* const __restrict__ output_permute) {
   at::parallel_for(
       0, permute_size, FALSE_SHARING_PAD, [&](int64_t t_begin, int64_t t_end) {
-        for (int64_t t = t_begin; t < std::min(t_end, permute_size); ++t) {
+        for (const auto t :
+             c10::irange(t_begin, std::min(t_end, permute_size))) {
           offsets_t permute_length = output_offsets[t + 1] - output_offsets[t];
           const offsets_t input_start = input_offsets[permute[t]];
           const offsets_t output_start = output_offsets[t];
@@ -1094,7 +1095,8 @@ void _invert_permute_cpu_kernel(
     index_t* const __restrict__ inversed_permute) {
   at::parallel_for(
       0, permute_size, FALSE_SHARING_PAD, [&](int64_t t_begin, int64_t t_end) {
-        for (int64_t t = t_begin; t < std::min(t_end, permute_size); ++t) {
+        for (const auto t :
+             c10::irange(t_begin, std::min(t_end, permute_size))) {
           inversed_permute[permute[t]] = t;
         }
       });

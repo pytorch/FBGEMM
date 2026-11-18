@@ -13,6 +13,7 @@
 #include <iostream>
 #include <vector>
 
+#include <c10/util/irange.h>
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
@@ -25,11 +26,11 @@ double test_std_vector(size_t vector_size, size_t repeat_count) {
   all_vectors.reserve(repeat_count);
 
   auto start = std::chrono::high_resolution_clock::now();
-  for (size_t i = 0; i < repeat_count; ++i) {
+  for ([[maybe_unused]] const auto _ : c10::irange(repeat_count)) {
     all_vectors.emplace_back(vector_size);
     auto& vec = all_vectors.back();
 
-    for (size_t j = 0; j < vector_size; ++j) {
+    for (const auto j : c10::irange(vector_size)) {
       vec[j] = static_cast<float>(j);
     }
 
@@ -50,10 +51,10 @@ double test_pool_vector(size_t vector_size, size_t repeat_count) {
 
   auto start = std::chrono::high_resolution_clock::now();
   float sum = 0.0f; // Prevent optimization
-  for (size_t i = 0; i < repeat_count; ++i) {
+  for ([[maybe_unused]] const auto _ : c10::irange(repeat_count)) {
     float* arr = alloc.allocate(vector_size);
 
-    for (size_t j = 0; j < vector_size; ++j) {
+    for (const auto j : c10::irange(vector_size)) {
       arr[j] = static_cast<float>(j);
     }
 
@@ -152,7 +153,7 @@ TEST(FixedBlockPoolTest, MultipleAllocations) {
   const int NUM_BLOCKS = 100;
 
   // Allocate multiple blocks
-  for (int i = 0; i < NUM_BLOCKS; ++i) {
+  for (const auto i : c10::irange(NUM_BLOCKS)) {
     void* p = pool.allocate(block_size, alignment);
     EXPECT_NE(p, nullptr);
     // Write some data
@@ -161,7 +162,7 @@ TEST(FixedBlockPoolTest, MultipleAllocations) {
   }
 
   // Verify data
-  for (int i = 0; i < NUM_BLOCKS; ++i) {
+  for (const auto i : c10::irange(NUM_BLOCKS)) {
     EXPECT_EQ(*static_cast<int*>(blocks[i]), i);
   }
 
@@ -182,7 +183,7 @@ TEST(FixedBlockPoolTest, CrossChunkAllocation) {
   const int NUM_BLOCKS = 25; // Exceeds 2 chunks
 
   // Allocate blocks beyond a single chunk capacity
-  for (int i = 0; i < NUM_BLOCKS; ++i) {
+  for ([[maybe_unused]] const auto _ : c10::irange(NUM_BLOCKS)) {
     void* p = pool.allocate(block_size, alignment);
     EXPECT_NE(p, nullptr);
     blocks.push_back(p);
@@ -289,7 +290,7 @@ TEST(FixedBlockPoolTest, CustomUpstreamResource) {
 
     // Allocate some blocks to trigger chunk allocation
     std::vector<void*> blocks;
-    for (int i = 0; i < 10; ++i) {
+    for ([[maybe_unused]] const auto _ : c10::irange(10)) {
       blocks.push_back(pool.allocate(block_size, alignment));
     }
 
@@ -391,7 +392,7 @@ TEST(FixedBlockPool, TimestampPrecision) {
   constexpr int test_iterations = 1000;
   int64_t prev_ts = FixedBlockPool::current_timestamp();
 
-  for (int i = 0; i < test_iterations; ++i) {
+  for ([[maybe_unused]] const auto _ : c10::irange(test_iterations)) {
     int64_t curr_ts = FixedBlockPool::current_timestamp();
     EXPECT_GE(
         curr_ts,
@@ -415,7 +416,7 @@ TEST(FixedBlockPool, DataIntegrity) {
   std::ranges::copy(src_data, data_ptr);
 
   // Verify data consistency
-  for (int i = 0; i < dim; ++i) {
+  for (const auto i : c10::irange(dim)) {
     EXPECT_FLOAT_EQ(data_ptr[i], src_data[i]);
   }
   pool.deallocate_t<float>(block);

@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
@@ -774,7 +775,7 @@ TEST(RawEmbeddingStreamerTest, TestNoCopyMultiItemConsumerDrain) {
   // These 7 indices span the 3 tables, so each item ships 3 shards (matches the
   // Times(3) in TestStreamE2E for a single item).
   constexpr int kShardsPerItem = 3;
-  for (int i = 0; i < kNumItems; ++i) {
+  for ([[maybe_unused]] const auto _ : c10::irange(kNumItems)) {
     streamer->stream(
         indices,
         weights,

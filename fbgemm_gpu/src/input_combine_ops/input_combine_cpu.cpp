@@ -50,7 +50,7 @@ void _cat_int_tensors_out(
   std::vector<int64_t> paddings;
   paddings.reserve(total_num);
 
-  for (size_t i = 0; i < tensor_list.size(); ++i) {
+  for (const auto i : c10::irange(tensor_list.size())) {
     const auto& tensor = tensor_list[i];
     AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
       // Necessary to use data_ptr. Checked in caller, but let's
@@ -235,7 +235,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
   // We only enable this feature when all the elements of `include_last_offsets`
   // are True and there is at least one indices tensor has paddings
   bool indices_tensor_has_padding = false;
-  for (size_t i = 0; i < indices_list.size(); i++) {
+  for (const auto i : c10::irange(indices_list.size())) {
     if (indices_list[i].numel() > offsets_list[i][-1].item().toLong()) {
       indices_tensor_has_padding = true;
       break;

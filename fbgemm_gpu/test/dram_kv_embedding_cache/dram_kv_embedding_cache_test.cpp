@@ -9,6 +9,7 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/fb/src/dram_kv_embedding_cache/oneflow_enrichment.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_cache.h"
 
+#include <c10/util/irange.h>
 #include <fmt/format.h>
 #include <folly/system/EnvUtil.h>
 #include <glog/logging.h>
@@ -31,8 +32,7 @@ namespace {
 
 int64_t decodeInt64(const float* encoded) {
   uint64_t value = 0;
-  for (int64_t index = 0; index < oneflow_enrichment::kDibitsPerInt64;
-       ++index) {
+  for (const auto index : c10::irange(oneflow_enrichment::kDibitsPerInt64)) {
     const auto dibit =
         static_cast<uint64_t>(std::lround(encoded[index] * 2.0f - 1.0f)) & 0x3;
     value |= dibit << (index * 2);
@@ -766,7 +766,7 @@ TEST_F(DramKVEmbeddingCacheTest, MultipleKeysMetadata) {
 
   auto* md_ptr = metadata.data_ptr<float>();
   const int64_t stride = expected_dim;
-  for (size_t i = 0; i < keys.size(); ++i) {
+  for (const auto i : c10::irange(keys.size())) {
     MetaHeader header{};
     std::memcpy(&header, md_ptr + i * stride, sizeof(MetaHeader));
     EXPECT_EQ(header.key, keys[i]) << "Mismatch at index " << i;
@@ -1512,7 +1512,7 @@ TEST_F(DramKVEmbeddingCacheTest, ParallelShardInputMatchesLegacy) {
 
   std::vector<int64_t> ids(active_count + tail_size);
   std::vector<float> last_value(num_keys + 1, -1.0f);
-  for (int64_t i = 0; i < active_count; ++i) {
+  for (const auto i : c10::irange(active_count)) {
     ids[i] = i % 113 == 0 ? -1 : (i * 37) % num_keys + 1;
     if (ids[i] >= 0) {
       last_value[ids[i]] = static_cast<float>(i);
@@ -1527,7 +1527,7 @@ TEST_F(DramKVEmbeddingCacheTest, ParallelShardInputMatchesLegacy) {
   for (int64_t id = 1; id <= num_keys; ++id) {
     query_ids.push_back(id);
   }
-  for (int64_t i = 0; i < tail_size; ++i) {
+  for (const auto i : c10::irange(tail_size)) {
     query_ids.push_back(50000 + active_count + i);
   }
   query_ids.push_back(-1);
@@ -1662,7 +1662,7 @@ TEST_F(DramKVEmbeddingCacheTest, SegmentedShardReadsMatchMergedInput) {
     set_kv_db_async(*segmented_cache, stored_ids, /*value=*/2.5f);
 
     std::vector<int64_t> query_ids(kActiveRows + kTailRows);
-    for (int64_t i = 0; i < kActiveRows; ++i) {
+    for (const auto i : c10::irange(kActiveRows)) {
       query_ids[i] = i % 113 == 0 ? -1 : i % 12000 + 1;
     }
     for (size_t i = kActiveRows; i < query_ids.size(); ++i) {
@@ -1687,7 +1687,7 @@ TEST_F(DramKVEmbeddingCacheTest, SegmentedShardReadsMatchMergedInput) {
 
     auto expected = at::full_like(merged_weights, -7.0f);
     auto expected_found_mask = at::full_like(merged_found_mask, 7);
-    for (int64_t row = 0; row < kActiveRows; ++row) {
+    for (const auto row : c10::irange(kActiveRows)) {
       const auto id = query_ids[row];
       if (id < 0) {
         continue;

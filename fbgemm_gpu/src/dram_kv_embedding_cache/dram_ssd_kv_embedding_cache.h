@@ -20,6 +20,7 @@
 #include <shared_mutex>
 #include <thread>
 
+#include <c10/util/irange.h>
 #include "dram_kv_embedding_cache.h"
 
 namespace kv_db {
@@ -155,12 +156,12 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     miss_indices.reserve(num);
     miss_positions.reserve(num);
 
-    for (int64_t i = 0; i < num; ++i) {
+    for (const auto i : c10::irange(num)) {
       if (idx_ptr[i] < 0) {
         continue;
       }
       bool all_zero = true;
-      for (int64_t j = 0; j < stride; ++j) {
+      for (const auto j : c10::irange(stride)) {
         if (w_ptr[i * stride + j] != static_cast<weight_type>(0)) {
           all_zero = false;
           break;
@@ -207,9 +208,9 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     backfill_indices.reserve(miss_count_val);
     backfill_positions.reserve(miss_count_val);
 
-    for (int64_t m = 0; m < miss_count_val; ++m) {
+    for (const auto m : c10::irange(miss_count_val)) {
       bool has_nonzero = false;
-      for (int64_t j = 0; j < stride; ++j) {
+      for (const auto j : c10::irange(stride)) {
         if (ssd_w_ptr[m * stride + j] != static_cast<weight_type>(0)) {
           has_nonzero = true;
           break;
@@ -250,7 +251,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
           at::TensorOptions().dtype(
               c10::CppTypeToScalarType<weight_type>::value));
       auto* bf_w_ptr = bf_weights.template data_ptr<weight_type>();
-      for (int64_t b = 0; b < bf_count_val; ++b) {
+      for (const auto b : c10::irange(bf_count_val)) {
         int64_t m = backfill_positions[b];
         std::copy(
             ssd_w_ptr + m * stride,
@@ -353,7 +354,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     // (set by replace_weights_id in KVTensorWrapper::set_range).
     // Follows the same pattern as write_blocks_to_ssd().
     std::vector<int64_t> keys(weights_with_metaheader.size(0), 0);
-    for (int64_t i = 0; i < weights_with_metaheader.size(0); ++i) {
+    for (const auto i : c10::irange(weights_with_metaheader.size(0))) {
       keys[i] = kv_mem::FixedBlockPool::get_key(
           weights_with_metaheader[i].data_ptr());
     }
@@ -755,7 +756,7 @@ class DramSsdKVEmbeddingCache : public EmbeddingKVDB {
     // Log per-shard timing breakdown for QPS regression diagnosis.
     int64_t max_rlock = 0, max_dirty_write = 0, max_md_read = 0,
             max_md_write = 0;
-    for (int64_t s = 0; s < num_shards; ++s) {
+    for (const auto s : c10::irange(num_shards)) {
       max_rlock = std::max(max_rlock, shard_rlock_us[s]);
       max_dirty_write = std::max(max_dirty_write, shard_dirty_write_us[s]);
       max_md_read = std::max(max_md_read, shard_metadata_read_us[s]);

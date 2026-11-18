@@ -8,6 +8,7 @@
 
 #include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
+#include <c10/util/irange.h>
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -160,7 +161,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_flat(
         min(block_base + blockDim.x * ELEMS_PER_THREAD - 1,
             static_cast<int64_t>(num_indices) - 1);
 #pragma unroll 1
-    for (int which = 0; which < 2; ++which) {
+    for (const auto which : c10::irange(2)) {
       const int64_t target = which == 0 ? block_base : last_elem;
       int32_t lo = 0;
       int32_t hi = total_B - 1;
@@ -214,7 +215,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_flat(
   }
 
 #pragma unroll
-  for (int e = 0; e < ELEMS_PER_THREAD; ++e) {
+  for (const auto e : c10::irange(ELEMS_PER_THREAD)) {
     const int64_t i = base + e;
     if (i >= static_cast<int64_t>(num_indices)) {
       return;

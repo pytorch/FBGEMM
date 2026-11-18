@@ -19,6 +19,7 @@
 
 #include "fbgemm_gpu/utils/device_sort.cuh"
 
+#include <c10/util/irange.h>
 #include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
@@ -106,7 +107,7 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
   // walk down the tree
   bool is_zero = false;
 #pragma unroll
-  for (int d = 0; d < NUM_JAGGED_DIM; ++d) {
+  for (const auto d : c10::irange(NUM_JAGGED_DIM)) {
     const PosT begin = x_offsets.vals[d][offset];
     const PosT end = x_offsets.vals[d][offset + 1];
     if (jagged_coords[d] >= end - begin) {

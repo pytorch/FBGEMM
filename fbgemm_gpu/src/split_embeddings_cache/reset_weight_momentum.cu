@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -66,7 +67,7 @@ __global__ __launch_bounds__(kMaxThreads) void get_cache_indices_kernel(
       ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
   const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[logical_id]);
 
-  for (int64_t i = start; i < end; i++) {
+  for (const auto i : c10::irange(start, end)) {
     if (curr_offset >= 0) {
       linear_cache_indices_table[i] = curr_offset + pruned_indices_table[i];
     } else {
@@ -161,7 +162,7 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
   const int64_t pruned_indices_offset = pruned_indices_offsets[buffer_id];
   const int64_t* pruned_indices_table = &pruned_indices[pruned_indices_offset];
 
-  for (int64_t i = start; i < end; i++) {
+  for (const auto i : c10::irange(start, end)) {
     int64_t idx = i / chunk4s_per_row;
     int64_t pruned_index = pruned_indices_table[idx];
 
