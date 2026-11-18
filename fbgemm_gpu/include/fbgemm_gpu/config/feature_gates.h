@@ -68,7 +68,8 @@ namespace fbgemm_gpu::config {
   X(BUCKETIZED_PERMUTE_WARP_KERNEL)         \
   X(DISABLE_OFFSETS_ADJUSTMENT)             \
   X(TBE_GWD_PREV_ITER_INT64)                \
-  X(TBE_NOBAG_ROW_PARALLELISM)
+  X(TBE_NOBAG_ROW_PARALLELISM)              \
+  X(BOUNDS_CHECK_THREAD_PER_BAG)
 // X(EXAMPLE_FEATURE_FLAG)
 
 /// @ingroup fbgemm-gpu-config

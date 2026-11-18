@@ -88,6 +88,9 @@ class FeatureGateName(Enum):
     # Parallelise the CPU NOBAG inference TBE over row ranges, not whole tables
     TBE_NOBAG_ROW_PARALLELISM = auto()
 
+    # Enable the thread-per-bag kernel in the NVIDIA V2 bounds check
+    BOUNDS_CHECK_THREAD_PER_BAG = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
