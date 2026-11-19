@@ -7,10 +7,13 @@
 # pyre-strict
 # pyre-ignore-all-errors[3,6,56]
 
+import itertools
+import os
 import tempfile
 import unittest
 from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 import hypothesis.strategies as st
 import numpy as np
@@ -19,7 +22,11 @@ from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, Sparse
 from fbgemm_gpu.tbe.config.embedding_config import BoundsCheckMode, PoolingMode
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.ssd_config import BackendType
-from hypothesis import assume, given, settings, Verbosity
+from fbgemm_gpu.tbe.ssd.training import (
+    _INSERTED_ROWS_POOL_DEPTH_ENV_VAR,
+    _inserted_rows_pool_depth_from_env,
+)
+from hypothesis import assume, given, note, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
@@ -36,6 +43,37 @@ KV_WORLD_SIZE = 4
 VIRTUAL_TABLE_ROWS = int(
     2**18
 )  # relatively large for now given optimizer is still pre-allocated
+
+# Settings of the pooled pass that every prefetch workflow test example runs
+# after its default pass (rowwise Adagrad, managed pads, pool off). m1_dtype
+# and m2_dtype only apply to the Adam family.
+_POOL_STRATEGIES: dict[str, Any] = {
+    "pool_depth": st.sampled_from([3, 4]),
+    "uvm_host_mapped": st.booleans(),
+    "optimizer": st.sampled_from(
+        [
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+            OptimType.ADAM,
+            OptimType.PARTIAL_ROWWISE_ADAM,
+        ]
+    ),
+    "m1_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
+    "m2_dtype": st.sampled_from([SparseType.BF16, SparseType.FP32]),
+}
+
+# The pooled-pad matrix tests enumerate cache_set_scale and mixed_B, so they
+# draw the other default strategies. Every example builds a TBE for each of
+# its 48 combinations, hence the small example count and tables of at most
+# 10^4 rows.
+_MATRIX_STRATEGIES: dict[str, Any] = {
+    **{
+        k: v
+        for k, v in default_strategies.items()
+        if k not in ("cache_set_scale", "mixed_B")
+    },
+    "log_E": st.integers(min_value=3, max_value=4),
+}
+_MAX_POOL_MATRIX_EXAMPLES = 2
 
 
 @unittest.skipIf(*running_in_oss)
@@ -225,6 +263,63 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
+    def _step_adam_family_ref_(
+        self,
+        optimizer: OptimType,
+        weight: torch.Tensor,
+        grad: torch.Tensor,
+        states_ref: list[torch.Tensor],
+        states_test: list[torch.Tensor],
+        lr: float,
+        eps: float,
+        beta1: float,
+        beta2: float,
+        weight_decay: float,
+        iter_: int,
+        tolerance: float,
+    ) -> torch.Tensor:
+        """
+        Step the reference Adam / partial rowwise Adam on the rows in the
+        batch, check the TBE's momentum against it and return the reference's
+        new weight. TBE only updates the rows in the batch: the others keep
+        their weight and momentum. As in the TBE kernel, the weight update
+        uses the unrounded momentum, and the momentum carried to the next
+        step is rounded to its storage dtype (BF16 or FP32).
+        """
+        m1_r, m2_r = states_ref
+        m1_t, m2_t = states_test
+        device = m1_r.device
+        g_all = grad.to(device)
+        rows = g_all.abs().sum(dim=1) > 0
+        g = g_all[rows]
+        g2 = g.pow(2)
+        if optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
+            g2 = g2.mean(dim=1)
+        m1 = beta1 * m1_r[rows] + (1.0 - beta1) * g
+        m2 = beta2 * m2_r[rows] + (1.0 - beta2) * g2
+        m_hat = m1 / (1.0 - beta1**iter_)
+        v_hat = m2 / (1.0 - beta2**iter_)
+        if optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
+            v_hat = v_hat.view(-1, 1)
+        for state_t, state_r, state_new in ((m1_t, m1_r, m1), (m2_t, m2_r, m2)):
+            state_r[rows] = state_new.to(state_t.dtype).float()
+            stored = state_t.float().to(device)
+            torch.testing.assert_close(stored, state_r, atol=tolerance, rtol=tolerance)
+            # The reference and the kernel sum gradients in different orders,
+            # so their FP32 values can round to neighboring storage values.
+            # Continue from the kernel's value there so that such a rounding
+            # flip does not compound; larger differences stay in the
+            # reference and accumulate.
+            flip = (stored - state_r).abs() <= (
+                torch.finfo(state_t.dtype).eps * state_r.abs()
+            )
+            state_r.copy_(torch.where(flip, stored, state_r))
+        w_all = weight.to(device)
+        w = w_all[rows]
+        new_weight = w_all.clone()
+        new_weight[rows] = w - lr * (m_hat / (v_hat.sqrt() + eps) + weight_decay * w)
+        return new_weight.to(weight.device)
+
     def execute_ssd_cache_pipeline_(  # noqa C901
         self,
         T: int,
@@ -248,12 +343,19 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         mixed_B: bool = False,
         enable_raw_embedding_streaming: bool = False,
         num_iterations: int = 10,
+        optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
+        optimizer_state_dtypes: dict[str, SparseType] | None = None,
+        uvm_host_mapped: bool = False,
     ) -> None:
         # If using pipeline prefetching, explicit prefetching must be True
         assert not prefetch_pipeline or explicit_prefetch
 
+        adam_family = optimizer in (OptimType.ADAM, OptimType.PARTIAL_ROWWISE_ADAM)
         lr = 0.5
         eps = 0.2
+        beta1 = 0.9
+        beta2 = 0.99
+        weight_decay = 0.01 if adam_family else 0.0
         ssd_shards = 2
         torch.manual_seed(42)
 
@@ -283,6 +385,12 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             prefetch_pipeline=prefetch_pipeline,
             enable_raw_embedding_streaming=enable_raw_embedding_streaming,
             l2_cache_size=1,
+            optimizer=optimizer,
+            beta1=beta1,
+            beta2=beta2,
+            weight_decay=weight_decay,
+            optimizer_state_dtypes=optimizer_state_dtypes or {},
+            uvm_host_mapped=uvm_host_mapped,
         )
 
         optimizer_states_ref = [
@@ -292,9 +400,15 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
 
+        fp32_states = all(
+            dtype == SparseType.FP32
+            for dtype in (optimizer_state_dtypes or {}).values()
+        )
         tolerance = (
             1.0e-4
-            if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
+            if weights_precision == SparseType.FP32
+            and output_dtype == SparseType.FP32
+            and fp32_states
             else 1.0e-2
         )
 
@@ -417,33 +531,45 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             if force_flush or flush_location == FlushLocation.AFTER_BWD:
                 emb.flush()
 
-            # Compare optimizer states
+            # Compare optimizer states and step the reference
             split_optimizer_states = self.split_optimizer_states_(emb)
+            iter_ = int(emb.iter.item())
             for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-                (optim_state_r,) = optimizer_states_ref[t]
-                (optim_state_t,) = split_optimizer_states[t]
                 emb_r = emb_ref[f]
+                # pyre-fixme[16]: `Optional` has no attribute `float`.
+                grad = emb_r.weight.grad.float().to_dense()
 
-                optim_state_r.add_(
-                    # pyre-fixme[16]: `Optional` has no attribute `float`.
-                    emb_r.weight.grad.float()
-                    .to_dense()
-                    .pow(2)
-                    .mean(dim=1)
-                )
-                torch.testing.assert_close(
-                    optim_state_t.float(),
-                    optim_state_r,
-                    atol=tolerance,
-                    rtol=tolerance,
-                )
-
-                new_ref_weight = torch.addcdiv(
-                    emb_r.weight.float(),
-                    value=-lr,
-                    tensor1=emb_r.weight.grad.float().to_dense(),
-                    tensor2=optim_state_t.float().sqrt().add(eps).view(Es[t], 1),
-                )
+                if adam_family:
+                    new_ref_weight = self._step_adam_family_ref_(
+                        optimizer,
+                        emb_r.weight.float(),
+                        grad,
+                        optimizer_states_ref[t],
+                        split_optimizer_states[t],
+                        lr=lr,
+                        eps=eps,
+                        beta1=beta1,
+                        beta2=beta2,
+                        weight_decay=weight_decay,
+                        iter_=iter_,
+                        tolerance=tolerance,
+                    )
+                else:
+                    (optim_state_r,) = optimizer_states_ref[t]
+                    (optim_state_t,) = split_optimizer_states[t]
+                    optim_state_r.add_(grad.pow(2).mean(dim=1))
+                    torch.testing.assert_close(
+                        optim_state_t.float(),
+                        optim_state_r,
+                        atol=tolerance,
+                        rtol=tolerance,
+                    )
+                    new_ref_weight = torch.addcdiv(
+                        emb_r.weight.float(),
+                        value=-lr,
+                        tensor1=grad,
+                        tensor2=optim_state_t.float().sqrt().add(eps).view(Es[t], 1),
+                    )
 
                 if weights_precision == SparseType.FP16:
                     # Round the reference weight the same way that
@@ -494,7 +620,7 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
             **kwargs,
         )
 
-    @given(**default_strategies)
+    @given(**_POOL_STRATEGIES, **default_strategies)
     @settings(
         verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
@@ -504,18 +630,15 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         without pipeline prefetching and with implicit prefetching.
         Implicit prefetching relies on TBE forward to invoke prefetch.
         """
-        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
-        assume(not kwargs["mixed_B"] or kwargs["pooling_mode"] != PoolingMode.NONE)
-        self.execute_ssd_cache_pipeline_(
+        self._execute_ssd_cache_prefetch_workflow_(
             prefetch_pipeline=False,
             explicit_prefetch=False,
             prefetch_location=None,
             use_prefetch_stream=False,
-            flush_location=None,
             **kwargs,
         )
 
-    @given(**default_strategies)
+    @given(**_POOL_STRATEGIES, **default_strategies)
     @settings(
         verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
@@ -535,18 +658,15 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         - pf(i) = prefetch of iteration i
         - fwd(i) = forward TBE of iteration i
         """
-        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
-        assume(not kwargs["mixed_B"] or kwargs["pooling_mode"] != PoolingMode.NONE)
-        self.execute_ssd_cache_pipeline_(
+        self._execute_ssd_cache_prefetch_workflow_(
             prefetch_pipeline=False,
             explicit_prefetch=True,
             prefetch_location=None,
             use_prefetch_stream=False,
-            flush_location=None,
             **kwargs,
         )
 
-    @given(use_prefetch_stream=st.booleans(), **default_strategies)
+    @given(use_prefetch_stream=st.booleans(), **_POOL_STRATEGIES, **default_strategies)
     @settings(
         verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
@@ -566,17 +686,14 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         - pf(i) = prefetch of iteration i
         - fwd(i) = forward TBE of iteration i
         """
-        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
-        assume(not kwargs["mixed_B"] or kwargs["pooling_mode"] != PoolingMode.NONE)
-        self.execute_ssd_cache_pipeline_(
+        self._execute_ssd_cache_prefetch_workflow_(
             prefetch_pipeline=True,
             explicit_prefetch=True,
             prefetch_location=PrefetchLocation.BEFORE_FWD,
-            flush_location=None,
             **kwargs,
         )
 
-    @given(use_prefetch_stream=st.booleans(), **default_strategies)
+    @given(use_prefetch_stream=st.booleans(), **_POOL_STRATEGIES, **default_strategies)
     @settings(
         verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
     )
@@ -597,14 +714,248 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         - fwd(i) = forward TBE of iteration i
         - bwd(i) = backward TBE of iteration i
         """
-
-        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
-        assume(not kwargs["mixed_B"] or kwargs["pooling_mode"] != PoolingMode.NONE)
-        self.execute_ssd_cache_pipeline_(
+        self._execute_ssd_cache_prefetch_workflow_(
             prefetch_pipeline=True,
             explicit_prefetch=True,
             prefetch_location=PrefetchLocation.BETWEEN_FWD_BWD,
+            **kwargs,
+        )
+
+    def _execute_ssd_cache_pipeline_with_pool_(
+        self, pool_depth: int | None, **kwargs: Any
+    ) -> int:
+        """
+        `execute_ssd_cache_pipeline_` with the inserted_rows scratch pad pool
+        enabled via `FBGEMM_SSD_TBE_INSERTED_ROWS_POOL_DEPTH` (`pool_depth=None`
+        keeps it off as the control). Off, no pad may be reused. On, when
+        every prefetch acquires a pad (L > 0), the iterations must wrap the
+        pool without a retained-slot fallback, and with a fixed batch shape
+        every pad after the first pass must be reused. Returns how many times
+        a pooled slot grew, which only VBE can cause.
+        """
+        tbes: list[SSDTableBatchedEmbeddingBags] = []
+        reused: list[bool] = []
+        get_scratch = SSDTableBatchedEmbeddingBags._get_inserted_rows_scratch
+
+        def get_scratch_spy(
+            tbe: SSDTableBatchedEmbeddingBags, num_rows: int
+        ) -> tuple[torch.Tensor, bool]:
+            pad, pad_reused = get_scratch(tbe, num_rows)
+            tbes.append(tbe)
+            reused.append(pad_reused)
+            return pad, pad_reused
+
+        with (
+            patch.dict(os.environ),
+            patch.object(
+                SSDTableBatchedEmbeddingBags,
+                "_get_inserted_rows_scratch",
+                get_scratch_spy,
+            ),
+        ):
+            if pool_depth is None:
+                os.environ.pop(_INSERTED_ROWS_POOL_DEPTH_ENV_VAR, None)
+            else:
+                os.environ[_INSERTED_ROWS_POOL_DEPTH_ENV_VAR] = str(pool_depth)
+            self.execute_ssd_cache_pipeline_(**kwargs)
+
+        if pool_depth is None:
+            self.assertFalse(any(reused))
+            return 0
+        if kwargs["L"] == 0:
+            return 0
+        self.assertGreater(len(reused), pool_depth)
+        tbe = tbes[0]
+        self.assertEqual(tbe._inserted_rows_pool_depth, pool_depth)
+        self.assertEqual(len(tbe._inserted_rows_pool), pool_depth)
+        self.assertEqual(tbe._inserted_rows_pool_fallback_count, 0)
+        # Every slot exists after the first pass, so a later fresh pad is a
+        # grown slot.
+        growths = reused[pool_depth:].count(False)
+        if not kwargs.get("mixed_B", False):
+            self.assertEqual(growths, 0)
+        return growths
+
+    def _execute_ssd_cache_prefetch_workflow_(
+        self,
+        optimizer: OptimType,
+        pool_depth: int,
+        uvm_host_mapped: bool,
+        m1_dtype: SparseType,
+        m2_dtype: SparseType,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Shared body of the prefetch workflow tests. Every example runs twice
+        on the same inputs: first the shipped default (rowwise Adagrad,
+        managed pads, pool off), then with the pool at the sampled depth, pad
+        type and optimizer. Inputs the Adam family cannot check (see
+        `_adam_family_supports_`) run the pooled pass with rowwise Adagrad.
+        """
+        self._assume_supported_inputs_(**kwargs)
+        note("default pass")
+        self._execute_ssd_cache_pipeline_with_pool_(
+            pool_depth=None, flush_location=None, **kwargs
+        )
+        if optimizer != OptimType.EXACT_ROWWISE_ADAGRAD and (
+            not self._adam_family_supports_(**kwargs)
+        ):
+            optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
+        note(f"pooled pass: {optimizer=}")
+        self._execute_ssd_cache_pipeline_with_pool_(
+            pool_depth=pool_depth,
+            uvm_host_mapped=uvm_host_mapped,
+            optimizer=optimizer,
+            optimizer_state_dtypes=(
+                None
+                if optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+                else {"momentum1": m1_dtype, "momentum2": m2_dtype}
+            ),
             flush_location=None,
+            **kwargs,
+        )
+
+    def _assume_supported_inputs_(self, **kwargs: Any) -> None:
+        """
+        Skip the Hypothesis inputs that `execute_ssd_cache_pipeline_` does not
+        support.
+        """
+        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
+        assume(not kwargs["mixed_B"] or kwargs["pooling_mode"] != PoolingMode.NONE)
+
+    @staticmethod
+    def _adam_family_supports_(**kwargs: Any) -> bool:
+        """
+        Whether Adam and partial rowwise Adam can run on these inputs and be
+        checked against the reference. VBE is not supported for the Adam
+        family. The bounds-check trigger sends about half of the indices to
+        row 0, whose gradient then sums ~1000 terms; where that sum nearly
+        cancels, Adam's elementwise update amplifies the FP32
+        summation-order difference between the TBE and the reference beyond
+        the tolerance. Rowwise Adagrad covers both.
+        """
+        return not kwargs["mixed_B"] and not kwargs["trigger_bounds_check"]
+
+    def _execute_ssd_cache_pipeline_pooled_matrix_(
+        self,
+        optimizer: OptimType,
+        state_dtypes: tuple[SparseType, ...],
+        **kwargs: Any,
+    ) -> None:
+        """
+        fwd(i) -> pf(i+1) -> bwd(i) with the inserted_rows pad pool, on a
+        Hypothesis-drawn shape and dtypes, for every combination of the
+        settings the pool depends on: pooling off, the minimum depth 3 and
+        depth 4; managed and host-mapped pads; one stream and a separate
+        prefetch stream (the early sp_evict fence); a 1-set cache (conflict
+        misses) and an ample one (cold misses only); each momentum dtype in
+        `state_dtypes`; and, for rowwise Adagrad, a fixed batch shape and
+        variable batch sizes (VBE, run with SUM pooling where NONE was
+        drawn). With a fixed batch shape pooled pads must be reused; across
+        the VBE runs some pooled slot must grow. L > 0 so that every prefetch
+        acquires a pad.
+        """
+        assume(kwargs["L"] > 0)
+        self._assume_supported_inputs_(mixed_B=False, **kwargs)
+        if optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+            mixed_Bs: tuple[bool, ...] = (False, True)
+        else:
+            # The Adam family runs without VBE (see _adam_family_supports_).
+            assume(self._adam_family_supports_(mixed_B=False, **kwargs))
+            mixed_Bs = (False,)
+        pooling_mode = kwargs.pop("pooling_mode")
+        vbe_growths = 0
+        for (
+            pool_depth,
+            uvm_host_mapped,
+            use_prefetch_stream,
+            cache_set_scale,
+            state_dtype,
+            mixed_B,
+        ) in itertools.product(
+            (None, 3, 4),
+            (False, True),
+            (False, True),
+            (0.0, 1.0),
+            state_dtypes,
+            mixed_Bs,
+        ):
+            note(
+                f"{pool_depth=} {uvm_host_mapped=} {use_prefetch_stream=} "
+                f"{cache_set_scale=} {state_dtype=} {mixed_B=}"
+            )
+            growths = self._execute_ssd_cache_pipeline_with_pool_(
+                pool_depth=pool_depth,
+                optimizer=optimizer,
+                optimizer_state_dtypes=(
+                    None
+                    if optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+                    else {"momentum1": state_dtype, "momentum2": state_dtype}
+                ),
+                uvm_host_mapped=uvm_host_mapped,
+                use_prefetch_stream=use_prefetch_stream,
+                cache_set_scale=cache_set_scale,
+                mixed_B=mixed_B,
+                pooling_mode=(
+                    PoolingMode.SUM
+                    if mixed_B and pooling_mode == PoolingMode.NONE
+                    else pooling_mode
+                ),
+                prefetch_pipeline=True,
+                explicit_prefetch=True,
+                prefetch_location=PrefetchLocation.BETWEEN_FWD_BWD,
+                flush_location=None,
+                **kwargs,
+            )
+            if mixed_B:
+                vbe_growths += growths
+        if True in mixed_Bs:
+            self.assertGreater(
+                vbe_growths,
+                0,
+                "No pooled slot grew in the VBE runs. Pads are allocated at the "
+                "requested size and VBE draws new batch sizes every iteration, "
+                "so some slot should grow; update this check if pads get "
+                "headroom or the VBE inputs stop varying.",
+            )
+
+    @given(**_MATRIX_STRATEGIES)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=_MAX_POOL_MATRIX_EXAMPLES,
+        deadline=None,
+    )
+    def test_ssd_cache_pipeline_pooled_pads_matrix_rowwise_adagrad(
+        self, **kwargs: Any
+    ) -> None:
+        # Rowwise Adagrad keeps its momentum in FP32.
+        self._execute_ssd_cache_pipeline_pooled_matrix_(
+            OptimType.EXACT_ROWWISE_ADAGRAD, (SparseType.FP32,), **kwargs
+        )
+
+    @given(**_MATRIX_STRATEGIES)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=_MAX_POOL_MATRIX_EXAMPLES,
+        deadline=None,
+    )
+    def test_ssd_cache_pipeline_pooled_pads_matrix_adam(self, **kwargs: Any) -> None:
+        self._execute_ssd_cache_pipeline_pooled_matrix_(
+            OptimType.ADAM, (SparseType.FP32, SparseType.BF16), **kwargs
+        )
+
+    @given(**_MATRIX_STRATEGIES)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=_MAX_POOL_MATRIX_EXAMPLES,
+        deadline=None,
+    )
+    def test_ssd_cache_pipeline_pooled_pads_matrix_partial_rowwise_adam(
+        self, **kwargs: Any
+    ) -> None:
+        self._execute_ssd_cache_pipeline_pooled_matrix_(
+            OptimType.PARTIAL_ROWWISE_ADAM,
+            (SparseType.FP32, SparseType.BF16),
             **kwargs,
         )
 
@@ -2213,3 +2564,584 @@ class SSDSplitTableBatchedEmbeddingsTest(SSDSplitTableBatchedEmbeddingsTestCommo
         # (the CV-based fill queue must properly notify on stop)
         del emb
         torch.cuda.synchronize()
+
+
+@unittest.skipIf(*running_in_oss)
+@unittest.skipIf(*gpu_unavailable)
+class InsertedRowsScratchPoolTest(SSDSplitTableBatchedEmbeddingsTestCommon):
+    def _generate_ssd_emb(self) -> SSDTableBatchedEmbeddingBags:
+        emb, _ = self.generate_ssd_tbes(
+            2,  # T
+            8,  # D
+            4,  # B
+            4,  # log_E
+            4,  # L
+            False,  # weighted
+            optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+        )
+        return emb
+
+    def test_pool_depth_from_env_parsing(self) -> None:
+        cases = [
+            ("4", 4),
+            ("3", 3),
+            ("100", 100),
+            ("2", None),
+            ("1", None),
+            ("0", None),
+            ("-3", None),
+            ("abc", None),
+            ("4.5", None),
+            ("", None),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: raw}):
+                    self.assertEqual(_inserted_rows_pool_depth_from_env(), expected)
+        with patch.dict(os.environ):
+            os.environ.pop(_INSERTED_ROWS_POOL_DEPTH_ENV_VAR, None)
+            self.assertIsNone(_inserted_rows_pool_depth_from_env())
+
+    def test_pool_env_unset_uses_fresh_pads(self) -> None:
+        with patch.dict(os.environ):
+            os.environ.pop(_INSERTED_ROWS_POOL_DEPTH_ENV_VAR, None)
+            emb = self._generate_ssd_emb()
+        self.assertTrue(emb.training)
+        self.assertIsNone(emb._inserted_rows_pool_depth)
+        n = 16
+        p1, r1 = emb._get_inserted_rows_scratch(n)
+        p2, r2 = emb._get_inserted_rows_scratch(n)
+        self.assertFalse(r1)
+        self.assertFalse(r2)
+        self.assertNotEqual(
+            p1.untyped_storage().data_ptr(), p2.untyped_storage().data_ptr()
+        )
+        self.assertEqual(len(emb._inserted_rows_pool), 0)
+        self.assertEqual(emb._inserted_rows_pool_fallback_count, 0)
+
+    def test_pool_env_invalid_uses_fresh_pads(self) -> None:
+        for raw in ("1", "2", "abc"):
+            with self.subTest(raw=raw):
+                with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: raw}):
+                    emb = self._generate_ssd_emb()
+                self.assertIsNone(emb._inserted_rows_pool_depth)
+                n = 16
+                p1, r1 = emb._get_inserted_rows_scratch(n)
+                p2, r2 = emb._get_inserted_rows_scratch(n)
+                self.assertFalse(r1)
+                self.assertFalse(r2)
+                self.assertNotEqual(
+                    p1.untyped_storage().data_ptr(),
+                    p2.untyped_storage().data_ptr(),
+                )
+                self.assertEqual(len(emb._inserted_rows_pool), 0)
+
+    def test_pool_depth_three_rotor(self) -> None:
+        with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: "3"}):
+            emb = self._generate_ssd_emb()
+        self.assertEqual(emb._inserted_rows_pool_depth, 3)
+        n = 16
+        got = [emb._get_inserted_rows_scratch(n) for _ in range(7)]
+        pads = [p for (p, _) in got]
+        # First pass fills the slots (fresh), then every slot is reused.
+        self.assertEqual([r for (_, r) in got], [False] * 3 + [True] * 4)
+        for i in range(4):
+            self.assertEqual(
+                pads[i].untyped_storage().data_ptr(),
+                pads[i + 3].untyped_storage().data_ptr(),
+            )
+        self.assertEqual(len(emb._inserted_rows_pool), 3)
+
+    def test_pool_rotor_growth_empty_and_eval(self) -> None:
+        # Rotor semantics of _get_inserted_rows_scratch: same-slot storage
+        # is reused every depth iters, growth replaces the slot, empty
+        # requests are safe, and eval always takes a fresh pad (no fence).
+        depth = 4
+        with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: str(depth)}):
+            emb = self._generate_ssd_emb()
+        self.assertTrue(emb.training)
+        self.assertEqual(emb._inserted_rows_pool_depth, depth)
+        n = 16
+        got = [emb._get_inserted_rows_scratch(n) for _ in range(depth * 2 + 1)]
+        pads = [p for (p, _) in got]
+        self.assertEqual([r for (_, r) in got], [False] * depth + [True] * (depth + 1))
+        for p in pads:
+            self.assertEqual(p.shape, (n, emb.cache_row_dim))
+        for i in range(depth + 1):
+            self.assertEqual(
+                pads[i].untyped_storage().data_ptr(),
+                pads[i + depth].untyped_storage().data_ptr(),
+            )
+        # Growth replaces the slot with an exact-size pad.
+        big, big_reused = emb._get_inserted_rows_scratch(n * 4)
+        self.assertFalse(big_reused)
+        self.assertEqual(big.shape, (n * 4, emb.cache_row_dim))
+        # Empty requests are safe.
+        empty, empty_reused = emb._get_inserted_rows_scratch(0)
+        self.assertEqual(empty.numel(), 0)
+        # A zero-row narrow still aliases pooled storage.
+        self.assertTrue(empty_reused)
+        # Eval bypasses the pool: fresh storage every call.
+        emb.eval()
+        e1, re1 = emb._get_inserted_rows_scratch(n)
+        e2, re2 = emb._get_inserted_rows_scratch(n)
+        self.assertFalse(re1)
+        self.assertFalse(re2)
+        self.assertNotEqual(
+            e1.untyped_storage().data_ptr(), e2.untyped_storage().data_ptr()
+        )
+        self.assertEqual(len(emb._inserted_rows_pool), depth)
+
+    def _generate_pipeline_ssd_tbes(
+        self, depth: str = "3"
+    ) -> tuple[SSDTableBatchedEmbeddingBags, list[torch.nn.EmbeddingBag]]:
+        with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: depth}):
+            emb, emb_ref = self.generate_ssd_tbes(
+                2,  # T
+                8,  # D
+                4,  # B
+                4,  # log_E
+                4,  # L
+                False,  # weighted
+                optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+                stochastic_rounding=False,
+                prefetch_pipeline=True,
+            )
+        return (emb, emb_ref)
+
+    def test_pool_reuse_gated_fence_and_later_wait(self) -> None:
+        # The early sp_evict fence fires only when the acquired pad is
+        # actually reused: a reused pad's lookup write must have a
+        # preceding wait in the same prefetch, while a fresh pad's lookup
+        # must overlap the previous eviction (no preceding wait) and take
+        # the later fence instead. The loop runs canonical pipeline order
+        # (prefetch_0 primes the queue, then forward_i -> prefetch_{i+1}
+        # -> backward_i), so retention FIFOs hold live entries and the
+        # pre-backward pointer repair runs while the next prefetch
+        # overlaps, as in production. Slots still fill fresh (prefetches
+        # 0-2), then reuse (prefetches 3+). Distinct batches keep cold
+        # misses flowing so every prefetch acquires a pad and prefetches
+        # >= 1 enter the lookup block.
+        emb, _ = self._generate_pipeline_ssd_tbes(depth="3")
+        # The pool must actually be armed or every assertion below is vacuous.
+        self.assertEqual(emb._inserted_rows_pool_depth, 3)
+        Es = [emb.embedding_specs[t][0] for t in range(2)]
+        batches = [
+            self.generate_inputs_(4, 4, Es, emb.feature_table_map) for _ in range(7)
+        ]
+        prefetch_stream = torch.cuda.Stream()
+        forward_stream = torch.cuda.current_stream()
+        # Per-prefetch segments keyed by prefetch index: ordering is
+        # checked WITHIN the same prefetch (a global timeline would let
+        # prefetch 0's wait mask prefetch 1's misordering). acquisitions
+        # records the reuse flag per pad.
+        timeline: list[tuple[int, str, int]] = []
+        acquisitions: list[tuple[int, bool, int]] = []
+        it = 0
+        orig_wait = torch.cuda.Stream.wait_event
+        orig_mis = torch.ops.fbgemm.masked_index_select
+        orig_get = SSDTableBatchedEmbeddingBags._get_inserted_rows_scratch
+
+        def wait_spy(
+            stream: torch.cuda.Stream,
+            event: torch.cuda.Event,
+            *args: Any,
+            **kwargs: Any,
+        ) -> None:
+            if event is emb.ssd_event_sp_evict:
+                timeline.append((it, "wait_sp_evict", 0))
+            return orig_wait(stream, event, *args, **kwargs)
+
+        def mis_spy(*args: Any, **kwargs: Any) -> Any:
+            timeline.append((it, "mis", args[0].untyped_storage().data_ptr()))
+            return orig_mis(*args, **kwargs)
+
+        def get_spy(self_: Any, num_rows: int) -> tuple[torch.Tensor, bool]:
+            pad, reused = orig_get(self_, num_rows)
+            acquisitions.append((it, reused, pad.untyped_storage().data_ptr()))
+            return pad, reused
+
+        # Unpacked once: the pipelined loop consumes batch i's inputs for
+        # forward/backward and batch i+1's for the overlapped prefetch.
+        unpacked = [
+            (indices, offsets, batch_size_per_feature_per_rank)
+            for (
+                _,
+                _,
+                indices,
+                offsets,
+                _,
+                batch_size_per_feature_per_rank,
+            ) in batches
+        ]
+
+        def do_prefetch(j: int) -> None:
+            nonlocal it
+            it = j
+            timeline.append((j, "prefetch_begin", 0))
+            indices, offsets, batch_size_per_feature_per_rank = unpacked[j]
+            with torch.cuda.stream(prefetch_stream):
+                emb.prefetch(
+                    indices,
+                    offsets,
+                    forward_stream=forward_stream,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                )
+
+        with (
+            patch.object(torch.cuda.Stream, "wait_event", wait_spy),
+            patch("torch.ops.fbgemm.masked_index_select", mis_spy),
+            patch.object(
+                SSDTableBatchedEmbeddingBags, "_get_inserted_rows_scratch", get_spy
+            ),
+        ):
+            do_prefetch(0)
+            for i in range(len(batches) - 1):
+                it = i
+                timeline.append((i, "iter_begin", 0))
+                indices, offsets, batch_size_per_feature_per_rank = unpacked[i]
+                # Order forward behind prefetch, as the canonical pipeline
+                # harness does: forward itself never waits on the prefetch
+                # stream (only the pre-backward hook does), so without this
+                # edge forward can read lxu_cache_ptrs/pad contents before
+                # this prefetch is done. Per-iter UVA frees used to mask the
+                # gap via their implicit device sync; with pads pooled, the
+                # edge is required.
+                forward_stream.wait_stream(prefetch_stream)
+                output = emb(
+                    indices,
+                    offsets,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                )
+                do_prefetch(i + 1)
+                it = i
+                output.backward(torch.randn_like(output))
+            torch.cuda.synchronize()
+
+        # Loud if fencing was never reached at all.
+        self.assertTrue(len(acquisitions) > 0)
+        self.assertTrue(any(kind == "wait_sp_evict" for (_, kind, _) in timeline))
+        fresh_seen = 0
+        reused_seen = 0
+        for t, reused, ptr in acquisitions:
+            writes = [
+                i
+                for (i, (t2, kind, p)) in enumerate(timeline)
+                if t2 == t and kind == "mis" and p == ptr
+            ]
+            if not writes:
+                continue  # prefetch 0: no lookup block yet, nothing to order.
+            first_write = writes[0]
+            waits = [
+                i
+                for (i, (t2, kind, _)) in enumerate(timeline)
+                if t2 == t and kind == "wait_sp_evict"
+            ]
+            if reused:
+                reused_seen += 1
+                self.assertTrue(
+                    any(w < first_write for w in waits),
+                    f"prefetch {t}: reused-pad lookup write"
+                    " has no preceding sp_evict wait in the same prefetch",
+                )
+            else:
+                fresh_seen += 1
+                self.assertFalse(
+                    any(w < first_write for w in waits),
+                    f"prefetch {t}: fresh-pad lookup write"
+                    " has an early sp_evict wait: overlap lost",
+                )
+                self.assertTrue(
+                    any(w > first_write for w in waits),
+                    f"prefetch {t}: fresh-pad lookup write"
+                    " has no later sp_evict wait in the same prefetch",
+                )
+        # Both directions must actually be exercised.
+        self.assertGreater(fresh_seen, 0)
+        self.assertGreater(reused_seen, 0)
+        emb.flush()
+
+    def test_pool_kvzch_uses_fresh_pads(self) -> None:
+        # Pooling is limited to non-ZCH TBEs on the SSD backend: KVZCH
+        # tables, with or without embedding cache mode (where sp_evict is
+        # never recorded), always take a fresh pad even when opted in.
+        # NB: no optimizer kwarg: embedding cache mode requires the
+        # default EXACT_ROWWISE_ADAGRAD (constructor assert).
+        for embedding_cache_mode in (False, True):
+            with self.subTest(embedding_cache_mode=embedding_cache_mode):
+                with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: "4"}):
+                    emb, _, _, _, _, _ = self.generate_kvzch_tbes(
+                        2,  # T
+                        8,  # D
+                        4,  # B
+                        4,  # log_E
+                        4,  # L
+                        False,  # weighted
+                        embedding_cache_mode=embedding_cache_mode,
+                    )
+                self.assertTrue(emb.training)
+                self.assertEqual(emb._embedding_cache_mode, embedding_cache_mode)
+                self.assertEqual(emb._inserted_rows_pool_depth, 4)
+                n = 16
+                got = [emb._get_inserted_rows_scratch(n) for _ in range(5)]
+                pads = [p for (p, _) in got]
+                self.assertEqual([r for (_, r) in got], [False] * 5)
+                # The same slot after `depth` acquisitions must not alias:
+                # every call is a fresh pad.
+                self.assertNotEqual(
+                    pads[0].untyped_storage().data_ptr(),
+                    pads[4].untyped_storage().data_ptr(),
+                )
+                self.assertEqual(len(emb._inserted_rows_pool), 0)
+
+    def test_pool_pipeline_cache_routes_to_ring(self) -> None:
+        # Routing lock: pipeline + cache mode must keep using the ring,
+        # never the new pool.
+        with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: "3"}):
+            (
+                emb,
+                _,
+                Es,
+                _,
+                bucket_offsets,
+                bucket_sizes,
+            ) = self.generate_kvzch_tbes(
+                2,  # T
+                8,  # D
+                4,  # B
+                4,  # log_E
+                4,  # L
+                False,  # weighted
+                # NB: default optimizer: cache mode rejects PARTIAL_ROWWISE_ADAM.
+                prefetch_pipeline=True,
+                embedding_cache_mode=True,
+            )
+        # Env opted in: the ring, not the pool, must still serve
+        # pipeline + cache mode.
+        self.assertEqual(emb._inserted_rows_pool_depth, 3)
+        batches = [
+            self.generate_inputs_(
+                4,
+                4,
+                Es,
+                emb.feature_table_map,
+                bucket_offsets=bucket_offsets,
+                bucket_sizes=bucket_sizes,
+                is_kv_tbes=True,
+            )
+            for _ in range(3)
+        ]
+        ring_calls: list[int] = []
+        orig_ring = SSDTableBatchedEmbeddingBags._get_scratch_pad
+
+        def ring_spy(self_: Any, *args: Any, **kwargs: Any) -> Any:
+            ring_calls.append(1)
+            return orig_ring(self_, *args, **kwargs)
+
+        with patch.object(SSDTableBatchedEmbeddingBags, "_get_scratch_pad", ring_spy):
+            for batch in batches:
+                (
+                    _,
+                    _,
+                    indices,
+                    offsets,
+                    _,
+                    batch_size_per_feature_per_rank,
+                ) = batch
+                emb.prefetch(
+                    indices,
+                    offsets,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                )
+            torch.cuda.synchronize()
+        self.assertTrue(len(ring_calls) > 0)
+        self.assertEqual(len(emb._inserted_rows_pool), 0)
+
+    def test_pool_no_grad_uses_fresh_pads(self) -> None:
+        # self.training does not imply grad mode; a no_grad
+        # forward has no bwd-hook drain, so it must not pool.
+        with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: "4"}):
+            emb = self._generate_ssd_emb()
+        self.assertTrue(emb.training)
+        self.assertEqual(emb._inserted_rows_pool_depth, 4)
+        n = 16
+        with torch.no_grad():
+            got = [emb._get_inserted_rows_scratch(n) for _ in range(5)]
+        pads = [p for (p, _) in got]
+        self.assertEqual([r for (_, r) in got], [False] * 5)
+        # Same slot after `depth` acquisitions must NOT alias: pre-fix it
+        # does (pooled reuse), post-fix every call is a fresh pad.
+        self.assertNotEqual(
+            pads[0].untyped_storage().data_ptr(),
+            pads[4].untyped_storage().data_ptr(),
+        )
+        self.assertEqual(len(emb._inserted_rows_pool), 0)
+
+    def test_pool_lag_retained_slots_use_fresh_pads(self) -> None:
+        # No_grad forwards in train mode append retention
+        # entries no backward ever drains; resumed training must not
+        # reuse a slot still held by the eviction FIFO. Raw forwards are
+        # used (no ref comparison): lagged FIFO drains desync outputs
+        # from the ref by design, in base behavior as well.
+        with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: "3"}):
+            emb, _ = self.generate_ssd_tbes(
+                2,  # T
+                8,  # D
+                4,  # B
+                4,  # log_E
+                4,  # L
+                False,  # weighted
+                optimizer=OptimType.PARTIAL_ROWWISE_ADAM,
+                stochastic_rounding=False,
+            )
+        # Pool armed: without the opt-in, every acquisition is fresh and
+        # `violations == 0` below would pass vacuously pre-fix.
+        self.assertEqual(emb._inserted_rows_pool_depth, 3)
+        Es = [emb.embedding_specs[t][0] for t in range(2)]
+        batches = [
+            self.generate_inputs_(4, 4, Es, emb.feature_table_map) for _ in range(8)
+        ]
+        for batch in batches[:3]:
+            (
+                _,
+                _,
+                indices,
+                offsets,
+                _,
+                batch_size_per_feature_per_rank,
+            ) = batch
+            emb.prefetch(
+                indices,
+                offsets,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
+            with torch.no_grad():
+                emb(
+                    indices,
+                    offsets,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                )
+        # Lag is real: three undrained retention entries.
+        self.assertEqual(len(emb.ssd_scratch_pad_eviction_data), 3)
+        acquired: list[tuple[int, bool]] = []
+        orig_get = SSDTableBatchedEmbeddingBags._get_inserted_rows_scratch
+
+        def get_spy(self_: Any, num_rows: int) -> tuple[torch.Tensor, bool]:
+            pad, reused = orig_get(self_, num_rows)
+            acquired.append((pad.untyped_storage().data_ptr(), reused))
+            return pad, reused
+
+        violations = 0
+        observed = 0
+        fresh_fallbacks = 0
+        with patch.object(
+            SSDTableBatchedEmbeddingBags, "_get_inserted_rows_scratch", get_spy
+        ), self.assertLogs(level="WARNING") as logs:
+            for batch in batches[3:]:
+                (
+                    _,
+                    _,
+                    indices,
+                    offsets,
+                    _,
+                    batch_size_per_feature_per_rank,
+                ) = batch
+                fifo_before = {
+                    entry[0].untyped_storage().data_ptr()
+                    for entry in emb.ssd_scratch_pad_eviction_data
+                }
+                before = len(acquired)
+                emb.prefetch(
+                    indices,
+                    offsets,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                )
+                if len(acquired) > before:
+                    observed += 1
+                    ptr, reused = acquired[-1]
+                    if ptr in fifo_before:
+                        violations += 1
+                    pooled_ptrs = {
+                        buf.untyped_storage().data_ptr()
+                        for buf in emb._inserted_rows_pool
+                    }
+                    if ptr not in pooled_ptrs:
+                        # Fresh pad while the pool is armed: this setup only
+                        # reaches it via the retained-slot fallback (fills
+                        # are appended to the pool above), which must report
+                        # reused=False so the pad skips the early fence and
+                        # keeps the later one.
+                        fresh_fallbacks += 1
+                        self.assertFalse(reused)
+                output = emb(
+                    indices,
+                    offsets,
+                    batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+                )
+                output.backward(torch.randn_like(output))
+        self.assertGreaterEqual(observed, 3)
+        self.assertEqual(violations, 0)
+        self.assertGreater(fresh_fallbacks, 0)
+        self.assertEqual(emb._inserted_rows_pool_fallback_count, fresh_fallbacks)
+        fallback_warnings = [
+            r for r in logs.records if "_inserted_rows_pool_fallback_count" in r.msg
+        ]
+        self.assertEqual(len(fallback_warnings), 1)
+        emb.flush()
+
+    def test_pool_growth_while_slot_retained(self) -> None:
+        # A slot that must grow while a retention FIFO still holds its old
+        # buffer (no_grad forwards in train mode leave the entries undrained,
+        # then a larger batch arrives) gets a new, larger buffer: reused=False
+        # so it keeps the later fence, it is not a retained-slot fallback, and
+        # the old buffer stays with its FIFO entry for the pending evict.
+        with patch.dict(os.environ, {_INSERTED_ROWS_POOL_DEPTH_ENV_VAR: "3"}):
+            emb = self._generate_ssd_emb()
+        self.assertEqual(emb._inserted_rows_pool_depth, 3)
+        Es = [emb.embedding_specs[t][0] for t in range(2)]
+
+        def fifo_ptrs() -> set[int]:
+            return {
+                entry[0].untyped_storage().data_ptr()
+                for entry in emb.ssd_scratch_pad_eviction_data
+            }
+
+        for _ in range(3):
+            _, _, indices, offsets, _, _ = self.generate_inputs_(
+                4, 4, Es, emb.feature_table_map
+            )
+            emb.prefetch(indices, offsets)
+            with torch.no_grad():
+                emb(indices, offsets)
+        old_pad = emb._inserted_rows_pool[0]
+        old_ptr = old_pad.untyped_storage().data_ptr()
+        self.assertIn(old_ptr, fifo_ptrs())
+
+        acquired: list[tuple[int, int, bool]] = []
+        orig_get = SSDTableBatchedEmbeddingBags._get_inserted_rows_scratch
+
+        def get_spy(self_: Any, num_rows: int) -> tuple[torch.Tensor, bool]:
+            pad, reused = orig_get(self_, num_rows)
+            acquired.append((num_rows, pad.untyped_storage().data_ptr(), reused))
+            return pad, reused
+
+        _, _, indices, offsets, _, _ = self.generate_inputs_(
+            8, 4, Es, emb.feature_table_map
+        )
+        with patch.object(
+            SSDTableBatchedEmbeddingBags, "_get_inserted_rows_scratch", get_spy
+        ):
+            emb.prefetch(indices, offsets)
+        self.assertEqual(len(acquired), 1)
+        num_rows, ptr, reused = acquired[0]
+        self.assertGreater(num_rows, old_pad.size(0))
+        self.assertFalse(reused)
+        self.assertNotEqual(ptr, old_ptr)
+        new_pad = emb._inserted_rows_pool[0]
+        self.assertEqual(new_pad.untyped_storage().data_ptr(), ptr)
+        self.assertEqual(new_pad.size(0), num_rows)
+        self.assertIn(old_ptr, fifo_ptrs())
+        self.assertEqual(emb._inserted_rows_pool_fallback_count, 0)
+        with torch.no_grad():
+            emb(indices, offsets)
+        emb.flush()
