@@ -524,11 +524,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         configurations depend on the plugin and FBGEMM's
                         frontend restrictions.
 
-        feature_table_map (list[int] | None = None): An optional list that
+        feature_table_map (list[int] | None):
+            An optional list that
             specifies feature-table mapping. feature_table_map[i] indicates the
             physical embedding table that feature i maps to.
 
-        cache_algorithm (CacheAlgorithm = CacheAlgorithm.LRU): The cache
+            Defaults to ``None``.
+
+        cache_algorithm (CacheAlgorithm):
+            The cache
             algorithm (used when `EmbeddingLocation` is set to
             `MANAGED_CACHING`).  Options are
 
@@ -536,33 +540,57 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (2) `LFU` = least frequently used
 
-        cache_load_factor (float = 0.2): A factor used for determining the
+            Defaults to ``CacheAlgorithm.LRU``.
+
+        cache_load_factor (float):
+            A factor used for determining the
             cache capacity when `EmbeddingLocation.MANAGED_CACHING` is used.
             The cache capacity is `cache_load_factor` * the total number of
             rows in all embedding tables
 
-        cache_sets (int = 0): The number of cache sets (used when
+            Defaults to ``0.2``.
+
+        cache_sets (int):
+            The number of cache sets (used when
             `EmbeddingLocation` is set to `MANAGED_CACHING`)
 
-        cache_reserved_memory (float = 0.0): The amount of memory reserved in
+            Defaults to ``0``.
+
+        cache_reserved_memory (float):
+            The amount of memory reserved in
             HBM for non-cache purpose (used when `EmbeddingLocation` is set to
             `MANAGED_CACHING`).
 
-        cache_precision (SparseType = SparseType.FP32): The data type of the
+            Defaults to ``0.0``.
+
+        cache_precision (SparseType):
+            The data type of the
             cache (used when `EmbeddingLocation` is set to `MANAGED_CACHING`).
             Options are `SparseType.FP32` and `SparseType.FP16`
 
-        weights_precision (SparseType = SparseType.FP32): The data type of
+            Defaults to ``SparseType.FP32``.
+
+        weights_precision (SparseType):
+            The data type of
             embedding tables (also known as weights). Options are
             `SparseType.FP32` and `SparseType.FP16`
 
-        output_dtype (SparseType = SparseType.FP32): The data type of an output
+            Defaults to ``SparseType.FP32``.
+
+        output_dtype (SparseType):
+            The data type of an output
             tensor. Options are `SparseType.FP32` and `SparseType.FP16`
 
-        enforce_hbm (bool = False): If True, place all weights/momentums in HBM
+            Defaults to ``SparseType.FP32``.
+
+        enforce_hbm (bool):
+            If True, place all weights/momentums in HBM
             when using `EmbeddingLocation.MANAGED_CACHING`
 
-        optimizer (OptimType = OptimType.EXACT_SGD): An optimizer to use for
+            Defaults to ``False``.
+
+        optimizer (OptimType):
+            An optimizer to use for
             embedding table update in the backward pass.  Available `OptimType`
             options are
 
@@ -589,34 +617,64 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             (11) `NONE` = Not applying an optimizer update in the backward pass
                 and outputting a sparse weight gradient
 
-        record_cache_metrics (RecordCacheMetrics | None = None): Record
+            Defaults to ``OptimType.EXACT_SGD``.
+
+        record_cache_metrics (RecordCacheMetrics | None):
+            Record
             a number of hits, a number of requests, etc if
             `RecordCacheMetrics.record_cache_miss_counter` is True and record
             the similar metrics table-wise if
             `RecordCacheMetrics.record_tablewise_cache_miss is True`
 
-        gather_uvm_cache_stats (bool | None = False): If True, collect the
+            Defaults to ``None``.
+
+        gather_uvm_cache_stats (bool | None):
+            If True, collect the
             cache statistics when `EmbeddingLocation` is set to
             `MANAGED_CACHING`
 
-        stochastic_rounding (bool = True): If True, apply stochastic rounding
+            Defaults to ``False``.
+
+        stochastic_rounding (bool):
+            If True, apply stochastic rounding
             for weight type that is not `SparseType.FP32`
 
-        gradient_clipping (bool = False): If True, apply gradient clipping
+            Defaults to ``True``.
 
-        max_gradient (float = 1.0): The value for gradient clipping
+        gradient_clipping (bool):
+            If True, apply gradient clipping
 
-        max_norm (float = 0.0): The max norm value
+            Defaults to ``False``.
 
-        learning_rate (float = 0.01): The learning rate
+        max_gradient (float):
+            The value for gradient clipping
 
-        eps (float = 1.0e-8): The epsilon value used by Adagrad, LAMB, and
+            Defaults to ``1.0``.
+
+        max_norm (float):
+            The max norm value
+
+            Defaults to ``0.0``.
+
+        learning_rate (float):
+            The learning rate
+
+            Defaults to ``0.01``.
+
+        eps (float):
+            The epsilon value used by Adagrad, LAMB, and
             Adam. Note that default is different from torch.nn.optim.Adagrad
             default of 1e-10
 
-        momentum (float = 0.9): Momentum used by LARS-SGD
+            Defaults to ``1.0e-8``.
 
-        weight_decay (float = 0.0): Weight decay used by LARS-SGD, LAMB, ADAM,
+        momentum (float):
+            Momentum used by LARS-SGD
+
+            Defaults to ``0.9``.
+
+        weight_decay (float):
+            Weight decay used by LARS-SGD, LAMB, ADAM,
             and rowwise-Adagrad.
 
             (1) EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay
@@ -627,29 +685,53 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             (3) EXACT_ROWWISE_ADAGRAD support both L2 and decoupled weight decay
                 (via weight_decay_mode)
 
-        weight_decay_mode (WeightDecayMode = WeightDecayMode.NONE): Weight decay
+            Defaults to ``0.0``.
+
+        weight_decay_mode (WeightDecayMode):
+            Weight decay
             mode. Options are `WeightDecayMode.NONE`, `WeightDecayMode.L2`,
             and `WeightDecayMode.DECOUPLE`
 
-        eta (float = 0.001): The eta value used by LARS-SGD
+            Defaults to ``WeightDecayMode.NONE``.
 
-        beta1 (float = 0.9): The beta1 value used by LAMB and ADAM
+        eta (float):
+            The eta value used by LARS-SGD
 
-        beta2 (float = 0.999): The beta2 value used by LAMB and ADAM
+            Defaults to ``0.001``.
 
-        ensemble_mode (EnsembleModeDefinition | None = None):
+        beta1 (float):
+            The beta1 value used by LAMB and ADAM
+
+            Defaults to ``0.9``.
+
+        beta2 (float):
+            The beta2 value used by LAMB and ADAM
+
+            Defaults to ``0.999``.
+
+        ensemble_mode (EnsembleModeDefinition | None):
             Used by Ensemble Rowwise Adagrad
 
-        emainplace_mode (EmainplaceModeDefinition | None = None):
+            Defaults to ``None``.
+
+        emainplace_mode (EmainplaceModeDefinition | None):
             Used by EMA in-place Rowwise Adagrad
 
-        counter_based_regularization (CounterBasedRegularizationDefinition | None = None):
+            Defaults to ``None``.
+
+        counter_based_regularization (CounterBasedRegularizationDefinition | None):
             Used by Rowwise Adagrad
 
-        cowclip_regularization (CowClipDefinition | None = None): Used by
+            Defaults to ``None``.
+
+        cowclip_regularization (CowClipDefinition | None):
+            Used by
             Rowwise Adagrad
 
-        pooling_mode (PoolingMode = PoolingMode.SUM): Pooling mode. Available
+            Defaults to ``None``.
+
+        pooling_mode (PoolingMode):
+            Pooling mode. Available
             `PoolingMode` options are
 
             (1) `SUM` = Sum pooling
@@ -658,10 +740,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (3) `NONE` = No pooling (sequence embedding)
 
-        device (str | int | torch.device | None = None): The current
+            Defaults to ``PoolingMode.SUM``.
+
+        device (str | int | torch.device | None):
+            The current
             device to place tensors on
 
-        bounds_check_mode (BoundsCheckMode = BoundsCheckMode.WARNING): Input
+            Defaults to ``None``.
+
+        bounds_check_mode (BoundsCheckMode):
+            Input
             checking mode. Available `BoundsCheckMode` options are
 
             (1) `NONE` = skip bounds check
@@ -680,69 +768,117 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             `WARNING_ALLOW_TRAILING_INDICES` is inference-only and is not
             supported by this training module.
 
-        uvm_non_rowwise_momentum (bool = False): If True, place non-rowwise
+            Defaults to ``BoundsCheckMode.WARNING``.
+
+        uvm_non_rowwise_momentum (bool):
+            If True, place non-rowwise
             momentum on the unified virtual memory
 
-        use_experimental_tbe (bool = False): If True, use an optimized TBE
+            Defaults to ``False``.
+
+        use_experimental_tbe (bool):
+            If True, use an optimized TBE
             implementation (TBE v2). Note that this is supported only on NVIDIA
             GPUs.
 
-        prefetch_pipeline (bool = False): If True, enable cache prefetch
+            Defaults to ``False``.
+
+        prefetch_pipeline (bool):
+            If True, enable cache prefetch
             pipeline when using `EmbeddingLocation.MANAGED_CACHING`. Currently
             only supports the LRU cache policy. If a separate stream is used
             for prefetch, the optional `forward_stream` arg of prefetch
             function must be set.
 
-        stats_reporter_config (TBEStatsReporterConfig | None = None):
+            Defaults to ``False``.
+
+        stats_reporter_config (TBEStatsReporterConfig | None):
             A config for TBE stats reporter
 
-        table_names (list[str] | None = None): A list of embedding table
+            Defaults to ``None``.
+
+        table_names (list[str] | None):
+            A list of embedding table
             names in this TBE
 
-        optimizer_state_dtypes (dict[str, SparseType] | None = None): A
+            Defaults to ``None``.
+
+        optimizer_state_dtypes (dict[str, SparseType] | None):
+            A
             optimizer state data types dict. Keys are the optimizer state names
             and values are their corresponding types
 
-        multipass_prefetch_config (MultiPassPrefetchConfig | None = None):
+            Defaults to ``None``.
+
+        multipass_prefetch_config (MultiPassPrefetchConfig | None):
             A config for multipass cache prefetching (when
             `EmbeddingLocation.MANAGED_CACHING` is used)
 
-        global_weight_decay (GlobalWeightDecayDefinition | None = None):
+            Defaults to ``None``.
+
+        global_weight_decay (GlobalWeightDecayDefinition | None):
             A config for global weight decay
 
-        uvm_host_mapped (bool = False): If True, allocate every UVM tensor
+            Defaults to ``None``.
+
+        uvm_host_mapped (bool):
+            If True, allocate every UVM tensor
             using `malloc` + `cudaHostRegister`. Otherwise use
             `cudaMallocManaged`
 
-        extra_optimizer_config UserEnabledConfigDefinition | None = None):
+            Defaults to ``False``.
+
+        extra_optimizer_config (UserEnabledConfigDefinition | None):
             An extra config to enable certain modes for optimizer. These modes
             are not enabled by default.
+
             - `use_rowwise_bias_correction` is used in Adam to enable rowwise
                 bias correction computation
 
-        embedding_table_index_type (torch.dtype = torch.int64): The data type of
+            Defaults to ``None``.
+
+        embedding_table_index_type (torch.dtype):
+            The data type of
             the embedding table index tensor. Options are `torch.int32` and
             `torch.int64`
 
-        embedding_table_offset_type (torch.dtype = torch.int64): The data type of
+            Defaults to ``torch.int64``.
+
+        embedding_table_offset_type (torch.dtype):
+            The data type of
             the embedding table offset tensor. Options are `torch.int32` and
             `torch.int64`
 
-        embedding_shard_info (list[tuple[int, int, int, int]] | None = None): the
+            Defaults to ``torch.int64``.
+
+        embedding_shard_info (list[tuple[int, int, int, int]] | None):
+            the
             information about shard position and pre-sharded table size. If not set,
             the table is not sharded.
             (preshard_table_height, preshard_table_dim, height_offset, dim_offset)
 
-        enable_raw_embedding_streaming (bool = False): Whether to enable raw
+            Defaults to ``None``.
+
+        enable_raw_embedding_streaming (bool):
+            Whether to enable raw
             embedding streaming (RES) for streaming embedding table data.
 
-        res_params (RESParams | None = None): Parameters for raw embedding
+            Defaults to ``False``.
+
+        res_params (RESParams | None):
+            Parameters for raw embedding
             streaming. If not provided and `enable_raw_embedding_streaming` is
             True, defaults to RESParams().
 
-        is_qr_tbe (bool = False): Whether this is a QRSplitTableBatchedEmbeddingBagsCodegen.
+            Defaults to ``None``.
 
-        weight_init_on_cpu (bool = False): If True, allocate the `weights_dev`
+        is_qr_tbe (bool):
+            Whether this is a QRSplitTableBatchedEmbeddingBagsCodegen.
+
+            Defaults to ``False``.
+
+        weight_init_on_cpu (bool):
+            If True, allocate the `weights_dev`
             buffer on CPU instead of the compute device. Everything else --
             optimizer state, the `weights_uvm` / `weights_host` buffers, and all
             offsets/placements metadata -- is unaffected and stays on the compute
@@ -779,6 +915,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                of initializing on CPU. In the TorchRec stack that step is
                `EmbeddingQuantizationUtils.quantize_embedding_modules(...,
                target_device=<compute device>)`.
+
+            Defaults to ``False``.
     """
 
     embedding_specs: list[tuple[int, int, EmbeddingLocation, ComputeDevice]]
