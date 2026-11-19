@@ -1902,19 +1902,25 @@ def matmul_fp8_row_meta(
     )
 
 
-# pruned some unreasonable config
+@triton.jit
+def _block_scale_index(pid, offsets, block: tl.constexpr, scale_block: tl.constexpr):
+    # Keep a single scale load for tiles aligned with the scale-block boundaries.
+    if scale_block % block == 0:
+        return pid * block // scale_block
+    else:
+        return offsets // scale_block
+
+
 def prune_configs_block(configs, named_args, **kwargs):
     configs = early_config_prune(configs, named_args, **kwargs)
     scale_block_k = named_args["scale_block_k"]
-    pruned_configs = []
-    # Further rule out configs with scale_block_k is not a multiple of BLOCK_K
-    for config in configs:
-        kw = config.kwargs
-        BLOCK_K = kw["BLOCK_K"]
-        if scale_block_k % BLOCK_K != 0:
-            continue
-        pruned_configs.append(config)
-    return pruned_configs
+    if named_args["K"] <= scale_block_k:
+        return configs
+    # Each dot product must stay within one K-scale block.
+    configs = [c for c in configs if scale_block_k % c.kwargs["BLOCK_K"] == 0]
+    if not configs:
+        raise ValueError(f"No matmul tile divides the K-scale block of {scale_block_k}")
+    return configs
 
 
 @triton.autotune(
@@ -1923,6 +1929,9 @@ def prune_configs_block(configs, named_args, **kwargs):
         "m_key",
         "n_key",
         "k_key",
+        "scale_block_m",
+        "scale_block_n",
+        "scale_block_k",
     ],  # TODO caller side bin keys so similar shapes can use same triton.autotune.
     prune_configs_by={
         "early_config_prune": prune_configs_block,
@@ -1981,8 +1990,6 @@ def _kernel_matmul_fp8_block_fastacc(
     [scale_block_n, scale_block_k] tiles
     respectively.
 
-    Todo:
-        * Support scale_block_{mnk} < BLOCK{MNK} for each dim.
     Args:
         A (TensorWrapper): [M, K] input tensor.
         B (TensorWrapper): [N, K] input tensor.
@@ -2019,9 +2026,6 @@ def _kernel_matmul_fp8_block_fastacc(
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
         AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
-    assert BLOCK_M < scale_block_m
-    assert BLOCK_N < scale_block_n
-    assert BLOCK_K < scale_block_k
     # matrix multiplication
     pid = tl.program_id(0)
     pid_z = tl.program_id(1)
@@ -2045,9 +2049,9 @@ def _kernel_matmul_fp8_block_fastacc(
     B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
     _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
-    scale_m = pid_m * BLOCK_M // scale_block_m
-    scale_n = pid_n * BLOCK_N // scale_block_n
-    k_multiple = scale_block_k // BLOCK_K
+    scale_m = _block_scale_index(pid_m, ram[:, None], BLOCK_M, scale_block_m)
+    scale_n = _block_scale_index(pid_n, rbn[None, :], BLOCK_N, scale_block_n)
+    k_multiple = tl.cdiv(scale_block_k, BLOCK_K)
 
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
 
@@ -2122,9 +2126,12 @@ def _kernel_matmul_fp8_block_fastacc(
         "m_key",
         "n_key",
         "k_key",
+        "scale_block_m",
+        "scale_block_n",
+        "scale_block_k",
     ],  # TODO caller side bin keys so similar shapes can use same triton.autotune.
     prune_configs_by={
-        "early_config_prune": early_config_prune,
+        "early_config_prune": prune_configs_block,
         **(
             {"perf_model": estimate_matmul_time, "top_k": 10}
             if not torch.version.hip
@@ -2180,8 +2187,6 @@ def _kernel_matmul_fp8_block_slowacc(
     [scale_block_n, scale_block_k] tiles
     respectively.
 
-    Todo:
-        * Support scale_block_{mnk} < BLOCK{MNK} for each dim.
     Args:
         A (TensorWrapper): [M, K] input tensor.
         B (TensorWrapper): [N, K] input tensor.
@@ -2218,9 +2223,6 @@ def _kernel_matmul_fp8_block_slowacc(
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
         AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
-    assert BLOCK_M < scale_block_m
-    assert BLOCK_N < scale_block_n
-    assert BLOCK_K < scale_block_k
     # matrix multiplication
     pid = tl.program_id(0)
     pid_z = tl.program_id(1)
@@ -2243,8 +2245,8 @@ def _kernel_matmul_fp8_block_slowacc(
     A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
     B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
-    scale_m = pid_m * BLOCK_M // scale_block_m
-    scale_n = pid_n * BLOCK_N // scale_block_n
+    scale_m = _block_scale_index(pid_m, ram[:, None], BLOCK_M, scale_block_m)
+    scale_n = _block_scale_index(pid_n, rbn[None, :], BLOCK_N, scale_block_n)
     _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
 
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
