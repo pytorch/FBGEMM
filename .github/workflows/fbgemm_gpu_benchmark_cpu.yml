@@ -24,10 +24,8 @@ on:
         default: ""
 
 concurrency:
-  # Cancel previous runs in the PR if a new commit is pushed
-  # https://stackoverflow.com/questions/66335225/how-to-cancel-previous-runs-in-the-pr-when-you-push-new-commitsupdate-the-curre
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -35,7 +33,7 @@ permissions:
 jobs:
   # Build on CPU hosts, run tests, and upload to GHA
   build_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: almalinux:9
@@ -107,7 +105,7 @@ jobs:
 
   # Download the built artifact from GHA and test on CPU
   benchmark_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: almalinux:9

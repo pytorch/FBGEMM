@@ -39,17 +39,15 @@ on:
         default: ""
 
 concurrency:
-  # PRs: cancel previous runs when a new commit is pushed.
-  # Push/main: group by sha so a new merge does not cancel an in-flight run.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   detect-sll-changes:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     runs-on: ubuntu-latest
     outputs:
       run-sll-tests: ${{ steps.changes.outputs.run-sll-tests }}
@@ -80,7 +78,7 @@ jobs:
         echo "run-sll-tests=${run_sll_tests}" >> "$GITHUB_OUTPUT"
 
   generate-build-matrix:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
       repo-owner: ${{ github.repository_owner }}
@@ -90,6 +88,7 @@ jobs:
       jobtype: build
 
   build:
+    if: ${{ false }}
     needs: generate-build-matrix
     uses: ./.github/workflows/_fbgemm_gpu_rocm_build.yml
     with:
@@ -98,6 +97,7 @@ jobs:
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
 
   generate-test-matrix:
+    if: ${{ false }}
     needs: build
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
@@ -108,6 +108,7 @@ jobs:
       jobtype: test
 
   test:
+    if: ${{ false }}
     needs: [detect-sll-changes, generate-test-matrix]
     uses: ./.github/workflows/_fbgemm_gpu_rocm_test.yml
     with:

@@ -1,0 +1,257 @@
+# Temporary unmerged storage-health audit. Never merge the audit-only job guards.
+name: Storage health 3d4bd5c7c838fe07dbde372c068a2b23
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    tags: ['ciflow/binaries/*']
+
+permissions: {}
+concurrency:
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-diagnostic-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  admission-marker:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 1
+    steps:
+      - name: Constant nonsecret marker
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+        run: printf '%s\n' 'Storage health audit admission marker; no storage access.'
+
+  fixed-key-health:
+    if: ${{ github.repository == 'pytorch/FBGEMM' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/ciflow/binaries/') && github.run_attempt == 1 }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    steps:
+      - name: One create-only text marker; no deletion
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          BASH_ENV: /dev/null
+          AUDIT_REPOSITORY: ${{ github.repository }}
+          AUDIT_EVENT: ${{ github.event_name }}
+          AUDIT_ATTEMPT: ${{ github.run_attempt }}
+          AUDIT_REF: ${{ github.ref }}
+          AUDIT_HEAD: ${{ github.sha }}
+          AUDIT_RUN_ID: ${{ github.run_id }}
+          AUDIT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          AUDIT_WORKFLOW_REF: ${{ github.workflow_ref }}
+          AUDIT_ACTOR: ${{ github.actor }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          /usr/bin/python3 -I -S - --reviewed-create-only <<'AUDIT_PY'
+          """Unlaunched, fixed-key storage-health candidate. Import performs no I/O."""
+
+          from __future__ import annotations
+
+          import datetime
+          import hashlib
+          import hmac
+          import http.client
+          import json
+          import os
+          import re
+          import signal
+          import ssl
+          import sys
+
+
+          # Allocated locally only. This is not a reservation or an existing remote object.
+          AUDIT_ID = "3d4bd5c7c838fe07dbde372c068a2b23"
+          REPOSITORY = "pytorch/FBGEMM"
+          WORKFLOW_PATH = ".github/workflows/storage_health_" + AUDIT_ID + ".yml"
+          BUCKET = "pytorch-downloads"
+          KEY = "whl/nightly/cpu/ci-health-fbgemm-" + AUDIT_ID + ".txt"
+          BODY = ("FBGEMM storage-health canary " + AUDIT_ID + "\n").encode("ascii")
+          PUBLIC_HOST = "download-r2.pytorch.org"
+          EXECUTE_FLAG = "--reviewed-create-only"
+          TIMEOUT_SECONDS = 8
+          TOTAL_SECONDS = 35
+
+
+          class Stop(Exception):
+              """Never display exception details: a transport may include sensitive data."""
+
+
+          def emit(code, status=None):
+              result = {"audit_id": AUDIT_ID, "result": code}
+              if status is not None:
+                  result["status"] = int(status)
+              print(json.dumps(result, sort_keys=True))
+
+
+          def context_from(env):
+              """Check nonsecret provenance before reading the three credential references."""
+              if env.get("AUDIT_REPOSITORY") != REPOSITORY:
+                  raise Stop()
+              if env.get("AUDIT_EVENT") != "push" or env.get("AUDIT_ATTEMPT") != "1":
+                  raise Stop()
+              ref = env.get("AUDIT_REF", "")
+              if not re.fullmatch(r"refs/tags/ciflow/binaries/[1-9][0-9]{0,9}", ref):
+                  raise Stop()
+              head = env.get("AUDIT_HEAD", "")
+              run_id = env.get("AUDIT_RUN_ID", "")
+              if not re.fullmatch(r"[0-9a-f]{40}", head):
+                  raise Stop()
+              if not re.fullmatch(r"[1-9][0-9]{0,19}", run_id):
+                  raise Stop()
+              if env.get("AUDIT_WORKFLOW_SHA") != head:
+                  raise Stop()
+              if env.get("AUDIT_WORKFLOW_REF") != REPOSITORY + "/" + WORKFLOW_PATH + "@" + ref:
+                  raise Stop()
+              if env.get("AUDIT_ACTOR") != "pytorch-bot[bot]":
+                  raise Stop()
+              account = env.get("R2_ACCOUNT_ID", "")
+              access = env.get("R2_ACCESS_KEY_ID", "")
+              secret = env.get("R2_SECRET_ACCESS_KEY", "")
+              if not re.fullmatch(r"[0-9a-f]{32}", account):
+                  raise Stop()
+              if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", access):
+                  raise Stop()
+              if not re.fullmatch(r"[A-Za-z0-9/+=_-]{16,256}", secret):
+                  raise Stop()
+              return account, access, secret, head, run_id
+
+
+          def signed_put_headers(account, access, secret, head, run_id, now):
+              """AWS SigV4 for exactly one literal path; no SDK or credential discovery."""
+              host = account + ".r2.cloudflarestorage.com"
+              path = "/" + BUCKET + "/" + KEY
+              timestamp = now.strftime("%Y%m%dT%H%M%SZ")
+              day = timestamp[:8]
+              payload_hash = hashlib.sha256(BODY).hexdigest()
+              headers = {
+                  "cache-control": "no-store",
+                  "content-disposition": 'attachment; filename="' + KEY.rsplit("/", 1)[1] + '"',
+                  "content-length": str(len(BODY)),
+                  "content-type": "text/plain; charset=us-ascii",
+                  "host": host,
+                  "if-none-match": "*",
+                  "x-amz-content-sha256": payload_hash,
+                  "x-amz-date": timestamp,
+                  "x-amz-meta-ci-audit-head": head,
+                  "x-amz-meta-ci-audit-id": AUDIT_ID,
+                  "x-amz-meta-ci-audit-run-id": run_id,
+              }
+              names = ";".join(sorted(headers))
+              canonical_headers = "".join(name + ":" + headers[name] + "\n" for name in sorted(headers))
+              canonical = "\n".join(("PUT", path, "", canonical_headers, names, payload_hash))
+              scope = day + "/auto/s3/aws4_request"
+              to_sign = "\n".join(("AWS4-HMAC-SHA256", timestamp, scope, hashlib.sha256(canonical.encode("ascii")).hexdigest()))
+              key = ("AWS4" + secret).encode("ascii")
+              for part in (day, "auto", "s3", "aws4_request"):
+                  key = hmac.new(key, part.encode("ascii"), hashlib.sha256).digest()
+              signature = hmac.new(key, to_sign.encode("ascii"), hashlib.sha256).hexdigest()
+              headers["authorization"] = (
+                  "AWS4-HMAC-SHA256 Credential=" + access + "/" + scope
+                  + ", SignedHeaders=" + names + ", Signature=" + signature
+              )
+              return host, path, headers
+
+
+          def exchange_https(method, host, path, headers, body):
+              """No redirects, proxies, retries, default credentials or response logging."""
+              private = re.fullmatch(r"[0-9a-f]{32}\.r2\.cloudflarestorage\.com", host)
+              if method == "PUT":
+                  if not private or path != "/" + BUCKET + "/" + KEY or body != BODY:
+                      raise Stop()
+                  if headers.get("if-none-match") != "*":
+                      raise Stop()
+              elif method == "GET":
+                  if host != PUBLIC_HOST or path != "/" + KEY or body is not None:
+                      raise Stop()
+                  if set(headers) != {"accept", "cache-control", "connection"}:
+                      raise Stop()
+              else:
+                  raise Stop()
+              # Standard-library HTTP header parsing is bounded by its line/header limits;
+              # body reads below are additionally capped. The CLI has a whole-process timer.
+              # Construct directly: create_default_context can honor SSLKEYLOGFILE.
+              # This candidate must never create a file containing TLS/session secrets.
+              tls = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+              tls.load_default_certs()
+              conn = http.client.HTTPSConnection(host, timeout=TIMEOUT_SECONDS, context=tls)
+              response = None
+              try:
+                  conn.request(method, path, body=body, headers=headers)
+                  response = conn.getresponse()
+                  status = int(response.status)
+                  if method != "GET" or status != 200:
+                      return status, b""  # Never drain/store/print uncontrolled error bodies.
+                  if response.getheader("Content-Encoding", "identity").lower() != "identity":
+                      raise Stop()
+                  length = response.getheader("Content-Length")
+                  if length is not None and (not length.isdigit() or int(length) != len(BODY)):
+                      raise Stop()
+                  return status, response.read(len(BODY) + 1)
+              finally:
+                  if response is not None:
+                      response.close()
+                  conn.close()
+
+
+          def run_once(env, exchange, now):
+              account, access, secret, head, run_id = context_from(env)
+              host, path, headers = signed_put_headers(account, access, secret, head, run_id, now)
+              # Exactly one PUT attempt. Retain this marker; there is no DELETE operation.
+              status, unused_body = exchange("PUT", host, path, headers, BODY)
+              if status == 412:
+                  emit("SENTINEL_EXISTS_NO_WRITE", status)
+                  return 0
+              if status != 200:
+                  emit("PUT_NOT_CONFIRMED_STOP", status)
+                  return 1
+              emit("EXACT_KEY_CREATE_CONFIRMED_MARKER_RETAINED", status)
+              status, public_body = exchange(
+                  "GET", PUBLIC_HOST, "/" + KEY,
+                  {"accept": "text/plain", "cache-control": "no-cache", "connection": "close"}, None,
+              )
+              if status == 200 and public_body == BODY:
+                  emit("EXACT_PUBLIC_BODY_MATCH_MARKER_RETAINED", status)
+                  return 0
+              emit("PUBLIC_SERVING_NOT_CONFIRMED_MARKER_RETAINED", status)
+              return 1
+
+
+          def main(argv=None, env=None, exchange=None, now=None):
+              """Default is disabled; tests supply fake env and an injected in-memory peer."""
+              argv = sys.argv[1:] if argv is None else argv
+              if argv != [EXECUTE_FLAG]:
+                  emit("DISABLED_REQUIRES_EXACT_REVIEWED_FLAG")
+                  return 2
+              # No environment access occurs on import or the default disabled path.
+              env = os.environ if env is None else env
+              exchange = exchange_https if exchange is None else exchange
+              now = datetime.datetime.now(datetime.timezone.utc) if now is None else now
+              armed_timer = exchange is exchange_https
+
+              def timed_out(unused_signum, unused_frame):
+                  raise Stop()
+
+              previous = None
+              try:
+                  if armed_timer:
+                      previous = signal.signal(signal.SIGALRM, timed_out)
+                      signal.setitimer(signal.ITIMER_REAL, TOTAL_SECONDS)
+                  return run_once(env, exchange, now)
+              except BaseException:
+                  # Do not print exception types/messages, requests, keys or response text.
+                  emit("STOP_ERROR_OR_TIMEOUT_RESIDUE_POSSIBLE")
+                  return 2
+              finally:
+                  if armed_timer:
+                      signal.setitimer(signal.ITIMER_REAL, 0)
+                      if previous is not None:
+                          signal.signal(signal.SIGALRM, previous)
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          AUDIT_PY

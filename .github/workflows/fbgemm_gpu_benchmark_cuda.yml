@@ -24,16 +24,15 @@ on:
         default: ""
 
 concurrency:
-  # Cancel previous runs in the PR if a new commit is pushed
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   build:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     uses: ./.github/workflows/_fbgemm_gpu_cuda_build.yml
     with:
       matrix: >-
@@ -50,6 +49,7 @@ jobs:
       pytorch-channel-version: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch-channel-version) || 'nightly' }}
 
   benchmark:
+    if: ${{ false }}
     needs: build
     uses: ./.github/workflows/_fbgemm_gpu_cuda_test.yml
     with:

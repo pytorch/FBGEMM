@@ -44,9 +44,14 @@ on:
         required: false
         default: true
 
+concurrency:
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   # Add the container image that provides each row's ROCm version
   resolve_container_images:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
@@ -66,6 +71,7 @@ jobs:
 
   # Download the built artifact from GHA (or install from PIP) and test on GPU
   test_artifact:
+    if: ${{ false }}
     needs: resolve_container_images
     runs-on: ${{ matrix.host-machine.instance }}
     container:

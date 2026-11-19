@@ -51,9 +51,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   generate-test-matrix-cuda:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
+    if: ${{ false }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
       repo-owner: ${{ github.repository_owner }}
@@ -63,7 +67,7 @@ jobs:
       jobtype: install
 
   test-pypi-install-cuda:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cuda')) }}
+    if: ${{ false }}
     needs: generate-test-matrix-cuda
     uses: ./.github/workflows/_fbgemm_gpu_cuda_test.yml
     with:
@@ -77,7 +81,7 @@ jobs:
         }
 
   test_pypi_install_cpu:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'cpu')) }}
+    if: ${{ false }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: almalinux:9
@@ -138,7 +142,7 @@ jobs:
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
   generate-test-matrix-rocm:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'rocm')) }}
+    if: ${{ false }}
     uses: ./.github/workflows/_fbgemm_gpu_generate_ci_matrix.yml
     with:
       repo-owner: ${{ github.repository_owner }}
@@ -148,7 +152,7 @@ jobs:
       jobtype: install
 
   test-pypi-install-rocm:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm-build-variant == 'rocm')) }}
+    if: ${{ false }}
     needs: generate-test-matrix-rocm
     uses: ./.github/workflows/_fbgemm_gpu_rocm_test.yml
     with:

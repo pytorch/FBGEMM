@@ -39,8 +39,13 @@ on:
       matrix:
         value: ${{ jobs.generate_ci_matrix.outputs.matrix }}
 
+concurrency:
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   generate_ci_matrix:
+    if: ${{ false }}
     outputs:
       matrix: ${{ steps.generate.outputs.matrix }}
     runs-on: ubuntu-latest

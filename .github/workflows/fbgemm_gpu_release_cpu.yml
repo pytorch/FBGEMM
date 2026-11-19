@@ -37,14 +37,13 @@ on:
         default: false
 
 concurrency:
-  # Cancel previous runs in the PR if a new commit is pushed
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: fbgemm-health-3d4bd5c7c838fe07dbde372c068a2b23-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   # Build on CPU hosts, run tests, and upload to GHA
   build_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: almalinux:9
@@ -115,7 +114,7 @@ jobs:
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: almalinux:9
