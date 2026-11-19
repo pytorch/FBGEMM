@@ -99,7 +99,68 @@ jobs:
       architecture: aarch64
       setup-miniconda: false
       timeout: 240
-    secrets:
-      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+  # Uploads the wheels to R2 from a job of its own: R2 credentials come from the
+  # pytorchbot-env environment, which only nightly and release refs can use. A
+  # reusable workflow cannot read environment secrets, so build_wheels_linux.yml
+  # does not get them.
+  upload-r2:
+    if: ${{ always() && needs.filter-matrix.result == 'success' && github.repository == 'pytorch/FBGEMM' && (github.event_name == 'schedule' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/nightly'))) }}
+    needs: [filter-matrix, build]
+    runs-on: ubuntu-22.04
+    environment: pytorchbot-env
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.filter-matrix.outputs.matrix) }}
+    name: upload-r2-${{ matrix.build_name }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: pytorch/test-infra
+          ref: main
+          path: test-infra
+
+      - uses: ./test-infra/.github/actions/set-channel
+
+      - uses: ./test-infra/.github/actions/setup-binary-upload
+        with:
+          repository: pytorch/FBGEMM
+          ref: ""
+          python-version: ${{ matrix.python_version }}
+          cuda-version: ${{ matrix.desired_cuda }}
+          arch: aarch64
+          upload-to-base-bucket: ${{ matrix.upload_to_base_bucket }}
+
+      - name: Download the artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: pytorch/FBGEMM/dist/
+
+      - name: Upload package to R2
+        shell: bash
+        working-directory: pytorch/FBGEMM
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -ex
+          if [[ -z "${R2_ACCOUNT_ID}" || -z "${AWS_ACCESS_KEY_ID}" || -z "${AWS_SECRET_ACCESS_KEY}" ]]; then
+            echo "::error::R2 secrets are missing from the pytorchbot-env environment"
+            exit 1
+          fi
+
+          # shellcheck disable=SC1090
+          source "${BUILD_ENV_FILE}"
+
+          pip install awscli==1.32.18
+
+          PYTORCH_S3_BUCKET_PATH=${PYTORCH_S3_BUCKET_PATH/"s3://pytorch"/"s3://pytorch-downloads"}
+          for pkg in dist/*; do
+            shm_id=$(sha256sum "${pkg}" | awk '{print $1}')
+            aws s3 cp "$pkg" "${PYTORCH_S3_BUCKET_PATH}" \
+              --metadata "checksum-sha256=${shm_id}" --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          done
