@@ -91,6 +91,9 @@ class FeatureGateName(Enum):
     # Enable the thread-per-bag kernel in the NVIDIA V2 bounds check
     BOUNDS_CHECK_THREAD_PER_BAG = auto()
 
+    # Enable the gfx942 INT4 D64 no-bag long-L kernel in TBE inference
+    TBE_ROCM_INFERENCE_NOBAG_LONG_L = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
