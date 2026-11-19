@@ -1,6 +1,7 @@
 name: Build FBGEMM GenAI Aarch64 Linux Wheels
 
 on:
+    pull_request:
     push:
       branches:
         - nightly

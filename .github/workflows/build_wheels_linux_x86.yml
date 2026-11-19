@@ -1,6 +1,7 @@
 name: Build FBGEMM_GPU x86 Linux Wheels
 
 on:
+  pull_request:
   push:
     branches:
       - nightly
