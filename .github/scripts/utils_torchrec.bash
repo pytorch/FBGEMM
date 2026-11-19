@@ -12,10 +12,49 @@
 . "$( dirname -- "$BASH_SOURCE"; )/utils_conda.bash"
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_pip.bash"
+# shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_pytorch.bash"
 
 ################################################################################
 # TorchRec Setup Functions
 ################################################################################
+
+install_torchrec_cpu_pytorch () {
+  local env_name="$1"
+  local channel_version="$2"
+  local python_version="$3"
+  local host_arch="$4"
+  local torch_version=""
+  local env_prefix
+  env_prefix=$(env_name_or_prefix "$env_name") || return 1
+
+  if [[ -z "$channel_version" && "$host_arch" == "x86" &&
+        "$python_version" =~ ^3\.(11|12|13|14)$ ]]; then
+    torch_version="2.16.0.dev20261109+cpu"
+    local python_tag="cp${python_version//./}"
+    local wheel_url="https://download.pytorch.org/whl/nightly/cpu/torch-2.16.0.dev20261109%2Bcpu-${python_tag}-${python_tag}-manylinux_2_28_x86_64.whl"
+    # shellcheck disable=SC2086
+    conda run ${env_prefix} python -m pip install "$wheel_url" || return 1
+    # shellcheck disable=SC2086
+    conda run ${env_prefix} python -c 'import torch; assert callable(torch.jit.script) and callable(torch.jit.trace)' || return 1
+  else
+    install_pytorch_pip "$env_name" "${channel_version:-nightly}" cpu || return 1
+  fi
+
+  local selected_version
+  # shellcheck disable=SC2086
+  selected_version=$(conda run ${env_prefix} python -c 'from importlib.metadata import version; print(version("torch"))') || return 1
+  if [[ -n "$torch_version" && "$selected_version" != "$torch_version" ]]; then
+    echo "Error: TorchRec CPU CI did not install the selected PyTorch version." >&2
+    return 1
+  fi
+  PIP_CONSTRAINT=$(mktemp "${RUNNER_TEMP:-/tmp}/torchrec_cpu_pytorch.XXXXXX") || return 1
+  printf 'torch==%s\n' "$selected_version" > "$PIP_CONSTRAINT" || return 1
+  export PIP_CONSTRAINT
+  if [[ -n "${GITHUB_ENV:-}" ]]; then
+    printf 'PIP_CONSTRAINT=%s\n' "$PIP_CONSTRAINT" >> "$GITHUB_ENV" || return 1
+  fi
+}
 
 install_torchrec_pip () {
   local env_name="$1"
