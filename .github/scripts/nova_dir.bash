@@ -22,7 +22,7 @@ fi
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
 
-if [[ "$CU_VERSION" == "cu130" ]]; then
+if [[ "$CU_VERSION" == cu13* ]]; then
     # 10.0f (SM100 family) covers both B200 (10.0) and B300 (10.3); 10.0a
     # cubins only load on 10.0.  This matches the non-Nova CUDA 13 targets in
     # fbgemm_gpu_build.bash.
@@ -58,7 +58,7 @@ fi
 # toolchains. Keep headroom for everything else in the container.
 if [[ "$CU_VERSION" == "cu"* ]] && [[ -n "${TORCH_CI_MAX_MEMORY:-}" ]]; then
     gib_per_job=8
-    if [[ "$CU_VERSION" == "cu130" ]]; then gib_per_job=16; fi
+    if [[ "$CU_VERSION" == cu13* ]]; then gib_per_job=16; fi
     mem_gib=$(((TORCH_CI_MAX_MEMORY / 1073741824) - 8))
     max_jobs=$((mem_gib / gib_per_job))
     cores=$(nproc)
