@@ -108,6 +108,36 @@ FBGEMM_API void Quantize(
     int thread_id = 0,
     int num_threads = 1);
 
+/// Quantize FP16 or BF16 input into INT8, UINT8, INT16 or UINT16 with the same
+/// affine parameters and thread partitioning as the FP32 overload.
+///
+/// The scale must be finite and positive. Precision ranges from 1 to the
+/// output bit width.
+///
+/// The 8-bit AVX2 path widens input in registers without an intermediate
+/// FP32 buffer. FP16 additionally requires F16C; unsupported CPUs use a
+/// portable fallback. The 16-bit output paths use portable scalar code.
+///
+/// Scalar-fallback NaNs saturate to the upper quantization bound, including
+/// arithmetic NaNs for nonzero BF16 subnormals under DAZ. Exact zero is
+/// classified from input bits, independently of the floating environment,
+/// and maps to clamped zero_point even when the reciprocal overflows.
+///
+/// AVX2 retains the FP32 overload's int32 zero-point addition, including
+/// wraparound for scaled inputs outside the int32 range. The zero-input
+/// behavior intentionally differs from the FP32 SIMD arithmetic-NaN result.
+template <typename T, FbgemmHalfType InputType>
+  requires(
+      std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t> ||
+      std::is_same_v<T, std::int16_t> || std::is_same_v<T, std::uint16_t>)
+FBGEMM_API void Quantize(
+    const InputType* src,
+    T* dst,
+    std::int64_t len,
+    const TensorQuantizationParams& qparams,
+    int thread_id = 0,
+    int num_threads = 1);
+
 /// @ingroup fbgemm-quant-utils-generic
 ///
 /// Quantize floating point data in `src` to type `T`.
