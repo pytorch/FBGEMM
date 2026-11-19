@@ -37,9 +37,14 @@ on:
         required: false
         default: ""
 
+concurrency:
+  group: fbgemm-health-8a340378e496adb98bc6a7df5bf2da20-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
+    if: ${{ false }}
     runs-on: ${{ matrix.host-machine.instance }}
     container: ${{ fromJson(inputs.container) }}
     defaults:

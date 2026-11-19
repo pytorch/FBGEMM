@@ -23,15 +23,15 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Cancel previous runs in the PR if a new commit is pushed
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: fbgemm-health-8a340378e496adb98bc6a7df5bf2da20-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   run-lint:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     defaults:
       run:

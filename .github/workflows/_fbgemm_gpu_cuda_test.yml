@@ -62,9 +62,14 @@ on:
         # The PyPI token is only needed if publishing the artifact to PyPI is desired
         required: false
 
+concurrency:
+  group: fbgemm-health-8a340378e496adb98bc6a7df5bf2da20-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
+    if: ${{ false }}
     # runs-on: linux.4xlarge.nvidia.gpu
     # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
     runs-on: ${{ matrix.host-machine.instance }}

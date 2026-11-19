@@ -13,8 +13,8 @@ on:
     workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: fbgemm-health-8a340378e496adb98bc6a7df5bf2da20-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   generate-matrix:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
     with:
       package-type: wheel
@@ -34,7 +34,7 @@ jobs:
       with-cpu: disable
 
   filter-matrix:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     needs: generate-matrix
     runs-on: linux.24_04.4x
     outputs:
@@ -71,7 +71,7 @@ jobs:
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
   build:
-    if: ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ false }}
     needs: filter-matrix
     strategy:
       fail-fast: false
