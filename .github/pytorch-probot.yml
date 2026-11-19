@@ -1,1 +1,1 @@
-labeler_config: labeler.yml
+# pytorch-bot settings for pytorch/FBGEMM. None are enabled: no ciflow tags, no labeler.
