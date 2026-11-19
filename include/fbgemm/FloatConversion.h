@@ -310,7 +310,10 @@ constexpr float cpu_bf162float(bfloat16 src) {
 }
 
 constexpr bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp = std::bit_cast<uint32_t>(src);
+  const uint32_t temp = std::bit_cast<uint32_t>(src);
+  if ((temp & 0x7fffffffu) > 0x7f800000u) {
+    return {static_cast<uint16_t>((temp >> 16) | 0x0040u)};
+  }
   return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
 }
 

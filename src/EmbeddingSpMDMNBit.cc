@@ -27,6 +27,7 @@
 #include <tuple>
 #include <vector>
 #include "./CodeCache.h" // @manual
+#include "./CodeGenHelpers.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h" // @manual
 #include "./GpuCompatibleInt4.h" // @manual
@@ -1186,10 +1187,18 @@ GenEmbeddingSpMDMNBitLookup<
               }
             } else {
               // 16-bit output
+              if constexpr (is_bf16_out) {
+                emitFp32ToBf16<instSet>(
+                    a,
+                    out_vreg,
+                    temp_vreg,
+                    temp2_vreg,
+                    src_vreg,
+                    ones_vreg,
+                    scratchReg2_);
+              }
               if constexpr (instSet == inst_set_t::avx2) {
                 if constexpr (is_bf16_out) {
-                  a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                  a->vpsrld(out_vreg, out_vreg, 16);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
                 } else {
@@ -1220,8 +1229,6 @@ GenEmbeddingSpMDMNBitLookup<
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if constexpr (is_bf16_out) {
                     // bf16
-                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
@@ -1229,8 +1236,6 @@ GenEmbeddingSpMDMNBitLookup<
                 } else {
                   if constexpr (is_bf16_out) {
                     // bf16
-                    a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->vpsrld(out_vreg, out_vreg, 16);
                     a->vpmovdw(dst_addr, out_vreg);
                   } else {
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
