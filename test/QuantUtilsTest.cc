@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include <algorithm>
+#include <bit>
 #include <climits>
 #include <cstring>
 #include <limits>
@@ -1354,7 +1355,7 @@ TEST(HalfQuantizeTest, BF16NonfiniteTails) {
 }
 
 template <FbgemmHalfType InputType>
-static void testHalfNegativeOverflowCompatibility() {
+static void testHalfNegativeOverflowSaturation() {
   constexpr uint16_t finite_minimum =
       std::is_same_v<InputType, float16> ? 0xfbff : 0xff7f;
   const vector<InputType> source{
@@ -1370,23 +1371,21 @@ static void testHalfNegativeOverflowCompatibility() {
   transform(source.begin(), source.end(), widened.begin(), [](InputType value) {
     return widenHalfReference(value);
   });
-  const bool float_vector =
-      cpuinfo_initialize() && fbgemmHasAvx2Support() && cpuinfo_has_x86_fma3();
   for (const auto zero_point : {-1, -10, -127}) {
     const TensorQuantizationParams qparams{1.e-7f, zero_point, 8};
     vector<int8_t> expected(source.size()), actual(source.size());
     Quantize<int8_t>(widened.data(), expected.data(), source.size(), qparams);
     Quantize<int8_t>(source.data(), actual.data(), source.size(), qparams);
     EXPECT_EQ(actual, expected);
-    EXPECT_EQ(actual[0], float_vector ? 127 : -128);
-    EXPECT_EQ(actual[1], float_vector ? 127 : -128);
+    EXPECT_EQ(actual[0], -128);
+    EXPECT_EQ(actual[1], -128);
   }
 }
-TEST(HalfQuantizeTest, FP16NegativeOverflowPreservesFloatBytes) {
-  testHalfNegativeOverflowCompatibility<float16>();
+TEST(HalfQuantizeTest, FP16NegativeOverflowSaturates) {
+  testHalfNegativeOverflowSaturation<float16>();
 }
-TEST(HalfQuantizeTest, BF16NegativeOverflowPreservesFloatBytes) {
-  testHalfNegativeOverflowCompatibility<bfloat16>();
+TEST(HalfQuantizeTest, BF16NegativeOverflowSaturates) {
+  testHalfNegativeOverflowSaturation<bfloat16>();
 }
 
 TEST(HalfQuantizeTest, FP16AllBitPatterns) {
@@ -1872,4 +1871,224 @@ TEST(QuantizeNaNTest, DefinedFiniteParity) {
       }
     }
   }
+}
+
+namespace {
+
+template <typename T>
+T affineQuantizationReference(
+    float value,
+    const TensorQuantizationParams& qparams) {
+  const int64_t maximum =
+      (int64_t{1} << (qparams.precision - std::is_signed_v<T>)) - 1;
+  const int64_t minimum =
+      std::is_signed_v<T> ? -(int64_t{1} << (qparams.precision - 1)) : 0;
+  const volatile float reciprocal = 1.f / qparams.scale;
+  const volatile uint32_t magnitude =
+      std::bit_cast<uint32_t>(value) & 0x7fffffff;
+  if (std::isinf(reciprocal) && magnitude == 0) {
+    return static_cast<T>(
+        std::clamp<int64_t>(qparams.zero_point, minimum, maximum));
+  }
+  const volatile float scaled = value * reciprocal;
+  if (std::isnan(scaled)) {
+    return static_cast<T>(maximum);
+  }
+  long double affine;
+  if constexpr (sizeof(T) == 1) {
+    affine =
+        std::nearbyint(static_cast<long double>(scaled)) + qparams.zero_point;
+  } else {
+    // Wider scalar outputs preserve their defined FP32 affine addition.
+    const float legacy_affine =
+        qparams.zero_point + std::nearbyint(float(scaled));
+    affine = legacy_affine;
+  }
+  return static_cast<T>(std::clamp<long double>(affine, minimum, maximum));
+}
+
+template <typename T, typename InputType>
+void testAffineSaturation() {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  struct RestoreMxcsr {
+    unsigned saved = _mm_getcsr();
+    ~RestoreMxcsr() {
+      _mm_setcsr(saved);
+    }
+  } restore;
+#endif
+  const float infinity = numeric_limits<float>::infinity();
+  const vector<float> pattern{
+      -infinity,
+      infinity,
+      -numeric_limits<float>::max(),
+      numeric_limits<float>::max(),
+      -2147483648.f,
+      2147483648.f,
+      nextafter(-2147483648.f, -infinity),
+      nextafter(-2147483648.f, infinity),
+      nextafter(2147483648.f, -infinity),
+      nextafter(2147483648.f, infinity),
+      -16777216.f,
+      16777216.f,
+      -32768.f,
+      65535.f,
+      -1.5f,
+      -0.5f,
+      0.5f,
+      1.5f,
+      2.5f,
+      -0.f,
+      0.f,
+      numeric_limits<float>::denorm_min(),
+      -numeric_limits<float>::denorm_min(),
+      numeric_limits<float>::quiet_NaN(),
+      -numeric_limits<float>::quiet_NaN()};
+  for (const unsigned mode : {0u, 0x0040u, 0x8040u}) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+    _mm_setcsr((restore.saved & ~0xe040u) | mode);
+#endif
+    for (const float scale : {1.f, 0.00214854861f, 0.03125f, 1.e-40f}) {
+      for (const int32_t zero_point :
+           {INT32_MIN,
+            INT32_MIN + 1,
+            INT32_MIN + 127,
+            -16777216,
+            -65536,
+            -32768,
+            -255,
+            -128,
+            -127,
+            -1,
+            0,
+            1,
+            127,
+            128,
+            255,
+            256,
+            32767,
+            65535,
+            16777216,
+            INT32_MAX - 255,
+            INT32_MAX - 1,
+            INT32_MAX}) {
+        for (const int precision : {1, 8, int(sizeof(T) * 8)}) {
+          const TensorQuantizationParams qparams{scale, zero_point, precision};
+          const int64_t minimum =
+              std::is_signed_v<T> ? -(int64_t{1} << (precision - 1)) : 0;
+          const int64_t maximum =
+              (int64_t{1} << (precision - std::is_signed_v<T>)) - 1;
+          vector<float> values = pattern;
+          for (const int64_t bound : {minimum, maximum}) {
+            const float threshold = static_cast<float>(
+                (static_cast<long double>(bound) - zero_point) * scale);
+            values.push_back(nextafter(threshold, -infinity));
+            values.push_back(threshold);
+            values.push_back(nextafter(threshold, infinity));
+          }
+          vector<InputType> source(257);
+          vector<T> expected(source.size());
+          for (size_t i = 0; i < source.size(); ++i) {
+            const float value = values[i % values.size()];
+            float widened;
+            if constexpr (std::is_same_v<InputType, float>) {
+              source[i] = value;
+              widened = value;
+            } else {
+              source[i] = convert_ref<InputType>(value);
+              widened = widenHalfReference(source[i]);
+            }
+            expected[i] = affineQuantizationReference<T>(widened, qparams);
+            EXPECT_EQ(Quantize<T>(widened, qparams), expected[i]);
+          }
+          const auto original = source;
+          for (const int length : {0, 1, 7, 8, 9, 17, 33, 257}) {
+            for (const int threads : {1, 3, 8}) {
+              vector<T> actual(length + 16, 42);
+              for (int id = 0; id < threads; ++id) {
+                Quantize<T>(
+                    source.data(),
+                    actual.data() + 8,
+                    length,
+                    qparams,
+                    id,
+                    threads);
+              }
+              EXPECT_TRUE(equal(
+                  expected.begin(),
+                  expected.begin() + length,
+                  actual.begin() + 8));
+              EXPECT_TRUE(all_of(actual.begin(), actual.begin() + 8, [](T x) {
+                return x == 42;
+              }));
+              EXPECT_TRUE(all_of(
+                  actual.end() - 8, actual.end(), [](T x) { return x == 42; }));
+            }
+            if constexpr (!std::is_same_v<InputType, float>) {
+              for (const bool vector_support : {false, true}) {
+                vector<T> fallback(length + 16, 42);
+                QuantizeHalfFallback<T>(
+                    source.data(),
+                    fallback.data() + 8,
+                    length,
+                    qparams,
+                    vector_support);
+                EXPECT_TRUE(equal(
+                    expected.begin(),
+                    expected.begin() + length,
+                    fallback.begin() + 8));
+                EXPECT_TRUE(
+                    all_of(fallback.begin(), fallback.begin() + 8, [](T x) {
+                      return x == 42;
+                    }));
+                EXPECT_TRUE(all_of(fallback.end() - 8, fallback.end(), [](T x) {
+                  return x == 42;
+                }));
+              }
+            }
+          }
+          EXPECT_EQ(
+              memcmp(
+                  source.data(),
+                  original.data(),
+                  source.size() * sizeof(InputType)),
+              0);
+        }
+      }
+    }
+  }
+}
+
+} // namespace
+
+TEST(QuantizeOverflowTest, Int8) {
+  testAffineSaturation<int8_t, float>();
+  testAffineSaturation<int8_t, float16>();
+  testAffineSaturation<int8_t, bfloat16>();
+}
+TEST(QuantizeOverflowTest, UInt8) {
+  testAffineSaturation<uint8_t, float>();
+  testAffineSaturation<uint8_t, float16>();
+  testAffineSaturation<uint8_t, bfloat16>();
+}
+TEST(QuantizeOverflowTest, Int16) {
+  testAffineSaturation<int16_t, float>();
+  testAffineSaturation<int16_t, float16>();
+  testAffineSaturation<int16_t, bfloat16>();
+}
+TEST(QuantizeOverflowTest, UInt16) {
+  testAffineSaturation<uint16_t, float>();
+  testAffineSaturation<uint16_t, float16>();
+  testAffineSaturation<uint16_t, bfloat16>();
+}
+TEST(QuantizeOverflowTest, Int32) {
+  testAffineSaturation<int32_t, float>();
+}
+
+TEST(QuantizeOverflowTest, WiderScalarFiniteCompatibility) {
+  EXPECT_EQ(Quantize<int32_t>(16777216.f, 1, 1.f, 32), 16777216);
+  EXPECT_EQ(Quantize<int16_t>(-2147483648.f, INT32_MAX, 1.f, 16), 0);
+  EXPECT_EQ(Quantize<uint16_t>(2147483648.f, INT32_MIN + 1, 1.f, 16), 0);
+  EXPECT_EQ(Quantize<int8_t>(-2147483648.f, INT32_MAX, 1.f, 8), -1);
+  EXPECT_EQ(Quantize<uint8_t>(2147483648.f, INT32_MIN + 1, 1.f, 8), 1);
 }

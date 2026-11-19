@@ -79,7 +79,14 @@ T QuantizeScaledValue(
   // For example, nearbyint(1.4) is 1.0, nearbyint(1.5) is 2.0
   // and nearbyint(2.5) is 2.0
   // Adding zero_point after rounding matches PyTorch behavior.
-  transformed_val = zero_point + std::nearbyint(transformed_val);
+  const float rounded = std::nearbyint(transformed_val);
+  if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>) {
+    return clamp<double, T>(
+        static_cast<double>(zero_point) + rounded,
+        result_precision,
+        result_is_signed);
+  }
+  transformed_val = zero_point + rounded;
   // Please note the use of double. Unlike float, a double can represent
   // all int32 values exactly. Using a float results in a float value >
   // INT32_MAX conversion to int32 in clamp function and hence an UBSAN error.
@@ -157,9 +164,10 @@ FBGEMM_API void Quantize(
 /// classified from input bits, independently of the floating environment,
 /// and maps to clamped zero_point even when the reciprocal overflows.
 ///
-/// FP32 uses the same NaN and exact-zero policies. AVX2 retains int32
-/// zero-point addition for non-NaN inputs, including wraparound for scaled
-/// inputs outside the int32 range.
+/// FP32 uses the same NaN and exact-zero policies. The 8-bit paths add
+/// zero_point exactly after FP32 rounding and saturate without intermediate
+/// conversion/add overflow. Wider scalar outputs retain FP32 zero-point
+/// addition.
 template <typename T, FbgemmHalfType InputType>
   requires(
       std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t> ||

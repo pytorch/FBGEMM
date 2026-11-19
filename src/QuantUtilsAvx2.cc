@@ -63,6 +63,41 @@ ALWAYS_INLINE __m256i exactZeroMaskAvx2(__m256 source) {
   return _mm256_cmpeq_epi32(materialized, _mm256_setzero_si256());
 }
 
+ALWAYS_INLINE __m256i quantizeAffineAvx2(
+    __m256 scaled,
+    int32_t zero_point,
+    int32_t minimum,
+    int32_t maximum) {
+  const int64_t lower = int64_t{minimum} - zero_point;
+  const int64_t upper = int64_t{maximum} - zero_point;
+  // Integer bounds within 2^24 are exact in FP32. Clamping before conversion
+  // also keeps the subsequent int32 add within the output range.
+  if (lower >= -(int64_t{1} << 24) && upper <= (int64_t{1} << 24)) {
+    const auto clipped = _mm256_min_ps(
+        _mm256_max_ps(scaled, _mm256_set1_ps(static_cast<float>(lower))),
+        _mm256_set1_ps(static_cast<float>(upper)));
+    return _mm256_add_epi32(
+        _mm256_cvtps_epi32(clipped), _mm256_set1_epi32(zero_point));
+  }
+
+  // Extreme zero points can cancel a rounded value outside the int32 range.
+  const auto rounded =
+      _mm256_round_ps(scaled, _MM_FROUND_CUR_DIRECTION | _MM_FROUND_NO_EXC);
+  const auto zero = _mm256_set1_pd(zero_point);
+  const auto min = _mm256_set1_pd(minimum);
+  const auto max = _mm256_set1_pd(maximum);
+  const auto low =
+      _mm256_add_pd(_mm256_cvtps_pd(_mm256_castps256_ps128(rounded)), zero);
+  const auto high =
+      _mm256_add_pd(_mm256_cvtps_pd(_mm256_extractf128_ps(rounded, 1)), zero);
+  const auto clipped_low =
+      _mm256_cvtpd_epi32(_mm256_min_pd(_mm256_max_pd(low, min), max));
+  const auto clipped_high =
+      _mm256_cvtpd_epi32(_mm256_min_pd(_mm256_max_pd(high, min), max));
+  return _mm256_inserti128_si256(
+      _mm256_castsi128_si256(clipped_low), clipped_high, 1);
+}
+
 } // namespace
 #endif
 
@@ -76,11 +111,8 @@ void QuantizeAvx2(
   constexpr int VLEN = 8;
   constexpr int32_t min_val = std::numeric_limits<T>::min();
   constexpr int32_t max_val = std::numeric_limits<T>::max();
-  // This is the largest int32 value less than int32_max
-  // that is exactly representable in float
-  constexpr int32_t int32_float_max_val =
-      std::numeric_limits<int32_t>::max() - 127;
   int64_t i = 0;
+  const int32_t scalar_zero_point = qparams.zero_point;
   float inverse_scale = 1.f / qparams.scale;
   __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
   // clang-format off
@@ -96,7 +128,6 @@ void QuantizeAvx2(
   // clang-format on
   __m256i permute_mask_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
-  const auto zero_point_v = _mm256_set1_epi32(qparams.zero_point);
   const auto nan_bound_v = _mm256_set1_epi32(
       (int64_t{1} << (qparams.precision - std::is_signed_v<T>)) - 1);
   const bool reciprocal_overflow = std::isinf(inverse_scale);
@@ -107,17 +138,8 @@ void QuantizeAvx2(
     __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     const auto nan_mask_v = _mm256_castps_si256(
         _mm256_cmp_ps(transformed_v, transformed_v, _CMP_UNORD_Q));
-    // If the floating point value is greater than int32_max,
-    // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
-    // to avoid this.
-    transformed_v =
-        _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
-
-    __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    rounded_v = _mm256_add_epi32(rounded_v, zero_point_v);
-    __m256i clipped_v = _mm256_min_epi32(
-        _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
-        _mm256_set1_epi32(max_val));
+    __m256i clipped_v =
+        quantizeAffineAvx2(transformed_v, scalar_zero_point, min_val, max_val);
     clipped_v = _mm256_blendv_epi8(clipped_v, nan_bound_v, nan_mask_v);
     if (reciprocal_overflow) {
       const auto zero_mask_v = exactZeroMaskAvx2(src_v);
@@ -144,14 +166,8 @@ void QuantizeAvx2(
     __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
     const auto nan_mask_v = _mm256_castps_si256(
         _mm256_cmp_ps(transformed_v, transformed_v, _CMP_UNORD_Q));
-    transformed_v =
-        _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
-
-    __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    rounded_v = _mm256_add_epi32(rounded_v, zero_point_v);
-    __m256i clipped_v = _mm256_min_epi32(
-        _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
-        _mm256_set1_epi32(max_val));
+    __m256i clipped_v =
+        quantizeAffineAvx2(transformed_v, scalar_zero_point, min_val, max_val);
     clipped_v = _mm256_blendv_epi8(clipped_v, nan_bound_v, nan_mask_v);
     if (reciprocal_overflow) {
       const auto zero_mask_v = exactZeroMaskAvx2(src_v);
@@ -187,12 +203,11 @@ void QuantizeAvx2(
     const TensorQuantizationParams& qparams) {
 #ifdef __AVX2__
   constexpr int64_t VLEN = 8;
+  const int32_t scalar_zero_point = qparams.zero_point;
   const float reciprocal = 1.f / qparams.scale;
   const auto inverse_scale = _mm256_set1_ps(reciprocal);
   const bool reciprocal_overflow = std::isinf(reciprocal);
-  const auto zero_point = _mm256_set1_epi32(qparams.zero_point);
-  const auto int32_float_max =
-      _mm256_set1_ps(std::numeric_limits<int32_t>::max() - 127);
+  const auto zero_point = _mm256_set1_epi32(scalar_zero_point);
   const auto minimum = _mm256_set1_epi32(std::numeric_limits<T>::min());
   const auto maximum = _mm256_set1_epi32(std::numeric_limits<T>::max());
   const auto nan_bound = _mm256_set1_epi32(
@@ -216,11 +231,11 @@ void QuantizeAvx2(
     auto transformed = _mm256_mul_ps(values, inverse_scale);
     const auto nan_mask = _mm256_castps_si256(
         _mm256_cmp_ps(transformed, transformed, _CMP_UNORD_Q));
-    transformed = _mm256_min_ps(transformed, int32_float_max);
-    auto rounded =
-        _mm256_add_epi32(_mm256_cvtps_epi32(transformed), zero_point);
-    auto clipped =
-        _mm256_min_epi32(_mm256_max_epi32(rounded, minimum), maximum);
+    auto clipped = quantizeAffineAvx2(
+        transformed,
+        scalar_zero_point,
+        std::numeric_limits<T>::min(),
+        std::numeric_limits<T>::max());
     clipped = _mm256_blendv_epi8(clipped, nan_bound, nan_mask);
     if (reciprocal_overflow) {
       const auto zero_words = _mm_cmpeq_epi16(
