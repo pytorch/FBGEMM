@@ -77,6 +77,23 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   // Returns nullptr for wrappers that do not expose raw INT8 whole rows.
   c10::intrusive_ptr<KVTensorWrapper> fp16_publish_view() const;
 
+  // The fp16_publish_view() rows of `raw_rows`, which narrow() returned for
+  // this wrapper's raw rows.
+  at::Tensor decode_raw_rows_to_publish(const at::Tensor& raw_rows) const;
+
+  // Whether decode_raw_rows_to_publish of the rows narrow() returns now
+  // reproduces fp16_publish_view() reads.
+  bool publish_view_decodes_from_raw_rows() const;
+
+  // Rows whose decode_raw_rows_to_publish now differs from their
+  // fp16_publish_view() read, or nullopt if this wrapper's raw rows do not
+  // decode to the publish view.
+  std::optional<int64_t> publish_view_inexact_rows() const;
+
+  // Grows with every backend write that leaves such a row, including rows
+  // cleared again since.
+  int64_t publish_view_inexact_writes() const;
+
   // Whether the backend stores raw rows (DRAM int8_storage), whatever the
   // wrapper's dtype.
   bool stores_raw_rows() const;
@@ -154,6 +171,9 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       std::shared_ptr<kv_db::EmbeddingKVDB> db);
 
  private:
+  // fp16_publish_view()'s preconditions: complete raw whole rows.
+  bool has_raw_publish_rows() const;
+
   void set_weights_and_ids_impl(
       const at::Tensor& weights,
       const at::Tensor& ids,
