@@ -16,7 +16,7 @@ BUILD_ENV_NAME=${CONDA_ENV}
 # Load the FBGEMM_GPU build scripts infrastructure
 # shellcheck disable=SC1091
 # shellcheck source=.github/scripts/setup_env.bash
-. "${PRELUDE}";
+. "${PRELUDE}" || exit $?
 
 # Record time for each step
 start_time=$(date +%s)
@@ -48,7 +48,7 @@ start_time=${end_time}
 echo "[NOVA] Time taken to display GPU Info: ${runtime} seconds"
 
 # Install Build Tools
-install_build_tools "${BUILD_ENV_NAME}"
+install_build_tools "${BUILD_ENV_NAME}" || exit $?
 end_time=$(date +%s)
 runtime=$((end_time-start_time))
 start_time=${end_time}
@@ -126,7 +126,7 @@ fi
 
 # Install the necessary Python eggs for building
 cd "${FBGEMM_REPO}/fbgemm_gpu" || exit 1
-prepare_fbgemm_gpu_build "${BUILD_ENV_NAME}"
+prepare_fbgemm_gpu_build "${BUILD_ENV_NAME}" || exit $?
 end_time=$(date +%s)
 runtime=$((end_time-start_time))
 start_time=${end_time}
@@ -142,7 +142,7 @@ if [[ ${CHANNEL} == "" ]]; then
 fi
 
 # Build the wheel
-build_fbgemm_gpu_package "${BUILD_ENV_NAME}" "${CHANNEL}" "${fbgemm_build_target}/${fbgemm_build_variant}"
+build_fbgemm_gpu_package "${BUILD_ENV_NAME}" "${CHANNEL}" "${fbgemm_build_target}/${fbgemm_build_variant}" || exit $?
 end_time=$(date +%s)
 runtime=$((end_time-start_time))
 start_time=${end_time}

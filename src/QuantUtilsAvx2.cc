@@ -13,11 +13,14 @@
 #include <immintrin.h>
 #endif
 #include <algorithm> //for std::min/std::max
+#include <array>
+#include <bit>
 #include <cassert> //for assert
 #include <cfloat> // for FLT_MAX
 #include <cmath> //for nearbyint
 #include <cstring> //for memcpy
 #include <limits> //for numeric_limits
+#include <span>
 #include "./Bf16ConvertAvx2.h" // @manual
 #include "./MaskAvx2.h" // @manual
 #include "fbgemm/FbgemmConvert.h"
@@ -112,7 +115,11 @@ void QuantizeAvx2(
     // do not use _mm_maskmoveu_si128 instead of memcpy.
     // asan has false positives for _mm_maskmoveu_si128 and this instruction
     // sometimes causes segfault (root cause is unknown).
-    memcpy(dst + i, reinterpret_cast<void*>(&clipped_v), rem * sizeof(T));
+    const auto bytes = std::bit_cast<std::array<T, sizeof(__m128i)>>(
+        _mm256_castsi256_si128(clipped_v));
+    std::ranges::copy(
+        std::span(bytes).first(rem),
+        std::span(dst, len).subspan(i, rem).begin());
     // _mm_maskmoveu_si128(
     // _mm256_castsi256_si128(clipped_v),
     // store_mask_v,
@@ -120,6 +127,109 @@ void QuantizeAvx2(
   }
 #endif
 }
+
+template <typename T, FbgemmHalfType InputType>
+  requires(std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t>)
+void QuantizeAvx2(
+    const InputType* src,
+    T* dst,
+    int64_t len,
+    const TensorQuantizationParams& qparams) {
+#ifdef __AVX2__
+  constexpr int64_t VLEN = 8;
+  const float reciprocal = 1.f / qparams.scale;
+  const auto inverse_scale = _mm256_set1_ps(reciprocal);
+  const bool reciprocal_overflow = std::isinf(reciprocal);
+  const auto zero_point = _mm256_set1_epi32(qparams.zero_point);
+  const auto int32_float_max =
+      _mm256_set1_ps(std::numeric_limits<int32_t>::max() - 127);
+  const auto minimum = _mm256_set1_epi32(std::numeric_limits<T>::min());
+  const auto maximum = _mm256_set1_epi32(std::numeric_limits<T>::max());
+  // clang-format off
+  const auto shuffle_mask = _mm256_set_epi8(
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff, 0x0c, 0x08, 0x04, 0x00,
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff, 0x0c, 0x08, 0x04, 0x00);
+  // clang-format on
+  const auto permute_mask = _mm256_set_epi32(0, 0, 0, 0, 0, 0, 4, 0);
+  auto quantize = [&](__m128i packed) {
+    __m256 values;
+    if constexpr (std::is_same_v<InputType, float16>) {
+      values = _mm256_cvtph_ps(packed);
+    } else {
+      values = _mm256_castsi256_ps(
+          _mm256_slli_epi32(_mm256_cvtepu16_epi32(packed), 16));
+    }
+    auto transformed = _mm256_mul_ps(values, inverse_scale);
+    transformed = _mm256_min_ps(transformed, int32_float_max);
+    auto rounded =
+        _mm256_add_epi32(_mm256_cvtps_epi32(transformed), zero_point);
+    auto clipped =
+        _mm256_min_epi32(_mm256_max_epi32(rounded, minimum), maximum);
+    if (reciprocal_overflow) {
+      const auto zero_words = _mm_cmpeq_epi16(
+          _mm_and_si128(packed, _mm_set1_epi16(0x7fff)), _mm_setzero_si128());
+      const auto zero_mask = _mm256_cvtepi16_epi32(zero_words);
+      const auto quantized_zero =
+          _mm256_min_epi32(_mm256_max_epi32(zero_point, minimum), maximum);
+      clipped = _mm256_blendv_epi8(clipped, quantized_zero, zero_mask);
+    }
+    clipped = _mm256_shuffle_epi8(clipped, shuffle_mask);
+    clipped = _mm256_permutevar8x32_epi32(clipped, permute_mask);
+    return _mm256_castsi256_si128(clipped);
+  };
+  const auto* source_bytes = reinterpret_cast<const char*>(src);
+  int64_t i = 0;
+  for (; i + VLEN <= len; i += VLEN) {
+    const auto packed = _mm_loadu_si128(
+        reinterpret_cast<const __m128i*>(source_bytes + i * sizeof(InputType)));
+    const auto result = quantize(packed);
+    _mm_storel_epi64(reinterpret_cast<__m128i*>(dst + i), result);
+  }
+  if (i < len) {
+    const auto remainder = len - i;
+    assert(remainder > 0 && remainder < VLEN);
+    std::array<unsigned char, sizeof(__m128i)> padded{};
+    const auto tail =
+        std::span(
+            reinterpret_cast<const unsigned char*>(src),
+            static_cast<size_t>(len) * sizeof(InputType))
+            .subspan(i * sizeof(InputType), remainder * sizeof(InputType));
+    std::ranges::copy(tail, padded.begin());
+    const auto packed = std::bit_cast<__m128i>(padded);
+    const auto result = quantize(packed);
+    const auto bytes = std::bit_cast<std::array<T, sizeof(__m128i)>>(result);
+    std::ranges::copy(
+        std::span(bytes).first(remainder),
+        std::span(dst, len).subspan(i, remainder).begin());
+  }
+#endif
+}
+
+template void QuantizeAvx2<int8_t, float16>(
+    const float16*,
+    int8_t*,
+    int64_t,
+    const TensorQuantizationParams&);
+
+template void QuantizeAvx2<int8_t, bfloat16>(
+    const bfloat16*,
+    int8_t*,
+    int64_t,
+    const TensorQuantizationParams&);
+
+template void QuantizeAvx2<uint8_t, float16>(
+    const float16*,
+    uint8_t*,
+    int64_t,
+    const TensorQuantizationParams&);
+
+template void QuantizeAvx2<uint8_t, bfloat16>(
+    const bfloat16*,
+    uint8_t*,
+    int64_t,
+    const TensorQuantizationParams&);
 
 uint32_t Xor128() {
   thread_local uint32_t x = 123456789;

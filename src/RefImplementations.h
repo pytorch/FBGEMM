@@ -14,9 +14,21 @@
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
 #include "fbgemm/FloatConversion.h"
+#include "fbgemm/QuantUtils.h"
 #include "fbgemm/Types.h"
 
 namespace fbgemm {
+
+template <typename T, FbgemmHalfType InputType>
+  requires(
+      std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t> ||
+      std::is_same_v<T, std::int16_t> || std::is_same_v<T, std::uint16_t>)
+FBGEMM_API void QuantizeHalfFallback(
+    const InputType* src,
+    T* dst,
+    std::int64_t len,
+    const TensorQuantizationParams& qparams,
+    bool vector_support);
 
 /**
  * @brief Reference implementation of requantization step.
