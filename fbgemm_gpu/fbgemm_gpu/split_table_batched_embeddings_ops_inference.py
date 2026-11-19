@@ -13,6 +13,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from itertools import accumulate
+from typing import Any
 
 import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
@@ -194,6 +195,26 @@ def inputs_to_device(
             bounds_check_warning.device, non_blocking=non_blocking
         )
     return indices, offsets, per_sample_weights
+
+
+def _reconcile_empty_lxu_cache_weights(
+    module: nn.Module,
+    state_dict: dict[str, Any],
+    prefix: str,
+    *args: Any,
+) -> None:
+    # Let state dicts with and without an empty `lxu_cache_weights` load with
+    # strict=True into either a CPU TBE or a GPU TBE without a cache.
+    key = prefix + "lxu_cache_weights"
+    buffer = getattr(module, "lxu_cache_weights", None)
+    value = state_dict.get(key)
+    if buffer is None:
+        # Saved on GPU or by an older CPU TBE, loaded on CPU: drop the entry.
+        if isinstance(value, Tensor) and value.numel() == 0:
+            del state_dict[key]
+    # Saved on CPU, loaded on GPU without a cache: add the empty entry.
+    elif buffer.numel() == 0 and key not in state_dict:
+        state_dict[key] = torch.empty_like(buffer)
 
 
 # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
@@ -644,6 +665,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cache_sets,
             cache_reserved_memory,
         )
+        self._register_load_state_dict_pre_hook(
+            _reconcile_empty_lxu_cache_weights, with_module=True
+        )
 
         if self.max_float8_D > 0:
             default_config = SparseType.FP8.default_config()
@@ -846,9 +870,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
-        #  a function.
-        if not self.lxu_cache_weights.numel():
+        if self.lxu_cache_weights is None:
+            return
+        if self.lxu_cache_weights.numel() == 0:
             return
 
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
@@ -1103,14 +1127,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
-        #  a function.
-        if self.lxu_cache_weights.numel() > 0:
-            if self.timestep_prefetch_size.get() <= 0:
-                self.prefetch(indices, offsets)
-            self.timestep_prefetch_size.decrement()
-
-        lxu_cache_locations = self.lxu_cache_locations_list.pop()
+        lxu_cache_locations: Tensor | None = None
+        if self.lxu_cache_weights is not None:
+            if self.lxu_cache_weights.numel() > 0:
+                if self.timestep_prefetch_size.get() <= 0:
+                    self.prefetch(indices, offsets)
+                self.timestep_prefetch_size.decrement()
+            lxu_cache_locations = self.lxu_cache_locations_list.pop()
 
         # Second bound check: check if the indices/offsets are within the boundary
         # of the pruned embedding rows after pruning.
@@ -1293,14 +1316,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.index_remappings_array_offsets = torch.empty_like(
             self.index_remappings_array_offsets, device=self.current_device
         )
-        # pyre-fixme[16]: `IntNBitTableBatchedEmbeddingBagsCodegen` has no attribute
-        #  `lxu_cache_weights`.
-        self.lxu_cache_weights = torch.empty_like(
-            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
-            #  `Module | Tensor`.
-            self.lxu_cache_weights,
-            device=self.current_device,
-        )
+        if self.lxu_cache_weights is not None:
+            self.lxu_cache_weights = torch.empty_like(
+                self.lxu_cache_weights, device=self.current_device
+            )
         self.original_rows_per_table = torch.empty_like(
             self.original_rows_per_table, device=self.current_device
         )
@@ -1399,9 +1418,16 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # NOTE: no cache for CPU mode!
         if cache_state.total_cache_hash_size == 0 or self.use_cpu:
+            # A CPU TBE can never have a cache: register no cache buffer.
             self.register_buffer(
                 "lxu_cache_weights",
-                torch.zeros(0, 0, device=self.current_device, dtype=torch.uint8),
+                (
+                    None
+                    if self.use_cpu
+                    else torch.zeros(
+                        0, 0, device=self.current_device, dtype=torch.uint8
+                    )
+                ),
             )
             # NOTE: make TorchScript work!
             self.register_buffer(
@@ -1590,9 +1616,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.reset_uvm_cache_stats()
 
     def reset_cache_states(self) -> None:
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
-        #  a function.
-        if not self.lxu_cache_weights.numel():
+        if self.lxu_cache_weights is None:
+            return
+        if self.lxu_cache_weights.numel() == 0:
             return
         self.lxu_cache_state.fill_(-1)
         self.lxu_state.fill_(0)
@@ -1611,8 +1637,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return
 
         location = get_new_embedding_location(device, cache_load_factor)
-        if device.type != "cpu":
-            self.use_cpu = False
+        self.use_cpu = device.type == "cpu"
 
         weights = self.split_embedding_weights()
         is_meta = self.current_device.type == "meta"
@@ -2109,26 +2134,25 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         lxu_cache_locations = None
-        # pyre-fixme[29]: `(self: TensorBase) -> int | Module | Tensor` is not
-        #  a function.
-        if self.lxu_cache_weights.numel() > 0:
-            linear_cache_indices = (
-                torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
-                    self.cache_hash_size_cumsum,
-                    update_table_indices,
-                    update_row_indices,
+        if self.lxu_cache_weights is not None:
+            if self.lxu_cache_weights.numel() > 0:
+                linear_cache_indices = (
+                    torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+                        self.cache_hash_size_cumsum,
+                        update_table_indices,
+                        update_row_indices,
+                    )
                 )
-            )
 
-            if self.cache_assoc in [32, 64]:
-                # 64 for AMD
-                self.prefetch_32way(linear_cache_indices)
-            elif self.cache_assoc == 1:
-                self.prefetch_1way(linear_cache_indices)
-            else:
-                raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
+                if self.cache_assoc in [32, 64]:
+                    # 64 for AMD
+                    self.prefetch_32way(linear_cache_indices)
+                elif self.cache_assoc == 1:
+                    self.prefetch_1way(linear_cache_indices)
+                else:
+                    raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
 
-            lxu_cache_locations = self.lxu_cache_locations_list.pop()
+                lxu_cache_locations = self.lxu_cache_locations_list.pop()
 
         torch.ops.fbgemm.emb_inplace_update(
             dev_weights=self.weights_host if self.host_size > 0 else self.weights_dev,

@@ -13,12 +13,14 @@ import random
 import unittest
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import MagicMock
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
+    _reconcile_empty_lxu_cache_weights,
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.cache.cache_config import CacheAlgorithm
@@ -441,6 +443,159 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             indices = indices.to(indices_dtype)
             offsets = offsets.to(offsets_dtype)
             _ = cc(indices, offsets)
+
+    def _host_only_tbe(
+        self, device: torch.device
+    ) -> IntNBitTableBatchedEmbeddingBagsCodegen:
+        return IntNBitTableBatchedEmbeddingBagsCodegen(
+            [
+                ("", 100, 16, SparseType.INT8, EmbeddingLocation.HOST),
+                ("", 50, 32, SparseType.FP16, EmbeddingLocation.HOST),
+            ],
+            device=device,
+        )
+
+    def _host_only_requests(self) -> tuple[torch.Tensor, torch.Tensor]:
+        indices = torch.randint(0, 50, (24,), dtype=torch.int32)
+        offsets = torch.tensor([0, 2, 7, 11, 15, 20, 24], dtype=torch.int32)
+        return indices, offsets
+
+    def test_host_only_tbe_has_no_lxu_cache_weights(self) -> None:
+        cc = self._host_only_tbe(torch.device("cpu"))
+        cc.fill_random_weights()
+        self.assertIsNone(cc.lxu_cache_weights)
+        self.assertNotIn("lxu_cache_weights", cc.state_dict())
+        indices, offsets = self._host_only_requests()
+        self.assertEqual(cc(indices, offsets).size(), (3, 16 + 32))
+
+    def test_host_only_tbe_prefetch_and_reset_cache_states_are_no_ops(self) -> None:
+        cc = self._host_only_tbe(torch.device("cpu"))
+        cc.fill_random_weights()
+        indices, offsets = self._host_only_requests()
+        expected = cc(indices, offsets)
+        cc.prefetch(indices, offsets)
+        cc.reset_cache_states()
+        self.assertIsNone(cc.lxu_cache_weights)
+        torch.testing.assert_close(
+            cc(indices, offsets), expected, rtol=0, atol=0, equal_nan=True
+        )
+
+    def test_host_only_tbe_forward_does_not_pop_lxu_cache_locations(self) -> None:
+        cc = self._host_only_tbe(torch.device("cpu"))
+        cc.fill_random_weights()
+        indices, offsets = self._host_only_requests()
+        expected = cc(indices, offsets)
+        cc.lxu_cache_locations_list = MagicMock()
+        torch.testing.assert_close(
+            cc(indices, offsets), expected, rtol=0, atol=0, equal_nan=True
+        )
+        cc.lxu_cache_locations_list.pop.assert_not_called()
+
+    def test_reconcile_empty_lxu_cache_weights(self) -> None:
+        empty = torch.zeros(0, 0, dtype=torch.uint8)
+        non_empty = torch.zeros(4, 8, dtype=torch.uint8)
+        no_cache = torch.nn.Module()
+        no_cache.register_buffer("lxu_cache_weights", None)
+        empty_cache = torch.nn.Module()
+        empty_cache.register_buffer("lxu_cache_weights", empty)
+        with_cache = torch.nn.Module()
+        with_cache.register_buffer("lxu_cache_weights", non_empty)
+        key = "tbes.0.lxu_cache_weights"
+        other_key = "tbes.1.lxu_cache_weights"
+        for test_name, module, state_dict, expected_keys in [
+            ("no_cache_drops_empty_key", no_cache, {key: empty}, []),
+            ("no_cache_keeps_non_empty_key", no_cache, {key: non_empty}, [key]),
+            ("cache_keeps_empty_key", with_cache, {key: empty}, [key]),
+            ("cache_keeps_non_empty_key", with_cache, {key: non_empty}, [key]),
+            ("no_cache_keeps_other_prefix", no_cache, {other_key: empty}, [other_key]),
+            ("no_cache_without_key", no_cache, {}, []),
+            ("empty_cache_adds_missing_key", empty_cache, {}, [key]),
+            ("empty_cache_keeps_existing_key", empty_cache, {key: empty}, [key]),
+            ("cache_does_not_add_missing_key", with_cache, {}, []),
+        ]:
+            with self.subTest(test_name):
+                _reconcile_empty_lxu_cache_weights(module, state_dict, "tbes.0.")
+                self.assertEqual(list(state_dict), expected_keys)
+        state_dict = {}
+        _reconcile_empty_lxu_cache_weights(empty_cache, state_dict, "tbes.0.")
+        self.assertEqual(state_dict[key].shape, empty.shape)
+
+    def test_module_with_empty_lxu_cache_weights_loads_cpu_state_dict(
+        self,
+    ) -> None:
+        cpu_model = torch.nn.Module()
+        cpu_model.tbes = torch.nn.ModuleList([self._host_only_tbe(torch.device("cpu"))])
+        state_dict = cpu_model.state_dict()
+        self.assertNotIn("tbes.0.lxu_cache_weights", state_dict)
+        model = torch.nn.Module()
+        model.tbes = torch.nn.ModuleList([self._host_only_tbe(torch.device("cpu"))])
+        tbe = model.tbes[0]
+        tbe.register_buffer("lxu_cache_weights", torch.zeros(0, 0, dtype=torch.uint8))
+        model.load_state_dict(state_dict, strict=True)
+        self.assertEqual(tbe.lxu_cache_weights.numel(), 0)
+
+    def test_host_only_tbe_loads_state_dict_with_empty_lxu_cache_weights(
+        self,
+    ) -> None:
+        cc = self._host_only_tbe(torch.device("cpu"))
+        state_dict = cc.state_dict()
+        state_dict["lxu_cache_weights"] = torch.zeros(0, 0, dtype=torch.uint8)
+        cc.load_state_dict(state_dict, strict=True)
+        self.assertIsNone(cc.lxu_cache_weights)
+        self.assertIn("lxu_cache_weights", state_dict)
+
+    def test_nested_host_only_tbe_loads_state_dict_with_empty_lxu_cache_weights(
+        self,
+    ) -> None:
+        model = torch.nn.Module()
+        model.tbes = torch.nn.ModuleList([self._host_only_tbe(torch.device("cpu"))])
+        state_dict = model.state_dict()
+        state_dict["tbes.0.lxu_cache_weights"] = torch.zeros(0, 0, dtype=torch.uint8)
+        model.load_state_dict(state_dict, strict=True)
+        self.assertIsNone(model.tbes[0].lxu_cache_weights)
+
+    def test_host_only_tbe_rejects_state_dict_with_non_empty_lxu_cache_weights(
+        self,
+    ) -> None:
+        cc = self._host_only_tbe(torch.device("cpu"))
+        state_dict = cc.state_dict()
+        state_dict["lxu_cache_weights"] = torch.zeros(4, 8, dtype=torch.uint8)
+        with self.assertRaisesRegex(RuntimeError, "Unexpected key.*lxu_cache_weights"):
+            cc.load_state_dict(state_dict, strict=True)
+
+    def test_host_only_tbe_moved_from_meta_to_cpu_has_no_lxu_cache_weights(
+        self,
+    ) -> None:
+        cc = self._host_only_tbe(torch.device("meta"))
+        cc.initialize_weights()
+        self.assertIsNone(cc.lxu_cache_weights)
+        cc.move_to_device_with_cache(torch.device("cpu"), cache_load_factor=0.0)
+        self.assertEqual(cc.current_device, torch.device("cpu"))
+        self.assertIsNone(cc.lxu_cache_weights)
+        cc.fill_random_weights()
+        indices, offsets = self._host_only_requests()
+        self.assertEqual(cc(indices, offsets).size(), (3, 16 + 32))
+
+    def test_device_tbe_moved_from_meta_to_cpu_has_no_lxu_cache_weights(
+        self,
+    ) -> None:
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            [
+                ("", 100, 16, SparseType.INT8, EmbeddingLocation.DEVICE),
+                ("", 50, 32, SparseType.FP16, EmbeddingLocation.DEVICE),
+            ],
+            device=torch.device("meta"),
+        )
+        cc.initialize_weights()
+        self.assertFalse(cc.use_cpu)
+        self.assertIsNotNone(cc.lxu_cache_weights)
+        cc.move_to_device_with_cache(torch.device("cpu"), cache_load_factor=0.0)
+        self.assertTrue(cc.use_cpu)
+        self.assertIsNone(cc.lxu_cache_weights)
+        self.assertNotIn("lxu_cache_weights", cc.state_dict())
+        cc.fill_random_weights()
+        indices, offsets = self._host_only_requests()
+        self.assertEqual(cc(indices, offsets).size(), (3, 16 + 32))
 
 
 if __name__ == "__main__":
