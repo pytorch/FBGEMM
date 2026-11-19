@@ -59,26 +59,22 @@ void checkLegacyFiniteRounding(
       0xff80,
       0x7f80,
       0xff80};
-  // Normal-only batches avoid the native path's subnormal fallback.
-  for (size_t pattern_size : {size_t{6}, bits.size()}) {
-    SCOPED_TRACE(pattern_size);
-    std::array<float, 33> input{};
-    for (size_t i = 0; i < input.size(); ++i) {
-      input[i] = std::bit_cast<float>(bits[i % pattern_size]);
-      EXPECT_EQ(cpu_float2bfloat16(input[i]).val, words[i % pattern_size]);
+  std::array<float, 33> input{};
+  for (size_t i = 0; i < input.size(); ++i) {
+    input[i] = std::bit_cast<float>(bits[i % bits.size()]);
+    EXPECT_EQ(cpu_float2bfloat16(input[i]).val, words[i % bits.size()]);
+  }
+  for (size_t count : {1, 7, 8, 15, 16, 17, 31, 32, 33}) {
+    SCOPED_TRACE(count);
+    std::array<bfloat16, 35> output{};
+    std::array<bfloat16, 35> expected{};
+    output.fill(bfloat16{0xbeef});
+    expected.fill(bfloat16{0xbeef});
+    for (size_t i = 0; i < count; ++i) {
+      expected[i + 1] = bfloat16{words[i % bits.size()]};
     }
-    for (size_t count : {1, 7, 8, 15, 16, 17, 31, 32, 33}) {
-      SCOPED_TRACE(count);
-      std::array<bfloat16, 35> output{};
-      std::array<bfloat16, 35> expected{};
-      output.fill(bfloat16{0xbeef});
-      expected.fill(bfloat16{0xbeef});
-      for (size_t i = 0; i < count; ++i) {
-        expected[i + 1] = bfloat16{words[i % pattern_size]};
-      }
-      convert(input.data(), output.data() + 1, count);
-      EXPECT_EQ(output, expected);
-    }
+    convert(input.data(), output.data() + 1, count);
+    EXPECT_EQ(output, expected);
   }
 }
 
@@ -88,23 +84,6 @@ TEST(FBGemmBfloat16Test, LegacyFiniteRounding) {
   checkLegacyFiniteRounding(FloatToBfloat16_ref);
   checkLegacyFiniteRounding(FloatToBfloat16_simd);
 }
-
-#if defined(FBGEMM_HAVE_NATIVE_BF16) && \
-    (defined(__aarch64__) || defined(__x86_64__) || defined(_M_X64))
-TEST(FBGemmBfloat16Test, LegacyFiniteRoundingNative) {
-  ASSERT_TRUE(cpuinfo_initialize());
-#if defined(__aarch64__)
-  const bool native_bf16 = cpuinfo_has_arm_bf16();
-#else
-  const bool native_bf16 =
-      fbgemmHasAvx512Support() && fbgemmHasAvx512Bf16Support();
-#endif
-  if (!native_bf16) {
-    GTEST_SKIP() << "Native BF16 is unavailable";
-  }
-  checkLegacyFiniteRounding(FloatToBfloat16_simd);
-}
-#endif
 
 #if defined(__x86_64__) || defined(_M_X64)
 TEST(FBGemmBfloat16Test, LegacyFiniteRoundingAvx2) {

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include "fbgemm_gpu/config/feature_gates.h"
 #include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
 using namespace fbgemm_gpu;
@@ -247,6 +248,109 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
 #endif
 }
 
+// Thread-per-bag kernel: each thread handles one bag (b_t) independently.
+// Better than warp-per-b_t when avg L is small: a warp per b_t leaves lanes
+// idle whenever L is below the warp size (31 of 32 at L = 1).
+//
+// Offsets are no longer adjusted: invalid offsets assert in every mode, as in
+// the default behavior of both bounds check kernels (gated by
+// DISABLE_OFFSETS_ADJUSTMENT, which is true by default).
+// WARNING and IGNORE only adjust out-of-range indices.
+template <typename index_t, bool vbe, BoundsCheckMode bounds_check_mode>
+__global__
+__launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_thread_per_bag(
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        rows_per_table,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    const int32_t* const B_offsets,
+    pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
+    FixedDivisor fd,
+    const int32_t* const b_t_map,
+    const int32_t info_B_num_bits,
+    const int32_t info_B_mask,
+    TORCH_DSA_KERNEL_ARGS) {
+  const int32_t T = rows_per_table.size(0);
+  const int32_t total_B = offsets.size(0) - 1;
+  const index_t num_indices = indices.size(0);
+
+  if (blockIdx.x == 0 && threadIdx.x == 0) {
+    CUDA_KERNEL_ASSERT(
+        num_indices == offsets[total_B] &&
+        "num_indices must match the last element in offsets");
+  }
+
+  for (int64_t b_t =
+           static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       b_t < total_B;
+       b_t += static_cast<int64_t>(blockDim.x) * gridDim.x) {
+    int32_t b;
+    int32_t t;
+    if (vbe) {
+      const auto info = *reinterpret_cast<const uint32_t*>(&b_t_map[b_t]);
+      *reinterpret_cast<uint32_t*>(&t) = info >> info_B_num_bits;
+      *reinterpret_cast<uint32_t*>(&b) = info & info_B_mask;
+    } else {
+      fd.DivMod(static_cast<int32_t>(b_t), &t, &b);
+    }
+
+    const auto num_rows = rows_per_table[t];
+    const auto indices_start = offsets[b_t];
+    const auto indices_end = offsets[b_t + 1];
+
+    CUDA_KERNEL_ASSERT(
+        indices_start >= 0 && "indices_start must be non-negative");
+    CUDA_KERNEL_ASSERT(
+        indices_start <= indices_end &&
+        "indices_start must not exceed indices_end");
+    CUDA_KERNEL_ASSERT(
+        indices_end <= num_indices &&
+        "indices_end must not exceed num_indices");
+
+    const auto L = indices_end - indices_start;
+    for (index_t i = 0; i < L; i++) {
+      const auto idx = indices[indices_start + i];
+      if (idx == -1) {
+        continue;
+      }
+      if (bounds_check_mode == BoundsCheckMode::FATAL) {
+        CUDA_KERNEL_ASSERT(
+            idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
+        CUDA_KERNEL_ASSERT(
+            idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
+      } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+        if (idx < 0 || idx >= num_rows) {
+          if (gpuAtomicIncrement(&warning[0]) == 0) {
+            const int32_t B_print =
+                vbe ? (B_offsets[t + 1] - B_offsets[t]) : (total_B / T);
+            printf(
+                "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
+                "batch: %d, table: %d, bag element: %lld, idx: %lld, num_rows: %lld, "
+                "indices_start: %lld, indices_end: %lld, T: %d, B: %d, b_t: %d. "
+                "Setting idx to zero.\n",
+                vbe ? "true" : "false",
+                b,
+                t,
+                static_cast<int64_t>(i),
+                static_cast<int64_t>(idx),
+                rows_per_table[t],
+                static_cast<int64_t>(indices_start),
+                static_cast<int64_t>(indices_end),
+                T,
+                B_print,
+                static_cast<int32_t>(b_t));
+          }
+          indices[indices_start + i] = 0;
+        }
+      } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+        if (idx < 0 || idx >= num_rows) {
+          indices[indices_start + i] = 0;
+        }
+      }
+    }
+  }
+}
+
 void _bounds_check_indices_cuda_v2(
     Tensor& rows_per_table,
     Tensor& indices,
@@ -276,6 +380,91 @@ void _bounds_check_indices_cuda_v2(
       bounds_check_mode == BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES) {
     warning.zero_();
   }
+
+#ifndef USE_ROCM
+  // NVIDIA only; ROCm keeps the launch below. The thread-per-bag kernel does
+  // not implement the trailing-indices mode.
+  //
+  // Experimentally on H100, thread-per-bag is used for avg L <= 2, and for
+  // avg L <= 72 when there are enough bags. With few bags, each thread's L
+  // serial loads are not hidden, while the warp kernel covers a bag in
+  // ceil(L / 32) passes; the bag floor scales with the warp kernel's busy lanes
+  // per pass, L / ceil(L / 32). When every bag has the same L and spans a
+  // multiple of 64 bytes, the lanes of a warp read the same sector position of
+  // different cache lines at once and each load waits about twice as long, so
+  // such inputs use a higher floor.
+  constexpr int32_t kThreadPerBagAlwaysMaxAvgL = 2;
+  constexpr int32_t kThreadPerBagMaxAvgL = 72;
+  constexpr int32_t kThreadPerBagMinBagsPerLane = 2048;
+  constexpr int32_t kThreadPerBagMinBagsPerLaneAligned = 4096;
+  const int32_t avg_L =
+      total_B > 0 ? static_cast<int32_t>(indices.numel() / total_B) : 0;
+  const bool aligned_bags = total_B > 0 && indices.numel() % total_B == 0 &&
+      (avg_L * indices.element_size()) % 64 == 0;
+  static const bool thread_per_bag_enabled =
+      fbgemm_gpu::config::is_feature_enabled(
+          fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_THREAD_PER_BAG);
+  const bool use_thread_per_bag_kernel = thread_per_bag_enabled &&
+      bounds_check_mode != BoundsCheckMode::WARNING_ALLOW_TRAILING_INDICES &&
+      (avg_L <= kThreadPerBagAlwaysMaxAvgL ||
+       (avg_L <= kThreadPerBagMaxAvgL &&
+        total_B >= (aligned_bags ? kThreadPerBagMinBagsPerLaneAligned
+                                 : kThreadPerBagMinBagsPerLane) *
+                (avg_L / div_round_up(avg_L, fbgemm_gpu::kWarpSizeHost()))));
+  if (use_thread_per_bag_kernel) {
+    constexpr size_t kThreadPerBagThreads = 1024;
+    auto thread_per_bag_grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
+        cuda_calc_xblock_count(total_B, kThreadPerBagThreads),
+        kThreadPerBagThreads,
+        at::cuda::getCurrentCUDAStream(),
+        fbgemm_gpu::utils::cuda::BlockCapPolicy::Always);
+    if (prefetch_pipeline) {
+      constexpr int PREFETCH_KERNEL_MAX_BLOCKS = 8;
+      thread_per_bag_grid_dim = std::min<uint32_t>(
+          thread_per_bag_grid_dim, PREFETCH_KERNEL_MAX_BLOCKS);
+    }
+
+#define INVOKE_THREAD_PER_BAG_BOUNDS_CHECK(MODE)                     \
+  if (bounds_check_mode == MODE) {                                   \
+    AT_DISPATCH_INDEX_TYPES(                                         \
+        indices.scalar_type(), "bounds_check_indices_cuda", [&] {    \
+          [[maybe_unused]] const auto func_name =                    \
+              "bounds_check_indices_cuda_thread_per_bag";            \
+          const auto bounds_check_kernel =                           \
+              (vbe ? bounds_check_indices_kernel_thread_per_bag<     \
+                         index_t,                                    \
+                         true,                                       \
+                         MODE>                                       \
+                   : bounds_check_indices_kernel_thread_per_bag<     \
+                         index_t,                                    \
+                         false,                                      \
+                         MODE>);                                     \
+          FBGEMM_LAUNCH_DSA_KERNEL(                                  \
+              bounds_check_kernel,                                   \
+              thread_per_bag_grid_dim,                               \
+              dim3(kThreadPerBagThreads),                            \
+              0,                                                     \
+              at::cuda::getCurrentCUDAStream(),                      \
+              PTA_B(rows_per_table, int64_t, 1, 32),                 \
+              PTA_B(indices, index_t, 1, 32),                        \
+              PTA_B(offsets, index_t, 1, 32),                        \
+              vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr, \
+              PTA_B(warning, int64_t, 1, 32),                        \
+              FixedDivisor(B),                                       \
+              vbe ? b_t_map.value().data_ptr<int32_t>() : nullptr,   \
+              info_B_num_bits,                                       \
+              info_B_mask);                                          \
+        });                                                          \
+  }
+
+    INVOKE_THREAD_PER_BAG_BOUNDS_CHECK(BoundsCheckMode::FATAL)
+    INVOKE_THREAD_PER_BAG_BOUNDS_CHECK(BoundsCheckMode::WARNING)
+    INVOKE_THREAD_PER_BAG_BOUNDS_CHECK(BoundsCheckMode::IGNORE)
+
+#undef INVOKE_THREAD_PER_BAG_BOUNDS_CHECK
+    return;
+  }
+#endif
 
   // The WARNING template is the register-heaviest of the three; at 1024
   // threads/block that is enough to cap occupancy at one block per SM.

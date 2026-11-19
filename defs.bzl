@@ -216,6 +216,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/PackWeightMatrixForGConv.cc",
         "src/PackWeightsForConv.cc",
         "src/PackWeightsForDirectConv.cc",
+        "src/PlatformSpecificKernels.cc",
         "src/QuantUtils.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
@@ -258,6 +259,42 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Types.h",
     ]
 
+def get_fbgemm_platform_kernels_srcs():
+    return [
+        "src/isa_specific/FbgemmBfloat16ConvertKernels.cc",
+        "src/isa_specific/PlatformSpecificKernelsIsa.cc",
+    ]
+
+_PLATFORM_KERNELS_ISAS = {
+    "aarch64": ["neon", "sve128"],
+    "x86_64": ["avx2", "avx512_256", "avx512_256_bf16", "avx512", "avx512_bf16"],
+}
+
+def _check_fbgemm_platform_kernels_isas(isas):
+    known = ["ref"] + [isa for arch_isas in _PLATFORM_KERNELS_ISAS.values() for isa in arch_isas]
+    unknown = [isa for isa in isas if isa not in known]
+    if unknown:
+        fail("Unknown platform kernels: " + ", ".join(unknown))
+
+def get_fbgemm_platform_kernels_isas(arch, disabled = []):
+    _check_fbgemm_platform_kernels_isas(disabled)
+    if "ref" in disabled:
+        fail("The ref platform kernels cannot be disabled")
+    isas = ["ref"] + _PLATFORM_KERNELS_ISAS.get(arch, [])
+    avx512_derived = ["avx512_bf16"]
+    avx512_256_derived = ["avx512_256_bf16", "avx512"] + avx512_derived
+    derived = {
+        "avx2": ["avx512_256"] + avx512_256_derived,
+        "avx512": avx512_derived,
+        "avx512_256": avx512_256_derived,
+        "neon": ["sve128"],
+    }
+    disabled = [d for isa in disabled for d in [isa] + derived.get(isa, [])]
+    return [isa for isa in isas if isa not in disabled]
+
+def get_fbgemm_platform_kernels_defines(isas):
+    return ["FBGEMM_PLATFORM_KERNELS_" + isa.upper() for isa in isas]
+
 def get_fbgemm_avx2_flags():
     return [
         "-m64",
@@ -275,8 +312,31 @@ def get_fbgemm_avx512_flags():
         "-mavx512bw",
         "-mavx512dq",
         "-mavx512vl",
-        "-mavx512bf16",
     ]
+
+def get_fbgemm_avx512_bf16_flags():
+    return get_fbgemm_avx512_flags() + ["-mavx512bf16"]
+
+def get_fbgemm_platform_kernels_flags(isa, msvc = False, disable_march_overrides = False):
+    if msvc:
+        return {
+            "avx2": ["/arch:AVX2"],
+            "avx512": ["/arch:AVX512"],
+            "avx512_256": ["/arch:AVX512", "/DFBGEMM_PREFERRED_VECTOR_WIDTH=256"],
+            "avx512_256_bf16": ["/arch:AVX512", "/DFBGEMM_PREFERRED_VECTOR_WIDTH=256"],
+            "avx512_bf16": ["/arch:AVX512"],
+        }.get(isa, [])
+
+    # The last -march on the command line wins, so ours overrides the build's.
+    # Set disable_march_overrides = True to control -march yourself.
+    return {
+        "avx2": get_fbgemm_avx2_flags(),
+        "avx512": get_fbgemm_avx512_flags(),
+        "avx512_256": get_fbgemm_avx512_flags() + ["-mprefer-vector-width=256", "-DFBGEMM_PREFERRED_VECTOR_WIDTH=256"],
+        "avx512_256_bf16": get_fbgemm_avx512_bf16_flags() + ["-mprefer-vector-width=256", "-DFBGEMM_PREFERRED_VECTOR_WIDTH=256"],
+        "avx512_bf16": get_fbgemm_avx512_bf16_flags(),
+        "sve128": ([] if disable_march_overrides else ["-march=armv8.5-a+sve2"]) + ["-msve-vector-bits=128"],
+    }.get(isa, [])
 
 def get_fbgemm_avx2_srcs(buck = False):
     # These 3 depthwise files are also compiled in fbgemm_sve.  On ARM,
