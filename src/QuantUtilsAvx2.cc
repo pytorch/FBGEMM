@@ -35,6 +35,37 @@ using namespace std;
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
+#ifdef __AVX2__
+namespace {
+
+ALWAYS_INLINE __m256i exactZeroMaskAvx2(__m256 source) {
+  const auto magnitude = _mm256_and_si256(
+      _mm256_castps_si256(source), _mm256_set1_epi32(0x7fffffff));
+  // Volatile scalar reads keep zero classification independent of DAZ.
+  const volatile int32_t lanes[8] = {
+      _mm256_extract_epi32(magnitude, 0),
+      _mm256_extract_epi32(magnitude, 1),
+      _mm256_extract_epi32(magnitude, 2),
+      _mm256_extract_epi32(magnitude, 3),
+      _mm256_extract_epi32(magnitude, 4),
+      _mm256_extract_epi32(magnitude, 5),
+      _mm256_extract_epi32(magnitude, 6),
+      _mm256_extract_epi32(magnitude, 7)};
+  const auto materialized = _mm256_set_epi32(
+      lanes[7],
+      lanes[6],
+      lanes[5],
+      lanes[4],
+      lanes[3],
+      lanes[2],
+      lanes[1],
+      lanes[0]);
+  return _mm256_cmpeq_epi32(materialized, _mm256_setzero_si256());
+}
+
+} // namespace
+#endif
+
 template <typename T>
 void QuantizeAvx2(
     const float* src,
@@ -66,9 +97,16 @@ void QuantizeAvx2(
   __m256i permute_mask_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
   const auto zero_point_v = _mm256_set1_epi32(qparams.zero_point);
+  const auto nan_bound_v = _mm256_set1_epi32(
+      (int64_t{1} << (qparams.precision - std::is_signed_v<T>)) - 1);
+  const bool reciprocal_overflow = std::isinf(inverse_scale);
+  const auto quantized_zero_v =
+      _mm256_set1_epi32(std::clamp(qparams.zero_point, min_val, max_val));
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256 src_v = _mm256_loadu_ps(src + i);
     __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
+    const auto nan_mask_v = _mm256_castps_si256(
+        _mm256_cmp_ps(transformed_v, transformed_v, _CMP_UNORD_Q));
     // If the floating point value is greater than int32_max,
     // _mm256_cvtps_epi32 converts them to negative. Clip at int32_float_max_val
     // to avoid this.
@@ -80,6 +118,11 @@ void QuantizeAvx2(
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
         _mm256_set1_epi32(max_val));
+    clipped_v = _mm256_blendv_epi8(clipped_v, nan_bound_v, nan_mask_v);
+    if (reciprocal_overflow) {
+      const auto zero_mask_v = exactZeroMaskAvx2(src_v);
+      clipped_v = _mm256_blendv_epi8(clipped_v, quantized_zero_v, zero_mask_v);
+    }
 
     // An instruction sequence to save 8 32-bit integers as 8 8-bit integers
     clipped_v = _mm256_shuffle_epi8(clipped_v, shuffle_mask_v);
@@ -99,6 +142,8 @@ void QuantizeAvx2(
     // reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
     __m256 transformed_v = _mm256_mul_ps(src_v, inverse_scale_v);
+    const auto nan_mask_v = _mm256_castps_si256(
+        _mm256_cmp_ps(transformed_v, transformed_v, _CMP_UNORD_Q));
     transformed_v =
         _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
 
@@ -107,6 +152,11 @@ void QuantizeAvx2(
     __m256i clipped_v = _mm256_min_epi32(
         _mm256_max_epi32(rounded_v, _mm256_set1_epi32(min_val)),
         _mm256_set1_epi32(max_val));
+    clipped_v = _mm256_blendv_epi8(clipped_v, nan_bound_v, nan_mask_v);
+    if (reciprocal_overflow) {
+      const auto zero_mask_v = exactZeroMaskAvx2(src_v);
+      clipped_v = _mm256_blendv_epi8(clipped_v, quantized_zero_v, zero_mask_v);
+    }
 
     // An instruction sequence to save "rem" number of 32-bit integers
     // as "rem" number of 8-bit integers
@@ -145,6 +195,8 @@ void QuantizeAvx2(
       _mm256_set1_ps(std::numeric_limits<int32_t>::max() - 127);
   const auto minimum = _mm256_set1_epi32(std::numeric_limits<T>::min());
   const auto maximum = _mm256_set1_epi32(std::numeric_limits<T>::max());
+  const auto nan_bound = _mm256_set1_epi32(
+      (int64_t{1} << (qparams.precision - std::is_signed_v<T>)) - 1);
   // clang-format off
   const auto shuffle_mask = _mm256_set_epi8(
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -162,11 +214,14 @@ void QuantizeAvx2(
           _mm256_slli_epi32(_mm256_cvtepu16_epi32(packed), 16));
     }
     auto transformed = _mm256_mul_ps(values, inverse_scale);
+    const auto nan_mask = _mm256_castps_si256(
+        _mm256_cmp_ps(transformed, transformed, _CMP_UNORD_Q));
     transformed = _mm256_min_ps(transformed, int32_float_max);
     auto rounded =
         _mm256_add_epi32(_mm256_cvtps_epi32(transformed), zero_point);
     auto clipped =
         _mm256_min_epi32(_mm256_max_epi32(rounded, minimum), maximum);
+    clipped = _mm256_blendv_epi8(clipped, nan_bound, nan_mask);
     if (reciprocal_overflow) {
       const auto zero_words = _mm_cmpeq_epi16(
           _mm_and_si128(packed, _mm_set1_epi16(0x7fff)), _mm_setzero_si128());

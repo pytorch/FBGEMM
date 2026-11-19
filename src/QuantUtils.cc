@@ -200,6 +200,34 @@ void ChooseRequantizationMultiplier(
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
 
+namespace {
+
+template <typename T>
+void QuantizeScalarArray(
+    const float* src,
+    T* dst,
+    int64_t begin,
+    int64_t end,
+    const TensorQuantizationParams& supplied_qparams) {
+  const TensorQuantizationParams qparams = supplied_qparams;
+  const float reciprocal = 1.f / qparams.scale;
+  if (std::isinf(reciprocal)) {
+    for (int64_t i = begin; i < end; ++i) {
+      dst[i] = Quantize<T>(src[i], qparams);
+    }
+  } else {
+    for (int64_t i = begin; i < end; ++i) {
+      dst[i] = detail::QuantizeScaledValue<T>(
+          src[i] * reciprocal,
+          qparams.zero_point,
+          qparams.precision,
+          std::is_signed_v<T>);
+    }
+  }
+}
+
+} // namespace
+
 #define FBGEMM_SPECIALIZED_QUANTIZE(T)                              \
   template <>                                                       \
   FBGEMM_API void Quantize<T>(                                      \
@@ -211,9 +239,7 @@ void ChooseRequantizationMultiplier(
       int num_threads) {                                            \
     int64_t i_begin, i_end;                                         \
     fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
-    for (int64_t i = i_begin; i < i_end; ++i) {                     \
-      dst[i] = Quantize<T>(src[i], qparams);                        \
-    }                                                               \
+    QuantizeScalarArray<T>(src, dst, i_begin, i_end, qparams);      \
   }
 
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t)
@@ -237,9 +263,7 @@ FBGEMM_SPECIALIZED_QUANTIZE(int32_t)
       /* fast path  */                                                         \
       QuantizeAvx2<T>(&src[i_begin], &dst[i_begin], i_end - i_begin, qparams); \
     } else {                                                                   \
-      for (int64_t i = i_begin; i < i_end; ++i) {                              \
-        dst[i] = Quantize<T>(src[i], qparams);                                 \
-      }                                                                        \
+      QuantizeScalarArray<T>(src, dst, i_begin, i_end, qparams);               \
     }                                                                          \
   }
 
@@ -347,7 +371,7 @@ FBGEMM_API void QuantizeHalfFallback(
         converted[i] = widen(start + i);
       }
       Quantize<T>(converted.data(), dst + start, count, qparams);
-      // FP32 SIMD turns zero times an infinite reciprocal into arithmetic NaN.
+      // Apply the original input's exact-zero classification.
       if (reciprocal_overflow) {
         for (int64_t i = 0; i < count; ++i) {
           if (is_exact_zero(start + i)) {
@@ -357,17 +381,18 @@ FBGEMM_API void QuantizeHalfFallback(
       }
     }
   } else {
-    const auto upper_quantization_bound = static_cast<T>(
-        (int64_t{1} << (qparams.precision - std::is_signed_v<T>)) - 1);
-
     for (int64_t i = 0; i < len; ++i) {
       const float value = widen(i);
       if (reciprocal_overflow && is_exact_zero(i)) {
         dst[i] = quantized_zero;
-      } else if (std::isnan(value * inverse_scale)) {
-        dst[i] = upper_quantization_bound;
-      } else {
+      } else if (reciprocal_overflow) {
         dst[i] = Quantize<T>(value, qparams);
+      } else {
+        dst[i] = detail::QuantizeScaledValue<T>(
+            value * inverse_scale,
+            qparams.zero_point,
+            qparams.precision,
+            std::is_signed_v<T>);
       }
     }
   }

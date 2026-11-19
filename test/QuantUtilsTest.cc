@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include <algorithm>
+#include <bit>
 #include <climits>
 #include <cstring>
 #include <limits>
@@ -1701,4 +1702,174 @@ TEST(HalfQuantizeTest, ExactZeroDaz_float16_uint16_t) {
 }
 TEST(HalfQuantizeTest, ExactZeroDaz_bfloat16_uint16_t) {
   testExactZerosWithDaz<uint16_t, bfloat16>();
+}
+
+namespace {
+
+template <typename T, typename InputType>
+void testQuantizeNaNPolicy() {
+  vector<InputType> source;
+  if constexpr (std::is_same_v<InputType, float>) {
+    for (const uint32_t sign : {0u, 0x80000000u}) {
+      for (const uint32_t payload :
+           {1u, 2u, 0x12345u, 0x3fffffu, 0x400000u, 0x654321u, 0x7fffffu}) {
+        const uint32_t bits = sign | 0x7f800000u | payload;
+        const float value = std::bit_cast<float>(bits);
+        source.push_back(value);
+      }
+    }
+  } else {
+    constexpr uint16_t infinity =
+        std::is_same_v<InputType, float16> ? 0x7c00 : 0x7f80;
+    constexpr uint16_t payload_mask =
+        std::is_same_v<InputType, float16> ? 0x03ff : 0x007f;
+    for (const uint16_t sign : {0x0000, 0x8000}) {
+      for (uint16_t payload = 1; payload <= payload_mask; ++payload) {
+        source.push_back(
+            InputType{static_cast<uint16_t>(sign | infinity | payload)});
+      }
+    }
+  }
+  vector<InputType> pattern(33);
+  for (size_t i = 0; i < pattern.size(); ++i) {
+    pattern[i] = source[i % source.size()];
+  }
+  const auto original = source;
+  constexpr int width = sizeof(T) * 8;
+  for (int precision = 1; precision <= width; ++precision) {
+    const T upper =
+        static_cast<T>((int64_t{1} << (precision - std::is_signed_v<T>)) - 1);
+    for (const int32_t zero_point : {INT32_MIN, -1, 0, 1, 255, INT32_MAX}) {
+      const TensorQuantizationParams qparams{0.125f, zero_point, precision};
+      vector<T> actual(source.size() + 16, 42);
+      Quantize<T>(source.data(), actual.data() + 8, source.size(), qparams);
+      EXPECT_TRUE(all_of(actual.begin() + 8, actual.end() - 8, [=](T x) {
+        return x == upper;
+      }));
+      EXPECT_TRUE(all_of(
+          actual.begin(), actual.begin() + 8, [](T x) { return x == 42; }));
+      EXPECT_TRUE(
+          all_of(actual.end() - 8, actual.end(), [](T x) { return x == 42; }));
+      if constexpr (std::is_same_v<InputType, float>) {
+        for (const float value : source) {
+          EXPECT_EQ(Quantize<T>(value, qparams), upper);
+        }
+      }
+      for (const int length : {1, 7, 8, 9, 15, 16, 17, 33}) {
+        vector<T> partitioned(length, 42);
+        for (int id = 0; id < 8; ++id) {
+          Quantize<T>(
+              pattern.data(), partitioned.data(), length, qparams, id, 8);
+        }
+        EXPECT_EQ(partitioned, vector<T>(length, upper));
+      }
+    }
+  }
+  EXPECT_EQ(
+      memcmp(source.data(), original.data(), source.size() * sizeof(InputType)),
+      0);
+}
+
+template <typename T>
+void testFloatTinyScaleZeroAndArithmeticNaN() {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  struct RestoreMxcsr {
+    unsigned saved = _mm_getcsr();
+    ~RestoreMxcsr() {
+      _mm_setcsr(saved);
+    }
+  } restore;
+  const vector<uint32_t> bits{0, 0x80000000u, 1, 0x80000001u};
+  vector<float> source(17);
+  for (size_t i = 0; i < source.size(); ++i) {
+    source[i] = std::bit_cast<float>(bits[i % bits.size()]);
+  }
+  for (const unsigned mode : {0x0040u, 0x8040u}) {
+    _mm_setcsr(restore.saved | mode);
+    for (const int precision : {1, 4, int(sizeof(T) * 8)}) {
+      const int64_t upper =
+          (int64_t{1} << (precision - std::is_signed_v<T>)) - 1;
+      const int64_t lower =
+          std::is_signed_v<T> ? -(int64_t{1} << (precision - 1)) : 0;
+      for (const int zero_point : {INT32_MIN, -1, 3, INT32_MAX}) {
+        const TensorQuantizationParams qparams{1.e-40f, zero_point, precision};
+        vector<T> actual(source.size());
+        Quantize<T>(source.data(), actual.data(), source.size(), qparams);
+        for (size_t i = 0; i < source.size(); ++i) {
+          const auto expected =
+              i % 4 < 2 ? std::clamp<int64_t>(zero_point, lower, upper) : upper;
+          EXPECT_EQ(actual[i], expected);
+          EXPECT_EQ(Quantize<T>(source[i], qparams), expected);
+        }
+      }
+    }
+  }
+#endif
+}
+
+} // namespace
+
+TEST(QuantizeNaNTest, Int8) {
+  testQuantizeNaNPolicy<int8_t, float>();
+  testQuantizeNaNPolicy<int8_t, float16>();
+  testQuantizeNaNPolicy<int8_t, bfloat16>();
+  testFloatTinyScaleZeroAndArithmeticNaN<int8_t>();
+}
+TEST(QuantizeNaNTest, UInt8) {
+  testQuantizeNaNPolicy<uint8_t, float>();
+  testQuantizeNaNPolicy<uint8_t, float16>();
+  testQuantizeNaNPolicy<uint8_t, bfloat16>();
+  testFloatTinyScaleZeroAndArithmeticNaN<uint8_t>();
+}
+TEST(QuantizeNaNTest, Int16) {
+  testQuantizeNaNPolicy<int16_t, float>();
+  testQuantizeNaNPolicy<int16_t, float16>();
+  testQuantizeNaNPolicy<int16_t, bfloat16>();
+  testFloatTinyScaleZeroAndArithmeticNaN<int16_t>();
+}
+TEST(QuantizeNaNTest, UInt16) {
+  testQuantizeNaNPolicy<uint16_t, float>();
+  testQuantizeNaNPolicy<uint16_t, float16>();
+  testQuantizeNaNPolicy<uint16_t, bfloat16>();
+  testFloatTinyScaleZeroAndArithmeticNaN<uint16_t>();
+}
+TEST(QuantizeNaNTest, Int32) {
+  testQuantizeNaNPolicy<int32_t, float>();
+  testFloatTinyScaleZeroAndArithmeticNaN<int32_t>();
+}
+
+TEST(QuantizeNaNTest, DefinedFiniteParity) {
+  mt19937 random(0x46424745);
+  uniform_real_distribution<float> distribution(-512.f, 512.f);
+  vector<float> source(1031);
+  std::ranges::generate(source, [&] { return distribution(random); });
+  for (const float scale : {0.00214854861f, 0.03125f, 0.125f, 1.f}) {
+    for (const int zero_point : {-127, -3, 0, 127, 255}) {
+      for (int precision = 1; precision <= 8; ++precision) {
+        const TensorQuantizationParams qparams{scale, zero_point, precision};
+        vector<int8_t> signed_result(source.size());
+        vector<uint8_t> unsigned_result(source.size());
+        Quantize<int8_t>(
+            source.data(), signed_result.data(), source.size(), qparams);
+        Quantize<uint8_t>(
+            source.data(), unsigned_result.data(), source.size(), qparams);
+        for (size_t i = 0; i < source.size(); ++i) {
+          // Frozen foundation FP32 arithmetic, restricted to defined finite
+          // casts.
+          const float scaled = source[i] * (1.f / scale);
+          const float affine = zero_point + std::nearbyint(scaled);
+          const int64_t lower = -(int64_t{1} << (precision - 1));
+          const int64_t upper = (int64_t{1} << (precision - 1)) - 1;
+          const auto signed_expected =
+              static_cast<int8_t>(std::clamp<double>(affine, lower, upper));
+          const auto unsigned_expected = static_cast<uint8_t>(
+              std::clamp<double>(affine, 0, (int64_t{1} << precision) - 1));
+          EXPECT_EQ(signed_result[i], signed_expected);
+          EXPECT_EQ(unsigned_result[i], unsigned_expected);
+          EXPECT_EQ(Quantize<int8_t>(source[i], qparams), signed_expected);
+          EXPECT_EQ(Quantize<uint8_t>(source[i], qparams), unsigned_expected);
+        }
+      }
+    }
+  }
 }

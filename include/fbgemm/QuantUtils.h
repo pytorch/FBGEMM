@@ -16,6 +16,7 @@
 #include "./Utils.h" // @manual
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -61,8 +62,37 @@ constexpr T2 clamp(T1 src, int precision, bool is_signed = false) {
   return std::clamp<T1>(src, min, max);
 }
 
+namespace detail {
+
+template <typename T>
+T QuantizeScaledValue(
+    float transformed_val,
+    std::int32_t zero_point,
+    int result_precision,
+    bool result_is_signed) {
+  if (std::isnan(transformed_val)) {
+    return static_cast<T>(
+        (int64_t{1} << (result_precision - result_is_signed)) - 1);
+  }
+  // nearbyint here performs round-to-nearest-ties-to-even with
+  // default rounding mode.
+  // For example, nearbyint(1.4) is 1.0, nearbyint(1.5) is 2.0
+  // and nearbyint(2.5) is 2.0
+  // Adding zero_point after rounding matches PyTorch behavior.
+  transformed_val = zero_point + std::nearbyint(transformed_val);
+  // Please note the use of double. Unlike float, a double can represent
+  // all int32 values exactly. Using a float results in a float value >
+  // INT32_MAX conversion to int32 in clamp function and hence an UBSAN error.
+  return clamp<double, T>(transformed_val, result_precision, result_is_signed);
+}
+
+} // namespace detail
+
 /// Quantize src using zero_point and scale, clamp to the specified precision,
-/// and convert it to type T
+/// and convert it to type T. NaNs saturate to the
+/// signedness/precision-dependent upper bound. Exact zero maps to clamped
+/// zero_point if the reciprocal overflows; zero classification is independent
+/// of DAZ.
 template <typename T>
 T Quantize(
     float src,
@@ -81,17 +111,21 @@ T Quantize(
   // Eventually 127.5 gets rounded to 128 while 127.499992 gets rounded to 127.
   float inv_scale = 1.0f / scale;
 
-  float transformed_val = src * inv_scale;
-  // nearbyint here performs round-to-nearest-ties-to-even with
-  // default rounding mode.
-  // For example, nearbyint(1.4) is 1.0, nearbyint(1.5) is 2.0
-  // and nearbyint(2.5) is 2.0
-  // Adding zero_point after rounding matches PyTorch behavior.
-  transformed_val = zero_point + std::nearbyint(transformed_val);
-  // Please note the use of double. Unlike float, a double can represent
-  // all int32 values exactly. Using a float results in a float value >
-  // INT32_MAX conversion to int32 in clamp function and hence an UBSAN error.
-  return clamp<double, T>(transformed_val, result_precision, result_is_signed);
+  if (std::isinf(inv_scale)) {
+    // Keep this integer test from being folded into a DAZ-sensitive FP compare.
+    const volatile uint32_t magnitude =
+        std::bit_cast<uint32_t>(src) & 0x7fffffff;
+    if (magnitude == 0) {
+      return clamp<double, T>(zero_point, result_precision, result_is_signed);
+    }
+    // Preserve runtime FP32 arithmetic under DAZ.
+    const volatile float value = src;
+    const volatile float reciprocal = inv_scale;
+    return detail::QuantizeScaledValue<T>(
+        value * reciprocal, zero_point, result_precision, result_is_signed);
+  }
+  return detail::QuantizeScaledValue<T>(
+      src * inv_scale, zero_point, result_precision, result_is_signed);
 }
 
 template <typename T>
@@ -118,14 +152,14 @@ FBGEMM_API void Quantize(
 /// FP32 buffer. FP16 additionally requires F16C; unsupported CPUs use a
 /// portable fallback. The 16-bit output paths use portable scalar code.
 ///
-/// Scalar-fallback NaNs saturate to the upper quantization bound, including
+/// NaNs saturate to the upper quantization bound in every path, including
 /// arithmetic NaNs for nonzero BF16 subnormals under DAZ. Exact zero is
 /// classified from input bits, independently of the floating environment,
 /// and maps to clamped zero_point even when the reciprocal overflows.
 ///
-/// AVX2 retains the FP32 overload's int32 zero-point addition, including
-/// wraparound for scaled inputs outside the int32 range. The zero-input
-/// behavior intentionally differs from the FP32 SIMD arithmetic-NaN result.
+/// FP32 uses the same NaN and exact-zero policies. AVX2 retains int32
+/// zero-point addition for non-NaN inputs, including wraparound for scaled
+/// inputs outside the int32 range.
 template <typename T, FbgemmHalfType InputType>
   requires(
       std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t> ||
