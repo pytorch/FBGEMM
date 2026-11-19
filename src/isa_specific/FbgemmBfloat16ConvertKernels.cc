@@ -13,7 +13,7 @@
 
 namespace fbgemm::FBGEMM_SIMD_NAMESPACE {
 
-#if FBGEMM_SIMD_IN(avx2, avx512)
+#if FBGEMM_SIMD_IN(ref, avx2, avx512)
 void Kernels::Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
     const noexcept {
   for (size_t i = 0; i != size; ++i) {

@@ -48,7 +48,8 @@ std::vector<const PlatformSpecificKernels*> supportedPlatformKernels() {
   const inst_set_t isa = fbgemmInstructionSet();
   const bool allow_avx512_bf16 = isa == avx512_vnni;
   const bool allow_avx512 = allow_avx512_bf16 || isa == avx512;
-  const bool allow_avx512_256_bf16 = isa == avx512_vnni_ymm;
+  const bool allow_avx512_256_bf16 =
+      allow_avx512_bf16 || isa == avx512_vnni_ymm;
   const bool allow_avx512_256 =
       allow_avx512 || allow_avx512_256_bf16 || isa == avx512_ymm;
   [[maybe_unused]] const bool allow_avx2 = allow_avx512_256 || isa == avx2;

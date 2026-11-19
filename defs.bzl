@@ -235,6 +235,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmConvert.h",
         "include/fbgemm/FbgemmEmbedding.h",
         "include/fbgemm/detail/EmbeddingSpMDMFP8.h",
+        "include/fbgemm/detail/PlatformSpecificKernelsInterface.h",
         "include/fbgemm/FbgemmFP16.h",
         "include/fbgemm/FbgemmFP32.h",
         "include/fbgemm/FbgemmFPCommon.h",

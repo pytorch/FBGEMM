@@ -23,7 +23,7 @@ struct Kernels : FBGEMM_SIMD_BASE {
 
   std::string_view name() const noexcept override;
 
-#if FBGEMM_SIMD_IN(avx2, avx512)
+#if FBGEMM_OVERRIDE_IN(avx2, avx512)
   void Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
       const noexcept override;
 #endif
