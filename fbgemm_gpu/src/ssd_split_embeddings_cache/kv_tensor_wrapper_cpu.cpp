@@ -68,6 +68,23 @@ bool KVTensorWrapper::stores_raw_rows() const {
   return false;
 }
 
+at::Tensor KVTensorWrapper::decode_raw_rows_to_publish(
+    const at::Tensor& /*raw_rows*/) const {
+  FBEXCEPTION("Not implemented");
+}
+
+bool KVTensorWrapper::publish_view_decodes_from_raw_rows() const {
+  return false;
+}
+
+std::optional<int64_t> KVTensorWrapper::publish_view_inexact_rows() const {
+  return std::nullopt;
+}
+
+int64_t KVTensorWrapper::publish_view_inexact_writes() const {
+  return 0;
+}
+
 at::Tensor KVTensorWrapper::narrow(
     int64_t dim [[maybe_unused]],
     int64_t start [[maybe_unused]],

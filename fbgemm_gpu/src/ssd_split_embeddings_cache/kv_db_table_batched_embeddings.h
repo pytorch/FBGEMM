@@ -646,6 +646,24 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return get_raw_row_bytes();
   }
 
+  /// Decodes raw rows read from this backend (uint8, get_raw_row_bytes wide)
+  /// to the fp16 whole rows a half-precision whole-row read returns.
+  virtual at::Tensor decode_raw_rows(const at::Tensor& /*raw_rows*/) {
+    TORCH_CHECK(false, "This backend does not decode raw rows");
+  }
+
+  /// Rows whose raw rows decode_raw_rows does not decode back to their fp16
+  /// whole-row reads, or nullopt if this backend cannot decode its raw rows.
+  virtual std::optional<int64_t> raw_rows_inexact_rows() {
+    return std::nullopt;
+  }
+
+  /// Grows with every write that leaves such a row, including rows cleared
+  /// again since.
+  virtual int64_t raw_rows_inexact_writes() const {
+    return 0;
+  }
+
   virtual int64_t get_metaheader_width_in_front() {
     // will return non-zero if DRAM enables backend_return_whole_row
     return 0;

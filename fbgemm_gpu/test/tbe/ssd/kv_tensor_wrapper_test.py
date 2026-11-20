@@ -687,7 +687,11 @@ class KvTensorWrapperTest(TestCase):
                 self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
     def _create_cu_cache(
-        self, int8_storage: bool, max_D: int = 132, packed_storage: bool = False
+        self,
+        int8_storage: bool,
+        max_D: int = 132,
+        packed_storage: bool = False,
+        group_size: int = 8,
     ) -> _CuCache:
         # CU whole rows retain four unused fp16 tail columns for compatibility.
         enrichment_config = torch.classes.fbgemm.EnrichmentConfig(
@@ -697,7 +701,7 @@ class KvTensorWrapperTest(TestCase):
             enrichment_dim=128,
             response_format=0,
             serving_qdq_bit_rate=4 if packed_storage else 0,
-            serving_qdq_group_size=8 if packed_storage else 0,
+            serving_qdq_group_size=group_size if packed_storage else 0,
             packed_storage=packed_storage,
             int8_storage=int8_storage,
         )
@@ -918,6 +922,55 @@ class KvTensorWrapperTest(TestCase):
             )
         )
         print(f"checkpoint bytes/row: fp16 {(8 + 132) * 2}, INT8 160, g8 {row_bytes}")
+
+    def test_raw_rows_decode_to_the_fp16_publish_rows(self) -> None:
+        n = 1000
+        ids = torch.arange(n + 7)  # The last 7 ids have no rows.
+        for int8_storage in (True, False):
+            with self.subTest(int8=int8_storage):
+                db = self._create_cu_cache(
+                    int8_storage=int8_storage, packed_storage=not int8_storage
+                )
+                self._write_cu_rows(db, n)
+                raw_pmt = self._whole_row_pmt(
+                    db, ids, db.get_raw_row_bytes(), torch.uint8
+                )
+                raw = raw_pmt.narrow(0, 0, ids.numel())
+                fp16 = self._whole_row_pmt(db, ids, 8 + 132, torch.float16)
+                self.assertTrue(raw_pmt.wrapped.publish_view_decodes_from_raw_rows())
+                self.assertFalse(fp16.wrapped.publish_view_decodes_from_raw_rows())
+                decoded = raw_pmt.wrapped.decode_raw_rows_to_publish(raw)
+                self.assertEqual(decoded.dtype, torch.float16)
+                self.assertEqual(
+                    decoded.view(torch.uint8).numpy().tobytes(),
+                    fp16.narrow(0, 0, ids.numel()).view(torch.uint8).numpy().tobytes(),
+                )
+
+    def test_packed_fallback_rows_keep_the_live_publish_view(self) -> None:
+        db = self._create_cu_cache(int8_storage=False, packed_storage=True)
+        self._write_cu_rows(db, 10)
+        # A row with no serving fixed point is kept as fp16 outside its block.
+        nan_row = torch.full((1, 132), float("nan")).half()
+        db.set(torch.tensor([3]), nan_row, torch.tensor([1]))
+        ids = torch.arange(10)
+        raw_pmt = self._whole_row_pmt(db, ids, db.get_raw_row_bytes(), torch.uint8)
+        self.assertFalse(raw_pmt.wrapped.publish_view_decodes_from_raw_rows())
+        fp16 = self._whole_row_pmt(db, ids, 8 + 132, torch.float16)
+        with self.assertRaisesRegex(Exception, "complete raw rows"):
+            fp16.wrapped.decode_raw_rows_to_publish(raw_pmt.narrow(0, 0, 10))
+
+    def test_non_g8_packed_rows_keep_the_live_publish_view(self) -> None:
+        # The raw-row decode unpacks only the g8 layout.
+        db = self._create_cu_cache(
+            int8_storage=False, packed_storage=True, group_size=16
+        )
+        self._write_cu_rows(db, 10)
+        raw_pmt = self._whole_row_pmt(
+            db, torch.arange(10), db.get_raw_row_bytes(), torch.uint8
+        )
+        self.assertFalse(raw_pmt.wrapped.publish_view_decodes_from_raw_rows())
+        with self.assertRaisesRegex(Exception, "packed g8"):
+            raw_pmt.wrapped.decode_raw_rows_to_publish(raw_pmt.narrow(0, 0, 10))
 
     def test_int8_checkpoint_loads_into_packed_rows(self) -> None:
         n = 500

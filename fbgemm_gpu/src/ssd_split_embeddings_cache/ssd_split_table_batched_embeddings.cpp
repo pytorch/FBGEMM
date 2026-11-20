@@ -870,6 +870,35 @@ bool KVTensorWrapper::stores_raw_rows() const {
   return db_ && db_->get_raw_row_bytes() > 0;
 }
 
+bool KVTensorWrapper::has_raw_publish_rows() const {
+  return db_ && is_int8_rows(*db_, options_) &&
+      db_->get_backend_return_whole_row() && width_offset_ == 0 &&
+      shape_[1] == db_->get_raw_row_bytes();
+}
+
+at::Tensor KVTensorWrapper::decode_raw_rows_to_publish(
+    const at::Tensor& raw_rows) const {
+  TORCH_CHECK(
+      has_raw_publish_rows(),
+      "This wrapper does not read complete raw rows with a publish view");
+  return db_->decode_raw_rows(raw_rows);
+}
+
+bool KVTensorWrapper::publish_view_decodes_from_raw_rows() const {
+  return publish_view_inexact_rows() == 0;
+}
+
+std::optional<int64_t> KVTensorWrapper::publish_view_inexact_rows() const {
+  if (!has_raw_publish_rows()) {
+    return std::nullopt;
+  }
+  return db_->raw_rows_inexact_rows();
+}
+
+int64_t KVTensorWrapper::publish_view_inexact_writes() const {
+  return db_ ? db_->raw_rows_inexact_writes() : 0;
+}
+
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   if (db_) {
@@ -2155,6 +2184,12 @@ auto kv_tensor_wrapper =
             &KVTensorWrapper::set_prefixed_weights_and_ids)
         .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
         .def("stores_raw_rows", &KVTensorWrapper::stores_raw_rows)
+        .def(
+            "decode_raw_rows_to_publish",
+            &KVTensorWrapper::decode_raw_rows_to_publish)
+        .def(
+            "publish_view_decodes_from_raw_rows",
+            &KVTensorWrapper::publish_view_decodes_from_raw_rows)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property("device_str", &KVTensorWrapper::device_str)
         .def_property("layout_str", &KVTensorWrapper::layout_str)
