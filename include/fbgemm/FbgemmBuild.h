@@ -61,6 +61,39 @@
 #define FBGEMM_HAS_FLOAT16
 #endif
 
+// Namespace helpers for the runtime SIMD dispatch mechanism.
+// FBGEMM_SIMD_NAMESPACE - namespace used for the platform kernels.
+// FBGEMM_ABI_NAMESPACE - inline namespace for common code we want to use in
+// platform specific code.
+// Both of these help avoid ODR violations.
+#ifdef FBGEMM_SIMD_AVX512_BF16
+#define FBGEMM_SIMD_NAMESPACE avx512_bf16
+#define FBGEMM_ABI_NAMESPACE abi_avx512_bf16
+#elif defined(FBGEMM_SIMD_AVX512)
+#define FBGEMM_SIMD_NAMESPACE avx512
+#define FBGEMM_ABI_NAMESPACE abi_avx512
+#elif defined(FBGEMM_SIMD_AVX512_256)
+#define FBGEMM_SIMD_NAMESPACE avx512_256
+#define FBGEMM_ABI_NAMESPACE abi_avx512_256
+#elif defined(FBGEMM_SIMD_AVX512_256_BF16)
+#define FBGEMM_SIMD_NAMESPACE avx512_256_bf16
+#define FBGEMM_ABI_NAMESPACE abi_avx512_256_bf16
+#elif defined(FBGEMM_SIMD_AVX2)
+#define FBGEMM_SIMD_NAMESPACE avx2
+#define FBGEMM_ABI_NAMESPACE abi_avx2
+#elif defined(FBGEMM_SIMD_SVE128)
+#define FBGEMM_SIMD_NAMESPACE sve128
+#define FBGEMM_ABI_NAMESPACE abi_sve128
+#elif defined(FBGEMM_SIMD_NEON)
+#define FBGEMM_SIMD_NAMESPACE neon
+#define FBGEMM_ABI_NAMESPACE abi_neon
+#elif defined(FBGEMM_SIMD_REF)
+#define FBGEMM_SIMD_NAMESPACE ref
+#define FBGEMM_ABI_NAMESPACE abi_ref
+#else
+#define FBGEMM_ABI_NAMESPACE abi_generic
+#endif
+
 // Use this to indicate to not inline functions
 #if __clang__ || __GNUC__ || __INTEL_COMPILER
 #define NOINLINE __attribute__((noinline))

@@ -31,6 +31,17 @@ struct PlatformSpecificKernels {
   virtual void Float32ToBFloat16(const float* src, bfloat16* dst, size_t size)
       const noexcept = 0;
 
+  virtual void Float16ToFloat32(const float16* src, float* dst, size_t size)
+      const noexcept = 0;
+
+  virtual void Float32ToFloat16(const float* src, float16* dst, size_t size)
+      const noexcept = 0;
+
+  virtual void Float32ToFloat16Clipping(
+      const float* src,
+      float16* dst,
+      size_t size) const noexcept = 0;
+
  protected:
   constexpr PlatformSpecificKernels() = default;
   ~PlatformSpecificKernels() = default;

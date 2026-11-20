@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "fbgemm/FbgemmBuild.h"
+
 // Arm compilers don't support enabling a single feature (there is no -msve2).
 // You can only override -march as a whole, which can set it to an older
 // architecture instead of adding capabilities. So the build system can opt out
@@ -22,22 +24,6 @@
 #include "./PlatformConfigValidation.h"
 #endif
 
-#ifdef FBGEMM_SIMD_AVX512_BF16
-#define FBGEMM_SIMD_NAMESPACE avx512_bf16
-#elif defined(FBGEMM_SIMD_AVX512)
-#define FBGEMM_SIMD_NAMESPACE avx512
-#elif defined(FBGEMM_SIMD_AVX512_256)
-#define FBGEMM_SIMD_NAMESPACE avx512_256
-#elif defined(FBGEMM_SIMD_AVX512_256_BF16)
-#define FBGEMM_SIMD_NAMESPACE avx512_256_bf16
-#elif defined(FBGEMM_SIMD_AVX2)
-#define FBGEMM_SIMD_NAMESPACE avx2
-#elif defined(FBGEMM_SIMD_SVE128)
-#define FBGEMM_SIMD_NAMESPACE sve128
-#elif defined(FBGEMM_SIMD_NEON)
-#define FBGEMM_SIMD_NAMESPACE neon
-#elif defined(FBGEMM_SIMD_REF)
-#define FBGEMM_SIMD_NAMESPACE ref
-#else
+#ifndef FBGEMM_SIMD_NAMESPACE
 #error "Define FBGEMM_SIMD_<ISA> before including"
 #endif

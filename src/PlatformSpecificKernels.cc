@@ -114,6 +114,24 @@ struct SelectingKernels final : PlatformSpecificKernels {
     initializePlatformDispatch();
     platformKernels().Float32ToBFloat16(src, dst, size);
   }
+
+  void Float16ToFloat32(const float16* src, float* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().Float16ToFloat32(src, dst, size);
+  }
+
+  void Float32ToFloat16(const float* src, float16* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().Float32ToFloat16(src, dst, size);
+  }
+
+  void Float32ToFloat16Clipping(const float* src, float16* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().Float32ToFloat16Clipping(src, dst, size);
+  }
 };
 
 constinit SelectingKernels defaultKernels;

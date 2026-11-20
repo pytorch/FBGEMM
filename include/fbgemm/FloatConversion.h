@@ -24,7 +24,7 @@
 
 namespace fbgemm {
 
-namespace detail {
+namespace detail::inline FBGEMM_ABI_NAMESPACE {
 
 template <
     typename T,
@@ -199,7 +199,9 @@ constexpr typename Tgt::value_type ieee754_trunc(
   return tgt_sign | tgt_exponent | tgt_mantissa;
 }
 
-} // namespace detail
+} // namespace detail::inline FBGEMM_ABI_NAMESPACE
+
+inline namespace FBGEMM_ABI_NAMESPACE {
 
 constexpr float16 cpu_float2half_rn(float f) {
   uint32_t f_u32 = std::bit_cast<uint32_t>(f);
@@ -307,6 +309,12 @@ inline float16 cpu_float2half(const float f) {
 #endif
 }
 
+constexpr float clipToFloat16Range(float x) {
+  constexpr float FP16_MAX = 65504.f;
+  x = FP16_MAX < x ? FP16_MAX : x;
+  return -FP16_MAX < x ? x : -FP16_MAX;
+}
+
 constexpr float cpu_bf162float(bfloat16 src) {
   uint32_t val_fp32 = static_cast<uint32_t>(src.val) << 16;
   return std::bit_cast<float>(val_fp32);
@@ -338,7 +346,9 @@ inline T from_float(float f) {
   }
 }
 
-namespace detail {
+} // namespace FBGEMM_ABI_NAMESPACE
+
+namespace detail::inline FBGEMM_ABI_NAMESPACE {
 constexpr float
 hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
   const uint32_t sign = uint32_t(src & 0x80) << 24;
@@ -346,7 +356,9 @@ hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
   const float value = std::bit_cast<float>(bits) * multiplier;
   return std::bit_cast<float>(std::bit_cast<uint32_t>(value) | sign);
 }
-} // namespace detail
+} // namespace detail::inline FBGEMM_ABI_NAMESPACE
+
+inline namespace FBGEMM_ABI_NAMESPACE {
 
 template <FbgemmFP8Type T>
 constexpr float to_float(T src) {
@@ -397,4 +409,5 @@ OutputType convert_ref(InputType src) {
   }
 }
 
+} // namespace FBGEMM_ABI_NAMESPACE
 } // namespace fbgemm
