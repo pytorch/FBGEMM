@@ -103,16 +103,16 @@ struct SelectingKernels final : PlatformSpecificKernels {
     return platformKernels().name();
   }
 
-  void Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
+  void BFloat16ToFloat32(const bfloat16* src, float* dst, size_t size)
       const noexcept override {
     initializePlatformDispatch();
-    platformKernels().Bfloat16ToFloat(src, dst, size);
+    platformKernels().BFloat16ToFloat32(src, dst, size);
   }
 
-  void FloatToBfloat16(const float* src, bfloat16* dst, size_t size)
+  void Float32ToBFloat16(const float* src, bfloat16* dst, size_t size)
       const noexcept override {
     initializePlatformDispatch();
-    platformKernels().FloatToBfloat16(src, dst, size);
+    platformKernels().Float32ToBFloat16(src, dst, size);
   }
 };
 
