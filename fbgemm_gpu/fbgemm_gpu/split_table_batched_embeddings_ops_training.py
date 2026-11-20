@@ -4470,6 +4470,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"Setting optimizer step is not supported for {self.optimizer}"
             )
         self.iter[0] = step
+        self.iter_cpu.fill_(step)
 
     @torch.jit.export
     def flush(self) -> None:

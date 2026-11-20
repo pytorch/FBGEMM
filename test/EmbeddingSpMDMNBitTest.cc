@@ -7,6 +7,8 @@
  */
 
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <cstring>
 #include <numeric>
 #include <random>
@@ -73,6 +75,90 @@ EmbeddingSpMDMKernel<uint8_t, I, O, T> makeTestNBit(
                     : create.template operator()<false>();
 }
 } // namespace
+
+static void checkNBitBfloat16NaNOutput(EmbeddingSpMDMKernelChoice dispatch) {
+  const vector<pair<uint16_t, bfloat16>> samples{
+      {0x7fff, {0x7fff}}, {0xffff, {0xffff}}, {0, {0x3f81}}};
+  const vector<int32_t> indices{0};
+  const vector<int32_t> offsets{0, 1};
+  const vector<float> weights{1.f};
+  ScopedKernelOverride kernel_override(dispatch);
+  vector<int64_t> sizes;
+  for (int64_t i = 1; i <= 33; ++i) {
+    sizes.push_back(i);
+  }
+  sizes.insert(sizes.end(), {63, 64, 65, 127, 128, 129, 513});
+  for (int bit_rate : {2, 4}) {
+    for (int64_t block_size : sizes) {
+      const int64_t packed_size = (block_size * bit_rate + 7) / 8;
+      for (const auto& [scale_bits, word] : samples) {
+        const float16 scale{scale_bits};
+        const float16 bias{static_cast<uint16_t>(scale_bits == 0 ? 0x3c04 : 0)};
+        vector<uint8_t> input(packed_size + 2 * sizeof(float16), 0x55);
+        memcpy(input.data() + packed_size, &scale, sizeof(scale));
+        memcpy(input.data() + packed_size + sizeof(scale), &bias, sizeof(bias));
+        for (bool weighted : {false, true}) {
+          for (bool normalized : {false, true}) {
+            SCOPED_TRACE(
+                testing::Message()
+                << "rate=" << bit_rate << " block=" << block_size
+                << " scale=" << scale_bits << " weighted=" << weighted
+                << " normalized=" << normalized);
+            vector<bfloat16> expected(block_size + 2, word);
+            expected.front() = expected.back() = bfloat16{0xbeef};
+            vector<bfloat16> actual(block_size + 2, bfloat16{0xbeef});
+            const auto run = [&]<typename T>(T* out) {
+              auto kernel = makeTestNBit<int32_t, int32_t, T>(
+                  bit_rate,
+                  block_size,
+                  weighted,
+                  normalized,
+                  16,
+                  false,
+                  true,
+                  -1,
+                  -1,
+                  true);
+              return kernel(
+                  1,
+                  1,
+                  1,
+                  input.data(),
+                  indices.data(),
+                  offsets.data(),
+                  weighted ? weights.data() : nullptr,
+                  out);
+            };
+            if (scale_bits != 0) {
+              vector<float> accumulated(block_size);
+              ASSERT_TRUE(run(accumulated.data()));
+              for (int64_t j = 0; j < block_size; ++j) {
+                ASSERT_TRUE(std::isnan(accumulated[j]));
+                expected[j + 1] = bfloat16{static_cast<uint16_t>(
+                    std::bit_cast<uint32_t>(accumulated[j]) >> 16)};
+              }
+            }
+            ASSERT_TRUE(run(actual.data() + 1));
+            EXPECT_EQ(actual, expected);
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(FusedNBitRowwiseEmbeddingLookupTest, Bfloat16NaNOutput) {
+  checkNBitBfloat16NaNOutput(DISPATCH_DEFAULT);
+}
+
+TEST(FusedNBitRowwiseEmbeddingLookupTest, Bfloat16NaNOutputAutovec) {
+#if defined(__x86_64__) || defined(_M_X64)
+  if (!fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "The x86 autovec library requires AVX-512";
+  }
+#endif
+  checkNBitBfloat16NaNOutput(DISPATCH_AUTOVEC);
+}
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {

@@ -1231,6 +1231,39 @@ class BackwardOptimizersTest(unittest.TestCase):
             use_rowwise_bias_correction=True,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_set_optimizer_step_after_training(self) -> None:
+        indices = to_device(torch.tensor([0, 1, 2]), use_cpu=False)
+        offsets = to_device(torch.tensor([0, 3]), use_cpu=False)
+
+        def train_step(tbe: SplitTableBatchedEmbeddingBagsCodegen) -> None:
+            output = tbe(indices, offsets)
+            output.backward(torch.ones_like(output))
+
+        tbes: list[SplitTableBatchedEmbeddingBagsCodegen] = []
+        for _ in range(2):
+            tbe = SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[(4, 8, EmbeddingLocation.DEVICE, ComputeDevice.CUDA)],
+                optimizer=OptimType.ADAM,
+                learning_rate=0.1,
+            )
+            tbe.split_embedding_weights()[0].fill_(1.0)
+            train_step(tbe)
+            tbes.append(tbe)
+        actual, expected = tbes
+
+        # A constant gradient makes Adam's update depend only on the bias
+        # correction, which a stale step changes.
+        actual.set_optimizer_step(10)
+        expected.iter.fill_(10)
+        expected.iter_cpu.fill_(10)
+        train_step(actual)
+        train_step(expected)
+
+        torch.testing.assert_close(
+            actual.split_embedding_weights()[0], expected.split_embedding_weights()[0]
+        )
+
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
