@@ -159,7 +159,7 @@ def oss_ci_compiler_flags():
         })
         + select({
             "DEFAULT": [],
-            "ovr_config//build_mode/constraints:static": ["-DFBGEMM_STATIC"],
+            "ovr_config//build_mode/constraints:default_link_style[static]": ["-DFBGEMM_STATIC"],
         }),
     })
 
