@@ -108,6 +108,12 @@ struct SelectingKernels final : PlatformSpecificKernels {
     initializePlatformDispatch();
     platformKernels().Bfloat16ToFloat(src, dst, size);
   }
+
+  void FloatToBfloat16(const float* src, bfloat16* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().FloatToBfloat16(src, dst, size);
+  }
 };
 
 constinit SelectingKernels defaultKernels;

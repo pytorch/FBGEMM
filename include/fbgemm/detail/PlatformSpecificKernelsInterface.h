@@ -28,6 +28,9 @@ struct PlatformSpecificKernels {
   virtual void Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
       const noexcept = 0;
 
+  virtual void FloatToBfloat16(const float* src, bfloat16* dst, size_t size)
+      const noexcept = 0;
+
  protected:
   constexpr PlatformSpecificKernels() = default;
   ~PlatformSpecificKernels() = default;

@@ -20,6 +20,18 @@ void Kernels::Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
     dst[i] = std::bit_cast<float>(uint32_t{src[i].val} << 16);
   }
 }
+
+void Kernels::FloatToBfloat16(const float* src, bfloat16* dst, size_t size)
+    const noexcept {
+  for (size_t i = 0; i != size; ++i) {
+    const uint32_t temp = std::bit_cast<uint32_t>(src[i]);
+    if ((temp & 0x7fffffffu) > 0x7f800000u) {
+      dst[i].val = static_cast<uint16_t>((temp >> 16) | 0x0040u);
+    } else {
+      dst[i].val = static_cast<uint16_t>((temp + (1u << 15)) >> 16);
+    }
+  }
+}
 #endif
 
 } // namespace fbgemm::FBGEMM_SIMD_NAMESPACE
