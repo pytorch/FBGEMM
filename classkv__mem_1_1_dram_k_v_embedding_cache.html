@@ -141,6 +141,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a4e59a94eb2c5e1c481f712f637a3ca25" id="r_a4e59a94eb2c5e1c481f712f637a3ca25"><td class="memItemLeft">std::vector&lt; int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a4e59a94eb2c5e1c481f712f637a3ca25">get_int8_write_counts</a> () const</td></tr>
 <tr class="memitem:a6c7ea776bcc00759535def63602feaca" id="r_a6c7ea776bcc00759535def63602feaca"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a6c7ea776bcc00759535def63602feaca">get_int8_row_bytes</a> () override</td></tr>
 <tr class="memitem:a5ab5544fe847669f4d6c38293089f687" id="r_a5ab5544fe847669f4d6c38293089f687"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a5ab5544fe847669f4d6c38293089f687">get_raw_row_bytes</a> () override</td></tr>
+<tr class="memitem:a07209bb44fe77ad99c3e85dce80148df" id="r_a07209bb44fe77ad99c3e85dce80148df"><td class="memItemLeft">at::Tensor&#160;</td><td class="memItemRight"><a class="el" href="#a07209bb44fe77ad99c3e85dce80148df">decode_raw_rows</a> (const at::Tensor &amp;raw_rows) override</td></tr>
+<tr class="memitem:abbb5d3c89721b6ed8d15295e65cd2f18" id="r_abbb5d3c89721b6ed8d15295e65cd2f18"><td class="memItemLeft">std::optional&lt; int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#abbb5d3c89721b6ed8d15295e65cd2f18">raw_rows_inexact_rows</a> () override</td></tr>
+<tr class="memitem:afb04bc472f8892eab478bb617ee62907" id="r_afb04bc472f8892eab478bb617ee62907"><td class="memItemLeft">int64_t&#160;</td><td class="memItemRight"><a class="el" href="#afb04bc472f8892eab478bb617ee62907">raw_rows_inexact_writes</a> () const override</td></tr>
 <tr class="memitem:a87275605c63b40884b007b79a186cfa1" id="r_a87275605c63b40884b007b79a186cfa1"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a87275605c63b40884b007b79a186cfa1">set_raw_source_format</a> (const std::string &amp;format)</td></tr>
 <tr class="memitem:adc8dd8e6572db3389d79a043823370c5" id="r_adc8dd8e6572db3389d79a043823370c5"><td class="memItemLeft">bool&#160;</td><td class="memItemRight"><a class="el" href="#adc8dd8e6572db3389d79a043823370c5">accepts_raw_row_bytes</a> (int64_t row_bytes, bool drop_tail) const</td></tr>
 <tr class="memitem:a9c4aaff752ea96506a5eedb69e7ae6f9" id="r_a9c4aaff752ea96506a5eedb69e7ae6f9"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a9c4aaff752ea96506a5eedb69e7ae6f9">get_int8_payloads</a> (const at::Tensor &amp;indices, const at::Tensor &amp;rows, const at::Tensor &amp;count)</td></tr>
@@ -389,6 +392,36 @@ template&lt;typename weight_type&gt; </div>
 </table>
 </div><div class="memdoc">
 <p>Wait until laser write is resumed if paused (like eviction pattern) Returns immediately if not interrupted, otherwise waits for resume </p>
+
+</div>
+</div>
+<a id="a07209bb44fe77ad99c3e85dce80148df" name="a07209bb44fe77ad99c3e85dce80148df"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a07209bb44fe77ad99c3e85dce80148df">&#9670;&#160;</a></span>decode_raw_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">at::Tensor decode_raw_rows </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>raw_rows</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Raw rows of this table's own format to the [MetaHeader, max_D_] fp16 rows that read_row_with_metaheader returns for them. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a473c4f1521c174a91b64ad78fe734437">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>
@@ -1314,6 +1347,66 @@ template&lt;typename weight_type&gt; </div>
 </table>
 </div><div class="memdoc">
 <p>Bytes of a raw HBM row: INT8 codes with fp32 scale and bias, or the g8 encoding of a packed row (its tail columns stay out of HBM). </p>
+
+</div>
+</div>
+<a id="abbb5d3c89721b6ed8d15295e65cd2f18" name="abbb5d3c89721b6ed8d15295e65cd2f18"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abbb5d3c89721b6ed8d15295e65cd2f18">&#9670;&#160;</a></span>raw_rows_inexact_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::optional&lt; int64_t &gt; raw_rows_inexact_rows </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>A packed row kept as fp16 exports a lossy raw row (encode_fallback_raw_row) but reads back exactly, so its decode differs from the read. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a4e4c078037e4c8c09f15b74aa0899f53">EmbeddingKVDB</a>.</p>
+
+</div>
+</div>
+<a id="afb04bc472f8892eab478bb617ee62907" name="afb04bc472f8892eab478bb617ee62907"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afb04bc472f8892eab478bb617ee62907">&#9670;&#160;</a></span>raw_rows_inexact_writes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename weight_type&gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t raw_rows_inexact_writes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Grows with every write that leaves such a row, including rows cleared again since. </p>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a0109f8204629c5bcd4e30682a8a398ca">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>

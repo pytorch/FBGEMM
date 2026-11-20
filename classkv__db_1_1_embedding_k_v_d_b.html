@@ -141,6 +141,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:afbe66f48664356d97f025909ddc04ca0" id="r_afbe66f48664356d97f025909ddc04ca0"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#afbe66f48664356d97f025909ddc04ca0">get_int8_row_bytes</a> ()</td></tr>
 <tr class="memitem:a6b420853ebb82d3ce4ee8af4bbecc72e" id="r_a6b420853ebb82d3ce4ee8af4bbecc72e"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a6b420853ebb82d3ce4ee8af4bbecc72e">get_raw_row_bytes</a> ()</td></tr>
 <tr class="memitem:a82df16b8bc2a35de20ffd39b6ae67cb2" id="r_a82df16b8bc2a35de20ffd39b6ae67cb2"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a82df16b8bc2a35de20ffd39b6ae67cb2">get_max_raw_row_bytes</a> ()</td></tr>
+<tr class="memitem:a473c4f1521c174a91b64ad78fe734437" id="r_a473c4f1521c174a91b64ad78fe734437"><td class="memItemLeft">virtual at::Tensor&#160;</td><td class="memItemRight"><a class="el" href="#a473c4f1521c174a91b64ad78fe734437">decode_raw_rows</a> (const at::Tensor &amp;)</td></tr>
+<tr class="memitem:a4e4c078037e4c8c09f15b74aa0899f53" id="r_a4e4c078037e4c8c09f15b74aa0899f53"><td class="memItemLeft">virtual std::optional&lt; int64_t &gt;&#160;</td><td class="memItemRight"><a class="el" href="#a4e4c078037e4c8c09f15b74aa0899f53">raw_rows_inexact_rows</a> ()</td></tr>
+<tr class="memitem:a0109f8204629c5bcd4e30682a8a398ca" id="r_a0109f8204629c5bcd4e30682a8a398ca"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a0109f8204629c5bcd4e30682a8a398ca">raw_rows_inexact_writes</a> () const</td></tr>
 <tr class="memitem:a7018d9315165cf036f89adbcfb5a3e4b" id="r_a7018d9315165cf036f89adbcfb5a3e4b"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a7018d9315165cf036f89adbcfb5a3e4b">get_estimated_num_keys</a> ()</td></tr>
 <tr class="memitem:a4c05590f980ab14c02331f1323b62091" id="r_a4c05590f980ab14c02331f1323b62091"><td class="memItemLeft">virtual int64_t&#160;</td><td class="memItemRight"><a class="el" href="#a4c05590f980ab14c02331f1323b62091">get_total_rows_written</a> () const</td></tr>
 </table>
@@ -172,6 +175,34 @@ Public Member Functions</h2></td></tr>
 <p>Pin the version of storage this lookup is served from.</p>
 <p>Called by <a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get()</a> as its first action and held until <a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get()</a> returns, so the L2 lookup and the fetch filling its misses are one read of one version. Without it, a view switch between the two returns a batch whose rows come from both.</p>
 <p>Only EmbeddingRocksDB can switch its read view mid-run, so only it overrides this. </p>
+
+</div>
+</div>
+<a id="a473c4f1521c174a91b64ad78fe734437" name="a473c4f1521c174a91b64ad78fe734437"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a473c4f1521c174a91b64ad78fe734437">&#9670;&#160;</a></span>decode_raw_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual at::Tensor decode_raw_rows </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Decodes raw rows read from this backend (uint8, get_raw_row_bytes wide) to the fp16 whole rows a half-precision whole-row read returns. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a07209bb44fe77ad99c3e85dce80148df">DramKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a07209bb44fe77ad99c3e85dce80148df">DramKVEmbeddingCache&lt; float &gt;</a>.</p>
 
 </div>
 </div>
@@ -692,6 +723,62 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 </div><div class="memdoc">
 <p>Whether rows evicted out of L2 have to be written down to the backend.</p>
 <p>Normally yes: L2 is write-back and an evicted row may be the only copy of the newest value. Must be false while the read path is served from a snapshot, when L2 holds pre-load values that would clobber rows a concurrent load has already written. Defaults to the legacy behaviour. </p>
+
+</div>
+</div>
+<a id="a4e4c078037e4c8c09f15b74aa0899f53" name="a4e4c078037e4c8c09f15b74aa0899f53"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4e4c078037e4c8c09f15b74aa0899f53">&#9670;&#160;</a></span>raw_rows_inexact_rows()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual std::optional&lt; int64_t &gt; raw_rows_inexact_rows </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Rows whose raw rows decode_raw_rows does not decode back to their fp16 whole-row reads, or nullopt if this backend cannot decode its raw rows. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#abbb5d3c89721b6ed8d15295e65cd2f18">DramKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#abbb5d3c89721b6ed8d15295e65cd2f18">DramKVEmbeddingCache&lt; float &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a0109f8204629c5bcd4e30682a8a398ca" name="a0109f8204629c5bcd4e30682a8a398ca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0109f8204629c5bcd4e30682a8a398ca">&#9670;&#160;</a></span>raw_rows_inexact_writes()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual int64_t raw_rows_inexact_writes </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<p>Grows with every write that leaves such a row, including rows cleared again since. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#afb04bc472f8892eab478bb617ee62907">DramKVEmbeddingCache&lt; weight_type &gt;</a>, and <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#afb04bc472f8892eab478bb617ee62907">DramKVEmbeddingCache&lt; float &gt;</a>.</p>
 
 </div>
 </div>
