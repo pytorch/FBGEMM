@@ -45,6 +45,22 @@
 #endif
 #endif
 
+// Defined on x86_64 when the F16C VCVTPH2PS / VCVTPS2PH instructions are
+// available.
+// - GCC/Clang: __F16C__ is defined by -mf16c or -march=haswell+
+// - MSVC: never defines __F16C__, but /arch:AVX2 implies F16C hardware
+#if !defined(__CUDACC__) && \
+    (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
+#define FBGEMM_HAS_X86F16C
+#endif
+
+// _Float16 with hardware float <-> _Float16 conversions. clang only: GCC and
+// MSVC don't vectorize loops over these conversions.
+#if defined(__clang__) && defined(__FLT16_MANT_DIG__) && \
+    (defined(__aarch64__) || defined(FBGEMM_HAS_X86F16C))
+#define FBGEMM_HAS_FLOAT16
+#endif
+
 // Use this to indicate to not inline functions
 #if __clang__ || __GNUC__ || __INTEL_COMPILER
 #define NOINLINE __attribute__((noinline))
