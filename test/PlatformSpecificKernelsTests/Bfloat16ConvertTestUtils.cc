@@ -22,7 +22,7 @@ void Bfloat16ConvertTestUtils::b16ToF32(
   runAllKernels(
       kernels,
       [](const PlatformSpecificKernels& k, auto... args) {
-        k.Bfloat16ToFloat(args...);
+        k.BFloat16ToFloat32(args...);
       },
       in,
       out);
@@ -34,7 +34,7 @@ void Bfloat16ConvertTestUtils::f32ToB16(
   runAllKernels(
       kernels,
       [](const PlatformSpecificKernels& k, auto... args) {
-        k.FloatToBfloat16(args...);
+        k.Float32ToBFloat16(args...);
       },
       in,
       out);
@@ -46,7 +46,7 @@ void Bfloat16ConvertTestUtils::b16ToF32Test(
   b16ToF32(in, out);
   std::vector<float> expected(in.size());
   std::ranges::transform(in, expected.begin(), cpu_bf162float);
-  checkSame(in, out, expected, "Bfloat16ToFloat vs cpu_bf162float");
+  checkSame(in, out, expected, "BFloat16ToFloat32 vs cpu_bf162float");
 }
 
 void Bfloat16ConvertTestUtils::f32ToB16Test(
@@ -55,7 +55,7 @@ void Bfloat16ConvertTestUtils::f32ToB16Test(
   f32ToB16(in, out);
   std::vector<bfloat16> expected(in.size());
   std::ranges::transform(in, expected.begin(), cpu_float2bfloat16);
-  checkSame(in, out, expected, "FloatToBfloat16 vs cpu_float2bfloat16");
+  checkSame(in, out, expected, "Float32ToBFloat16 vs cpu_float2bfloat16");
 }
 
 void Bfloat16ConvertTestUtils::b16ToF32ToB16Test(
