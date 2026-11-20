@@ -8,7 +8,9 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <random>
 
 #include "bench/BenchUtils.h" // @manual
@@ -28,6 +30,10 @@ static_assert(cpu_float2half_rn(-2.0f).val == 0xC000);
 static_assert(cpu_float2half_rz(1.0f).val == 0x3C00);
 static_assert(cpu_half2float_ref(float16{0x3C00}) == 1.0f);
 static_assert(cpu_half2float_ref(float16{0xC000}) == -2.0f);
+static_assert(
+    std::bit_cast<uint32_t>(cpu_half2float_ref(float16{0x7C01})) == 0x7FC02000);
+static_assert(
+    std::bit_cast<uint32_t>(cpu_half2float_ref(float16{0xFE00})) == 0xFFC00000);
 static_assert(cpu_bf162float(cpu_float2bfloat16(1.0f)) == 1.0f);
 static_assert(cpu_float2bfloat16(1.0f).val == 0x3F80);
 
@@ -50,6 +56,50 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(FBGemmHalfConversionTest, ScalarHelpersRoundTrip) {
   expectScalarRoundTrips<float16>();
   expectScalarRoundTrips<bfloat16>();
+}
+
+TEST(FBGemmHalfConversionTest, HalfToFloatImplementationsAgree) {
+#if !defined(FBGEMM_HAS_X86F16C) && !defined(FBGEMM_HAS_FLOAT16)
+  GTEST_SKIP() << "no hardware float16 conversion compiled in";
+#endif
+  for (uint32_t i = 0; i != (uint32_t{1} << 16); ++i) {
+    const float16 h{static_cast<uint16_t>(i)};
+    [[maybe_unused]] const uint32_t ref =
+        std::bit_cast<uint32_t>(cpu_half2float_ref(h));
+#ifdef FBGEMM_HAS_X86F16C
+    const uint32_t f16c = std::bit_cast<uint32_t>(cpu_half2float_x86f16c(h));
+    ASSERT_EQ(ref, f16c) << "cpu_half2float_x86f16c, input 0x" << std::hex << i;
+#endif
+#ifdef FBGEMM_HAS_FLOAT16
+    const uint32_t native = std::bit_cast<uint32_t>(
+        static_cast<float>(std::bit_cast<_Float16>(h.val)));
+    ASSERT_EQ(ref, native) << "_Float16, input 0x" << std::hex << i;
+#endif
+  }
+}
+
+TEST(FBGemmHalfConversionTest, FloatToHalfImplementationsAgree) {
+#if !defined(FBGEMM_HAS_X86F16C) && !defined(FBGEMM_HAS_FLOAT16)
+  GTEST_SKIP() << "no hardware float16 conversion compiled in";
+#endif
+  constexpr std::array<uint32_t, 6> lowBits{
+      0x0000, 0x0001, 0x0fff, 0x1000, 0x1001, 0x1fff};
+  for (uint32_t high = 0; high != (uint32_t{1} << 19); ++high) {
+    for (const uint32_t low : lowBits) {
+      const uint32_t bits = high << 13 | low;
+      const float f = std::bit_cast<float>(bits);
+      [[maybe_unused]] const uint16_t ref = cpu_float2half_rn(f).val;
+#ifdef FBGEMM_HAS_X86F16C
+      const uint16_t f16c = cpu_float2half_x86f16c(f).val;
+      ASSERT_EQ(ref, f16c) << "cpu_float2half_x86f16c, input 0x" << std::hex
+                           << bits;
+#endif
+#ifdef FBGEMM_HAS_FLOAT16
+      const uint16_t native = std::bit_cast<uint16_t>(static_cast<_Float16>(f));
+      ASSERT_EQ(ref, native) << "_Float16, input 0x" << std::hex << bits;
+#endif
+    }
+  }
 }
 
 TEST_P(FBGemmFloat16Test, Conversion) {
