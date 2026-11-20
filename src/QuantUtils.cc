@@ -8,6 +8,9 @@
 
 #define FBGEMM_EXPORTS
 #include <algorithm>
+#include <array>
+#include <bit>
+#include <span>
 #include <type_traits>
 
 #include "fbgemm/QuantUtils.h"
@@ -250,6 +253,230 @@ FBGEMM_SPECIALIZED_QUANTIZE(uint8_t)
 
 #undef FBGEMM_SPECIALIZED_QUANTIZE
 #undef FBGEMM_SPECIALIZED_QUANTIZE_AVX2
+
+template <typename T, FbgemmHalfType InputType>
+  requires(
+      std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t> ||
+      std::is_same_v<T, std::int16_t> || std::is_same_v<T, std::uint16_t>)
+FBGEMM_API void Quantize(
+    const InputType* src,
+    T* dst,
+    int64_t len,
+    const TensorQuantizationParams& qparams,
+    int thread_id,
+    int num_threads) {
+  int64_t begin = 0, end = 0;
+  fbgemmPartition1D(thread_id, num_threads, len, begin, end);
+  if (begin == end) {
+    return;
+  }
+
+  bool vector_support = false;
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  constexpr bool is_byte_output =
+      std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>;
+  vector_support = is_byte_output && cpuinfo_initialize() &&
+      fbgemmHasAvx2Support() && cpuinfo_has_x86_fma3() &&
+      qparams.precision == 8;
+
+  if constexpr (is_byte_output) {
+    // FP16 widening needs F16C; BF16 widens with integer AVX2 operations.
+    const bool can_use_direct_vector_path = vector_support &&
+        (std::is_same_v<InputType, bfloat16> || cpuinfo_has_x86_f16c());
+    if (can_use_direct_vector_path) {
+      const auto* source = reinterpret_cast<const InputType*>(
+          reinterpret_cast<const char*>(src) + begin * sizeof(InputType));
+      QuantizeAvx2<T, InputType>(source, dst + begin, end - begin, qparams);
+      return;
+    }
+  }
+#endif
+
+  // FP32 SIMD remains useful after bounded conversion when F16C is absent.
+  const auto* source = reinterpret_cast<const InputType*>(
+      reinterpret_cast<const char*>(src) + begin * sizeof(InputType));
+  QuantizeHalfFallback<T, InputType>(
+      source, dst + begin, end - begin, qparams, vector_support);
+}
+
+template <typename T, FbgemmHalfType InputType>
+  requires(
+      std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t> ||
+      std::is_same_v<T, std::int16_t> || std::is_same_v<T, std::uint16_t>)
+FBGEMM_API void QuantizeHalfFallback(
+    const InputType* src,
+    T* dst,
+    int64_t len,
+    const TensorQuantizationParams& qparams,
+    bool vector_support) {
+  const auto source_bytes = std::span(
+      reinterpret_cast<const unsigned char*>(src),
+      static_cast<size_t>(len) * sizeof(InputType));
+
+  // Load object bytes without reading an aliased tensor scalar type.
+  auto load_input = [&](int64_t index) {
+    static_assert(sizeof(InputType) == 2);
+    const auto bytes = source_bytes.subspan(index * sizeof(InputType), 2);
+    const std::array<unsigned char, 2> representation{{bytes[0], bytes[1]}};
+    return std::bit_cast<InputType>(representation);
+  };
+  auto widen = [&](int64_t index) {
+    const auto value = load_input(index);
+    if constexpr (std::is_same_v<InputType, float16>) {
+      return cpu_half2float_ref(value);
+    } else {
+      return cpu_bf162float(value);
+    }
+  };
+
+  // Floating comparisons can treat nonzero BF16 subnormals as zero under DAZ.
+  auto is_exact_zero = [&](int64_t index) {
+    return (load_input(index).val & 0x7fff) == 0;
+  };
+
+  const float inverse_scale = 1.f / qparams.scale;
+  const auto quantized_zero = clamp<double, T>(
+      qparams.zero_point, qparams.precision, std::is_signed_v<T>);
+  const bool reciprocal_overflow = std::isinf(inverse_scale);
+
+  if (vector_support && sizeof(T) == 1) {
+    std::array<float, 256> converted;
+    for (int64_t start = 0; start < len; start += converted.size()) {
+      const auto count = std::min<int64_t>(converted.size(), len - start);
+      for (int64_t i = 0; i < count; ++i) {
+        converted[i] = widen(start + i);
+      }
+      Quantize<T>(converted.data(), dst + start, count, qparams);
+      // FP32 SIMD turns zero times an infinite reciprocal into arithmetic NaN.
+      if (reciprocal_overflow) {
+        for (int64_t i = 0; i < count; ++i) {
+          if (is_exact_zero(start + i)) {
+            dst[start + i] = quantized_zero;
+          }
+        }
+      }
+    }
+  } else {
+    const auto upper_quantization_bound = static_cast<T>(
+        (int64_t{1} << (qparams.precision - std::is_signed_v<T>)) - 1);
+
+    for (int64_t i = 0; i < len; ++i) {
+      const float value = widen(i);
+      if (reciprocal_overflow && is_exact_zero(i)) {
+        dst[i] = quantized_zero;
+      } else if (std::isnan(value * inverse_scale)) {
+        dst[i] = upper_quantization_bound;
+      } else {
+        dst[i] = Quantize<T>(value, qparams);
+      }
+    }
+  }
+}
+
+template FBGEMM_API void QuantizeHalfFallback<int8_t, float16>(
+    const float16*,
+    int8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<int8_t, float16>(
+    const float16*,
+    int8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
+template FBGEMM_API void QuantizeHalfFallback<int8_t, bfloat16>(
+    const bfloat16*,
+    int8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<int8_t, bfloat16>(
+    const bfloat16*,
+    int8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
+template FBGEMM_API void QuantizeHalfFallback<uint8_t, float16>(
+    const float16*,
+    uint8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<uint8_t, float16>(
+    const float16*,
+    uint8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
+template FBGEMM_API void QuantizeHalfFallback<uint8_t, bfloat16>(
+    const bfloat16*,
+    uint8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<uint8_t, bfloat16>(
+    const bfloat16*,
+    uint8_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
+template FBGEMM_API void QuantizeHalfFallback<int16_t, float16>(
+    const float16*,
+    int16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<int16_t, float16>(
+    const float16*,
+    int16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
+template FBGEMM_API void QuantizeHalfFallback<int16_t, bfloat16>(
+    const bfloat16*,
+    int16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<int16_t, bfloat16>(
+    const bfloat16*,
+    int16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
+template FBGEMM_API void QuantizeHalfFallback<uint16_t, float16>(
+    const float16*,
+    uint16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<uint16_t, float16>(
+    const float16*,
+    uint16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
+template FBGEMM_API void QuantizeHalfFallback<uint16_t, bfloat16>(
+    const bfloat16*,
+    uint16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    bool);
+template FBGEMM_API void Quantize<uint16_t, bfloat16>(
+    const bfloat16*,
+    uint16_t*,
+    int64_t,
+    const TensorQuantizationParams&,
+    int,
+    int);
 
 #define FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE(T)             \
   template <>                                                       \

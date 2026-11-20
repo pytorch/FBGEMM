@@ -58,9 +58,11 @@ if [ ! -d "torchrec" ]; then
   exit 1
 fi
 
-# Install PyTorch
-conda run -n "$env_name" pip install torch --index-url https://download.pytorch.org/whl/nightly/cpu
 conda run -n "$env_name" python -c "import torch"
+torchrec_torch_version=$(conda run -n "$env_name" python -c 'from importlib.metadata import version; print(version("torch"))')
+torchrec_constraints=$(mktemp)
+trap 'rm -f "$torchrec_constraints" "${torchrec_test_log:-}" || true' EXIT
+printf 'torch==%s\n' "$torchrec_torch_version" > "$torchrec_constraints"
 
 # Import torch.distributed
 conda run -n "$env_name" python -c "import torch.distributed"
@@ -75,7 +77,12 @@ echo "## 1. Install TorchRec Requirements"
 ################################################################################
 # Comment out FBGEMM_GPU since we should pre-install it from the downloaded wheel file
 sed -i 's/fbgemm-gpu/#fbgemm-gpu/g' requirements.txt
-conda run -n "$env_name" python -m pip install -r requirements.txt
+conda run -n "$env_name" python -m pip install -r requirements.txt --constraint "$torchrec_constraints"
+torchrec_resolved_torch_version=$(conda run -n "$env_name" python -c 'from importlib.metadata import version; print(version("torch"))')
+if [ "$torchrec_resolved_torch_version" != "$torchrec_torch_version" ]; then
+  echo "Error: TorchRec requirements changed the selected PyTorch version." >&2
+  exit 1
+fi
 
 
 ################################################################################
@@ -99,7 +106,43 @@ echo "## 4. Run TorchRec tests"
 
 conda install -n "$env_name" -y pytest
 
+torchrec_test_log=$(mktemp)
+set +e
 conda run -n "$env_name" \
   python -m pytest torchrec -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors \
   --ignore-glob=**/test_utils/ \
-  -k "not _disabled_in_oss_compatibility"
+  -k "not _disabled_in_oss_compatibility" 2>&1 | tee "$torchrec_test_log"
+torchrec_test_status=${PIPESTATUS[0]}
+set -e
+
+if [ "$torchrec_test_status" -ne 0 ]; then
+  echo "=========================== short test summary info ============================"
+  printf 'FAILED TorchRec CPU tests - pytest exited with status %s\n' "$torchrec_test_status"
+  conda run -n "$env_name" python -c '
+import json
+import sys
+import torch
+print("TORCHREC_FAILURE_ENV " + json.dumps({
+    "python": sys.version,
+    "torch_version": torch.__version__,
+    "torch_file": torch.__file__,
+    "torch_jit_file": getattr(torch.jit, "__file__", None),
+    "torch_jit_script_present": hasattr(torch.jit, "script"),
+}), flush=True)
+' || true
+  awk '
+    /^(ERROR|FAILED) / && !summary { summary = $0 }
+    /ERROR collecting/ && !collection_seen { collection_seen = 1; collecting = 1 }
+    /short test summary info/ { collecting = 0 }
+    collecting && collected < 18 { collection[collected++] = $0 }
+    /Fatal Python error:|terminate called|what\(\):/ && !fatal { fatal = $0 }
+    END {
+      if (summary) print summary
+      for (i = 0; i < collected; i++) print collection[i]
+      if (fatal) print fatal
+    }
+  ' "$torchrec_test_log"
+fi
+
+rm -f "$torchrec_test_log"
+exit "$torchrec_test_status"
