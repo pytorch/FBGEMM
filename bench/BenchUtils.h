@@ -34,7 +34,7 @@
 
 #ifdef USE_MKL
 #if !defined(FBGEMM_FBCODE) || defined(__x86_64__)
-#include <mkl.h>
+#include <mkl.h> // @manual
 #else
 #include <armpl_int.h>
 #include <cblas.h> // @manual

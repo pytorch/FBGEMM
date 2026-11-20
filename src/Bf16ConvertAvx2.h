@@ -14,10 +14,16 @@
 namespace fbgemm::internal {
 
 // Legacy nearest rounding with halfway values away from zero.
-// Hardware BF16 conversion uses ties to even instead. NaNs are not preserved.
+// Hardware BF16 conversion uses ties to even instead.
 inline __m256i cvt_fp32_to_bf16x8(__m256i val) {
-  return _mm256_srli_epi32(
-      _mm256_add_epi32(val, _mm256_set1_epi32(0x8000)), 16);
+  const __m256i nan_mask = _mm256_cmpgt_epi32(
+      _mm256_and_si256(val, _mm256_set1_epi32(0x7fffffff)),
+      _mm256_set1_epi32(0x7f800000));
+  const __m256i nan =
+      _mm256_or_si256(_mm256_srli_epi32(val, 16), _mm256_set1_epi32(0x0040));
+  const __m256i rounded =
+      _mm256_srli_epi32(_mm256_add_epi32(val, _mm256_set1_epi32(0x8000)), 16);
+  return _mm256_blendv_epi8(rounded, nan, nan_mask);
 }
 
 // Convert 2x8 fp32 to 16 packed bf16

@@ -15,6 +15,42 @@ namespace fbgemm {
 
 namespace x86 = asmjit::x86;
 
+// Preserve signed quiet NaNs while retaining legacy finite rounding.
+template <inst_set_t instSet>
+void emitFp32ToBf16(
+    x86::Emitter* a,
+    typename simd_info<instSet>::vec_reg_t value,
+    typename simd_info<instSet>::vec_reg_t nan_mask,
+    typename simd_info<instSet>::vec_reg_t nan_value,
+    typename simd_info<instSet>::vec_reg_t scratch,
+    typename simd_info<instSet>::vec_reg_t rounding_bias,
+    const x86::Gp& gp) {
+  a->vpslld(scratch, value, 1);
+  a->vpsrld(scratch, scratch, 1);
+  a->mov(gp.r32(), 0x7f800000);
+  a->vmovd(nan_mask.xmm(), gp.r32());
+  a->vpbroadcastd(nan_mask, nan_mask.xmm());
+  if constexpr (instSet == inst_set_t::avx2) {
+    a->vpcmpgtd(nan_mask, scratch, nan_mask);
+  } else {
+    a->vpcmpd(x86::k(3), scratch, nan_mask, 6);
+  }
+  a->vpslld(scratch, rounding_bias, 7);
+  if constexpr (instSet == inst_set_t::avx2) {
+    a->vpor(nan_value, value, scratch);
+  } else {
+    a->vpord(nan_value, value, scratch);
+  }
+  a->vpsrld(nan_value, nan_value, 16);
+  a->vpaddd(value, value, rounding_bias);
+  a->vpsrld(value, value, 16);
+  if constexpr (instSet == inst_set_t::avx2) {
+    a->vblendvps(value, value, nan_value, nan_mask);
+  } else {
+    a->k(x86::k(3)).vmovdqa32(value, nan_value);
+  }
+}
+
 /// True for any AVX512 variant (avx512, avx512_ymm, avx512_vnni,
 /// avx512_vnni_ymm).
 template <inst_set_t instSet>
