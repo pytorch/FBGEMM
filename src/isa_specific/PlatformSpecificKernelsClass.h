@@ -28,6 +28,11 @@ struct Kernels : FBGEMM_SIMD_BASE {
       const noexcept override;
 #endif
 
+#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+  void FloatToBfloat16(const float* src, bfloat16* dst, size_t size)
+      const noexcept override;
+#endif
+
  protected:
   constexpr Kernels() = default;
   ~Kernels() = default;

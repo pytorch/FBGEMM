@@ -475,7 +475,7 @@ def get_fbgemm_autovec_srcs():
     ]
 
 def get_fbgemm_tests(skip_tests = []):
-    return native.glob(["test/*Test.cc"], exclude = skip_tests)
+    return native.glob(["test/*Test.cc", "test/PlatformSpecificKernelsTests/*Test.cc"], exclude = skip_tests)
 
 def select_fbgemm_codegen_mode(inference, training):
     return select({

@@ -42,6 +42,7 @@ function(add_gtest TESTNAME)
     ${ARGN}
     ../bench/BenchUtils.cc
     EmbeddingSpMDMTestUtils.cc
+    PlatformSpecificKernelsTests/Bfloat16ConvertTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
 
@@ -96,7 +97,7 @@ function(add_gtest TESTNAME)
 endfunction()
 
 
-file(GLOB TEST_LIST "*Test.cc")
+file(GLOB TEST_LIST "*Test.cc" "PlatformSpecificKernelsTests/*Test.cc")
 foreach(TEST_FILE ${TEST_LIST})
   # NOTE: Skip tests on ARM for now until linking issues are fixed
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
@@ -113,6 +114,5 @@ foreach(TEST_FILE ${TEST_LIST})
   message(STATUS "Processing: ${TEST_FILE}")
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
-  get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)
-  add_gtest("${TEST_NAME}" "${TEST_FILE_ONLY}")
+  add_gtest("${TEST_NAME}" "${TEST_FILE}")
 endforeach()
