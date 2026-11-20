@@ -65,6 +65,15 @@ jobs:
         MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' "${runner_args[@]}" )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
+    - name: Save the build matrix
+      env:
+        MATRIX_BLOB: ${{ steps.filter.outputs.matrix }}
+      run: printf '%s' "${MATRIX_BLOB}" > build-matrix.json
+    - name: Upload the build matrix
+      uses: actions/upload-artifact@v6
+      with:
+        name: build-matrix
+        path: build-matrix.json
 
   build:
     if: ${{ github.repository_owner == 'pytorch' }}
@@ -96,7 +105,3 @@ jobs:
       architecture: aarch64
       setup-miniconda: false
       timeout: 240
-    secrets:
-      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
