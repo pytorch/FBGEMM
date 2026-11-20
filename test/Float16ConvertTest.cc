@@ -11,6 +11,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <random>
 
 #include "bench/BenchUtils.h" // @manual
@@ -34,6 +35,15 @@ static_assert(
     std::bit_cast<uint32_t>(cpu_half2float_ref(float16{0x7C01})) == 0x7FC02000);
 static_assert(
     std::bit_cast<uint32_t>(cpu_half2float_ref(float16{0xFE00})) == 0xFFC00000);
+static_assert(clipToFloat16Range(1.0f) == 1.0f);
+static_assert(clipToFloat16Range(1e9f) == 65504.f);
+static_assert(clipToFloat16Range(-1e9f) == -65504.f);
+static_assert(
+    clipToFloat16Range(std::numeric_limits<float>::infinity()) == 65504.f);
+static_assert(
+    clipToFloat16Range(-std::numeric_limits<float>::infinity()) == -65504.f);
+static_assert(
+    clipToFloat16Range(std::numeric_limits<float>::quiet_NaN()) == -65504.f);
 static_assert(cpu_bf162float(cpu_float2bfloat16(1.0f)) == 1.0f);
 static_assert(cpu_float2bfloat16(1.0f).val == 0x3F80);
 

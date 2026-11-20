@@ -197,6 +197,7 @@ cc_library(
         "bench/BenchUtils.cc",
         "test/EmbeddingSpMDMTestUtils.cc",
         "test/PlatformSpecificKernelsTests/Bfloat16ConvertTestUtils.cc",
+        "test/PlatformSpecificKernelsTests/Float16ConvertTestUtils.cc",
         "test/QuantizationHelpers.cc",
         "test/TestUtils.cc",
     ],

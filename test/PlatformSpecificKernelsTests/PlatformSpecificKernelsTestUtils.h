@@ -34,6 +34,10 @@ inline uint32_t bits(bfloat16 x) {
   return x.val;
 }
 
+inline uint32_t bits(float16 x) {
+  return x.val;
+}
+
 std::string hexBits(auto x) {
   std::ostringstream ss;
   ss << "0x" << std::hex << bits(x);

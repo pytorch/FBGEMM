@@ -36,7 +36,8 @@ def defined_non_local_symbols(path: str) -> Iterator[str]:
 
 def in_isa_namespace(symbol: str, isa: str) -> bool:
     mangled = symbol[symbol.find("_Z") :]
-    namespace = f"6fbgemm{len(isa)}{isa}"
+    inline_namespace = f"abi_{isa}"
+    namespace = f"6fbgemm(?:6detail)?(?:{len(isa)}{isa}|{len(inline_namespace)}{inline_namespace})"
     return re.match(rf"_Z(T[VISHW]|GV)?Z?N[rVKO]*{namespace}", mangled) is not None
 
 

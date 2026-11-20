@@ -43,6 +43,7 @@ function(add_gtest TESTNAME)
     ../bench/BenchUtils.cc
     EmbeddingSpMDMTestUtils.cc
     PlatformSpecificKernelsTests/Bfloat16ConvertTestUtils.cc
+    PlatformSpecificKernelsTests/Float16ConvertTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
 
