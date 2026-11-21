@@ -206,7 +206,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/GroupwiseConv.cc",
         "src/GroupwiseConvAcc32Avx2.cc",
         "src/GroupwiseConvAcc32Avx512.cc",
-        "src/InstructionSet.cc",
         "src/PackAMatrix.cc",
         "src/PackAWithIm2Col.cc",
         "src/PackAWithQuantRowOffset.cc",
@@ -216,7 +215,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/PackWeightMatrixForGConv.cc",
         "src/PackWeightsForConv.cc",
         "src/PackWeightsForDirectConv.cc",
-        "src/PlatformSpecificKernels.cc",
         "src/QuantUtils.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
@@ -258,6 +256,12 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Utils.h",
         "include/fbgemm/UtilsAvx2.h",
         "include/fbgemm/Types.h",
+    ]
+
+def get_fbgemm_platform_kernels_dispatch_srcs():
+    return [
+        "src/InstructionSet.cc",
+        "src/PlatformSpecificKernels.cc",
     ]
 
 def get_fbgemm_platform_kernels_srcs():
