@@ -8,31 +8,12 @@
 
 #pragma once
 
-#include <atomic>
-#include <cstddef>
-#include <string_view>
 #include <vector>
 
 #include "fbgemm/FbgemmBuild.h"
-#include "fbgemm/Types.h"
+#include "fbgemm/detail/PlatformSpecificKernelsInterface.h"
 
 namespace fbgemm {
-
-struct PlatformSpecificKernels {
-  PlatformSpecificKernels(const PlatformSpecificKernels&) = delete;
-  PlatformSpecificKernels(PlatformSpecificKernels&&) = delete;
-  PlatformSpecificKernels& operator=(const PlatformSpecificKernels&) = delete;
-  PlatformSpecificKernels& operator=(PlatformSpecificKernels&&) = delete;
-
-  virtual std::string_view name() const noexcept = 0;
-
-  virtual void Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
-      const noexcept = 0;
-
- protected:
-  constexpr PlatformSpecificKernels() = default;
-  ~PlatformSpecificKernels() = default;
-};
 
 namespace ref {
 const PlatformSpecificKernels& kernels() noexcept;
@@ -63,12 +44,5 @@ FBGEMM_API std::vector<const PlatformSpecificKernels*>
 supportedPlatformKernels();
 
 FBGEMM_API void initializePlatformDispatch(bool force = false) noexcept;
-
-extern FBGEMM_API constinit std::atomic<const PlatformSpecificKernels*>
-    platformSpecificKernels;
-
-inline const PlatformSpecificKernels& platformKernels() noexcept {
-  return *platformSpecificKernels.load(std::memory_order_relaxed);
-}
 
 } // namespace fbgemm

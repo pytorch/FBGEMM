@@ -23,8 +23,28 @@ struct Kernels : FBGEMM_SIMD_BASE {
 
   std::string_view name() const noexcept override;
 
-#if FBGEMM_SIMD_IN(avx2, avx512)
-  void Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
+#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+  void BFloat16ToFloat32(const bfloat16* src, float* dst, size_t size)
+      const noexcept override;
+#endif
+
+#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+  void Float32ToBFloat16(const float* src, bfloat16* dst, size_t size)
+      const noexcept override;
+#endif
+
+#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+  void Float16ToFloat32(const float16* src, float* dst, size_t size)
+      const noexcept override;
+#endif
+
+#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+  void Float32ToFloat16(const float* src, float16* dst, size_t size)
+      const noexcept override;
+#endif
+
+#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+  void Float32ToFloat16Clipping(const float* src, float16* dst, size_t size)
       const noexcept override;
 #endif
 

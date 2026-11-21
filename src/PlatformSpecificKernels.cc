@@ -48,7 +48,8 @@ std::vector<const PlatformSpecificKernels*> supportedPlatformKernels() {
   const inst_set_t isa = fbgemmInstructionSet();
   const bool allow_avx512_bf16 = isa == avx512_vnni;
   const bool allow_avx512 = allow_avx512_bf16 || isa == avx512;
-  const bool allow_avx512_256_bf16 = isa == avx512_vnni_ymm;
+  const bool allow_avx512_256_bf16 =
+      allow_avx512_bf16 || isa == avx512_vnni_ymm;
   const bool allow_avx512_256 =
       allow_avx512 || allow_avx512_256_bf16 || isa == avx512_ymm;
   [[maybe_unused]] const bool allow_avx2 = allow_avx512_256 || isa == avx2;
@@ -102,10 +103,34 @@ struct SelectingKernels final : PlatformSpecificKernels {
     return platformKernels().name();
   }
 
-  void Bfloat16ToFloat(const bfloat16* src, float* dst, size_t size)
+  void BFloat16ToFloat32(const bfloat16* src, float* dst, size_t size)
       const noexcept override {
     initializePlatformDispatch();
-    platformKernels().Bfloat16ToFloat(src, dst, size);
+    platformKernels().BFloat16ToFloat32(src, dst, size);
+  }
+
+  void Float32ToBFloat16(const float* src, bfloat16* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().Float32ToBFloat16(src, dst, size);
+  }
+
+  void Float16ToFloat32(const float16* src, float* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().Float16ToFloat32(src, dst, size);
+  }
+
+  void Float32ToFloat16(const float* src, float16* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().Float32ToFloat16(src, dst, size);
+  }
+
+  void Float32ToFloat16Clipping(const float* src, float16* dst, size_t size)
+      const noexcept override {
+    initializePlatformDispatch();
+    platformKernels().Float32ToFloat16Clipping(src, dst, size);
   }
 };
 

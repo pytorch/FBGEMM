@@ -6,6 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <algorithm>
+#include <string_view>
+#include <vector>
+
 #include <cpuinfo.h>
 #include <gtest/gtest.h>
 
@@ -63,6 +67,20 @@ TEST_F(PlatformSpecificKernelsDispatchTest, NotForcedAvx512Bf16) {
   }
   fbgemmForceIsa(inst_set_t::anyarch);
   EXPECT_EQ(platformKernels().name(), "avx512_bf16");
+}
+
+TEST_F(PlatformSpecificKernelsDispatchTest, SupportedAvx512Bf16) {
+  if (!cpuinfo_initialize() || !fbgemmHasAvx512Support() ||
+      !fbgemmHasAvx512Bf16Support()) {
+    GTEST_SKIP() << "No AVX-512 BF16";
+  }
+  fbgemmForceIsa(inst_set_t::anyarch);
+  std::vector<std::string_view> names;
+  for (const PlatformSpecificKernels* kernels : supportedPlatformKernels()) {
+    names.push_back(kernels->name());
+  }
+  EXPECT_EQ(std::ranges::count(names, "avx512_bf16"), 1);
+  EXPECT_EQ(std::ranges::count(names, "avx512_256_bf16"), 1);
 }
 
 } // namespace

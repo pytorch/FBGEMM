@@ -192,10 +192,12 @@ cc_library(
 
 cc_library(
     name = "test_utils",
-    hdrs = get_fbgemm_public_headers() + glob(["test/*.h", "bench/*.h"]),
+    hdrs = get_fbgemm_public_headers() + glob(["test/*.h", "test/PlatformSpecificKernelsTests/*.h", "bench/*.h"]),
     srcs = [
         "bench/BenchUtils.cc",
         "test/EmbeddingSpMDMTestUtils.cc",
+        "test/PlatformSpecificKernelsTests/Bfloat16ConvertTestUtils.cc",
+        "test/PlatformSpecificKernelsTests/Float16ConvertTestUtils.cc",
         "test/QuantizationHelpers.cc",
         "test/TestUtils.cc",
     ],

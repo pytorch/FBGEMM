@@ -44,6 +44,10 @@ def generate_vbe_metadata(
     device: torch.device,
     vbe_output: Tensor | None = None,
     vbe_output_offsets: Tensor | None = None,
+    compute_row_metadata: bool = False,
+    D_offsets: Tensor | None = None,
+    max_D: int = -1,
+    info_B_num_bits: int = -1,
 ) -> invokers.lookup_args.VBEMetadata:
     """
     Generate VBE metadata based on batch_size_per_feature_per_rank.
@@ -59,6 +63,13 @@ def generate_vbe_metadata(
         5) max_B_feature_rank - The maximum batch size for all ranks and
                                 features
         6) output_size - The output size (number of elements)
+        7) row_output_offsets - The output offset of each (b, t) pair. Only
+                                computed if compute_row_metadata is True
+        8) b_t_map - The packed (t, b) of each (b, t) pair. Only computed if
+                     compute_row_metadata is True
+
+    D_offsets, max_D and info_B_num_bits are only used (and D_offsets and
+    info_B_num_bits are required) when compute_row_metadata is True.
     """
     if batch_size_per_feature_per_rank is not None:
         assert (
@@ -126,6 +137,36 @@ def generate_vbe_metadata(
             device, non_blocking=True
         )
 
+        row_output_offsets = None
+        b_t_map = None
+        if compute_row_metadata:
+            assert (
+                D_offsets is not None
+            ), "compute_row_metadata is true but D_offsets is None. The generate_vbe_metadata kernel requires D_offsets tensor."
+            assert (
+                info_B_num_bits > 0
+            ), "compute_row_metadata requires info_B_num_bits > 0"
+            # The op sizes its outputs by total_B but fills them from the batch
+            # sizes, without a bounds check.
+            assert all(
+                b >= 0 for bs in batch_size_per_feature_per_rank for b in bs
+            ), "batch_size_per_feature_per_rank must be non-negative"
+            assert offsets.numel() - 1 == sum(
+                map(sum, batch_size_per_feature_per_rank)
+            ), "offsets and batch_size_per_feature_per_rank disagree on total_B"
+            row_output_offsets, b_t_map = torch.ops.fbgemm.generate_vbe_metadata(
+                B_offsets,
+                B_offsets_rank_per_feature,
+                output_offsets_feature_rank,
+                D_offsets,
+                max_D,
+                pooling_mode == PoolingMode.NONE,  # nobag
+                max_B_feature_rank,
+                info_B_num_bits,
+                offsets.numel() - 1,  # total_B
+                vbe_output_offsets,
+            )
+
         # TODO: Use int32 for B_offsets and int64 for output_offsets_feature_rank
         vbe_metadata = invokers.lookup_args.VBEMetadata(
             B_offsets=B_offsets,
@@ -139,6 +180,8 @@ def generate_vbe_metadata(
             output_size=output_size,
             vbe_output=vbe_output,
             vbe_output_offsets=vbe_output_offsets,
+            row_output_offsets=row_output_offsets,
+            b_t_map=b_t_map,
         )
     else:
         vbe_metadata = invokers.lookup_args.VBEMetadata(

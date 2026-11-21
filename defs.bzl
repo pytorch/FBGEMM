@@ -235,6 +235,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmConvert.h",
         "include/fbgemm/FbgemmEmbedding.h",
         "include/fbgemm/detail/EmbeddingSpMDMFP8.h",
+        "include/fbgemm/detail/PlatformSpecificKernelsInterface.h",
         "include/fbgemm/FbgemmFP16.h",
         "include/fbgemm/FbgemmFP32.h",
         "include/fbgemm/FbgemmFPCommon.h",
@@ -262,6 +263,7 @@ def get_fbgemm_public_headers():
 def get_fbgemm_platform_kernels_srcs():
     return [
         "src/isa_specific/FbgemmBfloat16ConvertKernels.cc",
+        "src/isa_specific/FbgemmFloat16ConvertKernels.cc",
         "src/isa_specific/PlatformSpecificKernelsIsa.cc",
     ]
 
@@ -474,7 +476,7 @@ def get_fbgemm_autovec_srcs():
     ]
 
 def get_fbgemm_tests(skip_tests = []):
-    return native.glob(["test/*Test.cc"], exclude = skip_tests)
+    return native.glob(["test/*Test.cc", "test/PlatformSpecificKernelsTests/*Test.cc"], exclude = skip_tests)
 
 def select_fbgemm_codegen_mode(inference, training):
     return select({
