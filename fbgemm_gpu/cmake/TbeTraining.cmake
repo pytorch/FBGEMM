@@ -208,6 +208,71 @@ gpu_cpp_library(
   DESTINATION
     fbgemm_gpu)
 
+set(tbe_backward_gpu_sources ${gen_gpu_files_training})
+set(tbe_backward_gpu_deps)
+
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+  get_tbe_sources_list(GPU_OPTIMIZERS)
+  foreach(optimizer IN LISTS GPU_OPTIMIZERS)
+    set(optimizer_sources ${gen_gpu_files_training})
+    list(FILTER optimizer_sources INCLUDE REGEX
+      "(^|/)gen_embedding_backward_${optimizer}_(split|ssd)_")
+    list(REMOVE_ITEM tbe_backward_gpu_sources ${optimizer_sources})
+
+    gpu_cpp_library(
+      PREFIX
+        fbgemm_gpu_tbe_training_backward_${optimizer}
+      TYPE
+        SHARED
+      INCLUDE_DIRS
+        ${fbgemm_sources_include_directories}
+      SYSTEM_INCLUDE_DIRS
+        ${fbgemm_thirdparty_include_directories}
+      GPU_SRCS
+        ${optimizer_sources}
+      NVCC_FLAGS
+        ${TORCH_CUDA_OPTIONS}
+      DEPS
+        fbgemm
+        fbgemm_gpu_config
+        fbgemm_gpu_tbe_cache
+        fbgemm_gpu_tbe_common
+        fbgemm_gpu_tbe_utils
+        fbgemm_gpu_sparse_async_cumsum
+        fbgemm_gpu_tbe_training_backward_common
+      DESTINATION
+        fbgemm_gpu)
+    list(APPEND tbe_backward_gpu_deps
+      fbgemm_gpu_tbe_training_backward_${optimizer})
+  endforeach()
+
+  gpu_cpp_library(
+    PREFIX
+      fbgemm_gpu_tbe_training_backward_common
+    TYPE
+      SHARED
+    INCLUDE_DIRS
+      ${fbgemm_sources_include_directories}
+    SYSTEM_INCLUDE_DIRS
+      ${fbgemm_thirdparty_include_directories}
+    GPU_SRCS
+      ${tbe_backward_gpu_sources}
+    NVCC_FLAGS
+      ${TORCH_CUDA_OPTIONS}
+    DEPS
+      fbgemm
+      fbgemm_gpu_config
+      fbgemm_gpu_tbe_cache
+      fbgemm_gpu_tbe_common
+      fbgemm_gpu_tbe_utils
+      fbgemm_gpu_sparse_async_cumsum
+    DESTINATION
+      fbgemm_gpu)
+  list(APPEND tbe_backward_gpu_deps
+    fbgemm_gpu_tbe_training_backward_common)
+  set(tbe_backward_gpu_sources)
+endif()
+
 gpu_cpp_library(
   PREFIX
     fbgemm_gpu_tbe_training_backward
@@ -221,7 +286,7 @@ gpu_cpp_library(
     ${static_cpu_files_training}
     ${gen_cpu_files_training}
   GPU_SRCS
-    ${gen_gpu_files_training}
+    ${tbe_backward_gpu_sources}
   HIP_SPECIFIC_SRCS
     ${gen_hip_files_training}
   NVCC_FLAGS
@@ -233,8 +298,15 @@ gpu_cpp_library(
     fbgemm_gpu_tbe_common
     fbgemm_gpu_tbe_utils
     fbgemm_gpu_sparse_async_cumsum
+    ${tbe_backward_gpu_deps}
   DESTINATION
     fbgemm_gpu)
+
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA AND
+    CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_options(fbgemm_gpu_tbe_training_backward PRIVATE
+    "LINKER:--no-as-needed")
+endif()
 
 gpu_cpp_library(
   PREFIX
