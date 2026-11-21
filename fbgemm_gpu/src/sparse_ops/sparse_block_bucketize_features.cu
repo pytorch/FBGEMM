@@ -502,6 +502,15 @@ __launch_bounds__(kWarpSize) void _block_bucketize_sequence_sparse_features_cuda
         total_num_blocks == nullptr ? my_size : total_num_blocks[t];
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
+    const uindex_t unsigned_global_idx_size =
+        static_cast<uindex_t>(global_idx_size);
+    const uindex_t unsigned_local_idx_size =
+        static_cast<uindex_t>(local_idx_size);
+    const uindex_t unsigned_global_num_blks =
+        static_cast<uindex_t>(global_num_blks);
+    const uindex_t unsigned_local_num_blks =
+        static_cast<uindex_t>(local_num_blks);
+    const uindex_t unsigned_my_size = static_cast<uindex_t>(my_size);
     const offset_t rowstart = b_t == 0 ? 0 : offsets_data[b_t - 1];
     const offset_t rowend = offsets_data[b_t];
     const bool use_block_bucketize_pos = block_bucketize_pos_concat != nullptr;
@@ -515,30 +524,31 @@ __launch_bounds__(kWarpSize) void _block_bucketize_sequence_sparse_features_cuda
       const bool valid = i < rowend;
       const uindex_t idx =
           valid ? static_cast<uindex_t>(indices_data[i]) : uindex_t{0};
-      uindex_t p = static_cast<uindex_t>(my_size);
+      uindex_t p = unsigned_my_size;
       uindex_t new_idx = 0;
       if (valid && !use_block_bucketize_pos) {
-        p = idx < global_idx_size ? idx / local_idx_size
-                                  : (idx % global_num_blks) / local_num_blks;
+        p = idx < unsigned_global_idx_size
+            ? idx / unsigned_local_idx_size
+            : (idx % unsigned_global_num_blks) / unsigned_local_num_blks;
         if (keep_idx) {
           new_idx = idx;
-        } else if (idx < global_idx_size) {
-          new_idx = idx % local_idx_size;
+        } else if (idx < unsigned_global_idx_size) {
+          new_idx = idx % unsigned_local_idx_size;
         } else {
-          new_idx = idx / global_num_blks;
+          new_idx = idx / unsigned_global_num_blks;
         }
       } else if (valid) {
         const uindex_t lb = indices_to_lb[i];
-        p = lb < my_size ? lb : idx % my_size;
+        p = lb < unsigned_my_size ? lb : idx % unsigned_my_size;
         if (keep_idx) {
           new_idx = idx;
         } else if (blk_size == 0) {
-          new_idx = idx / global_num_blks;
-        } else if (lb < my_size) {
+          new_idx = idx / unsigned_global_num_blks;
+        } else if (lb < unsigned_my_size) {
           new_idx = idx -
               block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
         } else {
-          new_idx = idx / my_size;
+          new_idx = idx / unsigned_my_size;
         }
       }
 
@@ -1193,7 +1203,8 @@ _block_bucketize_sparse_features_cuda(
       static_cast<int64_t>(lengths_size) * warp_threads_per_block,
       warp_threads_per_block,
       at::cuda::getCurrentCUDAStream());
-  const auto warp_smem_size = my_size * offsets_contig.element_size();
+  const auto warp_smem_size =
+      static_cast<size_t>(my_size * offsets_contig.element_size());
   constexpr int64_t kWarpParallelMinAverageLength = 256;
   const bool use_warp_parallel_sequence_kernel = sequence && !bucketize_pos &&
       !return_bucket_mapping && !batch_size_per_feature.has_value() &&
