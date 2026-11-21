@@ -204,7 +204,7 @@ endif()
 # FBGEMM Generic Target
 ################################################################################
 
-read_from_defs_bzl("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
+read_from_defs_bzl("get_fbgemm_generic_srcs(with_base=True) + get_fbgemm_platform_kernels_dispatch_srcs()" FBGEMM_GENERIC_SRCS)
 
 set(fbgemm_generic_defs "${fbgemm_arm_defs}")
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)

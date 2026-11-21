@@ -185,7 +185,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/ExecuteKernel.cc",
         "src/ExecuteKernelU8S8.cc",
         "src/Fbgemm.cc",
-        "src/FbgemmBfloat16Convert.cc",
         "src/FbgemmConv.cc",
         "src/FbgemmFPCommon.cc",
         "src/FbgemmFP16.cc",
@@ -206,7 +205,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/GroupwiseConv.cc",
         "src/GroupwiseConvAcc32Avx2.cc",
         "src/GroupwiseConvAcc32Avx512.cc",
-        "src/InstructionSet.cc",
         "src/PackAMatrix.cc",
         "src/PackAWithIm2Col.cc",
         "src/PackAWithQuantRowOffset.cc",
@@ -216,7 +214,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/PackWeightMatrixForGConv.cc",
         "src/PackWeightsForConv.cc",
         "src/PackWeightsForDirectConv.cc",
-        "src/PlatformSpecificKernels.cc",
         "src/QuantUtils.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
@@ -260,10 +257,18 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Types.h",
     ]
 
+def get_fbgemm_platform_kernels_dispatch_srcs():
+    return [
+        "src/InstructionSet.cc",
+        "src/PlatformSpecificKernels.cc",
+    ]
+
 def get_fbgemm_platform_kernels_srcs():
     return [
-        "src/isa_specific/FbgemmBfloat16ConvertKernels.cc",
-        "src/isa_specific/FbgemmFloat16ConvertKernels.cc",
+        "src/isa_specific/FbgemmBfloat16ConvertKernelsAutovectorized.cc",
+        "src/isa_specific/FbgemmBfloat16ConvertKernelsIntrinsics.cc",
+        "src/isa_specific/FbgemmFloat16ConvertKernelsAutovectorized.cc",
+        "src/isa_specific/FbgemmFloat16ConvertKernelsIntrinsics.cc",
         "src/isa_specific/PlatformSpecificKernelsIsa.cc",
     ]
 
@@ -354,8 +359,6 @@ def get_fbgemm_avx2_srcs(buck = False):
     common_srcs = [
         # All the source files that either use avx2 instructions statically
         "src/EmbeddingSpMDMAvx2.cc",
-        "src/FbgemmBfloat16ConvertAvx2.cc",
-        "src/FbgemmFloat16ConvertAvx2.cc",
         "src/FbgemmI8DepthwisePerChannelQuantAvx2.cc",
         "src/FbgemmSparseDenseAvx2.cc",
         "src/FbgemmSparseDenseInt8Avx2.cc",
@@ -391,9 +394,7 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
 def get_fbgemm_avx512_srcs():
     return [
         # All the source files that use avx512 instructions statically
-        "src/FbgemmBfloat16ConvertAvx512.cc",
         "src/EmbeddingSpMDMAvx512.cc",
-        "src/FbgemmFloat16ConvertAvx512.cc",
         "src/FbgemmSparseDenseAvx512.cc",
         "src/FbgemmSparseDenseInt8Avx512.cc",
         "src/FbgemmSparseDenseVectorInt8Avx512.cc",
@@ -424,7 +425,6 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
     srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/UtilsSve.cc",
-        "src/FbgemmFloat16ConvertSVE.cc",
         "src/PackDepthwiseConvMatrix.cc",
         "src/FbgemmI8Depthwise3D.cc",
         "src/FbgemmI8Depthwise.cc",
@@ -432,12 +432,6 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
 
     if buck:
         # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-        srcs += select({
-            "DEFAULT": [],
-            "ovr_config//cpu:arm64": [
-                "src/FbgemmFloat16ConvertSVE.cc",
-            ],
-        })
         return select({
             "DEFAULT": srcs,
             "ovr_config//compiler:cl": srcs,
@@ -450,13 +444,11 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
 def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
     intrinsics_srcs = [
         "src/UtilsNeon.cc",
-        "src/FbgemmFloat16ConvertNEON.cc",
     ]
 
     # FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
         "src/UtilsNeon.cc",
-        "src/FbgemmFloat16ConvertNEON.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
         "src/fp32/KleidiAIFP32UKernelsNeon.cc",
         "src/QuantUtilsNeon.cc",

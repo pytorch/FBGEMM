@@ -28,22 +28,22 @@ struct Kernels : FBGEMM_SIMD_BASE {
       const noexcept override;
 #endif
 
-#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+#if FBGEMM_OVERRIDE_IN(avx2, avx512, neon)
   void Float32ToBFloat16(const float* src, bfloat16* dst, size_t size)
       const noexcept override;
 #endif
 
-#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+#if FBGEMM_OVERRIDE_IN(avx2, avx512, neon)
   void Float16ToFloat32(const float16* src, float* dst, size_t size)
       const noexcept override;
 #endif
 
-#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+#if FBGEMM_OVERRIDE_IN(avx2, avx512, neon)
   void Float32ToFloat16(const float* src, float16* dst, size_t size)
       const noexcept override;
 #endif
 
-#if FBGEMM_OVERRIDE_IN(avx2, avx512)
+#if FBGEMM_OVERRIDE_IN(avx2, avx512, neon)
   void Float32ToFloat16Clipping(const float* src, float16* dst, size_t size)
       const noexcept override;
 #endif
