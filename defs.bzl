@@ -262,8 +262,10 @@ def get_fbgemm_public_headers():
 
 def get_fbgemm_platform_kernels_srcs():
     return [
-        "src/isa_specific/FbgemmBfloat16ConvertKernels.cc",
-        "src/isa_specific/FbgemmFloat16ConvertKernels.cc",
+        "src/isa_specific/FbgemmBfloat16ConvertKernelsAutovectorized.cc",
+        "src/isa_specific/FbgemmBfloat16ConvertKernelsIntrinsics.cc",
+        "src/isa_specific/FbgemmFloat16ConvertKernelsAutovectorized.cc",
+        "src/isa_specific/FbgemmFloat16ConvertKernelsIntrinsics.cc",
         "src/isa_specific/PlatformSpecificKernelsIsa.cc",
     ]
 
