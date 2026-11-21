@@ -10,61 +10,10 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/Utils.h"
 
-#include <cpuinfo.h>
 #include <memory>
 #include <vector>
 
 namespace fbgemm {
-
-void FloatToFloat16_simd(
-    const float* src,
-    float16* dst,
-    size_t size,
-    bool do_clip) {
-  // Run time CPU detection
-  if (cpuinfo_initialize()) {
-#if defined(__aarch64__)
-    if (fbgemmHasArmNeonFp16Support()) {
-      FloatToFloat16_neon(src, dst, size, do_clip);
-    } else
-#else
-    if (fbgemmHasAvx512Support()) {
-      FloatToFloat16_avx512(src, dst, size, do_clip);
-    } else if (fbgemmHasAvx2Support()) {
-      FloatToFloat16_avx2(src, dst, size, do_clip);
-    } else
-#endif
-    {
-      FloatToFloat16_ref(src, dst, size, do_clip);
-      return;
-    }
-  } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
-}
-
-void Float16ToFloat_simd(const float16* src, float* dst, size_t size) {
-  // Run time CPU detection
-  if (cpuinfo_initialize()) {
-#if defined(__aarch64__)
-    if (fbgemmHasArmNeonFp16Support()) {
-      Float16ToFloat_neon(src, dst, size);
-    } else
-#else
-    if (fbgemmHasAvx512Support()) {
-      Float16ToFloat_avx512(src, dst, size);
-    } else if (fbgemmHasAvx2Support()) {
-      Float16ToFloat_avx2(src, dst, size);
-    } else
-#endif
-    {
-      Float16ToFloat_ref(src, dst, size);
-      return;
-    }
-  } else {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
-}
 
 void RoundToFloat16(
     const float* input,
