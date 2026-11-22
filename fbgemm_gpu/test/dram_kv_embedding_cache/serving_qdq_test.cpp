@@ -376,6 +376,42 @@ TEST(ServingQdqTest, EnrichmentFillStoresFetchedRowsWhenOff) {
   EXPECT_TRUE(at::equal(stored, fake_enrichment_rows(ids)));
 }
 
+// Keys 20 and 21 already hold rows, so a skip-non-zero write over 6 keys
+// writes 4.
+TEST(ServingQdqTest, WrittenRowMaskSkipsPrefilledKeys) {
+  auto cache = make_cache(/*serving_qdq_bit_rate=*/0);
+  const auto prefilled_ids = at::tensor({20, 21}, at::kLong);
+  const auto prefilled_rows = at::ones({2, kDim}, at::kHalf);
+  cache
+      ->set_kv_db_async_on_enrichment_executor(
+          prefilled_ids,
+          prefilled_rows,
+          at::tensor({2}, at::kLong),
+          /*write_epoch=*/0)
+      .get();
+  const auto ids = at::tensor({10, 11, 12, 13, 20, 21}, at::kLong);
+  const auto rows = at::full({6, kDim}, 2.0, at::kHalf);
+  const auto written_row_mask = at::zeros({6}, at::kBool);
+
+  cache
+      ->set_kv_db_async_on_enrichment_executor(
+          ids,
+          rows,
+          at::tensor({6}, at::kLong),
+          /*write_epoch=*/0,
+          /*skip_nonzero_rows=*/true,
+          written_row_mask)
+      .get();
+
+  EXPECT_TRUE(
+      at::equal(
+          written_row_mask.nonzero().squeeze(1),
+          at::tensor({0, 1, 2, 3}, at::kLong)));
+  EXPECT_TRUE(at::equal(read_rows(*cache, prefilled_ids), prefilled_rows));
+  const auto new_ids = ids.slice(0, 0, 4);
+  EXPECT_TRUE(at::equal(read_rows(*cache, new_ids), rows.slice(0, 0, 4)));
+}
+
 TEST(ServingQdqTest, GroupedRoundTripIsTheServingFixedPoint) {
   const auto original = dex_like_rows(4096, /*seed=*/5);
   auto rows = original.clone();
