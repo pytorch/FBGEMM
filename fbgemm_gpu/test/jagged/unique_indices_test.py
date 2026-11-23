@@ -661,6 +661,7 @@ class UniqueIndicesTest(unittest.TestCase):
         self.assertEqual(output_lengths.tolist()[2:4], [0, 0])
         self.assertEqual(output_lengths.tolist()[6:8], [0, 0])
 
+    @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(torch.version.hip is None, "ROCm grid cap only")
     @optests.dontGenerateOpCheckTests("the operator has no abstract implementation")
     def test_jagged_unique_indices_rocm_cap_processes_tail(self) -> None:
@@ -694,6 +695,7 @@ class UniqueIndicesTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "batch_size must be positive"):
             torch.ops.fbgemm.jagged_hash_size_cumsum(offsets, indices, 0)
 
+    @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(torch.version.hip is None, "ROCm launch limit only")
     def test_jagged_hash_size_cumsum_rejects_overflow_launch(self) -> None:
         device = torch.accelerator.current_accelerator()
