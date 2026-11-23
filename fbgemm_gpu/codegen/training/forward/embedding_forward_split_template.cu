@@ -19,6 +19,7 @@
 
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
+{%- set supports_chunked = not dense and not ssd and not is_index_select %}
 
 {%- if not dense and not nobag and not vbe %}
 #include "fbgemm_gpu/utils/dispatch_macros.h"
@@ -50,6 +51,7 @@ using namespace fbgemm_gpu;
 ////////////////////////////////////////////////////////////////////////////////
 
 {%- if not weighted %}
+{%- for chunked in ([False, True] if supports_chunked else [False]) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -57,11 +59,15 @@ template <
     typename index_t,
     size_t kThreadGroupSize
     >
+{%- if chunked %}
+__launch_bounds__(kForwardMaxThreads, kThreadGroupSize > 1 ? 3 : 0) __global__ void
+{%- else %}
 __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- endif %}
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_small_kernel(
 {%- else %}
-{{ mdesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
+{{ mdesc }}_embedding_nobag_codegen_forward_unweighted_small{{ "_chunked" if chunked else "" }}_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -91,6 +97,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     {%- endif %}
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
+{%- endfor %} {#-/* for chunked */#}
 {%- endif %} {#-/* if not weighted */#}
 
 {% if not dense %}
@@ -138,6 +145,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     is_index_select,
     has_global_weight_decay_support=True,
     ssd=ssd) %}
+{%- for chunked in ([False, True] if supports_chunked else [False]) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -151,11 +159,15 @@ template <
     {%- endif %}
     size_t kSubwarpDivisor
     >
+{%- if chunked and not nobag %}
+__launch_bounds__(kForwardMaxThreads, kMaxVecsPerThread == 1 ? 4 : 0) __global__ void
+{%- else %}
 __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- endif %}
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
 {%- else %}
-{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ get_desc_suffix(is_gwd_kernel) }}_kernel(
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ get_desc_suffix(is_gwd_kernel) }}{{ "_chunked" if chunked else "" }}_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -207,6 +219,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endif %}
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
+{%- endfor %} {#-/* for chunked */#}
 {%- endif %} {#-/* if is_valid_forward_config(...) */#}
 {%- endfor %} {#-/* for nobag in [True, False] */#}
 
@@ -376,7 +389,49 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endfor %}
     return;                                                                    \
     {%- endif %}
+  }(){%- if supports_chunked %}
+
+
+// Sets kChunked for TBEs with chunked weights. The chunked kernels only exist
+// for FP32/FP16 weights.
+#define DISPATCH_CHUNKED_WEIGHTS(CHUNKED_, ...)                                \
+  [&] {                                                                        \
+    if constexpr (                                                             \
+        std::is_same_v<emb_t, float> || std::is_same_v<emb_t, at::Half>) {     \
+      if (CHUNKED_) {                                                          \
+        constexpr bool kChunked = true;                                        \
+        return __VA_ARGS__();                                                  \
+      }                                                                        \
+    }                                                                          \
+    constexpr bool kChunked = false;                                           \
+    return __VA_ARGS__();                                                      \
   }()
+{%- endif %}
+
+{#-/*
+    Launches the forward kernel, or its *_chunked_kernel twin for TBEs with
+    chunked weights. chunked_cond is the compile-time condition under which the
+    chunked kernel exists (the pooled and nobag ones have no cached variant).
+*/#}
+{%- macro launch_forward_kernel(kernel, tparams, args, chunked_cond="kChunked") %}
+{%- if supports_chunked %}
+DISPATCH_CHUNKED_WEIGHTS(chunked_weights, [&] {
+  if constexpr ({{ chunked_cond }}) {
+    FBGEMM_LAUNCH_KERNEL(
+      ({{ kernel[:-7] }}_chunked_kernel{{ tparams }}),{{ args }}
+    );
+  } else {
+    FBGEMM_LAUNCH_KERNEL(
+      ({{ kernel }}{{ tparams }}),{{ args }}
+    );
+  }
+});
+{%- else %}
+FBGEMM_LAUNCH_KERNEL(
+  ({{ kernel }}{{ tparams }}),{{ args }}
+);
+{%- endif %}
+{%- endmacro %}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -674,6 +729,9 @@ batch_index_select_dim0_codegen_forward_cuda(
         // Check if LXU cache is used
         bool use_lxu_cache = lxu_cache_weights.numel() > 0;
         {%- endif %}
+        {%- if supports_chunked %}
+        [[maybe_unused]] const bool chunked_weights = tbe_may_have_chunked_weights(dev_weights);
+        {%- endif %}
         {%- if nobag %}
         const auto nobag_warp_size = kWarpSizeHost();
         const auto nobag_warps_per_block =
@@ -699,13 +757,14 @@ batch_index_select_dim0_codegen_forward_cuda(
               "{}_embedding_nobag_codegen_forward_unweighted_small_kernel".format(mdesc)
           %}
 
-          FBGEMM_LAUNCH_KERNEL(
-            ({{ nobag_small_kernel }}<
+          {%- set nobag_small_tparams %}<
               emb_t,
               cache_t,
               output_t,
               index_t,
-              kEmbeddingSize / 4>),
+              kEmbeddingSize / 4>
+          {%- endset %}
+          {%- set nobag_small_args %}
             {%- if is_index_select %}
             div_round_up(total_B, nobag_warps_per_block),
             {%- else %}
@@ -744,7 +803,8 @@ batch_index_select_dim0_codegen_forward_cuda(
             permute_output_dim_0_1,
             {%- endif %}
             PTA_B(output, output_t, {{ "1" if is_index_select else "2" }}, 64)
-          );
+          {%- endset %}
+          {{ launch_forward_kernel(nobag_small_kernel, nobag_small_tparams, nobag_small_args) }}
 
           return;
         });
@@ -755,14 +815,14 @@ batch_index_select_dim0_codegen_forward_cuda(
               if is_index_select else
               "{}_embedding_nobag_codegen_forward_unweighted_kernel".format(mdesc)
           %}
-          FBGEMM_LAUNCH_KERNEL(
-            ({{ nobag_kernel }}
+          {%- set nobag_tparams %}
               {%- if dense or is_index_select %}
               <emb_t, cache_t, output_t, index_t, /*kSubwarpDivisor=*/1>
               {%- else %}
               <emb_t, cache_t, output_t, use_cache_t, index_t, /*kSubwarpDivisor=*/1>
               {%- endif %}
-            ),
+          {% endset %}
+          {%- set nobag_args %}
             {%- if is_index_select %}
             div_round_up(total_B, nobag_warps_per_block),
             {%- else %}
@@ -804,7 +864,8 @@ batch_index_select_dim0_codegen_forward_cuda(
             permute_output_dim_0_1,
             {%- endif %}
             PTA_B(output, output_t, {{ "1" if is_index_select else "2" }}, 64)
-          );
+          {%- endset %}
+          {{ launch_forward_kernel(nobag_kernel, nobag_tparams, nobag_args, "kChunked && !use_cache_t") }}
           return;
         });
 
@@ -832,8 +893,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               at::cuda::getCurrentCUDAStream(),
               utils::cuda::BlockCapPolicy::Always);
 
-            FBGEMM_LAUNCH_KERNEL(
-              ({{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
+            {%- set pooled_tparams %}
                 <emb_t,
                 cache_t,
                 output_t,
@@ -842,7 +902,9 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- endif %}
                 index_t,
                 kMaxVecsPerThread,
-                kSubwarpDivisor>),
+                kSubwarpDivisor>
+            {%- endset %}
+            {%- set pooled_args %}
               grid,
               dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
               0,
@@ -884,7 +946,12 @@ batch_index_select_dim0_codegen_forward_cuda(
               gwd_lower_bound,
               {%- endif %} // if not dense
               PTA_B(output, output_t, 2, 64)
-            );
+            {%- endset %}
+            {{ launch_forward_kernel(
+                  mdesc ~ "_embedding_codegen_forward_" ~ desc_suffix ~ "_kernel",
+                  pooled_tparams,
+                  pooled_args,
+                  "kChunked && !use_cache_t") }}
 
             {%- if vbe %}
             output = output.reshape({-1});

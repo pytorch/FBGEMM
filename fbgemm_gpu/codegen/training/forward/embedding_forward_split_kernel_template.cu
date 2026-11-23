@@ -23,6 +23,7 @@
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
+{%- set supports_chunked = not dense and not ssd and not is_index_select %}
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/utils/prev_iter_ref.cuh"
@@ -279,7 +280,21 @@ using namespace fbgemm_gpu;
     benchmarks, it was found that the extra function-calling resulted in a
     20-100 GB/s bandwidth reduction.
 */#}
-{%- macro embedding_pool_or_store(lxu_miss_rate) %}
+{#-/*
+    Loads every row from HBM or UVM in the chunked kernels (see
+    chunked_weights.cuh), which also serve the flat tables of a chunked TBE.
+*/#}
+{%- macro embedding_pool_or_store_chunked() %}
+    // Flat tables take a branch around the chunk lookup in pooled kernels,
+    // and an identity chunk header in nobag ones (one index per warp, where
+    // the compiler would otherwise issue both paths)
+    const int64_t* chunk_header = weights_offset < 0
+        ? tbe_chunk_header(weights_offset)
+        : {{ "tbe_flat_chunk_header()" if nobag else "nullptr" }};
+    {{ embedding_pool_or_store("cache_conflict_miss_rate::all", true) }}
+{%- endmacro %}
+
+{%- macro embedding_pool_or_store(lxu_miss_rate, chunked=False) %}
     // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
     for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
         // Determine the L index that this thread will load data from in cooperative load
@@ -294,7 +309,18 @@ using namespace fbgemm_gpu;
         // Cooperatively load the indices
         const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
         // If idx is loaded
+        {%- if chunked %}
+        {%- if nobag %}
+        [[maybe_unused]] const overflow_safe_int_t offset_idx =
+            tbe_chunked_row_rel_offset(chunk_header, idx, D_emb);
+        {%- else %}
+        [[maybe_unused]] const overflow_safe_int_t offset_idx = chunk_header != nullptr
+            ? tbe_chunked_row_rel_offset(chunk_header, idx, D_emb)
+            : idx * D_emb;
+        {%- endif %}
+        {%- else %}
         [[maybe_unused]] const auto offset_idx = idx * D_emb;
+        {%- endif %}
         {%- endif %}
 
         {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
@@ -557,6 +583,11 @@ using namespace fbgemm_gpu;
      with global_weight_decay, otherwise, only generate regular kernel.
    */
 #}
+{#-/*
+    The chunked kernels are separate kernels (named *_chunked_kernel) generated
+    from the same body, so the flat kernels keep their names and code.
+*/#}
+{%- macro define_kernel(chunked) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -569,11 +600,17 @@ template <
     size_t kMaxVecsPerThread,
     {%- endif %}
     size_t kSubwarpDivisor>
+{%- if chunked and not nobag %}
+// Chunked kernels with one vector per thread are held to 32 registers so they
+// keep the 4 blocks per SM the flat kernels get
+__launch_bounds__(kForwardMaxThreads, kMaxVecsPerThread == 1 ? 4 : 0) __global__ void
+{%- else %}
 __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- endif %}
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
 {%- else %}
-{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_kernel(
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}{{ "_chunked" if chunked else "" }}_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -741,7 +778,11 @@ const int32_t threadIdxX = static_cast<int32_t>(threadIdx.x);
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
+        {%- if chunked %}
+        weights = tbe_weights_table_ptr(&dev_weights[0], weights_offset);
+        {%- else %}
         weights = &dev_weights[weights_offset];
+        {%- endif %}
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset]" }};
     }
@@ -765,7 +806,12 @@ const int32_t threadIdxX = static_cast<int32_t>(threadIdx.x);
     const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
 
     // Compute 1/L - this is used to compute the mean later on
+    {%- if chunked %}
+    // The chunked kernels compute it after the loop instead, since holding it
+    // through the loop costs them a spill
+    {%- else %}
     const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
+    {%- endif %}
 
     // Set up the accumulator buffer
     Vec4T<cache_t> accumulators[kMaxVecsPerThreadInt];
@@ -778,12 +824,20 @@ const int32_t threadIdxX = static_cast<int32_t>(threadIdx.x);
     if constexpr (! use_lxu_cache) {
         // If use_lxu_cache is false, then the cache conflict miss rate is
         // effectively 100%
+        {%- if chunked %}
+        {{ embedding_pool_or_store_chunked() }}
+        {%- else %}
         {{ embedding_pool_or_store("cache_conflict_miss_rate::all") }}
+        {%- endif %}
 
     } else {
         if (placement != PlacementType::MANAGED_CACHING) {
             // Load every row from HBM or UVM
+            {%- if chunked %}
+            {{ embedding_pool_or_store_chunked() }}
+            {%- else %}
             {{ embedding_pool_or_store("cache_conflict_miss_rate::all") }}
+            {%- endif %}
         }
         else if (lxu_cache_conflict_misses && *lxu_cache_conflict_misses == 0) {
             // If the UVM cache stats tensor is valid and tell us there are no
@@ -798,6 +852,10 @@ const int32_t threadIdxX = static_cast<int32_t>(threadIdx.x);
     {%- endif %}
 
     {%- if not nobag %}
+    {%- if chunked %}
+    const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
+
+    {%- endif %}
     // If weight type is FP32/16
     if constexpr (!std::is_same_v<output_t, uint8_t>) {
         {%- if vbe %}
@@ -868,6 +926,13 @@ const int32_t threadIdxX = static_cast<int32_t>(threadIdx.x);
     } // for b_t
     {%- endif %}
 }
+{%- endmacro %}
+
+{{ define_kernel(False) }}
+{%- if supports_chunked %}
+
+{{ define_kernel(True) }}
+{%- endif %}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -887,13 +952,18 @@ const int32_t threadIdxX = static_cast<int32_t>(threadIdx.x);
     index_type,
     use_cache,
     kMaxVecsPerThread,
-    kSubwarpDivisor)
+    kSubwarpDivisor,
+    chunked=False)
 %}
+{%- if chunked and not nobag %}
+template __launch_bounds__(kForwardMaxThreads, {{ 4 if kMaxVecsPerThread|int == 1 else 0 }}) __global__ void
+{%- else %}
 template __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- endif %}
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel
 {%- else %}
-{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_kernel
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}{{ "_chunked" if chunked else "" }}_kernel
 {%- endif %}
 <
     {{ emb_type }},
@@ -976,6 +1046,19 @@ batch_index_select_dim0_codegen_forward_kernel
             max_vecs_per_thread,
             kSubwarpDivisor)
         }}
+        {#-/* Chunked weights are FP32/FP16 only, and never share a TBE with a cache */#}
+        {%- if supports_chunked and emb_type in ['float', 'at::Half'] and use_cache == "false" %}
+        {{ template_instantiation(
+            emb_type,
+            cache_type,
+            output_type,
+            index_type,
+            use_cache,
+            max_vecs_per_thread,
+            kSubwarpDivisor,
+            chunked=True)
+        }}
+        {%- endif %}
     {%- endfor %}
     {%- endfor %}
     {%- endfor %}
@@ -1060,6 +1143,20 @@ batch_index_select_dim0_codegen_forward_kernel
     1,
     2)
 }}
+{%- if supports_chunked %}
+{%- for index_type in ['int64_t', 'int32_t'] %}
+{{ template_instantiation(
+    "at::Half",
+    "at::Half",
+    "float",
+    index_type,
+    "false",
+    1,
+    2,
+    chunked=True)
+}}
+{%- endfor %}
+{%- endif %}
 {%- endif %}
 {{ instantiate_templates(use_subwarp_shuffle=False) }}
 
