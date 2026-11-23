@@ -382,6 +382,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
             update_weights_list.append(update_weights_tensor)
 
+        weights_before_update = [
+            weights.clone()
+            for weights, _ in op.split_embedding_weights(split_scale_shifts=False)
+        ]
+
         # run inplace update on "op" embedding table
         if not test_internal:
             # Test scatter_ based OSS solution
@@ -413,6 +418,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     atol=1e-2,
                     equal_nan=True,
                 )
+
+        # verify the rows that were not updated are unchanged
+        updated_rows = dict(zip(update_table_indices, update_row_indices))
+        for t, (weights, _) in enumerate(split_weights):
+            kept_rows = [
+                r for r in range(weights.size(0)) if r not in updated_rows.get(t, [])
+            ]
+            torch.testing.assert_close(
+                weights[kept_rows], weights_before_update[t][kept_rows], rtol=0, atol=0
+            )
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
