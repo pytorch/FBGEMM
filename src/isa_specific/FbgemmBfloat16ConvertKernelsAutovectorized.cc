@@ -20,7 +20,9 @@ void Kernels::BFloat16ToFloat32(const bfloat16* src, float* dst, size_t size)
     dst[i] = std::bit_cast<float>(uint32_t{src[i].val} << 16);
   }
 }
+#endif
 
+#if FBGEMM_SIMD_IN(ref)
 void Kernels::Float32ToBFloat16(const float* src, bfloat16* dst, size_t size)
     const noexcept {
   for (size_t i = 0; i != size; ++i) {
