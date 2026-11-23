@@ -1632,6 +1632,19 @@ auto enrichment_config =
                 torch::arg("int8_storage") = false,
             });
 
+auto row_storage_config =
+    torch::class_<kv_mem::RowStorageConfig>("fbgemm", "RowStorageConfig")
+        .def(
+            torch::init<int64_t, int64_t, int64_t, bool, bool>(),
+            "",
+            {
+                torch::arg("dim"),
+                torch::arg("serving_qdq_bit_rate") = 0,
+                torch::arg("serving_qdq_group_size") = 0,
+                torch::arg("packed_storage") = false,
+                torch::arg("int8_storage") = false,
+            });
+
 auto dram_kv_embedding_cache_wrapper =
     torch::class_<DramKVEmbeddingCacheWrapper>(
         "fbgemm",
@@ -1656,7 +1669,8 @@ auto dram_kv_embedding_cache_wrapper =
                 std::vector<std::string>,
                 std::vector<int64_t>,
                 std::vector<int64_t>,
-                std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>>(),
+                std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>,
+                std::optional<c10::intrusive_ptr<kv_mem::RowStorageConfig>>>(),
             "",
             {
                 torch::arg("max_D"),
@@ -1678,6 +1692,7 @@ auto dram_kv_embedding_cache_wrapper =
                 torch::arg("table_offsets") = std::vector<int64_t>{},
                 torch::arg("table_sizes") = std::vector<int64_t>{},
                 torch::arg("enrichment_config") = std::nullopt,
+                torch::arg("row_storage_config") = std::nullopt,
             })
         .def(
             "set_cuda",

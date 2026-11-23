@@ -17,6 +17,7 @@ from .ssd_config import (  # noqa: F401
     EvictionPolicy,
     KVZCHParams,
     KVZCHTBEConfig,
+    RowStoragePolicy,
 )
 
 # `.common`, `.inference`, `.inference_serving`, `.training` ship only with the heavy

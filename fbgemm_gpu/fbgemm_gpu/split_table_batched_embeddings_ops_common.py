@@ -55,6 +55,7 @@ if TYPE_CHECKING:
         EvictionPolicy,
         KVZCHParams,
         KVZCHTBEConfig,
+        RowStoragePolicy,
     )
 
 
@@ -77,6 +78,7 @@ _SSD_CONFIG_REEXPORTS: tuple[str, ...] = (
     "EvictionPolicy",
     "KVZCHParams",
     "KVZCHTBEConfig",
+    "RowStoragePolicy",
 )
 
 

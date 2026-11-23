@@ -41,7 +41,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       std::vector<int64_t> table_offsets = {},
       std::vector<int64_t> table_sizes = {},
       std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>
-          enrichment_config = std::nullopt) {
+          enrichment_config = std::nullopt,
+      std::optional<c10::intrusive_ptr<kv_mem::RowStorageConfig>>
+          row_storage_config = std::nullopt) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -63,7 +65,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           std::move(table_names),
           std::move(table_offsets),
           std::move(table_sizes),
-          enrichment_config);
+          enrichment_config,
+          /*enable_ssd_backend=*/false,
+          row_storage_config);
     } else if (row_storage_bitwidth == 32) {
       fp32_impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
           max_D,
@@ -85,7 +89,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           std::move(table_names),
           std::move(table_offsets),
           std::move(table_sizes),
-          enrichment_config);
+          enrichment_config,
+          /*enable_ssd_backend=*/false,
+          row_storage_config);
       impl_ = fp32_impl_;
     } else {
       throw std::runtime_error("Failed to create recording device");

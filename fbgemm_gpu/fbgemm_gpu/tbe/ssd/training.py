@@ -57,10 +57,10 @@ from fbgemm_gpu.tbe.monitoring import (
 
 from .ssd_config import (  # usort:skip
     BackendType,
-    EnrichmentPolicy,
     EnrichmentType,
     EvictionPolicy,
     KVZCHParams,
+    RowStoragePolicy,
 )
 from torch import distributed as dist, nn, Tensor  # usort:skip
 import sys
@@ -1868,7 +1868,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.backend_return_whole_row: bool = False
         self._embedding_cache_mode: bool = False
         self._enrichment_enabled: bool = False
-        # Bytes of a raw INT8 checkpoint row (EnrichmentPolicy.int8_storage);
+        # How an embedding_cache_mode table stores the rows written into it
+        # (KVZCHParams.effective_row_storage_policy()).
+        self._row_storage: RowStoragePolicy | None = None
+        # An embedding_cache_mode table whose rows are written from outside its
+        # backward: by enrichment, or by the caller (row_storage_policy). Its
+        # no-grad forwards keep no scratch pads for eviction, and rows it read
+        # as all zeros are fetched again.
+        self._external_write_cache: bool = False
+        # Bytes of a raw INT8 checkpoint row (RowStoragePolicy.int8_storage);
         # 0 when the backend stores fp16 rows.
         self._int8_row_bytes: int = 0
         # Bytes of a raw checkpoint row in the stored format (int8_storage or
@@ -1903,18 +1911,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.load_ckpt_without_opt: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
-            self.load_ckpt_without_opt = (
-                # pyre-ignore [16]
-                self.kv_zch_params.load_ckpt_without_opt
-            )
+            self.load_ckpt_without_opt = self.kv_zch_params.load_ckpt_without_opt
             self.enable_optimizer_offloading = (
-                # pyre-ignore [16]
                 self.kv_zch_params.enable_optimizer_offloading
             )
-            self.backend_return_whole_row = (
-                # pyre-ignore [16]
-                self.kv_zch_params.backend_return_whole_row
-            )
+            self.backend_return_whole_row = self.kv_zch_params.backend_return_whole_row
 
             if self.enable_optimizer_offloading:
                 logging.info("Optimizer state offloading is enabled")
@@ -1926,7 +1927,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 logging.info(
                     "Backend will return whole row including metaheader, weight and optimizer for checkpoint"
                 )
-            # pyre-ignore [16]
             self._embedding_cache_mode = self.kv_zch_params.embedding_cache_mode
             if self._embedding_cache_mode:
                 logging.info("KVZCH is in embedding_cache_mode")
@@ -1942,7 +1942,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # paths (early-return flush, async enrichment writeback) that would
             # otherwise cause fp16 weight overflow on unrelated tables.
             self._enrichment_enabled = (
-                # pyre-ignore [16]
                 self.kv_zch_params.enrichment_policy is not None
                 and self._embedding_cache_mode
             )
@@ -1989,33 +1988,33 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._owner_cache_write_direct = (
                     enrichment_policy.owner_cache_write_direct
                 )
-                if enrichment_policy.packed_storage:
-                    self._owner_cache_packed_group_size = (
-                        enrichment_policy.serving_qdq_group_size
-                    )
-                if (
-                    enrichment_policy.serving_qdq_bit_rate
-                    and self.backend_type != BackendType.DRAM
-                ):
-                    raise ValueError("serving_qdq_bit_rate requires the DRAM backend")
-                if (
-                    enrichment_policy.packed_storage
-                    and self.backend_type != BackendType.DRAM
-                ):
-                    raise ValueError("packed_storage requires the DRAM backend")
-                if (
-                    enrichment_policy.int8_storage
-                    and self.backend_type != BackendType.DRAM
-                ):
-                    raise ValueError("int8_storage requires the DRAM backend")
                 if (
                     self._owner_cache_exclusive
                     and self.backend_type != BackendType.DRAM
                 ):
                     raise ValueError("owner_cache_exclusive requires the DRAM backend")
+            if self._embedding_cache_mode:
+                self._row_storage = self.kv_zch_params.effective_row_storage_policy()
+                self._external_write_cache = self._enrichment_enabled or (
+                    self.kv_zch_params.row_storage_policy is not None
+                )
+            row_storage = self._row_storage
+            if row_storage is not None:
+                if row_storage.packed_storage:
+                    self._owner_cache_packed_group_size = (
+                        row_storage.serving_qdq_group_size
+                    )
+                if (
+                    row_storage.serving_qdq_bit_rate
+                    and self.backend_type != BackendType.DRAM
+                ):
+                    raise ValueError("serving_qdq_bit_rate requires the DRAM backend")
+                if row_storage.packed_storage and self.backend_type != BackendType.DRAM:
+                    raise ValueError("packed_storage requires the DRAM backend")
+                if row_storage.int8_storage and self.backend_type != BackendType.DRAM:
+                    raise ValueError("int8_storage requires the DRAM backend")
             if self.load_ckpt_without_opt:
                 if (
-                    # pyre-ignore [16]
                     self.kv_zch_params.optimizer_type_for_st
                     == OptimType.PARTIAL_ROWWISE_ADAM.value
                 ):
@@ -2023,11 +2022,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     logging.info(
                         f"Override optimizer type with {self.optimizer=} for st publish"
                     )
-                if (
-                    # pyre-ignore [16]
-                    self.kv_zch_params.optimizer_state_dtypes_for_st
-                    is not None
-                ):
+                if self.kv_zch_params.optimizer_state_dtypes_for_st is not None:
                     optimizer_state_dtypes = {}
                     for k, v in dict(
                         self.kv_zch_params.optimizer_state_dtypes_for_st
@@ -2652,10 +2647,22 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     ep.laser_batch_size,
                     ep.laser_key_suffix,
                     list(ep.laser_key_suffixes),
-                    self._serving_qdq_bit_rate(ep),
-                    ep.serving_qdq_group_size,
-                    ep.packed_storage,
-                    self._int8_storage(ep),
+                )
+            row_storage_config = None
+            if self._row_storage is not None:
+                row_storage = self._row_storage
+                # The backend lays rows out by this dim, with any format or none.
+                if row_storage.dim != self.max_D:
+                    raise ValueError(
+                        f"row storage dim ({row_storage.dim}) must equal the table "
+                        f"dimension ({self.max_D})"
+                    )
+                row_storage_config = torch.classes.fbgemm.RowStorageConfig(
+                    row_storage.dim,
+                    self._serving_qdq_bit_rate(row_storage),
+                    row_storage.serving_qdq_group_size,
+                    row_storage.packed_storage,
+                    self._int8_storage(row_storage),
                 )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
@@ -2680,7 +2687,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.res_params.table_names,
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
-                enrichment_config,  # enrichment_config
+                enrichment_config=enrichment_config,
+                row_storage_config=row_storage_config,
             )
             self._int8_row_bytes = self._ssd_db.get_int8_row_bytes()
             self._raw_row_bytes = self._ssd_db.get_raw_row_bytes()
@@ -3117,9 +3125,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.register_full_backward_pre_hook(
                 self._update_cache_counter_and_pointers
             )
-            if self._enrichment_enabled:
-                # The backward pre-hook above never fires in enrichment mode, so
-                # release the L1 locks at the end of forward instead.
+            if self._external_write_cache:
+                # The backward pre-hook above never fires for an externally
+                # written cache, whose forwards run under no_grad (torchrec's
+                # embedding_cache_mode kernels), so release the L1 locks at the
+                # end of forward instead.
                 self.register_forward_hook(self._release_iteration_locks)
 
         # stats reporter
@@ -3437,7 +3447,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         if self.bulk_init_chunk_size > 0:
             self.lazy_init_thread = threading.Thread(target=self._insert_all_kv)
-            # pyre-ignore
             self.lazy_init_thread.start()
             logging.info(
                 f"lazy ssd tbe initialization started since bulk_init_chunk_size is set to {self.bulk_init_chunk_size}"
@@ -3809,9 +3818,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             None
         """
         with record_function("## ssd_evict_from_scratch_pad_pipeline ##"):
-            # In enrichment mode, scratch pad eviction data is not populated
-            # (_prefetch skips the append), so nothing to do here.
-            if self._enrichment_enabled:
+            # For an externally written cache, scratch pad eviction data is not
+            # populated (_prefetch skips the append), so nothing to do here.
+            if self._external_write_cache:
                 return
 
             current_stream = torch.cuda.current_stream()
@@ -4751,7 +4760,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         use_pipeline=self.prefetch_pipeline,
                     )
 
-                    if not self._enrichment_enabled:
+                    if not self._external_write_cache:
                         # Record the tensors that will be pushed into a queue
                         # on the forward stream
                         if forward_stream:
@@ -4769,7 +4778,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                             )
 
             # Ensure the previous iterations eviction is complete
-            if not self._enrichment_enabled:
+            if not self._external_write_cache:
                 current_stream.wait_event(self.ssd_event_sp_evict)
             # Ensure that D2H is done
             current_stream.wait_event(self.ssd_event_get_inputs_cpy)
@@ -4844,9 +4853,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 use_pipeline=self.prefetch_pipeline,
             )
 
-            # When enrichment is enabled, invalidate L1 slots that received all-zero
-            # rows from DRAM so they will be re-fetched next prefetch
-            if self._enrichment_enabled:
+            # For an externally written cache, invalidate L1 slots that received
+            # all-zero rows from DRAM so they will be re-fetched next prefetch
+            if self._external_write_cache:
                 self._invalidate_zero_rows(assigned_cache_slots, actions_count_gpu)
 
             if self.training:
@@ -4964,10 +4973,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             # Store scratch pad info for post backward eviction only for training
             # for eval job, no backward pass, so no need to store this info
-            # Skip for enrichment mode: the backward hook only pops without
-            # evicting (embedding_cache_mode skips evict), and the .clear()
-            # in enrichment_query_id triggers expensive cudaFree on UVA tensors.
-            if self.training and not self._enrichment_enabled:
+            # Skip for an externally written cache: the backward hook only pops
+            # without evicting (embedding_cache_mode skips evict), and the
+            # .clear() in enrichment_query_id triggers expensive cudaFree on UVA
+            # tensors.
+            if self.training and not self._external_write_cache:
                 self.ssd_scratch_pad_eviction_data.append(
                     (
                         inserted_rows,
@@ -5249,7 +5259,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             itertools.accumulate([r * d for r, d in self.embedding_specs])
         )
 
-        # pyre-ignore[53]
         def _slice(tensor: Tensor, t: int, rowwise: bool) -> Tensor:
             d: int = dims[t]
             e: int = rows[t]
@@ -5312,7 +5321,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             itertools.accumulate([r * d for r, d in self.embedding_specs])
         )
 
-        # pyre-ignore[53]
         def _slice(state_name: str, tensor: Tensor, t: int, rowwise: bool) -> Tensor:
             d: int = dims[t]
 
@@ -5405,7 +5413,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             should_flush=should_flush,
         )
 
-        # pyre-ignore[53]
         def _fetch_offloaded_optimizer_states(
             t: int,
         ) -> list[Tensor]:
@@ -5609,7 +5616,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 for _ in dims_
             ]
 
-        # pyre-ignore[53]
         def _fetch_offloaded_optimizer_states(
             t: int,
         ) -> list[Tensor]:
@@ -5623,12 +5629,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             # When backend returns whole row, the optimizer will be returned as
             # PMT directly
-            # pyre-ignore[16]
             if sorted_ids[t].size(0) == 0 and self.local_weight_counts[t] > 0:
                 logging.info(
                     f"Before opt PMT loading, resetting id tensor with {self.local_weight_counts[t]}"
                 )
-                # pyre-ignore[16]
                 sorted_ids[t] = torch.zeros(
                     (self.local_weight_counts[t], 1),
                     device=torch.device("cpu"),
@@ -6354,25 +6358,37 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     False,
                 )
 
-    def _int8_storage(self, ep: EnrichmentPolicy) -> bool:
-        """Validated EnrichmentPolicy.int8_storage for this TBE."""
-        if not ep.int8_storage:
-            return False
+    def _check_row_storage_format(
+        self, name: str, row_storage: RowStoragePolicy
+    ) -> None:
+        """Raises unless this TBE can store its rows in the row storage format
+        `name`: FP16 weights, a dim matching the table dimension, and, with
+        enrichment, an embedding payload."""
         if self.weights_precision != SparseType.FP16:
+            raise ValueError(f"{name} needs FP16 weights, got {self.weights_precision}")
+        if row_storage.dim != self.max_D:
             raise ValueError(
-                f"int8_storage needs FP16 weights, got {self.weights_precision}"
+                f"{name} needs a row storage dim ({row_storage.dim}) equal to the "
+                f"table dimension ({self.max_D})"
             )
-        if ep.enrichment_dim != self.max_D:
-            raise ValueError(
-                "int8_storage needs enrichment_dim to match the table dimension"
-            )
-        if ep.enrichment_type not in (
+        kv_zch_params = self.kv_zch_params
+        enrichment_policy = (
+            kv_zch_params.enrichment_policy if kv_zch_params is not None else None
+        )
+        if enrichment_policy is not None and enrichment_policy.enrichment_type not in (
             EnrichmentType.IGR_LASER_EMBEDDING,
             EnrichmentType.IN_MEMORY_TEST_ONLY,
         ):
             raise ValueError(
-                f"int8_storage needs an embedding payload, got {ep.enrichment_type}"
+                f"{name} needs an embedding payload, got "
+                f"{enrichment_policy.enrichment_type}"
             )
+
+    def _int8_storage(self, row_storage: RowStoragePolicy) -> bool:
+        """Validated RowStoragePolicy.int8_storage for this TBE."""
+        if not row_storage.int8_storage:
+            return False
+        self._check_row_storage_format("int8_storage", row_storage)
         return True
 
     @torch.jit.ignore
@@ -6445,11 +6461,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def _int8_checkpoint_rows_active(self, is_loading_checkpoint: bool) -> bool:
         return self._int8_checkpoint_rows and self.checkpoints_raw_rows()
 
-    def _serving_qdq_bit_rate(self, ep: EnrichmentPolicy) -> int:
-        """Validated EnrichmentPolicy.serving_qdq_bit_rate for this TBE, also
+    def _serving_qdq_bit_rate(self, row_storage: RowStoragePolicy) -> int:
+        """Validated RowStoragePolicy.serving_qdq_bit_rate for this TBE, also
         validating serving_qdq_group_size, which depends on it."""
-        bit_rate, group_size = ep.serving_qdq_bit_rate, ep.serving_qdq_group_size
-        if ep.packed_storage and (bit_rate != 4 or group_size != 8):
+        bit_rate = row_storage.serving_qdq_bit_rate
+        group_size = row_storage.serving_qdq_group_size
+        dim = row_storage.dim
+        if row_storage.packed_storage and (bit_rate != 4 or group_size != 8):
             raise ValueError(
                 "packed_storage needs serving_qdq_bit_rate 4 and "
                 f"serving_qdq_group_size 8, got {bit_rate} and {group_size}"
@@ -6462,35 +6480,20 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             bit_rate != 4
             or group_size < 0
             or group_size % 2 != 0
-            or ep.enrichment_dim % group_size != 0
+            or dim % group_size != 0
         ):
             raise ValueError(
                 f"serving_qdq_group_size {group_size} needs serving_qdq_bit_rate 4 "
-                f"and an even group size dividing enrichment_dim ({ep.enrichment_dim})"
+                f"and an even group size dividing the row storage dim ({dim})"
             )
         if bit_rate not in (2, 4):
             raise ValueError(f"serving_qdq_bit_rate must be 0, 2 or 4, got {bit_rate}")
-        if ep.enrichment_type not in (
-            EnrichmentType.IGR_LASER_EMBEDDING,
-            EnrichmentType.IN_MEMORY_TEST_ONLY,
-        ):
-            raise ValueError(
-                f"serving_qdq_bit_rate needs an embedding payload, got {ep.enrichment_type}"
-            )
-        if self.weights_precision != SparseType.FP16:
-            raise ValueError(
-                f"serving_qdq_bit_rate needs FP16 weights, got {self.weights_precision}"
-            )
-        if ep.enrichment_dim != self.max_D:
-            raise ValueError(
-                f"serving_qdq_bit_rate needs enrichment_dim ({ep.enrichment_dim}) "
-                f"== table dim ({self.max_D})"
-            )
+        self._check_row_storage_format("serving_qdq_bit_rate", row_storage)
         codes_per_byte = 8 // bit_rate
-        if ep.enrichment_dim <= 0 or ep.enrichment_dim % codes_per_byte != 0:
+        if dim <= 0 or dim % codes_per_byte != 0:
             raise ValueError(
-                f"serving_qdq_bit_rate={bit_rate} needs a positive enrichment_dim "
-                f"divisible by {codes_per_byte}, got {ep.enrichment_dim}"
+                f"serving_qdq_bit_rate={bit_rate} needs a positive row storage dim "
+                f"divisible by {codes_per_byte}, got {dim}"
             )
         return bit_rate
 
@@ -6498,13 +6501,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def _serving_qdq_restored_rows(self) -> None:
         """Rewrites rows restored from a checkpoint as their serving values;
         rows written while serving_qdq_bit_rate was set are left unchanged."""
-        if not self._enrichment_enabled or self.backend_type != BackendType.DRAM:
-            return
-        kv_zch_params = self.kv_zch_params
         if (
-            kv_zch_params is None
-            or kv_zch_params.enrichment_policy is None
-            or kv_zch_params.enrichment_policy.serving_qdq_bit_rate == 0
+            self._row_storage is None
+            or self._row_storage.serving_qdq_bit_rate == 0
+            or self.backend_type != BackendType.DRAM
         ):
             return
         # Restore writes issued through set_cuda run as stream host callbacks.
@@ -6661,7 +6661,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.local_weight_counts[i] > 0
             ), f"local_weight_counts for table {i} is not set"
 
-        # pyre-ignore [16]
         self._cached_kvzch_data.cached_optimizer_states_per_table = (
             self.optimizer.empty_states(
                 self.local_weight_counts,
@@ -6675,15 +6674,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[i]
             rows = self.local_weight_counts[i]
             weight_state = torch.empty(rows, emb_dim, dtype=dtype, device="cpu")
-            # pyre-ignore [16]
             self._cached_kvzch_data.cached_weight_tensor_per_table.append(weight_state)
             logging.info(
                 f"for checkpoint loading, table {i}, weight_state shape is {weight_state.shape}"
             )
             id_tensor = torch.zeros((rows, 1), dtype=torch.int64, device="cpu")
-            # pyre-ignore [16]
             self._cached_kvzch_data.cached_id_tensor_per_table.append(id_tensor)
-            # pyre-ignore [16]
             self._cached_kvzch_data.cached_bucket_splits.append(
                 torch.empty(
                     (bucket_id_end - bucket_id_start, 1),
@@ -6726,8 +6722,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # for eval mode, we should not write anything to embedding
             return
 
-        if self._enrichment_enabled:
-            # When enrichment is enabled, reset cache state for slots where weights are all zeros
+        if self._external_write_cache:
+            # For an externally written cache, reset cache state for slots where
+            # weights are all zeros
             active_slots_mask = self.lxu_cache_state != -1
             if active_slots_mask.any():
                 # Get flat indices of active slots
