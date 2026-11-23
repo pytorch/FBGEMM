@@ -308,6 +308,42 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return -1;
   }
 
+  /// Synchronously stores rows of a cache-mode table without dropping any. A
+  /// new key gets feature score init_scores[i] and the current timestamp; an
+  /// existing key is overwritten, keeping its score, only if overwrite is set,
+  /// and takes init_scores[i] as its score if replace_scores is set.
+  /// All-zero rows are skipped (a miss reads zeros anyway).
+  /// serving_qdq_bit_rate > 0 first round-trips the first serving_qdq_dim
+  /// columns of every row through that publish encoding, in place. Written rows
+  /// go to RES when raw embedding streaming is on; trainer_rows, rows the
+  /// trainer already has, only with KVZCH_ROW_WRITE_RES too, as those of
+  /// set_embedding_cache_rows_async.
+  /// @return {inserted, overwritten, skipped existing, skipped zero, rescored},
+  /// or empty where unsupported
+  virtual std::vector<int64_t> set_rows_with_feature_score(
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*weights*/,
+      const at::Tensor& /*count*/,
+      const at::Tensor& /*init_scores*/,
+      bool /*overwrite*/,
+      int64_t /*serving_qdq_bit_rate*/,
+      int64_t /*serving_qdq_group_size*/,
+      int64_t /*serving_qdq_dim*/,
+      bool /*replace_scores*/,
+      bool /*trainer_rows*/) {
+    return {};
+  }
+
+  /// Synchronously adds scores to the feature scores of the keys present,
+  /// refreshing their timestamps; absent keys are left absent.
+  /// @return keys updated, or -1 where unsupported
+  virtual int64_t add_feature_scores_existing_only(
+      const at::Tensor& /*indices*/,
+      const at::Tensor& /*count*/,
+      const at::Tensor& /*scores*/) {
+    return -1;
+  }
+
   /// Writes rows into an embedding cache through its enrichment write path.
   /// Only the DRAM KV cache implements it; elsewhere it logs and returns.
   virtual void set_embedding_cache_rows_async(
@@ -349,6 +385,14 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// implementations may deliberately leave it untouched to reuse scratch
   /// buffers without clearing every miss.
   void get_cuda_with_found_mask(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      const at::Tensor& found_mask);
+
+  /// Synchronous get_cuda_with_found_mask() on CPU tensors, for callers that
+  /// read on their own thread instead of a CUDA host callback.
+  void get_with_found_mask(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
@@ -468,6 +512,24 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
    */
   virtual bool restores_row_timestamps() const {
     return false;
+  }
+
+  /// Multiplies the feature scores by factor in the next eviction round of a
+  /// feature score policy, instead of on the policy's decay interval.
+  virtual void decay_feature_scores(double /*factor*/) {
+    FBEXCEPTION("Not implemented");
+  }
+
+  /// Applies the factor queued by decay_feature_scores now, in a round that
+  /// evicts nothing, and waits for it.
+  virtual void apply_queued_feature_score_decay() {
+    FBEXCEPTION("Not implemented");
+  }
+
+  /// The factor queued by decay_feature_scores that no round has taken yet,
+  /// 1.0 if none.
+  virtual double pending_feature_score_decay() {
+    FBEXCEPTION("Not implemented");
   }
 
   virtual bool is_evicting();
@@ -681,9 +743,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return 0;
   }
 
- private:
+ protected:
   void maybe_resume_eviction_after_get();
 
+ private:
   /// Find non-negative embedding indices in <indices> and shard them into
   /// #cachelib_pools pieces to be lookedup in parallel
   ///
@@ -777,6 +840,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   void check_tensor_type_consistency(
       const at::Tensor& indices,
       const at::Tensor& weights);
+
+  void check_found_mask_read(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& found_mask);
 
   void get_impl(
       const at::Tensor& indices,

@@ -77,7 +77,6 @@ class _HoldStreamBeforeFill(TorchFunctionMode):
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDCheckpointTest(unittest.TestCase):
-    # pyre-ignore[2]: the backend is a torch.classes.fbgemm custom class
     def coordinated_maybe_evict(
         self, backend, step: int = 0, free_mem_bytes: int = 0
     ) -> None:
@@ -422,12 +421,10 @@ class SSDCheckpointTest(unittest.TestCase):
         event = threading.Event()
         get_sleep_ms = 50
 
-        # pyre-ignore
         def trigger_get() -> None:
             event.set()
             emb.ssd_db.get(indices.clone(), weights_out, count, get_sleep_ms)
 
-        # pyre-ignore
         def trigger_set() -> None:
             event.wait()
             time.sleep(
@@ -1803,6 +1800,338 @@ class SSDCheckpointTest(unittest.TestCase):
         self.assertTrue(full_duration_ms.item() > 0)
         self.assertTrue(exec_duration_ms.item() >= 0)
         self.assertTrue(all(eviction_threshold_with_dry_run > 0))
+
+    def _feature_score_cache(
+        self, max_D: int, E: int, trigger: int, keep: int
+    ) -> object:
+        return self.generate_fbgemm_kv_backend(
+            max_D=max_D,
+            weight_precision=SparseType.FP16,
+            enable_l2=False,
+            feature_dims=torch.tensor([max_D], dtype=torch.int64),
+            hash_size_cumsum=torch.tensor([0, E], dtype=torch.int64),
+            backend_type=BackendType.DRAM,
+            eviction_policy=EvictionPolicy(
+                eviction_trigger_mode=4,  # id count
+                eviction_strategy=5,  # feature score
+                feature_score_counter_decay_rates=[1.0],
+                training_id_eviction_trigger_count=[trigger],
+                training_id_keep_count=[keep],
+                ttls_in_mins=[0],
+                threshold_calculation_bucket_stride=0.01,
+                threshold_calculation_bucket_num=100000,
+                interval_for_insufficient_eviction_s=0,
+                interval_for_sufficient_eviction_s=0,
+                interval_for_feature_statistics_decay_s=10000,
+                enable_eviction_for_feature_score_eviction_policy=[True],
+            ),
+            disable_random_init=True,
+        )
+
+    @staticmethod
+    def _feature_scores(dram_kv_backend: object, keys: torch.Tensor) -> torch.Tensor:
+        metadata = dram_kv_backend.get_kv_zch_eviction_metadata_by_snapshot(
+            keys, torch.tensor([keys.numel()]), None
+        )
+        return ((metadata >> 32) & 0x7FFFFFFF).to(torch.int32).view(torch.float32)
+
+    def test_dram_kv_set_rows_with_feature_score(self) -> None:
+        max_D, E = 8, 1000
+        dram_kv_backend = self._feature_score_cache(max_D, E, 10**6, 10**6)
+        keys = torch.tensor([3, 7, 11, 19], dtype=torch.int64)
+        rows = torch.randn(4, max_D, dtype=torch.float16)
+        rows[2] = 0
+        stats = dram_kv_backend.set_rows_with_feature_score(
+            keys,
+            rows.clone(),
+            torch.tensor([4]),
+            torch.tensor([0.5, 1.5, 2.5, -1.0]),
+            False,
+        )
+        self.assertEqual(stats, [3, 0, 0, 1, 0])
+        out = torch.empty(4, max_D, dtype=torch.float16)
+        dram_kv_backend.get(keys, out, torch.tensor([4]))
+        expected = rows.clone()
+        torch.testing.assert_close(out, expected)
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys[[0, 1, 3]]),
+            torch.tensor([0.5, 1.5, 0.0]),
+        )
+
+        # Existing rows are only replaced with overwrite, and keep their score.
+        new_rows = torch.randn(2, max_D, dtype=torch.float16)
+        stats = dram_kv_backend.set_rows_with_feature_score(
+            keys[:2], new_rows.clone(), torch.tensor([2]), torch.ones(2), False
+        )
+        self.assertEqual(stats, [0, 0, 2, 0, 0])
+        # trainer_rows only decides whether the rows go to RES, which is off here.
+        stats = dram_kv_backend.set_rows_with_feature_score(
+            keys[:2],
+            new_rows.clone(),
+            torch.tensor([2]),
+            torch.ones(2),
+            True,
+            trainer_rows=True,
+        )
+        self.assertEqual(stats, [0, 2, 0, 0, 0])
+        out = torch.empty(2, max_D, dtype=torch.float16)
+        dram_kv_backend.get(keys[:2], out, torch.tensor([2]))
+        torch.testing.assert_close(out, new_rows)
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys[:2]), torch.tensor([0.5, 1.5])
+        )
+        for score in (float("nan"), float("inf")):
+            with self.assertRaisesRegex(RuntimeError, "finite init_scores"):
+                dram_kv_backend.set_rows_with_feature_score(
+                    keys[:2],
+                    new_rows.clone(),
+                    torch.tensor([2]),
+                    torch.tensor([1.0, score]),
+                    True,
+                )
+        # A count of one non-negative int64 or int32.
+        for count in (
+            torch.tensor([], dtype=torch.int64),
+            torch.tensor([2], dtype=torch.uint8),
+            torch.tensor([-1]),
+        ):
+            with self.assertRaises(RuntimeError):
+                dram_kv_backend.set_rows_with_feature_score(
+                    keys[:2], new_rows.clone(), count, torch.ones(2), True
+                )
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys[:2]), torch.tensor([0.5, 1.5])
+        )
+
+    def test_dram_kv_set_rows_with_feature_score_replaces_scores(self) -> None:
+        max_D, E = 8, 1000
+        dram_kv_backend = self._feature_score_cache(max_D, E, 10**6, 10**6)
+        keys = torch.tensor([3, 7], dtype=torch.int64)
+        rows = torch.randn(2, max_D, dtype=torch.float16)
+        dram_kv_backend.set_rows_with_feature_score(
+            keys, rows.clone(), torch.tensor([2]), torch.tensor([0.5, 1.5]), False
+        )
+        # The stored keys take the new scores and keep their rows; a new key is
+        # inserted at its score.
+        all_keys = torch.tensor([3, 7, 11], dtype=torch.int64)
+        new_rows = torch.randn(3, max_D, dtype=torch.float16)
+        stats = dram_kv_backend.set_rows_with_feature_score(
+            all_keys,
+            new_rows.clone(),
+            torch.tensor([3]),
+            torch.tensor([4.0, -1.0, 2.0]),
+            False,
+            replace_scores=True,
+        )
+        self.assertEqual(stats, [1, 0, 2, 0, 2])
+        out = torch.empty(3, max_D, dtype=torch.float16)
+        dram_kv_backend.get(all_keys, out, torch.tensor([3]))
+        torch.testing.assert_close(out, torch.cat([rows, new_rows[2:]]))
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, all_keys),
+            torch.tensor([4.0, 0.0, 2.0]),
+        )
+        # With overwrite, the rows too.
+        stats = dram_kv_backend.set_rows_with_feature_score(
+            keys,
+            new_rows[:2].clone(),
+            torch.tensor([2]),
+            torch.tensor([6.0, 8.0]),
+            True,
+            replace_scores=True,
+        )
+        self.assertEqual(stats, [0, 2, 0, 0, 2])
+        out = torch.empty(2, max_D, dtype=torch.float16)
+        dram_kv_backend.get(keys, out, torch.tensor([2]))
+        torch.testing.assert_close(out, new_rows[:2])
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys), torch.tensor([6.0, 8.0])
+        )
+
+    def test_dram_kv_apply_queued_feature_score_decay(self) -> None:
+        max_D, E, n = 8, 1000, 100
+        # A round would keep half of the rows.
+        dram_kv_backend = self._feature_score_cache(max_D, E, n // 2, n // 2)
+        keys = torch.randperm(E)[:n].to(torch.int64)
+        scores = torch.rand(n) * 100
+        dram_kv_backend.set_rows_with_feature_score(
+            keys,
+            torch.randn(n, max_D, dtype=torch.float16),
+            torch.tensor([n]),
+            scores,
+            False,
+        )
+        dram_kv_backend.decay_feature_scores(factor=0.5)
+        self.assertEqual(dram_kv_backend.pending_feature_score_decay(), 0.5)
+        dram_kv_backend.apply_queued_feature_score_decay()
+        self.assertEqual(dram_kv_backend.pending_feature_score_decay(), 1.0)
+        self.assertEqual(dram_kv_backend.get_keys_in_range(0, E).numel(), n)
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys), scores * 0.5
+        )
+        # Spent: a second call decays nothing.
+        dram_kv_backend.apply_queued_feature_score_decay()
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys), scores * 0.5
+        )
+
+    def test_dram_kv_decay_feature_scores_takes_factors_in_0_1(self) -> None:
+        dram_kv_backend = self._feature_score_cache(8, 1000, 10**6, 10**6)
+        dram_kv_backend.decay_feature_scores(1.0)
+        for factor in (0.0, -0.5, 1.5, float("nan"), float("inf")):
+            with self.subTest(factor=factor), self.assertRaises(RuntimeError):
+                dram_kv_backend.decay_feature_scores(factor)
+
+    def test_dram_kv_decay_feature_scores_needs_feature_score_eviction(
+        self,
+    ) -> None:
+        dram_kv_backend = self.generate_fbgemm_kv_backend(
+            max_D=8,
+            weight_precision=SparseType.FP16,
+            enable_l2=False,
+            feature_dims=torch.tensor([8], dtype=torch.int64),
+            hash_size_cumsum=torch.tensor([0, 1000], dtype=torch.int64),
+            backend_type=BackendType.DRAM,
+            disable_random_init=True,
+        )
+        with self.assertRaisesRegex(RuntimeError, "feature score eviction"):
+            dram_kv_backend.decay_feature_scores(0.5)
+        with self.assertRaisesRegex(RuntimeError, "feature score eviction"):
+            dram_kv_backend.pending_feature_score_decay()
+
+    def test_dram_kv_set_rows_with_serving_qdq(self) -> None:
+        max_D, dim, E = 12, 8, 1000
+        dram_kv_backend = self._feature_score_cache(max_D, E, 10**6, 10**6)
+        keys = torch.arange(16, dtype=torch.int64)
+        rows = torch.zeros(16, max_D, dtype=torch.float16)
+        rows[:, :dim] = torch.randn(16, dim, dtype=torch.float16)
+        dram_kv_backend.set_rows_with_feature_score(
+            keys, rows.clone(), torch.tensor([16]), torch.ones(16), False, 4, 0, dim
+        )
+        stored = torch.empty(16, dim, dtype=torch.float16)
+        dram_kv_backend.get(keys, stored, torch.tensor([16]))
+
+        def round_trip(x: torch.Tensor) -> torch.Tensor:
+            return torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(x, 4),
+                4,
+                1,
+            )
+
+        # What serving decodes from the INT4 publish of the stored rows is the
+        # stored rows themselves.
+        torch.testing.assert_close(round_trip(stored), stored, atol=0, rtol=0)
+        torch.testing.assert_close(
+            stored, round_trip(rows[:, :dim].contiguous()), atol=0.5, rtol=0
+        )
+        self.assertFalse(torch.equal(stored, rows[:, :dim]))
+
+    def test_dram_kv_add_feature_scores_existing_only(self) -> None:
+        max_D, E = 8, 1000
+        dram_kv_backend = self._feature_score_cache(max_D, E, 10**6, 10**6)
+        keys = torch.tensor([5, 6], dtype=torch.int64)
+        dram_kv_backend.set_rows_with_feature_score(
+            keys,
+            torch.ones(2, max_D, dtype=torch.float16),
+            torch.tensor([2]),
+            torch.tensor([1.0, 2.0]),
+            False,
+        )
+        missing = torch.tensor([42], dtype=torch.int64)
+        updated = dram_kv_backend.add_feature_scores_existing_only(
+            indices=torch.cat([keys, missing]),
+            count=torch.tensor([3]),
+            scores=torch.tensor([0.5, 0.5, 9.0]),
+        )
+        self.assertEqual(updated, 2)
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys), torch.tensor([1.5, 2.5])
+        )
+        # A count past the keys or the scores.
+        with self.assertRaises(RuntimeError):
+            dram_kv_backend.add_feature_scores_existing_only(
+                keys, torch.tensor([3]), torch.tensor([0.5, 0.5, 0.5])
+            )
+        with self.assertRaises(RuntimeError):
+            dram_kv_backend.add_feature_scores_existing_only(
+                keys, torch.tensor([2]), torch.tensor([0.5])
+            )
+        for score in (float("nan"), float("inf")):
+            with self.assertRaisesRegex(RuntimeError, "finite scores"):
+                dram_kv_backend.add_feature_scores_existing_only(
+                    keys, torch.tensor([2]), torch.tensor([0.5, score])
+                )
+        for count in (
+            torch.tensor([], dtype=torch.int64),
+            torch.tensor([2], dtype=torch.uint8),
+            torch.tensor([-1]),
+        ):
+            with self.assertRaises(RuntimeError):
+                dram_kv_backend.add_feature_scores_existing_only(
+                    keys, count, torch.tensor([0.5, 0.5])
+                )
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, keys), torch.tensor([1.5, 2.5])
+        )
+        self.assertEqual(
+            sorted(dram_kv_backend.get_keys_in_range(0, E).flatten().tolist()),
+            [5, 6],
+        )
+
+    def test_dram_kv_add_feature_scores_existing_only_many_keys(self) -> None:
+        max_D, E, n, num_reads = 8, 10**6, 3000, 20000
+        dram_kv_backend = self._feature_score_cache(max_D, E, 10**7, 10**7)
+        # The first n are stored, the rest are not.
+        all_keys = torch.randperm(E)[: 2 * n].to(torch.int64)
+        init_scores = torch.rand(n) * 10
+        dram_kv_backend.set_rows_with_feature_score(
+            all_keys[:n],
+            torch.randn(n, max_D, dtype=torch.float16),
+            torch.tensor([n]),
+            init_scores,
+            False,
+        )
+        positions = torch.randint(0, 2 * n, (num_reads,))
+        read_scores = torch.randn(num_reads)
+        updated = dram_kv_backend.add_feature_scores_existing_only(
+            all_keys[positions], torch.tensor([num_reads]), read_scores
+        )
+        stored = positions < n
+        self.assertEqual(updated, int(stored.sum()))
+        expected = init_scores.index_add(
+            0, positions[stored], read_scores[stored].clamp(min=0)
+        )
+        torch.testing.assert_close(
+            self._feature_scores(dram_kv_backend, all_keys[:n]), expected
+        )
+        self.assertEqual(
+            sorted(dram_kv_backend.get_keys_in_range(0, E).flatten().tolist()),
+            sorted(all_keys[:n].tolist()),
+        )
+
+    def test_dram_kv_feature_score_eviction_keeps_top_scores(self) -> None:
+        max_D, E, n, trigger, keep = 8, 100000, 1200, 1000, 800
+        dram_kv_backend = self._feature_score_cache(max_D, E, trigger, keep)
+        # As a cache-mode TBE runs it: nothing writes back, so gets resume rounds.
+        dram_kv_backend.set_resume_eviction_after_get(True)
+        keys = torch.randperm(E)[:n].to(torch.int64)
+        scores = torch.rand(n) * 100
+        dram_kv_backend.set_rows_with_feature_score(
+            keys,
+            torch.randn(n, max_D, dtype=torch.float16),
+            torch.tensor([n]),
+            scores,
+            False,
+        )
+        out = torch.empty(n, max_D, dtype=torch.float16)
+        self.coordinated_maybe_evict(dram_kv_backend)
+        dram_kv_backend.get(keys, out, torch.tensor([n]))
+        dram_kv_backend.wait_until_eviction_done()
+        kept = set(dram_kv_backend.get_keys_in_range(0, E).flatten().tolist())
+        # One histogram bucket of slack around the keep count.
+        self.assertLessEqual(abs(len(kept) - keep), 20)
+        kept_mask = torch.tensor([k in kept for k in keys.tolist()])
+        self.assertGreater(scores[kept_mask].min(), scores[~kept_mask].max() - 0.02)
 
     @given(
         T=st.integers(min_value=2, max_value=10),

@@ -693,6 +693,96 @@ TEST(PackedStorageTest, UnquantizedRowsAreStoredAsTheirServingFixedPoints) {
   EXPECT_EQ(cache->serving_qdq_existing_rows(), 0);
 }
 
+TEST(PackedStorageTest, RowsWithFeatureScoresArePacked) {
+  auto cache = make_packed_cache();
+  const auto original = dex_like_rows(256, /*seed=*/18);
+  auto gen = at::make_generator<at::CPUGeneratorImpl>(19);
+  const auto tail = at::randn({256, kTail}, gen, at::kFloat).to(at::kHalf);
+  const auto ids = at::arange(256, at::kLong);
+
+  // Round-tripped in place, as the side channel hands over a staging tensor.
+  auto rows = at::cat({original, tail}, 1);
+  const auto stats = cache->set_rows_with_feature_score(
+      ids,
+      rows,
+      at::tensor({256}, at::kLong),
+      at::ones({256}, at::kFloat),
+      /*overwrite=*/false,
+      kBitRate,
+      kGroupSize,
+      kDim,
+      /*replace_scores=*/false,
+      /*trainer_rows=*/false);
+
+  EXPECT_EQ(stats, (std::vector<int64_t>{256, 0, 0, 0, 0}));
+  const auto stored = read_rows(*cache, ids, kPackedMaxD);
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_TRUE(
+      same_bits(stored.narrow(1, kDim, kTail).contiguous(), tail.contiguous()));
+  // Every row was a fixed point by the time it was packed.
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, RowsWithFeatureScoresTakeTheTableServingQdq) {
+  auto cache = make_packed_cache();
+  const auto original = dex_like_rows(64, /*seed=*/20);
+  auto gen = at::make_generator<at::CPUGeneratorImpl>(21);
+  auto rows = at::cat(
+      {original, at::randn({64, kTail}, gen, at::kFloat).to(at::kHalf)}, 1);
+  const auto ids = at::arange(64, at::kLong);
+
+  // Without serving QDQ args, as from the table's row storage.
+  cache->set_rows_with_feature_score(
+      ids,
+      rows,
+      at::tensor({64}, at::kLong),
+      at::ones({64}, at::kFloat),
+      /*overwrite=*/false,
+      /*serving_qdq_bit_rate=*/0,
+      /*serving_qdq_group_size=*/0,
+      /*serving_qdq_dim=*/0,
+      /*replace_scores=*/false,
+      /*trainer_rows=*/false);
+
+  const auto stored = read_rows(*cache, ids, kPackedMaxD);
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
+TEST(PackedStorageTest, RowsWithFeatureScoresRejectAnotherServingQdq) {
+  auto cache = make_packed_cache();
+  for (const auto& [group_size, dim] :
+       {std::pair<int64_t, int64_t>{0, kDim}, {kGroupSize, kDim / 2}}) {
+    EXPECT_THROW(
+        cache->set_rows_with_feature_score(
+            at::arange(2, at::kLong),
+            fixed_rows_with_tail(2, /*seed=*/22),
+            at::tensor({2}, at::kLong),
+            at::ones({2}, at::kFloat),
+            /*overwrite=*/false,
+            kBitRate,
+            group_size,
+            dim,
+            /*replace_scores=*/false,
+            /*trainer_rows=*/false),
+        c10::Error)
+        << "group_size " << group_size << " dim " << dim;
+  }
+  EXPECT_EQ(static_cast<int64_t>(cache->get_num_rows()), 0);
+}
+
 TEST(PackedStorageTest, RowsWithoutFixedPointAreKeptExactly) {
   auto cache = make_packed_cache();
   auto rows = fixed_rows_with_tail(3, /*seed=*/15);
@@ -894,6 +984,40 @@ TEST(PackedStorageTest, UnsupportedConfigsAreRefused) {
       make_packed_cache({.feature_evict_config = l2_config}), c10::Error);
 }
 
+TEST(RowStorageTest, RowsWithFeatureScoresArePackedWithoutEnrichment) {
+  auto cache = make_packed_cache({.row_storage_config = true});
+  const auto original = dex_like_rows(256, /*seed=*/58);
+  const auto ids = at::arange(256, at::kLong);
+  auto gen = at::make_generator<at::CPUGeneratorImpl>(59);
+  auto rows = at::cat(
+      {original, at::randn({256, kTail}, gen, at::kFloat).to(at::kHalf)}, 1);
+
+  const auto stats = cache->set_rows_with_feature_score(
+      ids,
+      rows,
+      at::tensor({256}, at::kLong),
+      at::ones({256}, at::kFloat),
+      /*overwrite=*/false,
+      kBitRate,
+      kGroupSize,
+      kDim,
+      /*replace_scores=*/false,
+      /*trainer_rows=*/false);
+
+  EXPECT_EQ(stats, (std::vector<int64_t>{256, 0, 0, 0, 0}));
+  EXPECT_EQ(
+      cache->get_raw_row_bytes(), make_packed_cache()->get_raw_row_bytes());
+  const auto stored = read_rows(*cache, ids, kPackedMaxD);
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+  EXPECT_EQ(cache->get_packed_write_counts(), std::make_pair(0L, 0L));
+}
+
 TEST(RowStorageTest, StoresTheBytesOfTheEnrichmentStorageFields) {
   const auto ids = at::arange(64, at::kLong);
   const auto rows = fixed_rows_with_tail(64, /*seed=*/60);
@@ -906,6 +1030,63 @@ TEST(RowStorageTest, StoresTheBytesOfTheEnrichmentStorageFields) {
     payloads.push_back(payload);
   }
   EXPECT_TRUE(same_bits(payloads[0], payloads[1]));
+  EXPECT_GT(payloads[0].count_nonzero().item<int64_t>(), 0);
+}
+
+TEST(RowStorageTest, PayloadReadsPrefetchAndReportTheRowsFound) {
+  // Keys in random order, the first half of them written; enough keys for a
+  // segmented read.
+  constexpr int64_t kKeys = 20000;
+  const auto ids = at::randperm(kKeys, at::kLong) * 4 + 1;
+  const auto rows = fixed_rows_with_tail(kKeys / 2, /*seed=*/62);
+  const auto count = at::tensor({kKeys}, at::kLong);
+  std::vector<at::Tensor> payloads;
+  for (const auto& [distance, segmented] :
+       std::vector<std::pair<const char*, const char*>>{
+           {"0", "0"}, {"8", "0"}, {"8", "1"}}) {
+    // Prefetch and segmented reads need the perf timing off, and segmented
+    // reads parallel sharding.
+    setenv("KVZCH_SKIP_DRAM_PERF_TIMING", "1", /*overwrite=*/1);
+    setenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT", "1", /*overwrite=*/1);
+    setenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", distance, /*overwrite=*/1);
+    setenv("KVZCH_DRAM_SEGMENTED_SHARD_READS", segmented, /*overwrite=*/1);
+    auto cache = make_packed_cache({.row_storage_config = true});
+    for (const char* name :
+         {"KVZCH_SKIP_DRAM_PERF_TIMING",
+          "KVZCH_PARALLEL_DRAM_SHARD_INPUT",
+          "KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE",
+          "KVZCH_DRAM_SEGMENTED_SHARD_READS"}) {
+      unsetenv(name);
+    }
+    const auto config =
+        std::string("distance ") + distance + ", segmented " + segmented;
+    ASSERT_EQ(
+        cache->get_segmented_shard_reads_enabled(),
+        std::string_view(segmented) == "1")
+        << config;
+    write_rows(*cache, ids.slice(0, 0, kKeys / 2), rows);
+    // Stale bytes the read overwrites, misses included.
+    auto payload =
+        at::full({kKeys, cache->hbm_written_row_bytes()}, 0xAB, at::kByte);
+    auto found = at::full({kKeys}, 7, at::kByte);
+    cache->get_int8_payloads(ids, payload, count, std::optional(found));
+    EXPECT_TRUE(
+        at::equal(
+            found,
+            at::cat(
+                {at::ones({kKeys / 2}, at::kByte),
+                 at::zeros({kKeys / 2}, at::kByte)})))
+        << config;
+    EXPECT_EQ(payload.slice(0, kKeys / 2).count_nonzero().item<int64_t>(), 0)
+        << config;
+    // The bytes of the stored rows, as the promotion read returns them.
+    auto plain = at::zeros_like(payload);
+    cache->get_int8_payloads(ids, plain, count);
+    EXPECT_TRUE(same_bits(payload, plain)) << config;
+    payloads.push_back(payload);
+  }
+  EXPECT_TRUE(same_bits(payloads[0], payloads[1]));
+  EXPECT_TRUE(same_bits(payloads[0], payloads[2]));
   EXPECT_GT(payloads[0].count_nonzero().item<int64_t>(), 0);
 }
 
@@ -1120,11 +1301,19 @@ TEST(PackedStorageTest, Benchmark) {
     auto fp16 = make_cache(
         kBitRate, kGroupSize, {.num_shards = 32, .max_D = kPackedMaxD});
     auto packed_cache = make_packed_cache({.num_shards = 32});
+    // The g8 payload read without the lookup prefetch, for comparison.
+    setenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", "0", /*overwrite=*/1);
+    auto unprefetched = make_packed_cache({.num_shards = 32});
+    setenv("KVZCH_DRAM_LOOKUP_PREFETCH_DISTANCE", "8", /*overwrite=*/1);
     const auto ids = at::randperm(num_rows, at::kLong);
     write_rows(*fp16, ids, table);
     write_rows(*packed_cache, ids, table);
+    write_rows(*unprefetched, ids, table);
     // Faulted in up front, so the timing is the read path alone.
     auto weights = at::zeros({num_rows, kPackedMaxD}, at::kHalf);
+    auto payloads =
+        at::zeros({num_rows, packed_cache->hbm_written_row_bytes()}, at::kByte);
+    auto found = at::zeros({num_rows}, at::kByte);
     for (int rep = 0; rep < 3; ++rep) {
       for (auto* cache : {fp16.get(), packed_cache.get()}) {
         const auto lookup = at::randperm(num_rows, at::kLong);
@@ -1135,6 +1324,16 @@ TEST(PackedStorageTest, Benchmark) {
                   << num_rows << " rows (" << cache->get_executor_num_threads()
                   << " threads, 32 shards): " << seconds_since(start) * 1e3
                   << " ms" << '\n';
+      }
+      for (auto* cache : {packed_cache.get(), unprefetched.get()}) {
+        const auto lookup = at::randperm(num_rows, at::kLong);
+        const auto start = Clock::now();
+        cache->get_int8_payloads(
+            lookup, payloads, at::tensor({num_rows}, at::kLong), found);
+        std::cout << "packed get_int8_payloads() of " << num_rows
+                  << " rows, prefetch "
+                  << (cache == packed_cache.get() ? "8" : "0") << ": "
+                  << seconds_since(start) * 1e3 << " ms" << '\n';
       }
     }
   }
@@ -1851,6 +2050,37 @@ TEST(ExclusiveHbmTest, WriteToAnHbmRowMovesItBackAndEmptiesTheSlot) {
   const auto fresh = dex_like_rows(1, /*seed=*/35);
 
   write_rows(*cache, key, fresh);
+  cache->exclusive_hbm_wait();
+
+  EXPECT_EQ(hbm.tag(moved[0]), -1);
+  EXPECT_EQ(cache->exclusive_hbm_stats()[5], 1);
+  EXPECT_EQ(
+      static_cast<int64_t>(cache->get_num_rows()),
+      200 - static_cast<int64_t>(moved.size()) + 1);
+  EXPECT_TRUE(same_bits(
+      row_ptr(read_rows(*cache, key, kDim, 0), 0), row_ptr(fresh, 0), kDim));
+}
+
+TEST(ExclusiveHbmTest, FeatureScoreWriteToAnHbmRowEmptiesTheSlot) {
+  FakeHbm hbm(kHbmSlots);
+  auto cache = make_exclusive_cache(hbm);
+  const auto ids = at::arange(200, at::kLong);
+  const auto moved =
+      write_and_promote(*cache, hbm, ids, dex_like_rows(200, /*seed=*/36));
+  const auto key = at::tensor({moved[0]}, at::kLong);
+  const auto fresh = dex_like_rows(1, /*seed=*/37);
+
+  cache->set_rows_with_feature_score(
+      key,
+      fresh.clone(),
+      at::tensor({1}, at::kLong),
+      at::ones({1}, at::kFloat),
+      /*overwrite=*/false,
+      /*serving_qdq_bit_rate=*/0,
+      /*serving_qdq_group_size=*/0,
+      /*serving_qdq_dim=*/0,
+      /*replace_scores=*/false,
+      /*trainer_rows=*/false);
   cache->exclusive_hbm_wait();
 
   EXPECT_EQ(hbm.tag(moved[0]), -1);

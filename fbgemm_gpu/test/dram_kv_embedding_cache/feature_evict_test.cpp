@@ -2095,4 +2095,447 @@ TEST(FeatureEvictTest, FeatureScoreEvictDecidesOnPreDecayScore) {
   }
 }
 
+class ScopedEnv {
+ public:
+  ScopedEnv(const char* name, const char* value) : name_(name) {
+    setenv(name, value, /*overwrite=*/1);
+  }
+  ~ScopedEnv() {
+    unsetenv(name_);
+  }
+
+ private:
+  const char* name_;
+};
+
+// One table and one shard; scores bucket by their integer part (stride 1).
+c10::intrusive_ptr<FeatureEvictConfig> incremental_histogram_config(
+    double decay_rate,
+    int64_t decay_interval_s,
+    int64_t keep_count) {
+  return c10::make_intrusive<FeatureEvictConfig>(
+      4, // evict_trigger_mode, not needed since no scheduler in this UT
+      5, // evict_trigger_strategy, not needed since no scheduler in this UT
+      2, // trigger_step_interval, not needed since no scheduler in this UT
+      std::nullopt, // mem_util_threshold_in_GB
+      std::vector<int64_t>({0}), // ttls_in_mins
+      std::nullopt, // counter_thresholds
+      std::nullopt, // counter_decay_rates
+      std::vector<double>({decay_rate}), // feature_score_counter_decay_rates
+      std::vector<int64_t>({keep_count}), // training_id_eviction_trigger_count
+      std::vector<int64_t>({keep_count}), // training_id_keep_count
+      std::vector<int8_t>(
+          {1}), // enable_eviction_for_feature_score_eviction_policy
+      std::nullopt, // l2_weight_thresholds
+      std::nullopt, // embedding_dims
+      1.0, // threshold_calculation_bucket_stride
+      1000, // threshold_calculation_bucket_num
+      0, // interval_for_insufficient_eviction_s
+      0, // interval_for_sufficient_eviction_s
+      decay_interval_s); // interval_for_feature_statistics_decay_s
+}
+
+// Inserts a block counted as the DRAM insert paths count it; needs the shard
+// lock held.
+float* insert_scored_block(
+    SynchronizedShardedMap<int64_t, float*>& kv_store,
+    FeatureScoreBasedEvict<float>& evict,
+    folly::F14FastMap<int64_t, float*>& map,
+    int64_t key,
+    float score) {
+  auto* block = kv_store.pool_by(0)->allocate_t<float>();
+  FixedBlockPool::set_key(block, key);
+  FixedBlockPool::set_feature_score_rate(block, score);
+  map.insert({key, block});
+  evict.update_feature_score_statistics(block, 0, 0, true);
+  return block;
+}
+
+std::set<int64_t> remaining_keys(
+    SynchronizedShardedMap<int64_t, float*>& kv_store) {
+  std::set<int64_t> keys;
+  auto rlock = kv_store.by(0).rlock();
+  for (const auto& [key, block] : *rlock) {
+    keys.insert(key);
+  }
+  return keys;
+}
+
+TEST(FeatureEvictTest, IncrementalHistogramCountsWritesDuringARoundOnce) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  auto config = incremental_histogram_config(1.0, 100000, 90);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  std::vector<float*> blocks;
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 100; ++key) {
+      blocks.push_back(
+          insert_scored_block(kv_store, evict, *wlock, key, key + 0.5));
+    }
+  }
+
+  // The first round's thresholds evict keys 0-9. Before its scan, hold the
+  // shard lock to insert blocks and rescore others ahead of the cursor.
+  feature_evict->trigger_evict();
+  {
+    auto wlock = kv_store.by(0).wlock();
+    feature_evict->resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    for (int64_t key = 100; key < 120; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, key + 100.5);
+    }
+    for (int64_t key = 50; key < 60; ++key) {
+      evict.update_feature_score_statistics(blocks[key], 500, 0, false);
+    }
+  }
+  feature_evict->wait_until_eviction_done();
+  ASSERT_EQ(remaining_keys(kv_store).size(), 110);
+
+  // 110 blocks, keep 90: the 20 lowest scores, keys 10-29, go.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  const auto keys = remaining_keys(kv_store);
+  ASSERT_EQ(keys.size(), 90);
+  EXPECT_EQ(*keys.begin(), 30);
+  EXPECT_TRUE(keys.contains(55));
+  EXPECT_TRUE(keys.contains(119));
+}
+
+TEST(FeatureEvictTest, ScoresAddedDuringARoundAreCountedByItsScan) {
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  auto config = incremental_histogram_config(1.0, 100000, 90);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  ASSERT_FALSE(evict.incremental_histogram());
+  std::vector<float*> blocks;
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 100; ++key) {
+      blocks.push_back(
+          insert_scored_block(kv_store, evict, *wlock, key, key + 0.5));
+    }
+  }
+
+  // The first round's thresholds evict keys 0-9. Once it has reset the
+  // histogram and before its scan, hold the shard lock to add scores to blocks
+  // ahead of the cursor, which the next round would evict first.
+  feature_evict->trigger_evict();
+  {
+    auto wlock = kv_store.by(0).wlock();
+    feature_evict->resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    for (int64_t key = 10; key < 20; ++key) {
+      evict.add_feature_score(blocks[key], 500, 0);
+    }
+  }
+  feature_evict->wait_until_eviction_done();
+  ASSERT_EQ(remaining_keys(kv_store).size(), 90);
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 100; key < 120; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, key + 900.5);
+    }
+  }
+
+  // 110 blocks, keep 90: the 20 lowest scores, keys 20-39, go.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  const auto keys = remaining_keys(kv_store);
+  ASSERT_EQ(keys.size(), 90);
+  EXPECT_EQ(*keys.begin(), 10);
+  EXPECT_FALSE(keys.contains(39));
+  EXPECT_TRUE(keys.contains(40));
+  EXPECT_TRUE(keys.contains(119));
+}
+
+TEST(FeatureEvictTest, IncrementalHistogramFollowsDecay) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  // Every round decays the kept blocks' scores by half.
+  auto config = incremental_histogram_config(0.5, 0, 90);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 100; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, 2 * key + 1);
+    }
+  }
+
+  // Evicts scores 1-19 (keys 0-9) and halves the rest to 10.5-99.5.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 100; key < 120; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, key + 400.5);
+    }
+  }
+
+  // Thresholds from the decayed scores: halved 10.5-29.5 (keys 10-29) go.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  const auto keys = remaining_keys(kv_store);
+  ASSERT_EQ(keys.size(), 90);
+  EXPECT_EQ(*keys.begin(), 30);
+}
+
+TEST(FeatureEvictTest, IncrementalHistogramBucketsTheStoredDecayedScore) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  // 4 decays to just under 2 as a double, which the stored float rounds to 2:
+  // a bucket higher.
+  auto config = incremental_histogram_config(0.49999999, 0, 90);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 100; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, key < 10 ? 0.5f : 4.0f);
+    }
+  }
+
+  // Evicts keys 0-9 and decays the rest to 2.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 100; key < 120; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, key + 400.5);
+    }
+  }
+
+  // 110 blocks, keep 90: the boundary is the decayed rows' bucket, about 20 of
+  // which go. Counted in the bucket below, none would.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  const auto keys = remaining_keys(kv_store);
+  EXPECT_GE(keys.size(), 80);
+  EXPECT_LE(keys.size(), 100);
+  for (int64_t key = 100; key < 120; ++key) {
+    EXPECT_TRUE(keys.contains(key)) << key;
+  }
+}
+
+TEST(FeatureEvictTest, ExternalDecayReplacesTheDecayInterval) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  // On its interval alone, every round would halve the scores.
+  auto config = incremental_histogram_config(0.5, 0, 90);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 100; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, 2 * key + 1);
+    }
+  }
+
+  // Both factors apply in the next round: scores 1-19 (keys 0-9) go and the
+  // rest become 5.25-49.75.
+  feature_evict->decay_feature_scores(0.5);
+  feature_evict->decay_feature_scores(0.5);
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 100; key < 120; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, key + 400.5);
+    }
+  }
+
+  // No factor pending: this round does not decay, and keys 10-29 go.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  const auto keys = remaining_keys(kv_store);
+  ASSERT_EQ(keys.size(), 90);
+  EXPECT_EQ(*keys.begin(), 30);
+  auto rlock = kv_store.by(0).rlock();
+  EXPECT_FLOAT_EQ(
+      FixedBlockPool::get_feature_score_rate(rlock->at(30)), 61 * 0.25);
+}
+
+TEST(FeatureEvictTest, ExternalDecayFromWithinARoundStartsWithTheNext) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  // Every round on its interval halves the scores, and no round evicts.
+  auto config = incremental_histogram_config(0.5, 0, 1000);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 100; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, 2 * key + 1);
+    }
+  }
+
+  // A round scans once resumed: called before then, decay_feature_scores
+  // leaves this round to halve every score.
+  feature_evict->trigger_evict();
+  feature_evict->decay_feature_scores(0.25);
+  feature_evict->wait_until_eviction_done();
+  {
+    auto rlock = kv_store.by(0).rlock();
+    EXPECT_FLOAT_EQ(
+        FixedBlockPool::get_feature_score_rate(rlock->at(10)), 10.5);
+    EXPECT_FLOAT_EQ(
+        FixedBlockPool::get_feature_score_rate(rlock->at(99)), 99.5);
+  }
+
+  // The next round applies its factor instead.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  EXPECT_EQ(remaining_keys(kv_store).size(), 100);
+  auto rlock = kv_store.by(0).rlock();
+  EXPECT_FLOAT_EQ(
+      FixedBlockPool::get_feature_score_rate(rlock->at(10)), 10.5 * 0.25);
+}
+
+TEST(FeatureEvictTest, ApplyQueuedDecayDecaysEveryRowWithoutEvicting) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  // A round keeps 50 rows.
+  auto config = incremental_histogram_config(1.0, 100000, 50);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 100; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, 2 * key + 1);
+    }
+  }
+
+  // Nothing queued: nothing changes.
+  evict.apply_queued_decay();
+  {
+    auto rlock = kv_store.by(0).rlock();
+    EXPECT_FLOAT_EQ(FixedBlockPool::get_feature_score_rate(rlock->at(10)), 21);
+  }
+
+  // Scores 0.5-99.5, all 100 rows kept.
+  feature_evict->decay_feature_scores(0.5);
+  evict.apply_queued_decay();
+  EXPECT_EQ(remaining_keys(kv_store).size(), 100);
+  {
+    auto wlock = kv_store.by(0).wlock();
+    EXPECT_FLOAT_EQ(
+        FixedBlockPool::get_feature_score_rate(wlock->at(10)), 10.5);
+    for (int64_t key = 100; key < 120; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, 75.5);
+    }
+  }
+
+  // The decay is spent: the next round evicts keys 0-69 on the decayed scores
+  // and leaves the later rows at their scores.
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  const auto keys = remaining_keys(kv_store);
+  ASSERT_EQ(keys.size(), 50);
+  EXPECT_EQ(*keys.begin(), 70);
+  auto rlock = kv_store.by(0).rlock();
+  EXPECT_FLOAT_EQ(FixedBlockPool::get_feature_score_rate(rlock->at(70)), 70.5);
+  EXPECT_FLOAT_EQ(FixedBlockPool::get_feature_score_rate(rlock->at(100)), 75.5);
+}
+
+TEST(FeatureEvictTest, PendingDecayIsWhatNoRoundHasTaken) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  // No round evicts.
+  auto config = incremental_histogram_config(1.0, 100000, 1000);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 10; ++key) {
+      insert_scored_block(kv_store, evict, *wlock, key, 2 * key + 1);
+    }
+  }
+  EXPECT_EQ(feature_evict->pending_feature_score_decay(), 1.0);
+  feature_evict->decay_feature_scores(0.5);
+  feature_evict->decay_feature_scores(0.5);
+  EXPECT_DOUBLE_EQ(feature_evict->pending_feature_score_decay(), 0.25);
+
+  // A round takes it as it starts. A factor queued during the round is left for
+  // the next one, after the round too.
+  feature_evict->trigger_evict();
+  EXPECT_EQ(feature_evict->pending_feature_score_decay(), 1.0);
+  feature_evict->decay_feature_scores(0.5);
+  feature_evict->wait_until_eviction_done();
+  EXPECT_DOUBLE_EQ(feature_evict->pending_feature_score_decay(), 0.5);
+
+  // With triggers suspended, no round starts to take it.
+  feature_evict->suspend_triggers();
+  feature_evict->trigger_evict(/*force=*/true);
+  evict.apply_queued_decay();
+  EXPECT_DOUBLE_EQ(feature_evict->pending_feature_score_decay(), 0.5);
+  feature_evict->resume_triggers();
+  evict.apply_queued_decay();
+  EXPECT_EQ(feature_evict->pending_feature_score_decay(), 1.0);
+  auto rlock = kv_store.by(0).rlock();
+  EXPECT_FLOAT_EQ(
+      FixedBlockPool::get_feature_score_rate(rlock->at(3)), 7 * 0.25 * 0.5);
+}
+
+TEST(FeatureEvictTest, IncrementalHistogramRecountsReplacedScores) {
+  ScopedEnv incremental("KVZCH_FS_INCREMENTAL_HISTOGRAM", "1");
+  SynchronizedShardedMap<int64_t, float*> kv_store(
+      1, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  std::vector<int64_t> sub_table_hash_cumsum = {1000};
+  auto config = incremental_histogram_config(1.0, 100000, 5);
+  auto feature_evict = create_feature_evict(
+      config, kv_store, sub_table_hash_cumsum, true, TestMode::NORMAL);
+  auto& evict =
+      *dynamic_cast<FeatureScoreBasedEvict<float>*>(feature_evict.get());
+  {
+    auto wlock = kv_store.by(0).wlock();
+    for (int64_t key = 0; key < 10; ++key) {
+      auto* block =
+          insert_scored_block(kv_store, evict, *wlock, key, key + 0.5);
+      if (key < 5) {
+        // As a restore into an existing row overwrites its score.
+        FixedBlockPool::set_feature_score_rate(block, key + 100.5);
+        evict.update_feature_score_bucket(block, key + 0.5, 0);
+      }
+    }
+  }
+
+  feature_evict->trigger_evict();
+  feature_evict->wait_until_eviction_done();
+  EXPECT_EQ(remaining_keys(kv_store), std::set<int64_t>({0, 1, 2, 3, 4}));
+}
+
 } // namespace kv_mem

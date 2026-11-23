@@ -121,6 +121,14 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     impl_->get_cuda_with_found_mask(indices, weights, count, found_mask);
   }
 
+  void get_with_found_mask(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count,
+      at::Tensor found_mask) {
+    impl_->get_with_found_mask(indices, weights, count, found_mask);
+  }
+
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
     impl_->set(indices, weights, count);
   }
@@ -421,12 +429,56 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   void get_int8_payloads(
       const at::Tensor& indices,
       const at::Tensor& rows,
-      const at::Tensor& count) {
-    half_impl().get_int8_payloads(indices, rows, count);
+      const at::Tensor& count,
+      const std::optional<at::Tensor>& found_mask = std::nullopt) {
+    half_impl().get_int8_payloads(indices, rows, count, found_mask);
   }
 
   std::vector<int64_t> get_int8_write_counts() {
     return half_impl().get_int8_write_counts();
+  }
+
+  std::vector<int64_t> set_rows_with_feature_score(
+      at::Tensor indices,
+      at::Tensor weights,
+      at::Tensor count,
+      at::Tensor init_scores,
+      bool overwrite,
+      int64_t serving_qdq_bit_rate,
+      int64_t serving_qdq_group_size,
+      int64_t serving_qdq_dim,
+      bool replace_scores,
+      bool trainer_rows) {
+    return impl_->set_rows_with_feature_score(
+        indices,
+        weights,
+        count,
+        init_scores,
+        overwrite,
+        serving_qdq_bit_rate,
+        serving_qdq_group_size,
+        serving_qdq_dim,
+        replace_scores,
+        trainer_rows);
+  }
+
+  int64_t add_feature_scores_existing_only(
+      at::Tensor indices,
+      at::Tensor count,
+      at::Tensor scores) {
+    return impl_->add_feature_scores_existing_only(indices, count, scores);
+  }
+
+  void decay_feature_scores(double factor) {
+    impl_->decay_feature_scores(factor);
+  }
+
+  void apply_queued_feature_score_decay() {
+    impl_->apply_queued_feature_score_decay();
+  }
+
+  double pending_feature_score_decay() {
+    return impl_->pending_feature_score_decay();
   }
 
  private:

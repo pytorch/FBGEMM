@@ -17,6 +17,7 @@
 #include <numeric>
 #include <ranges>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -28,6 +29,7 @@
 #include <folly/futures/Future.h>
 #include <gtest/gtest_prod.h>
 #include <cassert>
+#include <cstdlib>
 
 #include "SynchronizedShardedMap.h"
 
@@ -599,21 +601,7 @@ class FeatureEvict {
     if (evict_state_.load() == EvictState::Evict_Ongoing) {
       return;
     }
-    evict_state_.store(EvictState::Evict_Ongoing);
-    sanity_check_before_new_round();
-    prepare_evict();
-    // Decide should decay or not.
-    if (reach_interval_to_decay_feature_statistics()) {
-      should_decay_.store(true);
-    } else {
-      should_decay_.store(false);
-    }
-
-    LOG(INFO) << "trigger new round of eviction with decay="
-              << should_decay_.load();
-    for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
-      submit_shard_task(shard_id);
-    }
+    start_round(/*decay_only=*/false);
   }
 
   // Get feature eviction metric.
@@ -697,6 +685,25 @@ class FeatureEvict {
       evict_interrupt_.store(false);
       evict_cv_.notify_all();
     }
+  }
+
+  // Multiplies the feature scores by factor in the next eviction round, along
+  // with the factors of earlier calls not applied yet. Once called, scores
+  // decay only this way, no longer every
+  // interval_for_feature_statistics_decay_s, so a caller can decay them on its
+  // own clock (e.g. training data time).
+  void decay_feature_scores(double factor) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    external_decay_ = true;
+    pending_decay_factor_ *= factor;
+  }
+
+  // The factor decay_feature_scores queued that no round has taken yet, 1.0 if
+  // none. A round takes it as it starts, so the scores owe it on top of the
+  // ongoing round's.
+  double pending_feature_score_decay() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return pending_decay_factor_;
   }
 
   // Check whether a round of eviction is ongoing.
@@ -827,6 +834,32 @@ class FeatureEvict {
         }));
   }
 
+  // Starts a round, with mutex_ held and no round ongoing. A decay_only round
+  // applies the decay and evicts nothing.
+  void start_round(bool decay_only) {
+    evict_state_.store(EvictState::Evict_Ongoing);
+    decay_only_round_.store(decay_only);
+    sanity_check_before_new_round();
+    prepare_evict();
+    // Decide should decay or not.
+    round_external_decay_.store(external_decay_.load());
+    if (round_external_decay_.load()) {
+      decay_factor_.store(pending_decay_factor_);
+      pending_decay_factor_ = 1.0;
+      should_decay_.store(decay_factor_.load() != 1.0);
+    } else if (reach_interval_to_decay_feature_statistics()) {
+      should_decay_.store(true);
+    } else {
+      should_decay_.store(false);
+    }
+
+    LOG(INFO) << "trigger new round of eviction with decay="
+              << should_decay_.load() << " decay_only=" << decay_only;
+    for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
+      submit_shard_task(shard_id);
+    }
+  }
+
   bool reach_interval_to_trigger_new_round() {
     auto now_ts =
         std::chrono::duration_cast<std::chrono::seconds>(
@@ -919,6 +952,7 @@ class FeatureEvict {
               }
             }
             wlock->erase(key);
+            on_block_evicted(block, sub_table_id, shard_id);
             pool->template deallocate_t<weight_type>(block);
             evicted_counts[sub_table_id]++;
           }
@@ -1094,6 +1128,12 @@ class FeatureEvict {
       int /*sub_table_id*/,
       int /*shard_id*/) {}
 
+  // Called for each block the training scan evicts, before it is freed.
+  virtual void on_block_evicted(
+      weight_type* /*block*/,
+      int /*sub_table_id*/,
+      int /*shard_id*/) {}
+
   // Check and reset the eviction state .
   void update_evict_finish_flags(int /*shard_id*/) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -1230,6 +1270,17 @@ class FeatureEvict {
 
   // decay
   std::atomic<bool> should_decay_ = false;
+  // Set by decay_feature_scores: decay_factor_ is the factor of the ongoing
+  // round, pending_decay_factor_ that of the next one (guarded by mutex_).
+  std::atomic<bool> external_decay_{false};
+  double pending_decay_factor_ = 1.0;
+  std::atomic<double> decay_factor_{1.0};
+  // The ongoing round decays by decay_factor_ rather than the per-table rates,
+  // as decided when it started: decay_feature_scores can switch
+  // external_decay_ on during it.
+  std::atomic<bool> round_external_decay_{false};
+  // The ongoing round only decays (start_round).
+  std::atomic<bool> decay_only_round_{false};
   // flag to compute thresholds in resume() before waking eviction threads
   std::atomic<bool> thresholds_need_computation_{false};
   std::atomic<int64_t> last_decay_ts_{
@@ -1405,12 +1456,50 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       double old_ratio = FixedBlockPool::get_feature_score_rate(block);
       double new_ratio = old_ratio + ratio;
       FixedBlockPool::set_feature_score_rate(block, new_ratio);
+      // Bucket the stored float, as every later read of the block does.
+      move_bucket(
+          sub_table_id,
+          shard_id,
+          old_ratio,
+          FixedBlockPool::get_feature_score_rate(block));
+    }
+  }
 
-      int64_t new_idx = get_bucket_id_from_ratio(new_ratio);
-      int64_t old_idx = get_bucket_id_from_ratio(old_ratio);
+  // Recounts a block whose score was overwritten, e.g. by a restore into an
+  // existing row, from old_ratio.
+  void update_feature_score_bucket(
+      weight_type* block,
+      double old_ratio,
+      int shard_id) {
+    int sub_table_id = this->get_sub_table_id(FixedBlockPool::get_key(block));
+    if (ttls_in_mins_[sub_table_id] > 0) {
+      return;
+    }
+    move_bucket(
+        sub_table_id,
+        shard_id,
+        old_ratio,
+        FixedBlockPool::get_feature_score_rate(block));
+  }
 
-      local_buckets_per_shard_per_table_[sub_table_id][shard_id][new_idx]++;
-      local_buckets_per_shard_per_table_[sub_table_id][shard_id][old_idx]--;
+  // Adds ratio to the feature score of a block the table holds. Only the
+  // incremental histogram moves its bucket: otherwise each round's scan counts
+  // the new score, and a paused round may not have counted the block yet, so
+  // its old bucket has nothing to leave.
+  void add_feature_score(weight_type* block, double ratio, int shard_id) {
+    int sub_table_id = this->get_sub_table_id(FixedBlockPool::get_key(block));
+    if (ttls_in_mins_[sub_table_id] > 0) {
+      return;
+    }
+    const double old_ratio = FixedBlockPool::get_feature_score_rate(block);
+    FixedBlockPool::set_feature_score_rate(block, old_ratio + ratio);
+    if (incremental_histogram_) {
+      // Bucket the stored float, as every later read of the block does.
+      move_bucket(
+          sub_table_id,
+          shard_id,
+          old_ratio,
+          FixedBlockPool::get_feature_score_rate(block));
     }
   }
 
@@ -1431,12 +1520,43 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
     return thresholds_;
   }
 
+  // Whether writes count blocks themselves, with no rebuild in each round.
+  bool incremental_histogram() const {
+    return incremental_histogram_;
+  }
+
   void set_num_buckets(int num_buckets) {
     num_buckets_ = num_buckets;
   }
 
+  // Applies the decay queued by decay_feature_scores now, in a round of its own
+  // that evicts nothing, and waits for it, so that the rows written afterwards
+  // escape it, unlike in the next round. Waits for an ongoing round first;
+  // with triggers suspended, the decay stays queued.
+  void apply_queued_decay() {
+    while (true) {
+      {
+        std::unique_lock<std::mutex> lock(this->mutex_);
+        if (this->trigger_suspensions_ > 0) {
+          return;
+        }
+        // Started under the lock, so that no other round can start in its
+        // place, or take its decay-only setting.
+        if (this->evict_state_.load() != EvictState::Evict_Ongoing) {
+          if (this->pending_decay_factor_ == 1.0) {
+            return;
+          }
+          this->start_round(/*decay_only=*/true);
+          break;
+        }
+      }
+      this->wait_until_eviction_done();
+    }
+    this->wait_until_eviction_done();
+  }
+
  protected:
-  bool evict_block(weight_type* block, int sub_table_id, int /*shard_id*/)
+  bool evict_block(weight_type* block, int sub_table_id, int shard_id)
       override {
     int8_t enable_eviction =
         enable_eviction_for_feature_score_eviction_policy_[sub_table_id];
@@ -1447,6 +1567,9 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
     double ttls_threshold = ttls_in_mins_[sub_table_id];
     if (ttls_threshold > 0) {
+      if (this->decay_only_round_.load()) {
+        return false;
+      }
       auto current_time = FixedBlockPool::current_timestamp();
       return current_time - FixedBlockPool::get_timestamp(block) >
           ttls_threshold * 60;
@@ -1470,8 +1593,19 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
     }
 
     if (!should_evict && this->should_decay_) {
-      FixedBlockPool::set_feature_score_rate(
-          block, ratio * decay_rates_[sub_table_id]);
+      // decay_feature_scores replaces the per-table rates with its factor.
+      const double decayed = ratio *
+          (this->round_external_decay_.load() ? this->decay_factor_.load()
+                                              : decay_rates_[sub_table_id]);
+      FixedBlockPool::set_feature_score_rate(block, decayed);
+      if (incremental_histogram_) {
+        // Bucket the stored float, as every later read of the block does.
+        move_bucket(
+            sub_table_id,
+            shard_id,
+            ratio,
+            FixedBlockPool::get_feature_score_rate(block));
+      }
     }
     return should_evict;
   }
@@ -1481,6 +1615,9 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
   }
 
   void reset_shard_histogram(int shard_id) override {
+    if (incremental_histogram_) {
+      return;
+    }
     for (int table_id = 0; table_id < num_tables_; ++table_id) {
       if (ttls_in_mins_[table_id] > 0) {
         // TTL tables don't use the feature score histogram;
@@ -1497,7 +1634,7 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
       weight_type* block,
       int sub_table_id,
       int shard_id) override {
-    if (ttls_in_mins_[sub_table_id] > 0) {
+    if (incremental_histogram_ || ttls_in_mins_[sub_table_id] > 0) {
       return;
     }
     double ratio = FixedBlockPool::get_feature_score_rate(block);
@@ -1506,7 +1643,44 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
     local_blocks_num_per_shard_per_table_[sub_table_id][shard_id]++;
   }
 
+  void on_block_evicted(weight_type* block, int sub_table_id, int shard_id)
+      override {
+    if (!incremental_histogram_ || ttls_in_mins_[sub_table_id] > 0) {
+      return;
+    }
+    remove_from_bucket(
+        local_buckets_per_shard_per_table_[sub_table_id][shard_id],
+        get_bucket_id_from_ratio(
+            FixedBlockPool::get_feature_score_rate(block)));
+    auto& num_blocks =
+        local_blocks_num_per_shard_per_table_[sub_table_id][shard_id];
+    if (num_blocks > 0) {
+      num_blocks--;
+    }
+  }
+
  private:
+  void move_bucket(
+      int sub_table_id,
+      int shard_id,
+      double old_ratio,
+      double new_ratio) {
+    auto& buckets = local_buckets_per_shard_per_table_[sub_table_id][shard_id];
+    buckets[get_bucket_id_from_ratio(new_ratio)]++;
+    remove_from_bucket(buckets, get_bucket_id_from_ratio(old_ratio));
+  }
+
+  void remove_from_bucket(std::vector<size_t>& buckets, int64_t idx) {
+    // Incrementally, an empty bucket means some path changed a block without
+    // counting it; wrapping the size_t would wreck every later threshold.
+    if (incremental_histogram_ && buckets[idx] == 0) {
+      LOG_EVERY_N(ERROR, 10000)
+          << "Feature score histogram bucket " << idx << " is already empty";
+      return;
+    }
+    buckets[idx]--;
+  }
+
   int64_t get_bucket_id_from_ratio(double ratio) {
     int64_t idx = 0;
     constexpr double EPSILON = 1e-9;
@@ -1560,6 +1734,12 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
   void compute_thresholds_from_buckets() {
     round_salt_ = mix64(++round_count_);
+    if (this->decay_only_round_.load()) {
+      std::ranges::fill(thresholds_, 0.0);
+      std::ranges::fill(evict_modes_, EvictMode::NONE);
+      LOG(INFO) << "[Dry Run Result] decay only, no eviction";
+      return;
+    }
     for (size_t table_id = 0; table_id < num_tables_; ++table_id) {
       int8_t enable_eviction =
           enable_eviction_for_feature_score_eviction_policy_[table_id];
@@ -1715,6 +1895,14 @@ class FeatureScoreBasedEvict : public FeatureEvict<weight_type> {
 
   const double threshold_calculation_bucket_stride_; // stride for bucketing
   int num_buckets_; // number of buckets for threshold calculation
+  // Opt-in: training keeps the histogram exact on every insert, score update,
+  // decay and eviction instead of rebuilding it in each round's scan, which
+  // counts twice every block inserted or rescored ahead of the scan cursor.
+  bool incremental_histogram_ = [this] {
+    const char* value = std::getenv("KVZCH_FS_INCREMENTAL_HISTOGRAM");
+    return this->is_training_ && value != nullptr &&
+        std::string_view(value) == "1";
+  }();
 };
 
 template <typename weight_type>

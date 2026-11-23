@@ -1710,6 +1710,16 @@ auto dram_kv_embedding_cache_wrapper =
             "get_cuda_with_found_mask",
             &DramKVEmbeddingCacheWrapper::get_cuda_with_found_mask)
         .def(
+            "get_with_found_mask",
+            &DramKVEmbeddingCacheWrapper::get_with_found_mask,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("found_mask"),
+            })
+        .def(
             "set_backend_return_whole_row",
             &DramKVEmbeddingCacheWrapper::set_backend_return_whole_row,
             "",
@@ -1891,10 +1901,53 @@ auto dram_kv_embedding_cache_wrapper =
             &DramKVEmbeddingCacheWrapper::hold_row_writes_for_test)
         .def(
             "get_int8_payloads",
-            &DramKVEmbeddingCacheWrapper::get_int8_payloads)
+            &DramKVEmbeddingCacheWrapper::get_int8_payloads,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("rows"),
+                torch::arg("count"),
+                torch::arg("found_mask") = std::nullopt,
+            })
         .def(
             "get_int8_write_counts",
             &DramKVEmbeddingCacheWrapper::get_int8_write_counts)
+        .def(
+            "set_rows_with_feature_score",
+            &DramKVEmbeddingCacheWrapper::set_rows_with_feature_score,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("init_scores"),
+                torch::arg("overwrite"),
+                torch::arg("serving_qdq_bit_rate") = 0,
+                torch::arg("serving_qdq_group_size") = 0,
+                torch::arg("serving_qdq_dim") = 0,
+                torch::arg("replace_scores") = false,
+                torch::arg("trainer_rows") = false,
+            })
+        .def(
+            "add_feature_scores_existing_only",
+            &DramKVEmbeddingCacheWrapper::add_feature_scores_existing_only,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("count"),
+                torch::arg("scores"),
+            })
+        .def(
+            "decay_feature_scores",
+            &DramKVEmbeddingCacheWrapper::decay_feature_scores,
+            "",
+            {torch::arg("factor")})
+        .def(
+            "apply_queued_feature_score_decay",
+            &DramKVEmbeddingCacheWrapper::apply_queued_feature_score_decay)
+        .def(
+            "pending_feature_score_decay",
+            &DramKVEmbeddingCacheWrapper::pending_feature_score_decay)
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",
