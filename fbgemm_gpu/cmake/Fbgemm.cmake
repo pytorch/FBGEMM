@@ -14,7 +14,6 @@ include(CheckCXXCompilerFlag)
 set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDM.cc"
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
-  "${FBGEMM}/src/FbgemmBfloat16Convert.cc"
   "${FBGEMM}/src/FbgemmFloat16Convert.cc"
   "${FBGEMM}/src/InstructionSet.cc"
   "${FBGEMM}/src/JitPerfMap.cc"
@@ -33,16 +32,10 @@ endif()
 
 set(fbgemm_sources_avx2
   "${FBGEMM}/src/EmbeddingSpMDMAvx2.cc"
-  "${FBGEMM}/src/FbgemmBfloat16ConvertAvx2.cc"
-  "${FBGEMM}/src/FbgemmFloat16ConvertAvx2.cc"
   "${FBGEMM}/src/QuantUtilsAvx2.cc")
 set(fbgemm_sources_avx512
   "${FBGEMM}/src/EmbeddingSpMDMAvx512.cc"
-  "${FBGEMM}/src/FbgemmBfloat16ConvertAvx512.cc"
-  "${FBGEMM}/src/FbgemmFloat16ConvertAvx512.cc"
   "${FBGEMM}/src/QuantUtilsAvx512.cc")
-set(fbgemm_sources_neon
-  "${FBGEMM}/src/FbgemmFloat16ConvertNEON.cc")
 
 # Assemble combined source list based on available ISA support
 set(fbgemm_sources ${fbgemm_sources_normal})
@@ -55,26 +48,6 @@ if(CXX_AVX512_FOUND)
   list(APPEND fbgemm_sources ${fbgemm_sources_avx512})
   set_source_files_properties(${fbgemm_sources_avx512}
     PROPERTIES COMPILE_OPTIONS "${CXX_AVX512_FLAGS}")
-endif()
-
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
-  check_cxx_compiler_flag(-march=armv8.2-a+fp16fml COMPILER_SUPPORTS_FP16FML)
-  if(COMPILER_SUPPORTS_FP16FML)
-    set(fbgemm_fml_flags "-march=armv8.2-a+fp16fml")
-  endif()
-  if(NOT COMPILER_SUPPORTS_FP16FML) # for clang
-    check_cxx_compiler_flag(-mfp16fml COMPILER_SUPPORTS_FP16FML)
-    if(COMPILER_SUPPORTS_FP16FML)
-      set(fbgemm_fml_flags "-march=armv8.2;-mfp16fml")
-    endif()
-  endif()
-  if(NOT COMPILER_SUPPORTS_FP16FML)
-    message(FATAL_ERROR "The current compiler does not support building FP16FML code")
-  endif()
-
-  list(APPEND fbgemm_sources ${fbgemm_sources_neon})
-  set_source_files_properties(${fbgemm_sources_neon}
-    PROPERTIES COMPILE_OPTIONS "${fbgemm_fml_flags}")
 endif()
 
 set_source_files_properties(${fbgemm_sources} PROPERTIES
