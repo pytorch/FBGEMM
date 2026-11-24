@@ -167,6 +167,41 @@ class DRAMKVTest(unittest.TestCase):
             atol=0,
         )
 
+    def test_get_with_found_mask(self) -> None:
+        embedding_dim = 8
+        dram_kv = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+            max_D=embedding_dim,
+            uniform_init_lower=-0.1,
+            uniform_init_upper=0.1,
+            num_shards=2,
+            num_threads=2,
+            row_storage_bitwidth=32,
+            disable_random_init=True,
+        )
+        dram_kv.set(
+            torch.tensor([3, 8], dtype=torch.int64),
+            torch.tensor([[0.5] * embedding_dim, [-1.5] * embedding_dim]),
+            torch.tensor([2], dtype=torch.int64),
+        )
+        indices = torch.tensor([8, 41, 3, 5], dtype=torch.int64)
+        weights = torch.full((indices.numel(), embedding_dim), 9.0)
+        found_mask = torch.full((indices.numel(),), 7, dtype=torch.uint8)
+
+        dram_kv.get_with_found_mask(
+            indices=indices,
+            weights=weights,
+            count=torch.tensor([3], dtype=torch.int64),
+            found_mask=found_mask,
+        )
+
+        expected_weights = torch.full_like(weights, 9.0)
+        expected_weights[0].fill_(-1.5)
+        expected_weights[2].fill_(0.5)
+        torch.testing.assert_close(weights, expected_weights, rtol=0, atol=0)
+        torch.testing.assert_close(
+            found_mask, torch.tensor([1, 0, 1, 7], dtype=torch.uint8), rtol=0, atol=0
+        )
+
     def test_get_cuda_with_found_mask_rejects_random_initialization(self) -> None:
         device = torch.accelerator.current_accelerator()
         embedding_dim = 8
@@ -252,14 +287,12 @@ class DRAMKVTest(unittest.TestCase):
             indices.numel(), max_D, dtype=weights_precision.as_dtype()
         )
         count = torch.as_tensor([indices.numel()])
-        # pyre-ignore[29]
         dram_kv.set_cuda(indices, weights, count, 1)
         torch.cuda.synchronize()
 
         median = torch.median(indices)
         max_val = torch.max(indices)
         filtered_indices_input = indices[(indices >= median) & (indices < max_val)]
-        # pyre-ignore[29]
         ids_in_range = dram_kv.get_keys_in_range(median, max_val)
         ids_in_range = torch.sort(ids_in_range.flatten()).values
 

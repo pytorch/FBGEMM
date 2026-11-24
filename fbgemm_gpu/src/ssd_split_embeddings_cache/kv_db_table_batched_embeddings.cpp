@@ -275,13 +275,10 @@ void EmbeddingKVDB::get_cuda(
   rec->record.end();
 }
 
-void EmbeddingKVDB::get_cuda_with_found_mask(
+void EmbeddingKVDB::check_found_mask_read(
     const at::Tensor& indices,
     const at::Tensor& weights,
-    const at::Tensor& count,
     const at::Tensor& found_mask) {
-  auto rec = torch::autograd::profiler::record_function_enter_new(
-      "## EmbeddingKVDB::get_cuda_with_found_mask ##");
   check_tensor_type_consistency(indices, weights);
   TORCH_CHECK(
       supports_found_mask_reads(),
@@ -299,6 +296,28 @@ void EmbeddingKVDB::get_cuda_with_found_mask(
       found_mask.numel() >= indices.numel(),
       "Found mask must have at least as many elements as indices");
   TORCH_CHECK(found_mask.is_contiguous(), "Found mask must be contiguous");
+}
+
+void EmbeddingKVDB::get_with_found_mask(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    const at::Tensor& found_mask) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::get_with_found_mask ##");
+  check_found_mask_read(indices, weights, found_mask);
+  get_impl(indices, weights, count, found_mask, 0);
+  rec->record.end();
+}
+
+void EmbeddingKVDB::get_cuda_with_found_mask(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    const at::Tensor& found_mask) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::get_cuda_with_found_mask ##");
+  check_found_mask_read(indices, weights, found_mask);
   auto self = shared_from_this();
   std::function<void()>* functor = new std::function<void()>(
       [=]() { self->get_impl(indices, weights, count, found_mask, 0); });

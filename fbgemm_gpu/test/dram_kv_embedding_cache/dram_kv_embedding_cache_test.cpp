@@ -1941,6 +1941,24 @@ class RowWriteResTest : public DramKVEmbeddingCacheTest {
     cache.wait_row_writes_done();
   }
 
+  std::vector<int64_t> setRowsWithFeatureScore(
+      DramKVEmbeddingCache<float>& cache,
+      const at::Tensor& ids,
+      const at::Tensor& rows,
+      bool trainer_rows) {
+    return cache.set_rows_with_feature_score(
+        ids,
+        rows,
+        at::tensor({ids.size(0)}, at::kLong),
+        at::ones({ids.size(0)}, at::kFloat),
+        /*overwrite=*/false,
+        /*serving_qdq_bit_rate=*/0,
+        /*serving_qdq_group_size=*/0,
+        /*serving_qdq_dim=*/0,
+        /*replace_scores=*/false,
+        trainer_rows);
+  }
+
   const std::shared_ptr<RecordingTrainingPs> training_ps_ =
       std::make_shared<RecordingTrainingPs>();
   std::shared_ptr<apache::thrift::ScopedServerInterfaceThread>
@@ -2016,6 +2034,61 @@ TEST_F(RowWriteResTest, StoresAndStreamsNothingWhenACheckpointLoadStartsFirst) {
   EXPECT_FALSE(hasRow(*cache, 10));
   EXPECT_TRUE(
       at::equal(training_ps_->received_ids(), at::tensor({500}, at::kLong)));
+}
+
+// Test: set_rows_with_feature_score streams the rows it stores, so not 20,
+// which it keeps without overwrite, nor 14's zero row. Without
+// KVZCH_ROW_WRITE_RES it stores the trainer's rows (30, 31) but streams none of
+// them; their write comes first, so it can miss a late stream of them but never
+// fails falsely.
+TEST_F(RowWriteResTest, FeatureScoreWritesStreamTheRowsTheyStore) {
+  folly::test::EnvVarSaver env_saver;
+  unsetenv("KVZCH_ROW_WRITE_RES");
+  auto cache = makeResCache();
+  cache
+      ->set_kv_db_async_on_enrichment_executor(
+          at::tensor({20}, at::kLong),
+          at::ones({1, EMBEDDING_DIM}, at::kFloat),
+          at::tensor({1}, at::kLong),
+          cache->laser_write_epoch())
+      .get();
+
+  setRowsWithFeatureScore(
+      *cache,
+      at::tensor({30, 31}, at::kLong),
+      at::ones({2, EMBEDDING_DIM}, at::kFloat),
+      /*trainer_rows=*/true);
+  // inserted, overwritten, skipped existing, skipped zero, rescored
+  EXPECT_EQ(
+      setRowsWithFeatureScore(
+          *cache, row_write_ids_, row_write_rows_, /*trainer_rows=*/false),
+      (std::vector<int64_t>{4, 0, 1, 1, 0}));
+
+  ASSERT_EQ(training_ps_->wait_for_received_rows(4), 4);
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_ids(), row_write_ids_.slice(0, 0, 4)));
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_rows(), row_write_rows_.slice(0, 0, 4)));
+  EXPECT_TRUE(hasRow(*cache, 30));
+}
+
+// Test: with KVZCH_ROW_WRITE_RES the trainer's rows stream as the others do.
+TEST_F(RowWriteResTest, FeatureScoreWritesStreamTrainerRowsWithRowWriteRes) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_ROW_WRITE_RES", "1", /*overwrite=*/1);
+  auto cache = makeResCache();
+
+  setRowsWithFeatureScore(
+      *cache,
+      row_write_ids_.slice(0, 0, 4),
+      row_write_rows_.slice(0, 0, 4),
+      /*trainer_rows=*/true);
+
+  ASSERT_EQ(training_ps_->wait_for_received_rows(4), 4);
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_ids(), row_write_ids_.slice(0, 0, 4)));
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_rows(), row_write_rows_.slice(0, 0, 4)));
 }
 
 } // namespace kv_mem

@@ -59,6 +59,7 @@
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
+#include "row_storage_config.h"
 #include "serving_qdq.h"
 
 namespace kv_db {
@@ -139,6 +140,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// its metadata; in the embedding-cache use case this only happens when a new
   /// embedding is inserted, since the cache never updates an existing
   /// embedding's value. Defaults to false.
+  /// @param row_storage_config how the table stores written rows; without it,
+  /// the storage fields of enrichment_config, if any
   /// @return None
   explicit DramKVEmbeddingCache(
       int64_t max_D,
@@ -163,7 +166,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       std::vector<int64_t> table_sizes = {},
       std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>
           enrichment_config = std::nullopt,
-      bool enable_ssd_backend = false)
+      bool enable_ssd_backend = false,
+      std::optional<c10::intrusive_ptr<kv_mem::RowStorageConfig>>
+          row_storage_config = std::nullopt)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -179,8 +184,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             table_sizes),
         max_D_(max_D),
         num_shards_(num_shards),
-        packed_(packed_layout(max_D, enrichment_config)),
-        int8_(int8_layout(max_D, enrichment_config)),
+        written_row_storage_(
+            written_row_storage(row_storage_config, enrichment_config)),
+        packed_(packed_layout(max_D, written_row_storage_)),
+        int8_(int8_layout(max_D, written_row_storage_)),
         block_size_(row_block_size(max_D, packed_, int8_)),
         block_alignment_(
             FixedBlockPool::calculate_block_alignment<weight_type>()),
@@ -204,9 +211,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // serving ~320k DRAM reads per step is ~1.3M clock calls per step for
     // numbers nobody collects. Default keeps today's behaviour; set
     // KVZCH_SKIP_DRAM_PERF_TIMING=1 to skip.
-    collect_perf_stats_ =
-        std::getenv("KVZCH_SKIP_DRAM_PERF_TIMING") == nullptr ||
-        std::string(std::getenv("KVZCH_SKIP_DRAM_PERF_TIMING")) != "1";
+    const char* const skip_perf_timing =
+        std::getenv("KVZCH_SKIP_DRAM_PERF_TIMING");
+    collect_perf_stats_ = skip_perf_timing == nullptr ||
+        std::string_view(skip_perf_timing) != "1";
     const char* const parallel_shard_input =
         std::getenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT");
     parallel_shard_input_ = parallel_shard_input != nullptr &&
@@ -2187,6 +2195,355 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         });
   }
 
+  std::vector<int64_t> set_rows_with_feature_score(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      const at::Tensor& init_scores,
+      bool overwrite,
+      int64_t serving_qdq_bit_rate,
+      int64_t serving_qdq_group_size,
+      int64_t serving_qdq_dim,
+      bool replace_scores,
+      bool trainer_rows) override {
+    TORCH_CHECK(indices.device().is_cpu() && weights.device().is_cpu());
+    TORCH_CHECK(init_scores.device().is_cpu() && count.device().is_cpu());
+    TORCH_CHECK(indices.is_contiguous() && weights.is_contiguous());
+    TORCH_CHECK(init_scores.is_contiguous());
+    TORCH_CHECK_EQ(indices.scalar_type(), at::ScalarType::Long);
+    TORCH_CHECK_EQ(init_scores.scalar_type(), at::ScalarType::Float);
+    TORCH_CHECK_EQ(
+        weights.scalar_type(), c10::CppTypeToScalarType<weight_type>::value);
+    TORCH_CHECK_EQ(weights.dim(), 2);
+    // Same width as the enrichment write, which is what RES streaming expects.
+    TORCH_CHECK_EQ(weights.size(1), max_D_);
+    // One int64 or int32 element, as shard_input reads it.
+    TORCH_CHECK(
+        count.numel() == 1 &&
+            (count.scalar_type() == at::kLong ||
+             count.scalar_type() == at::kInt),
+        "set_rows_with_feature_score needs a count of one int64 or int32");
+    const int64_t num_rows = count.item<int64_t>();
+    TORCH_CHECK_GE(num_rows, 0);
+    TORCH_CHECK_LE(num_rows, indices.size(0));
+    TORCH_CHECK_LE(num_rows, weights.size(0));
+    TORCH_CHECK_LE(num_rows, init_scores.size(0));
+    if (num_rows <= 0) {
+      return {0, 0, 0, 0, 0};
+    }
+    // NaN would pass the clamp below and sort below every threshold, and +Inf
+    // would never be evicted.
+    TORCH_CHECK(
+        at::isfinite(init_scores.narrow(0, 0, num_rows)).all().item<bool>(),
+        "set_rows_with_feature_score needs finite init_scores");
+    // The serving QDQ of the table's row storage, as every other write takes;
+    // serving QDQ args, if passed, must match it.
+    const auto table_format = serving_qdq_format();
+    if (table_format.bit_rate > 0) {
+      TORCH_CHECK(
+          serving_qdq_bit_rate == 0 ||
+              (serving_qdq_bit_rate == table_format.bit_rate &&
+               serving_qdq_group_size == table_format.group_size &&
+               serving_qdq_dim == written_row_storage_->dim),
+          "set_rows_with_feature_score serving QDQ (",
+          serving_qdq_bit_rate,
+          ", ",
+          serving_qdq_group_size,
+          ", ",
+          serving_qdq_dim,
+          ") differs from the table's row storage (",
+          table_format.bit_rate,
+          ", ",
+          table_format.group_size,
+          ", ",
+          written_row_storage_->dim,
+          ")");
+      serving_qdq_bit_rate = table_format.bit_rate;
+      serving_qdq_group_size = table_format.group_size;
+      serving_qdq_dim = written_row_storage_->dim;
+    }
+    // Packed storage packs these fixed points as they are.
+    if (serving_qdq_bit_rate > 0) {
+      if constexpr (std::is_same_v<weight_type, at::Half>) {
+        const serving_qdq::Format format{
+            static_cast<int>(serving_qdq_bit_rate), serving_qdq_group_size};
+        serving_qdq::check_round_trip_args(serving_qdq_dim, format);
+        TORCH_CHECK_LE(serving_qdq_dim, max_D_);
+        // In place: the caller hands over a staging tensor.
+        const auto stats = serving_qdq::round_trip_rows(
+            weights.data_ptr<at::Half>(),
+            num_rows,
+            weights.size(1),
+            serving_qdq_dim,
+            format);
+        if (stats.non_finite > 0 || stats.not_converged > 0) {
+          XLOG(WARN) << "[DRAM KV] set_rows_with_feature_score serving_qdq "
+                     << stats;
+        }
+      } else {
+        TORCH_CHECK(false, "serving QDQ needs FP16 rows");
+      }
+    }
+    auto* feature_score_evict = is_eviction_enabled()
+        ? dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+              feature_evict_.get())
+        : nullptr;
+    // Rows actually stored, the only ones RES may see.
+    auto written = at::zeros({num_rows}, at::kByte);
+    auto* written_ptr = written.mutable_data_ptr<uint8_t>();
+    pause_ongoing_eviction();
+    SCOPE_EXIT {
+      resume_ongoing_eviction();
+    };
+    auto shardid_to_indexes = shard_input(indices, count);
+    std::vector<folly::Future<std::array<int64_t, 5>>> futures;
+    futures.reserve(shardid_to_indexes.size());
+    for (auto& [shard_id, indexes] : shardid_to_indexes) {
+      futures.emplace_back(
+          folly::via(executor_.get())
+              .thenValue([this,
+                          shard_id,
+                          indexes = std::move(indexes),
+                          &indices,
+                          &weights,
+                          &init_scores,
+                          overwrite,
+                          replace_scores,
+                          feature_score_evict,
+                          written_ptr](folly::Unit) {
+                // inserted, overwritten, skipped existing, skipped zero,
+                // rescored
+                std::array<int64_t, 5> stats{0, 0, 0, 0, 0};
+                const int64_t width = weights.size(1);
+                const auto* indices_ptr = indices.const_data_ptr<int64_t>();
+                const auto* weights_ptr = weights.const_data_ptr<weight_type>();
+                const auto* scores_ptr = init_scores.const_data_ptr<float>();
+                auto wlmap = kv_store_.by(shard_id).wlock();
+                auto* pool = kv_store_.pool_by(shard_id);
+                for (const auto row : indexes) {
+                  const weight_type* src = weights_ptr + row * width;
+                  if (std::all_of(src, src + width, [](weight_type v) {
+                        return static_cast<float>(v) == 0.0f;
+                      })) {
+                    stats[3]++;
+                    continue;
+                  }
+                  const int64_t id = indices_ptr[row];
+                  weight_type* block = nullptr;
+                  auto it = wlmap->find(id);
+                  if (it != wlmap->end()) {
+                    block = it->second;
+                    if (replace_scores) {
+                      const double old_ratio =
+                          FixedBlockPool::get_feature_score_rate(block);
+                      FixedBlockPool::set_feature_score_rate(
+                          block, std::max(scores_ptr[row], 0.0f));
+                      // Otherwise the next round's scan counts the new score;
+                      // a block it has not scanned yet has no bucket to leave.
+                      if (feature_score_evict != nullptr &&
+                          feature_score_evict->incremental_histogram()) {
+                        feature_score_evict->update_feature_score_bucket(
+                            block, old_ratio, shard_id);
+                      }
+                      stats[4]++;
+                    }
+                    if (!overwrite) {
+                      stats[2]++;
+                      continue;
+                    }
+                    stats[1]++;
+                  } else {
+                    block = pool->template allocate_t<weight_type>();
+                    FixedBlockPool::set_key(block, id);
+                    // Before the histogram insert, which reads it.
+                    FixedBlockPool::set_feature_score_rate(
+                        block, std::max(scores_ptr[row], 0.0f));
+                    wlmap->insert({id, block});
+                    hbm_take_tombstone_locked(shard_id, id);
+                    if (feature_score_evict != nullptr) {
+                      feature_score_evict->update_feature_score_statistics(
+                          block, 0, shard_id, true);
+                    }
+                    stats[0]++;
+                  }
+                  if (is_eviction_enabled()) {
+                    feature_evict_->update_feature_statistics(block);
+                  }
+                  write_payload(
+                      shard_id,
+                      FixedBlockPool::data_ptr<weight_type>(block),
+                      src,
+                      width);
+                  if (enable_ssd_backend_) {
+                    pool->set_dirty(block, true);
+                  }
+                  written_ptr[row] = 1;
+                }
+                hbm_post_invalidations_locked(shard_id);
+                return stats;
+              }));
+    }
+    std::array<int64_t, 5> total{0, 0, 0, 0, 0};
+    // collectAll: every task reads this frame's tensors, so all of them finish
+    // before an error is rethrown.
+    for (auto& done : folly::collectAll(std::move(futures)).get()) {
+      const auto& stats = done.value();
+      for (size_t i = 0; i < total.size(); ++i) {
+        total[i] += stats[i];
+      }
+    }
+    const int64_t num_written = total[0] + total[1];
+    const bool stream = trainer_rows ? stream_trainer_row_writes_
+                                     : enable_raw_embedding_streaming_;
+    if (stream && num_written > 0) {
+      const auto rows = written.nonzero().squeeze(1);
+      raw_embedding_streamer_->stream(
+          indices.index_select(0, rows),
+          weights.index_select(0, rows),
+          std::nullopt, /*identities*/
+          std::nullopt, /*runtime_meta*/
+          at::tensor({num_written}, at::kLong),
+          false, /*require_tensor_copy - tensors already on CPU*/
+          false /*blocking_tensor_copy*/);
+    }
+    return {total[0], total[1], total[2], total[3], total[4]};
+  }
+
+  int64_t add_feature_scores_existing_only(
+      const at::Tensor& indices,
+      const at::Tensor& count,
+      const at::Tensor& scores) override {
+    if (!is_eviction_enabled()) {
+      return 0;
+    }
+    auto* feature_score_evict =
+        dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+            feature_evict_.get());
+    if (feature_score_evict == nullptr) {
+      return 0;
+    }
+    TORCH_CHECK(indices.device().is_cpu() && scores.device().is_cpu());
+    TORCH_CHECK(count.device().is_cpu());
+    TORCH_CHECK(indices.is_contiguous() && scores.is_contiguous());
+    TORCH_CHECK_EQ(indices.scalar_type(), at::ScalarType::Long);
+    TORCH_CHECK_EQ(scores.scalar_type(), at::ScalarType::Float);
+    // As set_rows_with_feature_score's count.
+    TORCH_CHECK(
+        count.numel() == 1 &&
+            (count.scalar_type() == at::kLong ||
+             count.scalar_type() == at::kInt),
+        "add_feature_scores_existing_only needs a count of one int64 or int32");
+    const int64_t num_keys = count.item<int64_t>();
+    TORCH_CHECK_GE(num_keys, 0);
+    TORCH_CHECK_LE(num_keys, indices.numel());
+    TORCH_CHECK_LE(num_keys, scores.numel());
+    // As set_rows_with_feature_score's init_scores.
+    TORCH_CHECK(
+        at::isfinite(scores.narrow(0, 0, num_keys)).all().item<bool>(),
+        "add_feature_scores_existing_only needs finite scores");
+    pause_ongoing_eviction();
+    SCOPE_EXIT {
+      resume_ongoing_eviction();
+    };
+    const auto* const indices_ptr = indices.const_data_ptr<int64_t>();
+    const auto* const scores_ptr = scores.const_data_ptr<float>();
+    // One task per shard, which holds the shard's write lock (the score
+    // histogram is per shard), with the lookups prefetched as in reads.
+    const auto update_shard =
+        [this, feature_score_evict, indices_ptr, scores_ptr](
+            int shard_id, const int64_t* positions, size_t num_positions) {
+          int64_t updated = 0;
+          auto wlmap = kv_store_.by(shard_id).wlock();
+          // Unlike set_kv_zch_eviction_metadata_async, a missing key stays
+          // missing: inserting it would make a row out of whatever the recycled
+          // block held.
+          const auto update = [&](int64_t pos, weight_type* block) {
+            if (block == nullptr) {
+              return;
+            }
+            feature_score_evict->add_feature_score(
+                block, std::max(scores_ptr[pos], 0.0f), shard_id);
+            feature_evict_->update_feature_statistics(block);
+            updated++;
+          };
+          constexpr size_t kMaxPrefetchDistance = 64;
+          const size_t distance = std::min(
+              {static_cast<size_t>(
+                   std::max<int64_t>(dram_lookup_prefetch_distance_, 1)),
+               kMaxPrefetchDistance,
+               num_positions});
+          std::array<folly::F14HashToken, kMaxPrefetchDistance> tokens;
+          std::array<int64_t, kMaxPrefetchDistance> pending_positions;
+          std::array<weight_type*, kMaxPrefetchDistance> pending_blocks;
+          for (size_t i = 0; i < distance; ++i) {
+            tokens[i] = wlmap->prehash(indices_ptr[positions[i]]);
+            wlmap->prefetch(tokens[i]);
+          }
+          for (size_t i = 0; i < num_positions + distance; ++i) {
+            const auto slot = i % distance;
+            if (i >= distance) {
+              update(pending_positions[slot], pending_blocks[slot]);
+            }
+            if (i >= num_positions) {
+              continue;
+            }
+            const auto pos = positions[i];
+            const auto it = wlmap->find(tokens[slot], indices_ptr[pos]);
+            weight_type* block = nullptr;
+            if (it != wlmap->end()) {
+              block = it->second;
+              __builtin_prefetch(block, /*rw=*/1, /*locality=*/1);
+            }
+            pending_positions[slot] = pos;
+            pending_blocks[slot] = block;
+            const auto next = i + distance;
+            if (next < num_positions) {
+              tokens[slot] = wlmap->prehash(indices_ptr[positions[next]]);
+              wlmap->prefetch(tokens[slot]);
+            }
+          }
+          return updated;
+        };
+    std::vector<folly::Future<int64_t>> futures;
+    // As reads shard: shard_input_for_read needs the shards that segmented
+    // reads require.
+    if (segmented_shard_reads_ && num_keys >= 8192) {
+      auto flat = shard_input_for_read(indices, count);
+      futures.reserve(num_shards_);
+      for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
+        const auto begin = flat->shard_offsets[shard_id];
+        const auto end = flat->shard_offsets[shard_id + 1];
+        if (begin != end) {
+          futures.emplace_back(
+              folly::via(executor_.get())
+                  .thenValue([update_shard, flat, shard_id, begin, end](
+                                 folly::Unit) {
+                    return update_shard(
+                        shard_id, flat->positions->data() + begin, end - begin);
+                  }));
+        }
+      }
+    } else {
+      auto shardid_to_indexes = shard_input(indices, count);
+      futures.reserve(shardid_to_indexes.size());
+      for (auto& [shard_id, indexes] : shardid_to_indexes) {
+        futures.emplace_back(
+            folly::via(executor_.get())
+                .thenValue([update_shard,
+                            shard_id,
+                            indexes = std::move(indexes)](folly::Unit) {
+                  return update_shard(shard_id, indexes.data(), indexes.size());
+                }));
+      }
+    }
+    int64_t total = 0;
+    // collectAll: every task reads the caller's tensors.
+    for (auto& updated : folly::collectAll(std::move(futures)).get()) {
+      total += updated.value();
+    }
+    return total;
+  }
+
   /// Get embeddings from kvstore.
   ///
   /// @param indices The 1D embedding index tensor, should skip on negative
@@ -2929,6 +3286,41 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
   }
 
+  void decay_feature_scores(double factor) override {
+    // The next round multiplies every row's score by it. Only feature score
+    // eviction applies it: another policy would just stop its interval decay.
+    TORCH_CHECK(
+        std::isfinite(factor) && factor > 0 && factor <= 1,
+        "decay_feature_scores needs a factor in (0, 1], got ",
+        factor);
+    TORCH_CHECK(
+        is_eviction_enabled() &&
+            dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+                feature_evict_.get()) != nullptr,
+        "decay_feature_scores needs feature score eviction");
+    feature_evict_->decay_feature_scores(factor);
+  }
+
+  void apply_queued_feature_score_decay() override {
+    auto* feature_score_evict = is_eviction_enabled()
+        ? dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+              feature_evict_.get())
+        : nullptr;
+    TORCH_CHECK(
+        feature_score_evict != nullptr,
+        "apply_queued_feature_score_decay needs feature score eviction");
+    feature_score_evict->apply_queued_decay();
+  }
+
+  double pending_feature_score_decay() override {
+    TORCH_CHECK(
+        is_eviction_enabled() &&
+            dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+                feature_evict_.get()) != nullptr,
+        "pending_feature_score_decay needs feature score eviction");
+    return feature_evict_->pending_feature_score_decay();
+  }
+
   // Only the field this mode reads is computed: get_num_rows() and
   // get_map_used_memsize_in_bytes() both take an rlock on every shard, which
   // contends with an in-flight eviction holding the write lock.
@@ -3286,21 +3678,40 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         *raw_tail_cols(own, static_cast<int64_t>(payload_end_bytes()));
   }
 
-  /// Raw payloads for HBM promotion: the INT8 rows of an int8_storage table,
-  /// or the g8 bytes of a packed_storage table's rows. Missing rows, and
-  /// packed rows kept as fp16 outside their block (which therefore stay in
-  /// DRAM), are zero-filled. All tensors must be CPU views, including
-  /// host-mapped workspaces used by CUDA callers.
+  /// Raw payloads for HBM promotion or for readers of the stored bytes: the
+  /// INT8 rows of an int8_storage table, or the g8 bytes of a packed_storage
+  /// table's rows. Missing rows, and packed rows kept as fp16 outside their
+  /// block (which therefore stay in DRAM), are zero-filled; found_mask (CPU
+  /// uint8, at least n entries), if given, gets 1 for the rows copied and 0
+  /// for these. All tensors must be CPU views, including host-mapped
+  /// workspaces used by CUDA callers. Like a get, pauses an ongoing eviction
+  /// round, resumed afterwards with set_resume_eviction_after_get, and
+  /// prefetches dram_lookup_prefetch_distance_ lookups ahead.
   void get_int8_payloads(
       const at::Tensor& indices,
       const at::Tensor& rows,
-      const at::Tensor& count) {
+      const at::Tensor& count,
+      const std::optional<at::Tensor>& found_mask = std::nullopt) {
     TORCH_CHECK(int8_ || packed_, "INT8 or packed DRAM storage is disabled");
     check_int8_payload_args(indices, rows, count);
     // A promotion capped at promote_max_rows passes only that many keys with
     // the uncapped miss count.
     const int64_t n = std::min<int64_t>(count.item<int64_t>(), indices.numel());
     TORCH_CHECK(n >= 0);
+    uint8_t* found_ptr = nullptr;
+    if (found_mask.has_value()) {
+      TORCH_CHECK(
+          found_mask->device().is_cpu() && found_mask->is_contiguous() &&
+              found_mask->scalar_type() == at::kByte &&
+              found_mask->dim() == 1 && found_mask->numel() >= n,
+          "INT8 payload found_mask must be a contiguous CPU uint8 1D tensor "
+          "with an entry per row");
+      found_ptr = found_mask->mutable_data_ptr<uint8_t>();
+    }
+    pause_ongoing_eviction();
+    SCOPE_EXIT {
+      maybe_resume_eviction_after_get();
+    };
     if (n == 0) {
       return;
     }
@@ -3308,29 +3719,129 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     const auto* keys = ids.const_data_ptr<int64_t>();
     auto* dst = rows.data_ptr<uint8_t>();
     const int64_t row_bytes = raw_hbm_row_bytes();
-    std::memset(dst, 0, n * row_bytes);
-    auto by_shard = shard_input(ids, at::tensor({n}, at::kLong));
+    const auto read_shard = [this, keys, dst, row_bytes, found_ptr](
+                                int shard_id,
+                                const int64_t* positions,
+                                size_t num) {
+      const auto lock = kv_store_.by(shard_id).rlock();
+      const auto payload_of = [&](const auto& it) -> const uint8_t* {
+        return it == lock->end()
+            ? nullptr
+            : reinterpret_cast<const uint8_t*>(
+                  FixedBlockPool::data_ptr<weight_type>(it->second));
+      };
+      const auto copy_row = [&](int64_t pos, const uint8_t* payload) {
+        const bool found = payload != nullptr &&
+            !(packed_ &&
+              payload[packed_->code_bytes()] == serving_qdq::kFallbackScale);
+        if (found) {
+          std::memcpy(dst + pos * row_bytes, payload, row_bytes);
+        } else {
+          std::memset(dst + pos * row_bytes, 0, row_bytes);
+        }
+        if (found_ptr != nullptr) {
+          found_ptr[pos] = found;
+        }
+      };
+      constexpr size_t kMaxDistance = 64;
+      const size_t distance = std::min<size_t>(
+          {static_cast<size_t>(std::max(dram_lookup_prefetch_distance_, 0)),
+           kMaxDistance,
+           num});
+      if (distance == 0) {
+        for (size_t i = 0; i < num; ++i) {
+          copy_row(positions[i], payload_of(lock->find(keys[positions[i]])));
+        }
+        return;
+      }
+      // As in get_kv_db_async_impl: a key's bucket is prefetched `distance`
+      // lookups ahead of its find, and the payload it finds `distance` lookups
+      // ahead of its copy, so that the two dependent DRAM misses of a key
+      // overlap with other keys'.
+      constexpr uintptr_t kCacheLineBytes = 64;
+      std::array<folly::F14HashToken, kMaxDistance> tokens;
+      std::array<const uint8_t*, kMaxDistance> payloads{};
+      std::array<int64_t, kMaxDistance> payload_positions{};
+      for (size_t i = 0; i < distance; ++i) {
+        tokens[i] = lock->prehash(keys[positions[i]]);
+        lock->prefetch(tokens[i]);
+      }
+      for (size_t i = 0; i < num + distance; ++i) {
+        const size_t slot = i % distance;
+        if (i >= distance) {
+          copy_row(payload_positions[slot], payloads[slot]);
+        }
+        if (i >= num) {
+          continue;
+        }
+        const int64_t pos = positions[i];
+        const auto* payload = payload_of(lock->find(tokens[slot], keys[pos]));
+        if (payload != nullptr) {
+          const auto first =
+              reinterpret_cast<uintptr_t>(payload) & ~(kCacheLineBytes - 1);
+          const auto end = reinterpret_cast<uintptr_t>(payload) +
+              static_cast<uintptr_t>(row_bytes);
+          for (auto line = first; line < end; line += kCacheLineBytes) {
+            __builtin_prefetch(
+                // NOLINTNEXTLINE(performance-no-int-to-ptr)
+                reinterpret_cast<const char*>(line),
+                /*rw=*/0,
+                /*locality=*/1);
+          }
+        }
+        payloads[slot] = payload;
+        payload_positions[slot] = pos;
+        const size_t next = i + distance;
+        if (next < num) {
+          tokens[slot] = lock->prehash(keys[positions[next]]);
+          lock->prefetch(tokens[slot]);
+        }
+      }
+    };
+    // Sharded as get_kv_db_async_impl shards a read.
+    const auto num_ids = at::tensor({n}, at::kLong);
     std::vector<folly::Future<folly::Unit>> futures;
-    for (auto& [shard_id, positions] : by_shard) {
-      futures.push_back(
-          folly::via(
-              executor_.get(), [&, shard_id, positions = std::move(positions)] {
-                const auto lock = kv_store_.by(shard_id).rlock();
-                for (const auto pos : positions) {
-                  const auto it = lock->find(keys[pos]);
-                  if (it == lock->end()) {
-                    continue;
-                  }
-                  const auto* payload = reinterpret_cast<const uint8_t*>(
-                      FixedBlockPool::data_ptr<weight_type>(it->second));
-                  if (packed_ &&
-                      payload[packed_->code_bytes()] ==
-                          serving_qdq::kFallbackScale) {
-                    continue;
-                  }
-                  std::memcpy(dst + pos * row_bytes, payload, row_bytes);
-                }
-              }));
+    size_t num_sharded = 0;
+    constexpr int64_t kMinIndicesPerParallelChunk = 4096;
+    if (segmented_shard_reads_ && n >= 2 * kMinIndicesPerParallelChunk) {
+      auto flat = shard_input_for_read(ids, num_ids);
+      num_sharded = flat->shard_offsets.back();
+      futures.reserve(num_shards_);
+      for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
+        const auto begin = flat->shard_offsets[shard_id];
+        const auto end = flat->shard_offsets[shard_id + 1];
+        if (begin != end) {
+          futures.push_back(
+              folly::via(
+                  executor_.get(), [read_shard, flat, shard_id, begin, end] {
+                    read_shard(
+                        shard_id, flat->positions->data() + begin, end - begin);
+                  }));
+        }
+      }
+    } else {
+      auto by_shard = shard_input(ids, num_ids);
+      futures.reserve(by_shard.size());
+      for (auto& [shard_id, positions] : by_shard) {
+        num_sharded += positions.size();
+        futures.push_back(
+            folly::via(
+                executor_.get(),
+                [read_shard, shard_id, positions = std::move(positions)] {
+                  read_shard(shard_id, positions.data(), positions.size());
+                }));
+      }
+    }
+    // Negative keys are in no shard.
+    if (std::cmp_less(num_sharded, n)) {
+      for (int64_t i = 0; i < n; ++i) {
+        if (keys[i] < 0) {
+          std::memset(dst + i * row_bytes, 0, row_bytes);
+          if (found_ptr != nullptr) {
+            found_ptr[i] = 0;
+          }
+        }
+      }
     }
     for (auto& done : folly::collectAll(std::move(futures)).get()) {
       done.throwUnlessValue();
@@ -3370,13 +3881,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
   /// Bytes of an HBM row holding a written row: what DRAM stores for it, in
-  /// the storage format (g8 bytes, INT8 row, or the first enrichment-dim fp16
+  /// the storage format (g8 bytes, INT8 row, or the first row-storage-dim fp16
   /// columns).
   int64_t hbm_written_row_bytes() const {
     if (int8_ || packed_) {
       return raw_hbm_row_bytes();
     }
-    return enrichment_config_.value()->enrichment_dim_ *
+    TORCH_CHECK(
+        written_row_storage_.has_value(),
+        "hbm_written_row_bytes needs a row storage or an enrichment config");
+    return written_row_storage_->dim *
         static_cast<int64_t>(sizeof(weight_type));
   }
 
@@ -3391,8 +3905,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count) const {
     if constexpr (std::is_same_v<weight_type, at::Half>) {
       TORCH_CHECK(
-          enrichment_config_.has_value(), "written rows need enrichment");
-      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+          written_row_storage_.has_value(), "written rows need a row storage");
+      const int64_t dim = written_row_storage_->dim;
       const int64_t n = count.item<int64_t>();
       TORCH_CHECK(
           rows.device().is_cpu() && rows.is_contiguous() &&
@@ -3541,10 +4055,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         "eviction");
     TORCH_CHECK(
         !enrichment_config_.has_value() ||
-            enrichment_config_.value()->enrichment_type_ ==
-                EnrichmentType::IGR_LASER_EMBEDDING ||
-            enrichment_config_.value()->enrichment_type_ ==
-                EnrichmentType::IN_MEMORY_TEST_ONLY,
+            is_embedding_payload(*enrichment_config_.value()),
         "exclusive HBM tier needs an embedding payload");
     TORCH_CHECK(
         cache_state.dim() == 2 && cache_state.size(1) == 1 &&
@@ -3570,9 +4081,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         cache_weights.size(1));
     // fp16 DRAM rows are held as their first `fp16_dim` fp16 columns when the
     // rows are that wide, else as INT8 rows.
-    const int64_t fp16_dim = enrichment_config_.has_value()
-        ? enrichment_config_.value()->enrichment_dim_
-        : max_D_;
+    const int64_t fp16_dim =
+        written_row_storage_.has_value() ? written_row_storage_->dim : max_D_;
     const bool fp16_rows = !packed_ && !int8_ &&
         cache_weights.size(1) ==
             fp16_dim * static_cast<int64_t>(sizeof(weight_type));
@@ -3584,11 +4094,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         "INT8 DRAM and exclusive HBM must hold the same embedding dimension");
     TORCH_CHECK(
         hbm_dim > 0 && hbm_dim <= max_D_ &&
-            (!enrichment_config_.has_value() ||
-             enrichment_config_.value()->enrichment_dim_ <= hbm_dim),
+            (!written_row_storage_.has_value() ||
+             written_row_storage_->dim <= hbm_dim),
         "exclusive HBM rows hold ",
         hbm_dim,
-        " columns, which must cover the enrichment dim and fit max_D ",
+        " columns, which must cover the row storage dim and fit max_D ",
         max_D_);
     TORCH_CHECK(
         last_access.dim() == 1 && last_access.scalar_type() == at::kInt &&
@@ -3937,11 +4447,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       return -1;
     } else {
       const auto format = serving_qdq_format();
+      // Off without a row storage, so written_row_storage_ is set below.
       if (format.bit_rate == 0) {
         return 0;
       }
       const auto start_ts = facebook::WallClockUtil::NowInUsecFast();
-      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+      const int64_t dim = written_row_storage_->dim;
       serving_qdq::check_round_trip_args(dim, format);
       TORCH_CHECK(dim <= max_D_, "serving_qdq dim ", dim, " > max_D ", max_D_);
       std::vector<folly::Future<serving_qdq::Stats>> futures;
@@ -3973,21 +4484,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   using FlatPositions = folly::small_vector<int64_t, 0>;
 
   /// Publish encoding to round-trip rows through; bit_rate 0 means off. Only
-  /// embedding payloads qualify; SID payloads are bit-cast integers.
+  /// embedding payloads qualify (row_storage keeps it off for SID payloads,
+  /// which are bit-cast integers).
   serving_qdq::Format serving_qdq_format() const {
-    if (!enrichment_config_.has_value()) {
-      return {};
-    }
-    const auto& config = *enrichment_config_.value();
-    const bool embedding_payload = config.enrichment_type_ ==
-            kv_mem::EnrichmentType::IGR_LASER_EMBEDDING ||
-        config.enrichment_type_ == kv_mem::EnrichmentType::IN_MEMORY_TEST_ONLY;
-    if (!embedding_payload) {
+    if (!written_row_storage_.has_value()) {
       return {};
     }
     return {
-        static_cast<int>(config.serving_qdq_bit_rate_),
-        config.serving_qdq_group_size_};
+        static_cast<int>(written_row_storage_->serving_qdq_bit_rate),
+        written_row_storage_->serving_qdq_group_size};
   }
 
   /// Round-trips the first `num_rows` rows of a CPU write tensor in place.
@@ -4004,7 +4509,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           weights.data_ptr<at::Half>(),
           num_rows,
           weights.size(1),
-          enrichment_config_.value()->enrichment_dim_,
+          written_row_storage_->dim,
           format);
       if (stats.non_finite > 0 || stats.not_converged > 0) {
         XLOG(WARN) << "[EmbeddingCacheEnrich] serving_qdq " << stats;
@@ -4056,61 +4561,103 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                    : block_size_;
   }
 
-  static std::optional<serving_qdq::Int8Layout> int8_layout(
-      int64_t max_D,
+  static bool is_embedding_payload(const kv_mem::EnrichmentConfig& config) {
+    return config.enrichment_type_ == EnrichmentType::IGR_LASER_EMBEDDING ||
+        config.enrichment_type_ == EnrichmentType::IN_MEMORY_TEST_ONLY;
+  }
+
+  /// How the table stores written rows: row_storage_config, else the storage
+  /// fields of enrichment_config. Only embedding payloads have a publish
+  /// encoding; SID payloads are bit-cast integers, whose packed or INT8 rows
+  /// packed_layout and check_int8_storage_supported refuse.
+  static std::optional<RowStorage> written_row_storage(
+      const std::optional<c10::intrusive_ptr<kv_mem::RowStorageConfig>>&
+          row_storage_config,
       const std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>&
           enrichment_config) {
-    if (!enrichment_config.has_value() ||
-        !enrichment_config.value()->int8_storage_) {
+    if (row_storage_config.has_value()) {
+      const auto& storage = row_storage_config.value()->storage_;
+      if (enrichment_config.has_value()) {
+        const auto& config = *enrichment_config.value();
+        TORCH_CHECK(
+            config.serving_qdq_bit_rate_ == 0 &&
+                config.serving_qdq_group_size_ == 0 &&
+                !config.packed_storage_ && !config.int8_storage_,
+            "row storage is set by both row_storage_config and "
+            "enrichment_config");
+        TORCH_CHECK(
+            storage.dim == config.enrichment_dim_,
+            "row_storage_config dim ",
+            storage.dim,
+            " != enrichment_dim ",
+            config.enrichment_dim_);
+        TORCH_CHECK(
+            is_embedding_payload(config) ||
+                (storage.serving_qdq_bit_rate == 0 && !storage.packed_storage &&
+                 !storage.int8_storage),
+            "row storage formats need an embedding enrichment payload");
+      }
+      return storage;
+    }
+    if (!enrichment_config.has_value()) {
       return std::nullopt;
     }
     const auto& config = *enrichment_config.value();
-    TORCH_CHECK(
-        !config.packed_storage_ && config.serving_qdq_bit_rate_ == 0,
-        "int8_storage excludes packed_storage and serving_qdq_bit_rate, got ",
+    const bool embedding_payload = is_embedding_payload(config);
+    return RowStorage{
+        config.enrichment_dim_,
+        embedding_payload ? config.serving_qdq_bit_rate_ : 0,
+        embedding_payload ? config.serving_qdq_group_size_ : 0,
         config.packed_storage_,
-        " and ",
-        config.serving_qdq_bit_rate_);
+        config.int8_storage_};
+  }
+
+  static std::optional<serving_qdq::Int8Layout> int8_layout(
+      int64_t max_D,
+      const std::optional<RowStorage>& storage) {
+    if (!storage.has_value() || !storage->int8_storage) {
+      return std::nullopt;
+    }
     TORCH_CHECK(
-        config.enrichment_dim_ > 0 && config.enrichment_dim_ % 4 == 0 &&
-            config.enrichment_dim_ <= max_D,
-        "int8_storage needs an enrichment_dim that is a positive multiple of "
+        !storage->packed_storage && storage->serving_qdq_bit_rate == 0,
+        "int8_storage excludes packed_storage and serving_qdq_bit_rate, got ",
+        storage->packed_storage,
+        " and ",
+        storage->serving_qdq_bit_rate);
+    TORCH_CHECK(
+        storage->dim > 0 && storage->dim % 4 == 0 && storage->dim <= max_D,
+        "int8_storage needs a row storage dim that is a positive multiple of "
         "4 and at most max_D ",
         max_D,
         ", got ",
-        config.enrichment_dim_);
-    return serving_qdq::Int8Layout{
-        config.enrichment_dim_, max_D - config.enrichment_dim_};
+        storage->dim);
+    return serving_qdq::Int8Layout{storage->dim, max_D - storage->dim};
   }
 
   static std::optional<serving_qdq::PackedLayout> packed_layout(
       int64_t max_D,
-      const std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>&
-          enrichment_config) {
-    if (!enrichment_config.has_value() ||
-        !enrichment_config.value()->packed_storage_) {
+      const std::optional<RowStorage>& storage) {
+    if (!storage.has_value() || !storage->packed_storage) {
       return std::nullopt;
     }
-    const auto& config = *enrichment_config.value();
     TORCH_CHECK(
-        config.serving_qdq_bit_rate_ == 4 && config.serving_qdq_group_size_ > 0,
+        storage->serving_qdq_bit_rate == 4 &&
+            storage->serving_qdq_group_size > 0,
         "packed_storage needs serving_qdq_bit_rate 4 and a "
         "serving_qdq_group_size, got ",
-        config.serving_qdq_bit_rate_,
+        storage->serving_qdq_bit_rate,
         " and ",
-        config.serving_qdq_group_size_);
+        storage->serving_qdq_group_size);
     fbgemm_gpu::grouped_int4_e4m3::check_dims(
-        config.enrichment_dim_, config.serving_qdq_group_size_);
+        storage->dim, storage->serving_qdq_group_size);
     TORCH_CHECK(
-        config.enrichment_dim_ <= max_D,
-        "packed_storage enrichment_dim ",
-        config.enrichment_dim_,
+        storage->dim <= max_D,
+        "packed_storage row storage dim ",
+        storage->dim,
         " > max_D ",
         max_D);
     return serving_qdq::PackedLayout{
-        config.enrichment_dim_,
-        config.serving_qdq_group_size_,
-        max_D - config.enrichment_dim_};
+        storage->dim, storage->serving_qdq_group_size, max_D - storage->dim};
   }
 
   static size_t row_block_size(
@@ -4135,10 +4682,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     TORCH_CHECK(
         (std::is_same_v<weight_type, at::Half>),
         "int8_storage needs FP16 weights");
-    const auto type = enrichment_config_.value()->enrichment_type_;
     TORCH_CHECK(
-        type == EnrichmentType::IGR_LASER_EMBEDDING ||
-            type == EnrichmentType::IN_MEMORY_TEST_ONLY,
+        !enrichment_config_.has_value() ||
+            is_embedding_payload(*enrichment_config_.value()),
         "int8_storage needs an embedding enrichment payload");
     TORCH_CHECK(disable_random_init_, "int8_storage needs disable_random_init");
     TORCH_CHECK(
@@ -4162,7 +4708,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         "packed_storage needs FP16 weights");
     TORCH_CHECK(
         serving_qdq_format().group_size > 0,
-        "packed_storage needs an embedding enrichment payload");
+        "packed_storage needs an embedding payload");
     TORCH_CHECK(
         disable_random_init_, "packed_storage needs disable_random_init");
     TORCH_CHECK(
@@ -4789,10 +5335,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       }
       std::fill(dst + hbm_dim, dst + max_D_, weight_type(0));
       const auto format = serving_qdq_format();
+      // Off without a row storage, so written_row_storage_ is set below.
       if (format.bit_rate == 0) {
         return;
       }
-      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+      const int64_t dim = written_row_storage_->dim;
       thread_local serving_qdq::Scratch scratch;
       const auto result =
           serving_qdq::round_trip_row(dst, dim, format, scratch);
@@ -6023,12 +6570,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       weight_type* block = nullptr;
       const auto it = wlmap->find(key);
       const bool new_block = it == wlmap->end();
+      double old_score = 0;
       if (new_block) {
         block = pool->template allocate_t<weight_type>();
         wlmap->insert({key, block});
         hbm_take_tombstone_locked(shard_id, key);
       } else {
         block = it->second;
+        old_score = FixedBlockPool::get_feature_score_rate(block);
       }
       const auto* row = src + i * row_bytes;
       if (convert) {
@@ -6056,13 +6605,19 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       if (restamp) {
         FixedBlockPool::set_timestamp(block, restore_ts);
       }
-      if (new_block && is_eviction_enabled()) {
+      if (is_eviction_enabled()) {
         auto* feature_score_evict =
             dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
                 feature_evict_.get());
-        if (feature_score_evict) {
+        if (feature_score_evict && new_block) {
           feature_score_evict->update_feature_score_statistics(
               block, 0, shard_id, true);
+        } else if (
+            feature_score_evict &&
+            feature_score_evict->incremental_histogram()) {
+          // The copy replaced the score with the saved one.
+          feature_score_evict->update_feature_score_bucket(
+              block, old_score, shard_id);
         }
       }
     }
@@ -6933,8 +7488,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
                           weight_type* block = nullptr;
                           bool new_block = false;
+                          double old_score = 0;
                           if (it != wlmap->end()) {
                             block = it->second;
+                            old_score =
+                                FixedBlockPool::get_feature_score_rate(block);
                           } else {
                             // Key doesn't exist, allocate new block and
                             // insert.
@@ -6958,16 +7516,20 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             pool->set_dirty(block, true);
                           }
 
-                          if (new_block) {
-                            if (is_eviction_enabled()) {
-                              auto* feature_score_evict = dynamic_cast<
-                                  FeatureScoreBasedEvict<weight_type>*>(
-                                  feature_evict_.get());
-                              if (feature_score_evict) {
-                                feature_score_evict
-                                    ->update_feature_score_statistics(
-                                        block, 0, shard_id, true);
-                              }
+                          if (is_eviction_enabled()) {
+                            auto* feature_score_evict = dynamic_cast<
+                                FeatureScoreBasedEvict<weight_type>*>(
+                                feature_evict_.get());
+                            if (feature_score_evict && new_block) {
+                              feature_score_evict
+                                  ->update_feature_score_statistics(
+                                      block, 0, shard_id, true);
+                            } else if (
+                                feature_score_evict &&
+                                feature_score_evict->incremental_histogram()) {
+                              // The copy replaced the score with the saved one.
+                              feature_score_evict->update_feature_score_bucket(
+                                  block, old_score, shard_id);
                             }
                           }
                         }
@@ -6985,6 +7547,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   folly::FunctionScheduler scheduler_;
   int64_t max_D_;
   int64_t num_shards_;
+  // How written rows are stored; unset for a table no one writes rows into
+  std::optional<RowStorage> written_row_storage_;
   // Set when rows are stored in their group-wise INT4 publish encoding
   std::optional<serving_qdq::PackedLayout> packed_;
   // Set when rows are stored as row-wise INT8 (int8_storage)
