@@ -108,6 +108,5 @@ jobs:
       test-infra-ref: main
       build-matrix: ${{ needs.filter-matrix.outputs.matrix }}
       trigger-event: ${{ github.event_name }}
-      # Based on current measurements for CUDA 12.9 workflows, builds take
-      # 3.5 hours while tests take 0.75 hours
-      timeout: 300
+      # CUDA 13.2 / 13.4 release builds take ~8 hours
+      timeout: ${{ startsWith(github.ref, 'refs/tags/v') && 720 || 300 }}
