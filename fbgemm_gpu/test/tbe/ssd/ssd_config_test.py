@@ -15,6 +15,7 @@ Tests cover:
 - EvictionPolicy.validate() behavior
 - EnrichmentPolicy.validate() behavior
 - KVZCHParams.validate() behavior
+- KVZCHTBEConfig repr
 - BackendType.from_str() behavior
 - Field order of the config NamedTuples
 """
@@ -406,6 +407,41 @@ class KVZCHParamsValidateTest(unittest.TestCase):
         )
         with self.assertRaises(AssertionError):
             params.validate()
+
+    def test_row_storage_policy_requires_embedding_cache_mode(self) -> None:
+        from fbgemm_gpu.tbe.ssd import KVZCHParams, RowStoragePolicy
+
+        policy = RowStoragePolicy(dim=8, int8_storage=True)
+        KVZCHParams(embedding_cache_mode=True, row_storage_policy=policy).validate()
+        with self.assertRaises(AssertionError):
+            KVZCHParams(row_storage_policy=policy).validate()
+
+
+class KVZCHTBEConfigReprTest(unittest.TestCase):
+    """The torchrec planner hashes str() of the config into its context hash."""
+
+    def test_repr_leaves_out_an_unset_row_storage_policy(self) -> None:
+        from fbgemm_gpu.tbe.ssd import KVZCHTBEConfig
+
+        config = KVZCHTBEConfig(kvzch_eviction_trigger_mode=4)
+
+        self.assertNotIn("row_storage_policy", repr(config))
+        self.assertTrue(
+            repr(config).startswith("KVZCHTBEConfig(kvzch_eviction_trigger_mode=4, ")
+        )
+        self.assertTrue(repr(config).endswith(", eviction_mem_threshold_gb=None)"))
+        self.assertEqual(str(config), repr(config))
+
+    def test_repr_keeps_a_set_row_storage_policy(self) -> None:
+        from fbgemm_gpu.tbe.ssd import KVZCHTBEConfig, RowStoragePolicy
+
+        policy = RowStoragePolicy(dim=8, int8_storage=True)
+
+        self.assertTrue(
+            repr(KVZCHTBEConfig(row_storage_policy=policy)).endswith(
+                f", row_storage_policy={policy!r})"
+            )
+        )
 
 
 # Field order before rank-coordinated eviction. NamedTuples are constructed and

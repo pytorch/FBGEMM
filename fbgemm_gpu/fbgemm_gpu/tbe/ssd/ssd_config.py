@@ -12,8 +12,8 @@
 """
 SSD/KVZCH-specific type definitions for TBE.
 
-Contains EvictionPolicy, EnrichmentType, EnrichmentPolicy, KVZCHParams,
-KVZCHTBEConfig, and BackendType.
+Contains EvictionPolicy, EnrichmentType, RowStoragePolicy, EnrichmentPolicy,
+KVZCHParams, KVZCHTBEConfig, and BackendType.
 """
 
 import enum
@@ -285,6 +285,46 @@ class EnrichmentResponseFormat(enum.IntEnum):
     THRIFT_INT64 = 2
 
 
+class RowStoragePolicy(NamedTuple):
+    """How an embedding_cache_mode table of the DRAM backend stores the rows
+    written into it, whoever writes them: an enrichment source, the trainer's row
+    writes, or another writer. The formats need FP16 weights and a dim equal to the
+    table dimension."""
+
+    # Leading columns of a written row.
+    dim: int = 0
+    # Rowwise bit rate the table is published at (0 = off). When set, every row
+    # written, and every row restored from a checkpoint, is stored as the values
+    # serving decodes from that publish.
+    serving_qdq_bit_rate: int = 0
+    # 0: the publish is rowwise (fp16 scale and bias per row). Otherwise the
+    # publish is group-wise INT4 with one float8_e4m3fn scale per this many dims
+    # (fbgemm.FloatOrHalfToGroupedInt4E4M3); requires serving_qdq_bit_rate 4.
+    serving_qdq_group_size: int = 0
+    # Store DRAM rows in that group-wise INT4 encoding (dim / 2 code bytes plus
+    # dim / group_size scale bytes) instead of fp16. Reads and writes take and
+    # return fp16 rows, except get_int8_payloads, which returns the stored
+    # bytes. With SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows,
+    # checkpoints carry these raw rows. Requires serving_qdq_bit_rate 4 and
+    # serving_qdq_group_size 8.
+    packed_storage: bool = False
+    # Store DRAM rows as row-wise INT8 (dim codes, then fp32 scale and bias: the
+    # INT8 publish row and the owner-local HBM row) instead of fp16. Reads and
+    # writes take and return fp16 rows, except get_int8_payloads, which returns
+    # the stored bytes. With SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows,
+    # checkpoints carry these bytes instead of fp16 rows. Excludes
+    # packed_storage and serving_qdq_bit_rate; needs a dim divisible by 4.
+    int8_storage: bool = False
+
+    def validate(self) -> None:
+        assert not self.int8_storage or (
+            not self.packed_storage and self.serving_qdq_bit_rate == 0
+        ), "int8_storage excludes packed_storage and serving_qdq_bit_rate"
+        assert (
+            not self.int8_storage or self.dim % 4 == 0
+        ), f"int8_storage needs a dim divisible by 4, actual {self.dim}"
+
+
 class EnrichmentPolicy(NamedTuple):
     # Model and method identifier
     enrichment_type: EnrichmentType = EnrichmentType.IGR_LASER_EMBEDDING
@@ -339,19 +379,12 @@ class EnrichmentPolicy(NamedTuple):
     # Whole SMs the owner-cache gather leaves free for concurrent kernels such as
     # NCCL collectives: its grid is capped at (SM count - this) CTAs. 0 = uncapped.
     owner_cache_gather_reserved_sms: int = 0
-    # Rowwise bit rate the cache is published at (0 = off). When set, every
-    # embedding row written into the cache, and every row restored from a
-    # checkpoint, is stored as the values serving decodes from that publish.
+    # serving_qdq_bit_rate, serving_qdq_group_size, packed_storage and
+    # int8_storage store the enriched rows as RowStoragePolicy(enrichment_dim,
+    # ...) does (row_storage_policy()). KVZCHTBEConfig.row_storage_policy sets
+    # the same storage without enrichment.
     serving_qdq_bit_rate: int = 0
-    # 0: the publish is rowwise (fp16 scale and bias per row). Otherwise the
-    # publish is group-wise INT4 with one float8_e4m3fn scale per this many dims
-    # (fbgemm.FloatOrHalfToGroupedInt4E4M3); requires serving_qdq_bit_rate 4.
     serving_qdq_group_size: int = 0
-    # Store DRAM rows in that group-wise INT4 encoding (dim / 2 code bytes plus
-    # dim / group_size scale bytes) instead of fp16; reads and writes stay
-    # fp16. With SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows,
-    # checkpoints carry these raw rows. Requires serving_qdq_bit_rate 4 and
-    # serving_qdq_group_size 8.
     packed_storage: bool = False
     # Exclusive owner-local cache: a row moved into the HBM cache is dropped
     # from DRAM (only its timestamp stays there), so the HBM budget adds
@@ -381,12 +414,7 @@ class EnrichmentPolicy(NamedTuple):
     # instead of waiting for the next write to warm them; the exclusive cache
     # holds them as their only copy. Requires owner_cache_size_mb.
     owner_cache_write_direct: bool = False
-    # Store DRAM rows as row-wise INT8 (enrichment_dim codes, then fp32 scale
-    # and bias: the INT8 publish row and the owner-local HBM row) instead of
-    # fp16; reads and writes stay fp16. With
-    # SSDTableBatchedEmbeddingBags.set_int8_checkpoint_rows, checkpoints carry
-    # these bytes instead of fp16 rows. Excludes packed_storage and
-    # serving_qdq_bit_rate; needs an enrichment_dim divisible by 4.
+    # See serving_qdq_bit_rate.
     int8_storage: bool = False
 
     # Match the DRAM row format instead of selecting it with owner_cache_int8.
@@ -462,12 +490,27 @@ class EnrichmentPolicy(NamedTuple):
         assert (
             not self.owner_cache_write_direct or self.owner_cache_size_mb > 0
         ), "owner_cache_write_direct requires owner_cache_size_mb"
-        assert not self.int8_storage or (
-            not self.packed_storage and self.serving_qdq_bit_rate == 0
-        ), "int8_storage excludes packed_storage and serving_qdq_bit_rate"
-        assert (
-            not self.int8_storage or self.enrichment_dim % 4 == 0
-        ), f"int8_storage needs an enrichment_dim divisible by 4, actual {self.enrichment_dim}"
+        row_storage_policy = self.row_storage_policy()
+        if row_storage_policy is not None:
+            row_storage_policy.validate()
+
+    def row_storage_policy(self) -> RowStoragePolicy | None:
+        """The storage of the enriched rows its storage fields set, None with all
+        of them off."""
+        if not (
+            self.serving_qdq_bit_rate
+            or self.serving_qdq_group_size
+            or self.packed_storage
+            or self.int8_storage
+        ):
+            return None
+        return RowStoragePolicy(
+            dim=self.enrichment_dim,
+            serving_qdq_bit_rate=self.serving_qdq_bit_rate,
+            serving_qdq_group_size=self.serving_qdq_group_size,
+            packed_storage=self.packed_storage,
+            int8_storage=self.int8_storage,
+        )
 
     def __repr__(self) -> str:
         # The torchrec planner hashes str() of the policy into its context hash
@@ -504,6 +547,17 @@ class KVZCHParams(NamedTuple):
     # Enrichment config for embedding cache enrichment from external sources
     enrichment_policy: EnrichmentPolicy | None = None
     feature_score_collection_enabled: bool = False
+    # How an embedding_cache_mode table stores the rows written into it, with
+    # or without enrichment_policy (whose storage fields it replaces).
+    row_storage_policy: RowStoragePolicy | None = None
+
+    def effective_row_storage_policy(self) -> RowStoragePolicy | None:
+        """row_storage_policy, else the one enrichment_policy's storage fields set."""
+        if self.row_storage_policy is not None:
+            return self.row_storage_policy
+        if self.enrichment_policy is not None:
+            return self.enrichment_policy.row_storage_policy()
+        return None
 
     def validate(self) -> None:
         offsets = self.bucket_offsets if self.bucket_offsets is not None else []
@@ -518,6 +572,15 @@ class KVZCHParams(NamedTuple):
         ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
         if self.enrichment_policy is not None:
             self.enrichment_policy.validate()
+        if self.row_storage_policy is not None:
+            assert (
+                self.embedding_cache_mode
+            ), "row_storage_policy needs embedding_cache_mode"
+            assert (
+                self.enrichment_policy is None
+                or self.enrichment_policy.row_storage_policy() is None
+            ), "set the row storage in row_storage_policy or enrichment_policy, not both"
+            self.row_storage_policy.validate()
 
 
 class KVZCHTBEConfig(NamedTuple):
@@ -554,6 +617,19 @@ class KVZCHTBEConfig(NamedTuple):
     # DRAM usage (GB) above which mem_util (2) triggers. None reuses
     # l2_cache_size, as before.
     eviction_mem_threshold_gb: int | None = None
+    # How the table stores the rows written into it (KVZCHParams).
+    row_storage_policy: RowStoragePolicy | None = None
+
+    def __repr__(self) -> str:
+        # The torchrec planner hashes str() of KeyValueParams, which holds this
+        # config, into its context hash and plan cache key. Leaving an unset
+        # row_storage_policy out keeps both unchanged for configs without one.
+        fields = ", ".join(
+            f"{name}={value!r}"
+            for name, value in self._asdict().items()
+            if not (name == "row_storage_policy" and value is None)
+        )
+        return f"{type(self).__name__}({fields})"
 
 
 class BackendType(enum.IntEnum):

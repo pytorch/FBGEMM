@@ -23,7 +23,7 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.common import get_cache_assoc, pad4
-from fbgemm_gpu.tbe.ssd.ssd_config import EvictionPolicy
+from fbgemm_gpu.tbe.ssd.ssd_config import EvictionPolicy, RowStoragePolicy
 from fbgemm_gpu.tbe.ssd.training import BackendType, KVZCHParams
 from fbgemm_gpu.tbe.utils import round_up
 from hypothesis import given, settings, Verbosity
@@ -2454,6 +2454,66 @@ class SSDCheckpointTest(unittest.TestCase):
             )
             self.assertEqual(keys_out.numel(), E)
             self.assertEqual(sorted(keys_out.flatten().tolist()), list(range(E)))
+
+    def _build_row_storage_tbe(
+        self, ssd_directory: str, row_storage_dim: int
+    ) -> SSDTableBatchedEmbeddingBags:
+        """A DRAM embedding-cache TBE of one 16-dim table with a RowStoragePolicy
+        and no enrichment."""
+        T = 1
+        D = 16
+        E = 100
+        bucket_size = 50
+        kv_zch_params = KVZCHParams(
+            bucket_offsets=[(0, E // bucket_size)] * T,
+            bucket_sizes=[bucket_size] * T,
+            enable_optimizer_offloading=True,
+            embedding_cache_mode=True,
+            backend_return_whole_row=True,
+            eviction_policy=EvictionPolicy(
+                eviction_trigger_mode=0,
+                meta_header_lens=[16 // (SparseType.FP32.bit_rate() // 8)] * T,
+            ),
+            row_storage_policy=RowStoragePolicy(dim=row_storage_dim),
+        )
+        return SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D)] * T,
+            feature_table_map=list(range(T)),
+            ssd_storage_directory=ssd_directory,
+            cache_sets=1,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            weights_precision=SparseType.FP32,
+            kv_zch_params=kv_zch_params,
+            backend_type=BackendType.DRAM,
+        )
+
+    def test_embedding_cache_rejects_a_row_storage_dim_other_than_the_table_dim(
+        self,
+    ) -> None:
+        """The backend lays rows out by the RowStoragePolicy dim, also with no
+        storage format set."""
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            with self.assertRaisesRegex(ValueError, "row storage dim"):
+                self._build_row_storage_tbe(ssd_directory, row_storage_dim=32)
+
+    def test_embedding_cache_with_a_row_storage_policy_is_written_externally(
+        self,
+    ) -> None:
+        """Without enrichment, a RowStoragePolicy table is written from outside the
+        TBE: a flush drops its L1 rows read as all zeros instead of writing them
+        back."""
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            emb = self._build_row_storage_tbe(ssd_directory, row_storage_dim=16)
+            self.assertTrue(emb._external_write_cache)
+            self.assertFalse(emb._enrichment_enabled)
+            # Two occupied L1 slots, the first all zeros.
+            slots = emb.lxu_cache_state.view(-1)
+            slots[:2] = torch.tensor([3, 7], dtype=slots.dtype, device=slots.device)
+            emb.lxu_cache_weights[0] = 0
+            emb.lxu_cache_weights[1] = 0.5
+            emb.flush()
+            self.assertEqual(slots[:2].tolist(), [-1, 7])
 
     def test_dram_ssd_tbe_construction(self) -> None:
         """Test that SSDTableBatchedEmbeddingBags can be constructed with BackendType.DRAM_SSD."""

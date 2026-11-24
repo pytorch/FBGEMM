@@ -59,6 +59,7 @@
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
+#include "row_storage_config.h"
 #include "serving_qdq.h"
 
 namespace kv_db {
@@ -139,6 +140,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// its metadata; in the embedding-cache use case this only happens when a new
   /// embedding is inserted, since the cache never updates an existing
   /// embedding's value. Defaults to false.
+  /// @param row_storage_config how the table stores written rows; without it,
+  /// the storage fields of enrichment_config, if any
   /// @return None
   explicit DramKVEmbeddingCache(
       int64_t max_D,
@@ -163,7 +166,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       std::vector<int64_t> table_sizes = {},
       std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>
           enrichment_config = std::nullopt,
-      bool enable_ssd_backend = false)
+      bool enable_ssd_backend = false,
+      std::optional<c10::intrusive_ptr<kv_mem::RowStorageConfig>>
+          row_storage_config = std::nullopt)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -179,8 +184,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             table_sizes),
         max_D_(max_D),
         num_shards_(num_shards),
-        packed_(packed_layout(max_D, enrichment_config)),
-        int8_(int8_layout(max_D, enrichment_config)),
+        written_row_storage_(
+            written_row_storage(row_storage_config, enrichment_config)),
+        packed_(packed_layout(max_D, written_row_storage_)),
+        int8_(int8_layout(max_D, written_row_storage_)),
         block_size_(row_block_size(max_D, packed_, int8_)),
         block_alignment_(
             FixedBlockPool::calculate_block_alignment<weight_type>()),
@@ -204,9 +211,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // serving ~320k DRAM reads per step is ~1.3M clock calls per step for
     // numbers nobody collects. Default keeps today's behaviour; set
     // KVZCH_SKIP_DRAM_PERF_TIMING=1 to skip.
-    collect_perf_stats_ =
-        std::getenv("KVZCH_SKIP_DRAM_PERF_TIMING") == nullptr ||
-        std::string(std::getenv("KVZCH_SKIP_DRAM_PERF_TIMING")) != "1";
+    const char* const skip_perf_timing =
+        std::getenv("KVZCH_SKIP_DRAM_PERF_TIMING");
+    collect_perf_stats_ = skip_perf_timing == nullptr ||
+        std::string_view(skip_perf_timing) != "1";
     const char* const parallel_shard_input =
         std::getenv("KVZCH_PARALLEL_DRAM_SHARD_INPUT");
     parallel_shard_input_ = parallel_shard_input != nullptr &&
@@ -3370,13 +3378,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
   /// Bytes of an HBM row holding a written row: what DRAM stores for it, in
-  /// the storage format (g8 bytes, INT8 row, or the first enrichment-dim fp16
+  /// the storage format (g8 bytes, INT8 row, or the first row-storage-dim fp16
   /// columns).
   int64_t hbm_written_row_bytes() const {
     if (int8_ || packed_) {
       return raw_hbm_row_bytes();
     }
-    return enrichment_config_.value()->enrichment_dim_ *
+    TORCH_CHECK(
+        written_row_storage_.has_value(),
+        "hbm_written_row_bytes needs a row storage or an enrichment config");
+    return written_row_storage_->dim *
         static_cast<int64_t>(sizeof(weight_type));
   }
 
@@ -3391,8 +3402,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count) const {
     if constexpr (std::is_same_v<weight_type, at::Half>) {
       TORCH_CHECK(
-          enrichment_config_.has_value(), "written rows need enrichment");
-      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+          written_row_storage_.has_value(), "written rows need a row storage");
+      const int64_t dim = written_row_storage_->dim;
       const int64_t n = count.item<int64_t>();
       TORCH_CHECK(
           rows.device().is_cpu() && rows.is_contiguous() &&
@@ -3541,10 +3552,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         "eviction");
     TORCH_CHECK(
         !enrichment_config_.has_value() ||
-            enrichment_config_.value()->enrichment_type_ ==
-                EnrichmentType::IGR_LASER_EMBEDDING ||
-            enrichment_config_.value()->enrichment_type_ ==
-                EnrichmentType::IN_MEMORY_TEST_ONLY,
+            is_embedding_payload(*enrichment_config_.value()),
         "exclusive HBM tier needs an embedding payload");
     TORCH_CHECK(
         cache_state.dim() == 2 && cache_state.size(1) == 1 &&
@@ -3570,9 +3578,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         cache_weights.size(1));
     // fp16 DRAM rows are held as their first `fp16_dim` fp16 columns when the
     // rows are that wide, else as INT8 rows.
-    const int64_t fp16_dim = enrichment_config_.has_value()
-        ? enrichment_config_.value()->enrichment_dim_
-        : max_D_;
+    const int64_t fp16_dim =
+        written_row_storage_.has_value() ? written_row_storage_->dim : max_D_;
     const bool fp16_rows = !packed_ && !int8_ &&
         cache_weights.size(1) ==
             fp16_dim * static_cast<int64_t>(sizeof(weight_type));
@@ -3584,11 +3591,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         "INT8 DRAM and exclusive HBM must hold the same embedding dimension");
     TORCH_CHECK(
         hbm_dim > 0 && hbm_dim <= max_D_ &&
-            (!enrichment_config_.has_value() ||
-             enrichment_config_.value()->enrichment_dim_ <= hbm_dim),
+            (!written_row_storage_.has_value() ||
+             written_row_storage_->dim <= hbm_dim),
         "exclusive HBM rows hold ",
         hbm_dim,
-        " columns, which must cover the enrichment dim and fit max_D ",
+        " columns, which must cover the row storage dim and fit max_D ",
         max_D_);
     TORCH_CHECK(
         last_access.dim() == 1 && last_access.scalar_type() == at::kInt &&
@@ -3937,11 +3944,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       return -1;
     } else {
       const auto format = serving_qdq_format();
+      // Off without a row storage, so written_row_storage_ is set below.
       if (format.bit_rate == 0) {
         return 0;
       }
       const auto start_ts = facebook::WallClockUtil::NowInUsecFast();
-      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+      const int64_t dim = written_row_storage_->dim;
       serving_qdq::check_round_trip_args(dim, format);
       TORCH_CHECK(dim <= max_D_, "serving_qdq dim ", dim, " > max_D ", max_D_);
       std::vector<folly::Future<serving_qdq::Stats>> futures;
@@ -3973,21 +3981,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   using FlatPositions = folly::small_vector<int64_t, 0>;
 
   /// Publish encoding to round-trip rows through; bit_rate 0 means off. Only
-  /// embedding payloads qualify; SID payloads are bit-cast integers.
+  /// embedding payloads qualify (row_storage keeps it off for SID payloads,
+  /// which are bit-cast integers).
   serving_qdq::Format serving_qdq_format() const {
-    if (!enrichment_config_.has_value()) {
-      return {};
-    }
-    const auto& config = *enrichment_config_.value();
-    const bool embedding_payload = config.enrichment_type_ ==
-            kv_mem::EnrichmentType::IGR_LASER_EMBEDDING ||
-        config.enrichment_type_ == kv_mem::EnrichmentType::IN_MEMORY_TEST_ONLY;
-    if (!embedding_payload) {
+    if (!written_row_storage_.has_value()) {
       return {};
     }
     return {
-        static_cast<int>(config.serving_qdq_bit_rate_),
-        config.serving_qdq_group_size_};
+        static_cast<int>(written_row_storage_->serving_qdq_bit_rate),
+        written_row_storage_->serving_qdq_group_size};
   }
 
   /// Round-trips the first `num_rows` rows of a CPU write tensor in place.
@@ -4004,7 +4006,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           weights.data_ptr<at::Half>(),
           num_rows,
           weights.size(1),
-          enrichment_config_.value()->enrichment_dim_,
+          written_row_storage_->dim,
           format);
       if (stats.non_finite > 0 || stats.not_converged > 0) {
         XLOG(WARN) << "[EmbeddingCacheEnrich] serving_qdq " << stats;
@@ -4056,61 +4058,103 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                    : block_size_;
   }
 
-  static std::optional<serving_qdq::Int8Layout> int8_layout(
-      int64_t max_D,
+  static bool is_embedding_payload(const kv_mem::EnrichmentConfig& config) {
+    return config.enrichment_type_ == EnrichmentType::IGR_LASER_EMBEDDING ||
+        config.enrichment_type_ == EnrichmentType::IN_MEMORY_TEST_ONLY;
+  }
+
+  /// How the table stores written rows: row_storage_config, else the storage
+  /// fields of enrichment_config. Only embedding payloads have a publish
+  /// encoding; SID payloads are bit-cast integers, whose packed or INT8 rows
+  /// packed_layout and check_int8_storage_supported refuse.
+  static std::optional<RowStorage> written_row_storage(
+      const std::optional<c10::intrusive_ptr<kv_mem::RowStorageConfig>>&
+          row_storage_config,
       const std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>&
           enrichment_config) {
-    if (!enrichment_config.has_value() ||
-        !enrichment_config.value()->int8_storage_) {
+    if (row_storage_config.has_value()) {
+      const auto& storage = row_storage_config.value()->storage_;
+      if (enrichment_config.has_value()) {
+        const auto& config = *enrichment_config.value();
+        TORCH_CHECK(
+            config.serving_qdq_bit_rate_ == 0 &&
+                config.serving_qdq_group_size_ == 0 &&
+                !config.packed_storage_ && !config.int8_storage_,
+            "row storage is set by both row_storage_config and "
+            "enrichment_config");
+        TORCH_CHECK(
+            storage.dim == config.enrichment_dim_,
+            "row_storage_config dim ",
+            storage.dim,
+            " != enrichment_dim ",
+            config.enrichment_dim_);
+        TORCH_CHECK(
+            is_embedding_payload(config) ||
+                (storage.serving_qdq_bit_rate == 0 && !storage.packed_storage &&
+                 !storage.int8_storage),
+            "row storage formats need an embedding enrichment payload");
+      }
+      return storage;
+    }
+    if (!enrichment_config.has_value()) {
       return std::nullopt;
     }
     const auto& config = *enrichment_config.value();
-    TORCH_CHECK(
-        !config.packed_storage_ && config.serving_qdq_bit_rate_ == 0,
-        "int8_storage excludes packed_storage and serving_qdq_bit_rate, got ",
+    const bool embedding_payload = is_embedding_payload(config);
+    return RowStorage{
+        config.enrichment_dim_,
+        embedding_payload ? config.serving_qdq_bit_rate_ : 0,
+        embedding_payload ? config.serving_qdq_group_size_ : 0,
         config.packed_storage_,
-        " and ",
-        config.serving_qdq_bit_rate_);
+        config.int8_storage_};
+  }
+
+  static std::optional<serving_qdq::Int8Layout> int8_layout(
+      int64_t max_D,
+      const std::optional<RowStorage>& storage) {
+    if (!storage.has_value() || !storage->int8_storage) {
+      return std::nullopt;
+    }
     TORCH_CHECK(
-        config.enrichment_dim_ > 0 && config.enrichment_dim_ % 4 == 0 &&
-            config.enrichment_dim_ <= max_D,
-        "int8_storage needs an enrichment_dim that is a positive multiple of "
+        !storage->packed_storage && storage->serving_qdq_bit_rate == 0,
+        "int8_storage excludes packed_storage and serving_qdq_bit_rate, got ",
+        storage->packed_storage,
+        " and ",
+        storage->serving_qdq_bit_rate);
+    TORCH_CHECK(
+        storage->dim > 0 && storage->dim % 4 == 0 && storage->dim <= max_D,
+        "int8_storage needs a row storage dim that is a positive multiple of "
         "4 and at most max_D ",
         max_D,
         ", got ",
-        config.enrichment_dim_);
-    return serving_qdq::Int8Layout{
-        config.enrichment_dim_, max_D - config.enrichment_dim_};
+        storage->dim);
+    return serving_qdq::Int8Layout{storage->dim, max_D - storage->dim};
   }
 
   static std::optional<serving_qdq::PackedLayout> packed_layout(
       int64_t max_D,
-      const std::optional<c10::intrusive_ptr<kv_mem::EnrichmentConfig>>&
-          enrichment_config) {
-    if (!enrichment_config.has_value() ||
-        !enrichment_config.value()->packed_storage_) {
+      const std::optional<RowStorage>& storage) {
+    if (!storage.has_value() || !storage->packed_storage) {
       return std::nullopt;
     }
-    const auto& config = *enrichment_config.value();
     TORCH_CHECK(
-        config.serving_qdq_bit_rate_ == 4 && config.serving_qdq_group_size_ > 0,
+        storage->serving_qdq_bit_rate == 4 &&
+            storage->serving_qdq_group_size > 0,
         "packed_storage needs serving_qdq_bit_rate 4 and a "
         "serving_qdq_group_size, got ",
-        config.serving_qdq_bit_rate_,
+        storage->serving_qdq_bit_rate,
         " and ",
-        config.serving_qdq_group_size_);
+        storage->serving_qdq_group_size);
     fbgemm_gpu::grouped_int4_e4m3::check_dims(
-        config.enrichment_dim_, config.serving_qdq_group_size_);
+        storage->dim, storage->serving_qdq_group_size);
     TORCH_CHECK(
-        config.enrichment_dim_ <= max_D,
-        "packed_storage enrichment_dim ",
-        config.enrichment_dim_,
+        storage->dim <= max_D,
+        "packed_storage row storage dim ",
+        storage->dim,
         " > max_D ",
         max_D);
     return serving_qdq::PackedLayout{
-        config.enrichment_dim_,
-        config.serving_qdq_group_size_,
-        max_D - config.enrichment_dim_};
+        storage->dim, storage->serving_qdq_group_size, max_D - storage->dim};
   }
 
   static size_t row_block_size(
@@ -4135,10 +4179,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     TORCH_CHECK(
         (std::is_same_v<weight_type, at::Half>),
         "int8_storage needs FP16 weights");
-    const auto type = enrichment_config_.value()->enrichment_type_;
     TORCH_CHECK(
-        type == EnrichmentType::IGR_LASER_EMBEDDING ||
-            type == EnrichmentType::IN_MEMORY_TEST_ONLY,
+        !enrichment_config_.has_value() ||
+            is_embedding_payload(*enrichment_config_.value()),
         "int8_storage needs an embedding enrichment payload");
     TORCH_CHECK(disable_random_init_, "int8_storage needs disable_random_init");
     TORCH_CHECK(
@@ -4162,7 +4205,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         "packed_storage needs FP16 weights");
     TORCH_CHECK(
         serving_qdq_format().group_size > 0,
-        "packed_storage needs an embedding enrichment payload");
+        "packed_storage needs an embedding payload");
     TORCH_CHECK(
         disable_random_init_, "packed_storage needs disable_random_init");
     TORCH_CHECK(
@@ -4789,10 +4832,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       }
       std::fill(dst + hbm_dim, dst + max_D_, weight_type(0));
       const auto format = serving_qdq_format();
+      // Off without a row storage, so written_row_storage_ is set below.
       if (format.bit_rate == 0) {
         return;
       }
-      const int64_t dim = enrichment_config_.value()->enrichment_dim_;
+      const int64_t dim = written_row_storage_->dim;
       thread_local serving_qdq::Scratch scratch;
       const auto result =
           serving_qdq::round_trip_row(dst, dim, format, scratch);
@@ -6985,6 +7029,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   folly::FunctionScheduler scheduler_;
   int64_t max_D_;
   int64_t num_shards_;
+  // How written rows are stored; unset for a table no one writes rows into
+  std::optional<RowStorage> written_row_storage_;
   // Set when rows are stored in their group-wise INT4 publish encoding
   std::optional<serving_qdq::PackedLayout> packed_;
   // Set when rows are stored as row-wise INT8 (int8_storage)

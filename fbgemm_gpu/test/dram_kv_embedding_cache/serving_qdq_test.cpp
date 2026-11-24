@@ -141,9 +141,10 @@ c10::intrusive_ptr<EnrichmentConfig> fake_enrichment_config(
     int64_t serving_qdq_bit_rate,
     int64_t serving_qdq_group_size,
     bool packed_storage = false,
-    bool int8_storage = false) {
+    bool int8_storage = false,
+    EnrichmentType type = EnrichmentType::IN_MEMORY_TEST_ONLY) {
   return c10::make_intrusive<EnrichmentConfig>(
-      static_cast<int64_t>(EnrichmentType::IN_MEMORY_TEST_ONLY),
+      static_cast<int64_t>(type),
       /*provider_name=*/"",
       /*client_id=*/"",
       kDim,
@@ -179,12 +180,30 @@ struct CacheOptions {
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config;
   bool enable_ssd_backend{false};
   bool int8_storage{false};
+  // The storage comes from a RowStorageConfig, with no enrichment config.
+  bool row_storage_config{false};
 };
 
 std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
     int64_t serving_qdq_bit_rate,
     int64_t serving_qdq_group_size = 0,
     const CacheOptions& options = {}) {
+  std::optional<c10::intrusive_ptr<EnrichmentConfig>> enrichment_config;
+  std::optional<c10::intrusive_ptr<RowStorageConfig>> row_storage_config;
+  if (options.row_storage_config) {
+    row_storage_config = c10::make_intrusive<RowStorageConfig>(
+        kDim,
+        serving_qdq_bit_rate,
+        serving_qdq_group_size,
+        options.packed_storage,
+        options.int8_storage);
+  } else {
+    enrichment_config = fake_enrichment_config(
+        serving_qdq_bit_rate,
+        serving_qdq_group_size,
+        options.packed_storage,
+        options.int8_storage);
+  }
   return std::make_shared<DramKVEmbeddingCache<at::Half>>(
       options.max_D,
       /*uniform_init_lower=*/-0.1,
@@ -205,12 +224,9 @@ std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache(
       /*table_names=*/std::vector<std::string>{},
       /*table_offsets=*/std::vector<int64_t>{},
       /*table_sizes=*/std::vector<int64_t>{},
-      fake_enrichment_config(
-          serving_qdq_bit_rate,
-          serving_qdq_group_size,
-          options.packed_storage,
-          options.int8_storage),
-      options.enable_ssd_backend);
+      std::move(enrichment_config),
+      options.enable_ssd_backend,
+      std::move(row_storage_config));
 }
 
 at::Tensor read_rows(
@@ -876,6 +892,129 @@ TEST(PackedStorageTest, UnsupportedConfigsAreRefused) {
       /*embedding_dims=*/std::vector<int64_t>{kPackedMaxD});
   EXPECT_THROW(
       make_packed_cache({.feature_evict_config = l2_config}), c10::Error);
+}
+
+TEST(RowStorageTest, StoresTheBytesOfTheEnrichmentStorageFields) {
+  const auto ids = at::arange(64, at::kLong);
+  const auto rows = fixed_rows_with_tail(64, /*seed=*/60);
+  std::vector<at::Tensor> payloads;
+  for (const bool row_storage_config : {false, true}) {
+    auto cache = make_packed_cache({.row_storage_config = row_storage_config});
+    write_rows(*cache, ids, rows);
+    auto payload = at::zeros({64, cache->hbm_written_row_bytes()}, at::kByte);
+    cache->get_int8_payloads(ids, payload, at::tensor({64}, at::kLong));
+    payloads.push_back(payload);
+  }
+  EXPECT_TRUE(same_bits(payloads[0], payloads[1]));
+  EXPECT_GT(payloads[0].count_nonzero().item<int64_t>(), 0);
+}
+
+TEST(RowStorageTest, RestoredRowsAreRewrittenWithoutEnrichment) {
+  auto cache = make_cache(kBitRate, kGroupSize, {.row_storage_config = true});
+  const auto original = dex_like_rows(256, /*seed=*/61);
+  const auto ids = at::arange(256, at::kLong);
+  folly::coro::blockingWait(
+      cache->set_kv_db_async(ids, original, at::tensor({256}, at::kLong)));
+
+  EXPECT_GT(cache->serving_qdq_existing_rows(), 0);
+  const auto stored = read_rows(*cache, ids);
+  for (int64_t r = 0; r < stored.size(0); ++r) {
+    EXPECT_TRUE(same_bits(
+        row_ptr(stored, r),
+        grouped_fixed_point_ref(row_ptr(original, r)).data(),
+        kDim))
+        << "row " << r;
+  }
+}
+
+std::shared_ptr<DramKVEmbeddingCache<at::Half>> make_cache_with(
+    std::optional<c10::intrusive_ptr<EnrichmentConfig>> enrichment_config,
+    std::optional<c10::intrusive_ptr<RowStorageConfig>> row_storage_config) {
+  return std::make_shared<DramKVEmbeddingCache<at::Half>>(
+      kPackedMaxD,
+      /*uniform_init_lower=*/-0.1,
+      /*uniform_init_upper=*/0.1,
+      /*feature_evict_config=*/std::nullopt,
+      kNumShards,
+      /*num_threads=*/4,
+      /*row_storage_bitwidth=*/16,
+      /*backend_return_whole_row=*/false,
+      /*enable_async_update=*/false,
+      /*table_dims=*/std::nullopt,
+      /*hash_size_cumsum=*/at::tensor({0, 100000}, at::kLong),
+      /*is_training=*/true,
+      /*disable_random_init=*/true,
+      /*enable_raw_embedding_streaming=*/false,
+      /*res_store_shards=*/0,
+      /*res_server_port=*/0,
+      /*table_names=*/std::vector<std::string>{},
+      /*table_offsets=*/std::vector<int64_t>{},
+      /*table_sizes=*/std::vector<int64_t>{},
+      std::move(enrichment_config),
+      /*enable_ssd_backend=*/false,
+      std::move(row_storage_config));
+}
+
+c10::intrusive_ptr<RowStorageConfig> packed_row_storage(int64_t dim) {
+  return c10::make_intrusive<RowStorageConfig>(
+      dim, kBitRate, kGroupSize, /*packed_storage=*/true);
+}
+
+TEST(RowStorageTest, StorageIsSetOnce) {
+  // The enrichment fetch with the storage in its own config.
+  EXPECT_NO_THROW(
+      make_cache_with(fake_enrichment_config(0, 0), packed_row_storage(kDim)));
+  // Both set the storage, or disagree on the row dim.
+  EXPECT_THROW(
+      make_cache_with(
+          fake_enrichment_config(kBitRate, kGroupSize, /*packed_storage=*/true),
+          packed_row_storage(kDim)),
+      c10::Error);
+  EXPECT_THROW(
+      make_cache_with(
+          fake_enrichment_config(0, 0), packed_row_storage(kDim / 2)),
+      c10::Error);
+}
+
+TEST(RowStorageTest, WrittenRowBytesNeedARowStorage) {
+  // The fp16 columns of the row storage dim.
+  EXPECT_EQ(
+      make_cache_with(std::nullopt, c10::make_intrusive<RowStorageConfig>(kDim))
+          ->hbm_written_row_bytes(),
+      kDim * static_cast<int64_t>(sizeof(at::Half)));
+  // No written rows without a row storage or an enrichment config.
+  EXPECT_THROW(
+      make_cache_with(std::nullopt, std::nullopt)->hbm_written_row_bytes(),
+      c10::Error);
+}
+
+TEST(RowStorageTest, SidPayloadsAreNeitherPackedNorInt8) {
+  // SID payloads are bit-cast integers, which neither config may store as
+  // packed or INT8 rows. Embedding payloads may.
+  const auto packed = [](EnrichmentType type) {
+    return make_cache_with(
+        fake_enrichment_config(
+            kBitRate, kGroupSize, /*packed_storage=*/true, false, type),
+        std::nullopt);
+  };
+  const auto int8 = [](EnrichmentType type) {
+    return make_cache_with(
+        fake_enrichment_config(0, 0, false, /*int8_storage=*/true, type),
+        std::nullopt);
+  };
+  const auto row_storage = [](EnrichmentType type) {
+    return make_cache_with(
+        fake_enrichment_config(0, 0, false, false, type),
+        packed_row_storage(kDim));
+  };
+  constexpr auto kSid = EnrichmentType::ONEFLOW_FEATURE_STORE_SID;
+  constexpr auto kEmbedding = EnrichmentType::IN_MEMORY_TEST_ONLY;
+  EXPECT_THROW(packed(kSid), c10::Error);
+  EXPECT_THROW(int8(kSid), c10::Error);
+  EXPECT_THROW(row_storage(kSid), c10::Error);
+  EXPECT_NO_THROW(packed(kEmbedding));
+  EXPECT_NO_THROW(int8(kEmbedding));
+  EXPECT_NO_THROW(row_storage(kEmbedding));
 }
 
 // Throughput of the packed read path; set KVZCH_PACKED_BENCH=1 and build in
