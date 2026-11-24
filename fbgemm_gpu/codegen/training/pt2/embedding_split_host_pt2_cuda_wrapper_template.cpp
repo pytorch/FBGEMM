@@ -18,6 +18,12 @@
         [PT2 wrapper] --Torch dispatch--> [CUDA backend] | <<<
             --kernel dispatch--> [CUDA kernel]           |
 */#}
+{%- if not is_forward %}
+// Per-TU marker for {{ optimizer }}{{ "_ssd" if ssd else "_split" }}. Deprecated
+// optimizers (has_gpu_support=False) render this file empty except for this line;
+// it keeps those TUs byte-distinct so a path-insensitive compiler cache cannot
+// dedup them to one object (which on HIP yields duplicate __hip_cuid symbols).
+{%- endif %}
 {%- if has_gpu_support %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations and dispatchers

@@ -18,6 +18,12 @@
         [PT2 wrapper] --Torch dispatch--> [CPU backend] | <<<
             --Fn call--> [CPU kernel]                   |
 */#}
+{%- if not is_forward %}
+// Per-TU marker for {{ optimizer }}{{ "_ssd" if ssd else "_split" }}. Optimizers
+// without CPU support render this file empty except for this line; it keeps those
+// TUs byte-distinct so a path-insensitive compiler cache cannot dedup them to a
+// single object.
+{%- endif %}
 {%- if has_cpu_support %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations and dispatchers
