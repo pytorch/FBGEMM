@@ -18,4 +18,9 @@ std::vector<at::Tensor> all_to_one_device(
     std::vector<at::Tensor> input_tensors,
     at::Device target_device);
 
+at::Tensor merge_pooled_embeddings(
+    std::vector<at::Tensor> pooled_embeddings,
+    int64_t batch_size,
+    at::Device target_device);
+
 } // namespace fbgemm_gpu
