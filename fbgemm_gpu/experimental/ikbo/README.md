@@ -44,6 +44,25 @@ user_flag = create_user_flag(W_user, E_user)
 output = tlx_ikbo_lce(W_cand, W_user, E_cand, E_user, cand_to_user_index, user_flag)
 ```
 
+### TLX Kernels for Blackwell (sm_100 / sm_103)
+The Hopper TLX kernels above use WGMMA and do not run on Blackwell. The Blackwell kernels use tcgen05 MMA with
+TMEM accumulators and 2-CTA (cta_group::2) tiles:
+```python
+from ikbo.ops.tlx_ikbo_lce_blackwell import tlx_ikbo_lce_blackwell
+output = tlx_ikbo_lce_blackwell(W_cand, W_user, E_cand, E_user, cand_to_user_index)  # N == 256
+```
+The LCE kernel keeps a per-device workspace across calls (no per-call memset); with CUDA graphs, run the largest
+shape eagerly once before capturing.
+
+GB300 (default 1350 W power limit, benchmark inputs below):
+
+| | Blackwell TLX | Triton IKBO | baseline |
+|---|---|---|---|
+| LCE, B=1024, ratio 70 | 185-192 us | 400 us | 310 us (torch decomposed, cuBLAS) |
+
+The kernel runs at the board power limit on GB300, so its time tracks energy per call: it uses ~30% less energy per
+call than the cuBLAS decomposition.
+
 ## Accuracy Testing
 ```bash
 FAST_TUNE=1 python -m pytest tests/ -v
