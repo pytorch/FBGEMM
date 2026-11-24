@@ -156,54 +156,66 @@ def create_request(
     """
     Returns [indices, offsets], which are inputs of embedding bags.
     """
-    indices: Tensor = torch.randint(
-        0, num_embeddings, (num_tables * batch * avg_pooling_factor,), dtype=torch.int32
-    ).cuda()
+    if min(num_tables, num_embeddings, batch, avg_pooling_factor) < 1:
+        raise ValueError(
+            "Request dimensions and average pooling factor must be positive"
+        )
+    target_pooling_sum = num_tables * avg_pooling_factor
+    num_indices = target_pooling_sum * batch
+    if num_indices > torch.iinfo(torch.int32).max:
+        raise ValueError("Request offsets must fit in int32")
 
-    # Pooling factors are intentionally diversified between [1, pf / 2, pf, pf* 2, pf * 4, pf * 8].
-    # where pf == avg_pooling_factor.
-    pooling_factors = []
-    for _ in range(num_tables - 1):
-        half_avg_pooling_factor = avg_pooling_factor // 2
-        if half_avg_pooling_factor > 0:
-            pooling_factors.append(
-                random.choices(
-                    [
-                        1,
-                        half_avg_pooling_factor,
-                        avg_pooling_factor,
-                        2 * avg_pooling_factor,
-                        4 * avg_pooling_factor,
-                        8 * avg_pooling_factor,
-                    ],
-                    weights=[5, 10, 15, 1, 1, 3],
-                )[0]
-            )
-        else:
-            pooling_factors.append(
-                random.choices(
-                    [1, avg_pooling_factor, 2 * avg_pooling_factor], weights=[2, 20, 1]
-                )[0]
-            )
+    max_pooling_factor = 8 * avg_pooling_factor
+    pooling_factors = (
+        [1] * num_tables
+        if avg_pooling_factor == 1
+        else random.choices(
+            [
+                1,
+                avg_pooling_factor // 2,
+                avg_pooling_factor,
+                2 * avg_pooling_factor,
+                4 * avg_pooling_factor,
+                max_pooling_factor,
+            ],
+            weights=[5, 10, 15, 1, 1, 3],
+            k=num_tables,
+        )
+    )
 
-    # Last one is whatever is the remainder.
-    curr_total_pooling_factors = sum(pooling_factors)
-    pooling_factors.append(num_tables * avg_pooling_factor - curr_total_pooling_factors)
+    # Share the adjustment across tables in proportion to the room each has
+    # before hitting the bound. Round cumulative shares to match the budget exactly.
+    sampled_sum = sum(pooling_factors)
+    adjustment = target_pooling_sum - sampled_sum
+    if adjustment != 0:
+        bound = 1 if adjustment < 0 else max_pooling_factor
+        total_room = abs(num_tables * bound - sampled_sum)
+        room = applied = 0
+        for i, factor in enumerate(pooling_factors):
+            room += abs(bound - factor)
+            cumulative = adjustment * room // total_room
+            pooling_factors[i] += cumulative - applied
+            applied = cumulative
 
     offsets_list = [0]
     for pooling_factor in pooling_factors:
-        if pooling_factor == 1:
-            for _ in range(batch):
-                offsets_list.append(pooling_factor)
-        else:
-            finish_offset = offsets_list[-1] + pooling_factor * batch
-            for _ in range(batch - 1):
-                selected = max(
-                    int(random.gauss(pooling_factor, 0.1 * pooling_factor)), 1
+        remaining = pooling_factor * batch
+        for bags_left in range(batch, 1, -1):
+            length = 1
+            if remaining > bags_left:
+                # Leave at least one index for each of the later bags.
+                mean = remaining / bags_left
+                length = min(
+                    max(round(random.gauss(mean, 0.1 * mean)), 1),
+                    remaining - (bags_left - 1),
                 )
-                last_offset = offsets_list[-1]
-                offsets_list.append(last_offset + selected)
-            offsets_list.append(finish_offset)
+            offsets_list.append(offsets_list[-1] + length)
+            remaining -= length
+        offsets_list.append(offsets_list[-1] + remaining)
+
+    indices: Tensor = torch.randint(
+        0, num_embeddings, (num_indices,), dtype=torch.int32
+    ).cuda()
     offsets: Tensor = torch.tensor(offsets_list, dtype=torch.int32).cuda()
     return (indices, offsets)
 
