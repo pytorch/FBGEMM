@@ -1896,12 +1896,15 @@ def vbe(  # noqa: C901
             else nullcontext()
         )
 
+    def concat(tensors: list[torch.Tensor]) -> torch.Tensor:
+        return tensors[0] if len(tensors) == 1 else torch.concat(tensors)
+
     # Combine the requests for all tables by
     requests = [
         (
-            torch.concat(all_requests["indices"][i]),
-            torch.concat(all_requests["offsets"][i]),
-            torch.concat(all_requests["weights"][i]) if weighted else None,
+            concat(all_requests["indices"][i]),
+            concat(all_requests["offsets"][i]),
+            concat(all_requests["weights"][i]) if weighted else None,
         )
         for i in range(benchconfig.iterations)
     ]
