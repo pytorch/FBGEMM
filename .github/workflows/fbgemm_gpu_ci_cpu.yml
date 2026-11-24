@@ -203,6 +203,14 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: ${{ matrix.host-machine.timeout }}
+      env:
+        # Serialize Inductor's C++ compile workers. By default Inductor spawns
+        # one worker per vCPU (16 on these runners), and the torch.compile-heavy
+        # TBE tests blow past the 32 GB RAM on x86 linux.4xlarge (c5.4xlarge),
+        # OOM-killing the runner agent ("lost communication"). The arm
+        # linux.arm64.m7g.4xlarge (64 GB) survives. Capping to 1 keeps peak
+        # memory in budget without changing test coverage or runner cost.
+        TORCHINDUCTOR_COMPILE_THREADS: 1
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Push Wheel to PyPI
