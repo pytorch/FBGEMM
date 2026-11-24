@@ -2154,6 +2154,26 @@ def permute_2d_sparse_data_bench(
     )
 
 
+def _generate_bucketize_lengths(lengths_num: int, indices_num: int) -> list[int]:
+    """Sample nonnegative bag lengths whose sum is exactly indices_num."""
+    avg_len = indices_num // lengths_num
+    lengths = [
+        max(0, int(random.gauss(mu=avg_len, sigma=1.0))) for _ in range(lengths_num)
+    ]
+    sampled_total = sum(lengths)
+    if sampled_total == 0:
+        lengths = [1] * lengths_num
+        sampled_total = lengths_num
+
+    # Rescale the nonnegative draws to the requested total. Carry fractional
+    # remainders between bags so rounding doesn't create one oversized bag.
+    # A random initial remainder avoids systematically favoring later bags.
+    remainder = random.randrange(sampled_total)
+    for i, length in enumerate(lengths):
+        lengths[i], remainder = divmod(length * indices_num + remainder, sampled_total)
+    return lengths
+
+
 @cli.command()
 @click.option("--row-size", default=2560000)
 @click.option("--batch-size", default=2048)
@@ -2194,22 +2214,20 @@ def block_bucketize_sparse_features_bench(
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
 
-    lengths_num = lengths_num // batch_size * (batch_size)
-    assert lengths_num <= indices_num
-    avg_len = indices_num // lengths_num
+    if batch_size <= 0:
+        raise click.BadParameter("must be positive", param_hint="--batch-size")
+    lengths_num = lengths_num // batch_size * batch_size
+    if not 0 < lengths_num <= indices_num:
+        raise click.BadParameter(
+            "after rounding down to a multiple of --batch-size, must be "
+            "positive and no greater than --indices-num",
+            param_hint="--lengths-num",
+        )
     indices = torch.randint(0, row_size, (indices_num,), dtype=dtype)
     weights = torch.randint(0, row_size, (indices_num,), dtype=torch.float)
-    lengths = [0] * lengths_num
-    total = 0
-    for i in range(lengths_num):
-        length = int(random.gauss(mu=avg_len, sigma=1.0))
-        lengths[i] = min(length, indices_num - total)
-        total += lengths[i]
-        if total > indices_num:
-            break
-    if total < indices_num:
-        lengths[-1] += indices_num - total
-    lengths = torch.tensor(lengths, dtype=dtype)
+    lengths = torch.tensor(
+        _generate_bucketize_lengths(lengths_num, indices_num), dtype=dtype
+    )
     bucket_size = math.ceil(row_size / bucket_num)
     block_sizes = torch.tensor([bucket_size] * batch_size, dtype=dtype)
 
