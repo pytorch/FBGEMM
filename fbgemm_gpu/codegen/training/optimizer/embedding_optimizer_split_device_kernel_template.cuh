@@ -21,8 +21,11 @@
 {%- if is_rocm %}
 template<int32_t kThreadGroupSize, typename T>
 DEVICE_INLINE __device__ T subwarp_reduce_add(T value) {
-    static_assert(kThreadGroupSize == 8 || kThreadGroupSize == 16 || kThreadGroupSize == 32 || kThreadGroupSize == 64, "Wavefront size must be 8/16/32/64");
-    if (kThreadGroupSize == 8) {
+    static_assert(kThreadGroupSize == 4 || kThreadGroupSize == 8 || kThreadGroupSize == 16 || kThreadGroupSize == 32 || kThreadGroupSize == 64, "Thread group size must be 4/8/16/32/64");
+    if (kThreadGroupSize == 4) {
+        value += __shfl_xor(value, 1, 4);
+        value += __shfl_xor(value, 2, 4);
+    } else if (kThreadGroupSize == 8) {
         // Reduce across 8 groups of 8 threads
         value += __shfl_xor(value, 1, 8);
         value += __shfl_xor(value, 2, 8);
