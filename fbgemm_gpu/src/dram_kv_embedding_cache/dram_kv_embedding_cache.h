@@ -34,10 +34,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <exception>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <numeric>
 #include <random>
 #include <stdexcept>
@@ -244,6 +246,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
     executor_ =
         std::make_unique<folly::CPUThreadPoolExecutor>(executor_thread_count_);
+    for (int64_t shard_id = 0; shard_id < num_shards_; ++shard_id) {
+      metadata_write_mutexes_.emplace_back();
+    }
     // Dedicated executor for enrichment (low priority, won't affect
     // forward/backward). Only created when enrichment is configured.
     if (enrichment_config.has_value()) {
@@ -846,16 +851,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             hbm_take_tombstone_locked(shard_id, id);
                             local_write_allocate_total_duration +=
                                 perf_now_usec() - before_alloc_ts;
-                            if (is_eviction_enabled()) {
-                              auto* feature_score_evict = dynamic_cast<
-                                  FeatureScoreBasedEvict<weight_type>*>(
-                                  feature_evict_.get());
-                              if (feature_score_evict) {
-                                feature_score_evict
-                                    ->update_feature_score_statistics(
-                                        block, 0, shard_id, true);
-                              }
-                            }
+                            add_new_block_to_feature_score_histogram(
+                                block, shard_id);
                           }
                           if (is_eviction_enabled() &&
                               (w_mode != kv_db::RocksdbWriteMode::STREAM ||
@@ -2074,7 +2071,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                 int64_t local_write_allocate_total_duration = 0;
                 int64_t local_write_lookup_cache_total_duration = 0;
                 int64_t local_write_acquire_lock_duration = 0;
-                int64_t local_write_cache_miss = 0;
+                int64_t local_write_cache_hit = 0;
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_set_kv_feature_score_metadata",
@@ -2088,7 +2085,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                      &local_write_allocate_total_duration,
                      &local_write_lookup_cache_total_duration,
                      &local_write_acquire_lock_duration,
-                     &local_write_cache_miss] {
+                     &local_write_cache_hit] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(engege_rates.is_contiguous());
@@ -2096,45 +2093,72 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       auto indices_data_ptr = indices.const_data_ptr<index_t>();
                       auto engage_rate_ptr =
                           engege_rates.const_data_ptr<float>();
+                      // Hits change only the block's score and the shard
+                      // histogram, so they take the reader lock and leave
+                      // lookups unblocked. The mutex serializes score writes.
+                      std::vector<size_t> missing_indexes;
                       {
-                        auto before_write_lock_ts = perf_now_usec();
-                        auto wlmap = kv_store_.by(shard_id).wlock();
+                        std::scoped_lock score_write_guard(
+                            metadata_write_mutexes_[shard_id]);
+                        auto before_read_lock_ts = perf_now_usec();
+                        auto rlmap = kv_store_.by(shard_id).rlock();
                         local_write_acquire_lock_duration =
-                            perf_now_usec() - before_write_lock_ts;
-                        auto* pool = kv_store_.pool_by(shard_id);
+                            perf_now_usec() - before_read_lock_ts;
 
                         for (const auto& id_index : indexes) {
                           auto id = int64_t(indices_data_ptr[id_index]);
                           float engege_rate = float(engage_rate_ptr[id_index]);
-                          // use mempool
-                          weight_type* block = nullptr;
                           auto before_lookup_cache_ts = perf_now_usec();
-                          auto it = wlmap->find(id);
+                          auto it = rlmap->find(id);
                           local_write_lookup_cache_total_duration +=
                               perf_now_usec() - before_lookup_cache_ts;
-                          if (it != wlmap->end()) {
-                            block = it->second;
+                          if (it != rlmap->end()) {
                             feature_score_evict
                                 ->update_feature_score_statistics(
-                                    block, engege_rate, shard_id, false);
-                            local_write_cache_miss += 1;
+                                    it->second, engege_rate, shard_id, false);
+                            local_write_cache_hit += 1;
+                            updated_id_count++;
+                          } else if (!disable_random_init_) {
+                            // Embedding cache mode creates rows only through
+                            // enrichment writes.
+                            missing_indexes.push_back(id_index);
+                          }
+                        }
+                      }
+
+                      if (!missing_indexes.empty()) {
+                        std::scoped_lock score_write_guard(
+                            metadata_write_mutexes_[shard_id]);
+                        auto before_alloc_ts =
+                            facebook::WallClockUtil::NowInUsecFast();
+                        auto wlmap = kv_store_.by(shard_id).wlock();
+                        auto* pool = kv_store_.pool_by(shard_id);
+
+                        for (const auto& id_index : missing_indexes) {
+                          auto id = int64_t(indices_data_ptr[id_index]);
+                          float engege_rate = float(engage_rate_ptr[id_index]);
+                          // May have been inserted since the reader pass.
+                          auto it = wlmap->find(id);
+                          if (it != wlmap->end()) {
+                            feature_score_evict
+                                ->update_feature_score_statistics(
+                                    it->second, engege_rate, shard_id, false);
+                            local_write_cache_hit += 1;
                           } else {
-                            // Key doesn't exist, allocate new block and
-                            // insert.
-                            auto before_alloc_ts = perf_now_usec();
-                            block = pool->template allocate_t<weight_type>();
+                            weight_type* block =
+                                pool->template allocate_t<weight_type>();
                             FixedBlockPool::set_key(block, id);
                             FixedBlockPool::set_feature_score_rate(
                                 block, engege_rate);
                             wlmap->insert({id, block});
-                            feature_score_evict
-                                ->update_feature_score_statistics(
-                                    block, 0, shard_id, true);
-                            local_write_allocate_total_duration +=
-                                perf_now_usec() - before_alloc_ts;
+                            add_new_block_to_feature_score_histogram(
+                                block, shard_id);
                           }
                           updated_id_count++;
                         }
+                        local_write_allocate_total_duration =
+                            facebook::WallClockUtil::NowInUsecFast() -
+                            before_alloc_ts;
                       }
                     });
                 return std::tuple{
@@ -2142,7 +2166,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                     local_write_allocate_total_duration,
                     local_write_lookup_cache_total_duration,
                     local_write_acquire_lock_duration,
-                    local_write_cache_miss};
+                    local_write_cache_hit};
               }));
     }
     return folly::collect(std::move(futures))
@@ -2159,15 +2183,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           int64_t write_allocate_total_duration = 0;
           int64_t write_lookup_cache_total_duration = 0;
           int64_t write_acquire_lock_total_duration = 0;
-          int64_t write_cache_miss = 0;
+          int64_t write_cache_hit = 0;
           for (
-              const auto& [updated_ids, allocate_dur, lookup_cache_dur, acquire_lock_dur, cache_miss] :
+              const auto& [updated_ids, allocate_dur, lookup_cache_dur, acquire_lock_dur, cache_hit] :
               results) {
             total_updated_ids += updated_ids;
             write_allocate_total_duration += allocate_dur;
             write_lookup_cache_total_duration += lookup_cache_dur;
             write_acquire_lock_total_duration += acquire_lock_dur;
-            write_cache_miss += cache_miss;
+            write_cache_hit += cache_hit;
           }
           auto duration = perf_now_usec() - start_ts;
           metadata_write_total_duration_ += duration;
@@ -2177,8 +2201,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               write_lookup_cache_total_duration / num_shards_;
           metadata_write_acquire_lock_avg_duration_ +=
               write_acquire_lock_total_duration / num_shards_;
-          metadata_write_cache_miss_avg_count_ +=
-              write_cache_miss / num_shards_;
+          metadata_write_cache_hit_avg_count_ += write_cache_hit / num_shards_;
 
           LOG(INFO)
               << "[DRAM KV][Feature Score Eviction]Total updated IDs across all shards: "
@@ -3970,6 +3993,23 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   }
 
  private:
+  // Eviction sizes each round from this histogram, so every path that inserts
+  // a block must count it. Caller holds the shard's writer lock.
+  void add_new_block_to_feature_score_histogram(
+      weight_type* block,
+      int shard_id) {
+    if (!is_eviction_enabled()) {
+      return;
+    }
+    auto* feature_score_evict =
+        dynamic_cast<FeatureScoreBasedEvict<weight_type>*>(
+            feature_evict_.get());
+    if (feature_score_evict) {
+      feature_score_evict->update_feature_score_statistics(
+          block, 0, shard_id, true);
+    }
+  }
+
   using FlatPositions = folly::small_vector<int64_t, 0>;
 
   /// Publish encoding to round-trip rows through; bit_rate 0 means off. Only
@@ -6670,8 +6710,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           metadata_write_lookup_cache_avg_duration_.exchange(reset_val);
       auto metadata_write_acquire_lock_avg_duration =
           metadata_write_acquire_lock_avg_duration_.exchange(reset_val);
-      auto metadata_write_cache_miss_avg_count =
-          metadata_write_cache_miss_avg_count_.exchange(reset_val);
+      auto metadata_write_cache_hit_avg_count =
+          metadata_write_cache_hit_avg_count_.exchange(reset_val);
       auto read_metadata_total_duration =
           read_metadata_total_duration_.exchange(reset_val);
       auto read_metadata_sharding_total_duration =
@@ -6755,7 +6795,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       ret[26] = metadata_write_allocate_avg_duration / d_interval;
       ret[27] = metadata_write_lookup_cache_avg_duration / d_interval;
       ret[28] = metadata_write_acquire_lock_avg_duration / d_interval;
-      ret[29] = metadata_write_cache_miss_avg_count / d_interval;
+      ret[29] = metadata_write_cache_hit_avg_count / d_interval;
 
       ret[30] = read_metadata_total_duration / d_interval;
       ret[31] = read_metadata_sharding_total_duration / d_interval;
@@ -7025,7 +7065,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::atomic<int64_t> metadata_write_allocate_avg_duration_{0};
   std::atomic<int64_t> metadata_write_lookup_cache_avg_duration_{0};
   std::atomic<int64_t> metadata_write_acquire_lock_avg_duration_{0};
-  std::atomic<int64_t> metadata_write_cache_miss_avg_count_{0};
+  std::atomic<int64_t> metadata_write_cache_hit_avg_count_{0};
+
+  // Serializes feature score writes per shard (their hit path holds only the
+  // reader lock). A deque because std::mutex is not movable.
+  std::deque<std::mutex> metadata_write_mutexes_;
 
   std::atomic<int64_t> bwd_l1_cnflct_miss_write_total_duration_{0};
   std::atomic<int64_t> bwd_l1_cnflct_miss_write_allocate_avg_duration_{0};
