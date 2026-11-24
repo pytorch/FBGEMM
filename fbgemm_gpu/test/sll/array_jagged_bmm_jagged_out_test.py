@@ -16,9 +16,9 @@ from .common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 if torch.cuda.is_available():
     from fbgemm_gpu.sll.triton import triton_array_jagged_bmm_jagged_out
@@ -155,7 +155,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),
         D=st.integers(1, 100),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)

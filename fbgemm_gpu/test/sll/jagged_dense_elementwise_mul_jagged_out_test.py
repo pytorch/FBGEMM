@@ -15,9 +15,9 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 
 # pyrefly: ignore [bad-argument-type]
@@ -95,7 +95,7 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
     @given(
         B=st.integers(10, 512),
         L=st.integers(1, 200),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     @settings(deadline=None)
     def test_jagged_dense_elementwise_mul_jagged_out_with_grad(

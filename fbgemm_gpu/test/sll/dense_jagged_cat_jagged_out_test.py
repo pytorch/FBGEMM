@@ -15,9 +15,9 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 
 class DenseJaggedCatJaggedOutTest(unittest.TestCase):
@@ -27,7 +27,7 @@ class DenseJaggedCatJaggedOutTest(unittest.TestCase):
     @given(
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
         enable_pt2=st.sampled_from([True, False]),
     )
     @settings(deadline=None)

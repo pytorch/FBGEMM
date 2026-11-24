@@ -290,6 +290,11 @@ def use_cpu_strategy() -> st.SearchStrategy[bool]:
     )
 
 
+def device_type_strategy() -> st.SearchStrategy[str]:
+    # CPU paths are covered by the CUDA runners, so ROCm only tests the GPU path
+    return st.sampled_from(["cuda"] if TEST_WITH_ROCM else ["cpu", "cuda"])
+
+
 def gpu_memory_lt_gb(x: int) -> tuple[bool, str]:
     assert x > 0, "GB value must be positive"
     return (

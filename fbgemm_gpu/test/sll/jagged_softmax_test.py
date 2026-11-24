@@ -16,9 +16,9 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 
 # pyrefly: ignore [bad-argument-type]
@@ -30,7 +30,7 @@ class JaggedSoftmaxTest(unittest.TestCase):
         N=st.integers(1, 1000),
         H=st.integers(1, 20),
         use_fbgemm_kernel=st.booleans(),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     @settings(deadline=None)
     def test_triton_jagged_softmax(
@@ -96,7 +96,7 @@ class JaggedSoftmaxTest(unittest.TestCase):
         B=st.integers(1, 10),
         N=st.integers(10, 100),
         transpose=st.booleans(),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     @settings(deadline=None)
     def test_triton_jagged2_softmax(

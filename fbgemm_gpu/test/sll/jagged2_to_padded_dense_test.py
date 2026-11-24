@@ -15,9 +15,9 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 
 class Jagged2ToPaddedDenseTest(unittest.TestCase):
@@ -27,7 +27,7 @@ class Jagged2ToPaddedDenseTest(unittest.TestCase):
     @given(
         B=st.integers(1, 10),
         max_L=st.integers(1, 100),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     @settings(deadline=None)
     def test_jagged2_to_padded_dense(

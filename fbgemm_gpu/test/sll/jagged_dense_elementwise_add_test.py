@@ -18,9 +18,9 @@ from .common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import device_type_strategy, gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import device_type_strategy, gpu_unavailable
 
 
 class JaggedDenseElementwiseAddTest(unittest.TestCase):
@@ -30,7 +30,7 @@ class JaggedDenseElementwiseAddTest(unittest.TestCase):
         D=st.integers(1, 100),
         N=st.integers(1, 200),
         use_fbgemm_kernel=st.booleans(),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=device_type_strategy(),
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
