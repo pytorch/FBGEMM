@@ -294,6 +294,23 @@ def generate_indices_uniform(
                 )
             )
         indices = torch.cat(table_indices, dim=1)
+    elif use_variable_L:
+        # 1D layout, where row offsets are determined by L_offsets. Built one
+        # iteration at a time on the CPU (bottom_k_per_row is CPU-only), so
+        # host memory holds one iteration's temporaries instead of all of them.
+        indices = torch.empty(int(L_offsets[-1]), dtype=torch.int32, device=device)
+        for it in range(iters):
+            it_L_offsets = L_offsets[it * total_B : (it + 1) * total_B + 1]
+            it_indices = torch.randint(
+                low=0, high=E, size=(total_B, L), dtype=torch.int32
+            )
+            it_indices = torch.ops.fbgemm.bottom_k_per_row(
+                torch.sort(it_indices).values.to(torch.long),
+                it_L_offsets - it_L_offsets[0],
+                False,
+            )
+            indices[int(it_L_offsets[0]) : int(it_L_offsets[-1])] = it_indices
+        return indices
     else:
         indices = torch.randint(
             low=0,
@@ -304,16 +321,8 @@ def generate_indices_uniform(
         )
     # each bag is usually sorted
     indices, _ = torch.sort(indices)
-    if use_variable_L:
-        # 1D layout, where row offsets are determined by L_offsets
-        indices = torch.ops.fbgemm.bottom_k_per_row(
-            indices.to(torch.long), L_offsets, False
-        )
-        indices = indices.to(device).int()
-    else:
-        # 2D layout
-        indices = indices.reshape(iters, total_B * L)
-    return indices
+    # 2D layout
+    return indices.reshape(iters, total_B * L)
 
 
 def _generate_zipf_indices_single_table(
