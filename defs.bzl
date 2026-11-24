@@ -216,7 +216,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/PackWeightsForConv.cc",
         "src/PackWeightsForDirectConv.cc",
         "src/QuantUtils.cc",
-        "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
         "src/spmmUtils.cc",
         "src/TransposeUtils.cc",
