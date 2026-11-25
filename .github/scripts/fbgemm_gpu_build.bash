@@ -118,6 +118,15 @@ __configure_fbgemm_gpu_build_nvcc () {
     -diag-suppress 20012
   )
 
+  if [[ "${CU_VERSION:-}" == cu13* && "${fbgemm_build_target}" == "default" &&
+        ${cuda_version_arr[0]} -ge 13 && ${CMAKE_BUILD_PARALLEL_LEVEL:-0} -gt 0 ]]; then
+    local nvcc_threads
+    nvcc_threads=$(( $(nproc) / CMAKE_BUILD_PARALLEL_LEVEL ))
+    if [[ "$nvcc_threads" -gt 4 ]]; then nvcc_threads=4; fi
+    if [[ "$nvcc_threads" -lt 1 ]]; then nvcc_threads=1; fi
+    nvcc_prepend_flags+=(--threads="${nvcc_threads}")
+  fi
+
   # NOTE: This check covers both Nova and non-Nova builds, as we set
   # BUILD_CUDA_VERSION to be CU_VERSION in the Nova build case
   if ! [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] && [[ "$BUILD_CUDA_VERSION" != "cu126" ]]; then
