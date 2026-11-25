@@ -15,20 +15,16 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "./FbgemmBuild.h" // @manual
 #include "./Types.h" // @manual
 
-// On x86_64 with F16C support, use hardware VCVTPH2PS / VCVTPS2PH
-// instructions for scalar fp16<->fp32 conversion.
-// - GCC/Clang: __F16C__ is defined by -mf16c or -march=haswell+
-// - MSVC: never defines __F16C__, but /arch:AVX2 implies F16C hardware
-#if !defined(__CUDACC__) && \
-    (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
+#ifdef FBGEMM_HAS_X86F16C
 #include <immintrin.h>
 #endif
 
 namespace fbgemm {
 
-namespace detail {
+namespace detail::inline FBGEMM_ABI_NAMESPACE {
 
 template <
     typename T,
@@ -203,7 +199,9 @@ constexpr typename Tgt::value_type ieee754_trunc(
   return tgt_sign | tgt_exponent | tgt_mantissa;
 }
 
-} // namespace detail
+} // namespace detail::inline FBGEMM_ABI_NAMESPACE
+
+inline namespace FBGEMM_ABI_NAMESPACE {
 
 constexpr float16 cpu_float2half_rn(float f) {
   uint32_t f_u32 = std::bit_cast<uint32_t>(f);
@@ -250,8 +248,7 @@ constexpr float cpu_half2float_ref(const float16 h) {
 
   if (exponent == f16_exponent_mask) { // NaN or Inf
     if (mantissa) {
-      mantissa = f32_mantissa_mask;
-      sign_bit = 0;
+      mantissa |= f32_most_significant_bit;
     }
     exponent = f32_exponent_mask;
   } else if (!exponent) { // Denorm or Zero
@@ -275,33 +272,47 @@ constexpr float cpu_half2float_ref(const float16 h) {
   return std::bit_cast<float>(i);
 }
 
-inline float cpu_half2float(const float16 h) {
-#if defined(__aarch64__) && defined(__clang__)
-  // Only use native __fp16 on ARM, where it emits hardware FCVT instructions.
-  return std::bit_cast<__fp16>(h.val);
-#elif !defined(__CUDACC__) && \
-    (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
+#ifdef FBGEMM_HAS_X86F16C
+inline float cpu_half2float_x86f16c(const float16 h) {
   // Use F16C VCVTPH2PS instruction
   __m128i v = _mm_cvtsi32_si128(static_cast<int>(h.val));
   return _mm_cvtss_f32(_mm_cvtph_ps(v));
+}
+#endif
+
+inline float cpu_half2float(const float16 h) {
+#ifdef FBGEMM_HAS_FLOAT16
+  return std::bit_cast<_Float16>(h.val);
+#elif defined(FBGEMM_HAS_X86F16C)
+  return cpu_half2float_x86f16c(h);
 #else
   return cpu_half2float_ref(h);
 #endif
 }
 
-inline float16 cpu_float2half(const float f) {
-#if defined(__aarch64__) && defined(__clang__)
-  __fp16 h = f;
-  return {std::bit_cast<uint16_t>(h)};
-#elif !defined(__CUDACC__) && \
-    (defined(__F16C__) || (defined(_MSC_VER) && defined(__AVX2__)))
+#ifdef FBGEMM_HAS_X86F16C
+inline float16 cpu_float2half_x86f16c(const float f) {
   // Use F16C VCVTPS2PH instruction
   __m128 v = _mm_set_ss(f);
   return {static_cast<uint16_t>(
       _mm_extract_epi16(_mm_cvtps_ph(v, _MM_FROUND_TO_NEAREST_INT), 0))};
+}
+#endif
+
+inline float16 cpu_float2half(const float f) {
+#ifdef FBGEMM_HAS_FLOAT16
+  return {std::bit_cast<uint16_t>(static_cast<_Float16>(f))};
+#elif defined(FBGEMM_HAS_X86F16C)
+  return cpu_float2half_x86f16c(f);
 #else
   return cpu_float2half_rn(f);
 #endif
+}
+
+constexpr float clipToFloat16Range(float x) {
+  constexpr float FP16_MAX = 65504.f;
+  x = FP16_MAX < x ? FP16_MAX : x;
+  return -FP16_MAX < x ? x : -FP16_MAX;
 }
 
 constexpr float cpu_bf162float(bfloat16 src) {
@@ -310,7 +321,10 @@ constexpr float cpu_bf162float(bfloat16 src) {
 }
 
 constexpr bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp = std::bit_cast<uint32_t>(src);
+  const uint32_t temp = std::bit_cast<uint32_t>(src);
+  if ((temp & 0x7fffffffu) > 0x7f800000u) {
+    return {static_cast<uint16_t>((temp >> 16) | 0x0040u)};
+  }
   return {static_cast<uint16_t>((temp + (1u << 15)) >> 16)};
 }
 
@@ -332,7 +346,9 @@ inline T from_float(float f) {
   }
 }
 
-namespace detail {
+} // namespace FBGEMM_ABI_NAMESPACE
+
+namespace detail::inline FBGEMM_ABI_NAMESPACE {
 constexpr float
 hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
   const uint32_t sign = uint32_t(src & 0x80) << 24;
@@ -340,7 +356,9 @@ hfp8_to_float(uint8_t src, int mantissa_bits, float multiplier) {
   const float value = std::bit_cast<float>(bits) * multiplier;
   return std::bit_cast<float>(std::bit_cast<uint32_t>(value) | sign);
 }
-} // namespace detail
+} // namespace detail::inline FBGEMM_ABI_NAMESPACE
+
+inline namespace FBGEMM_ABI_NAMESPACE {
 
 template <FbgemmFP8Type T>
 constexpr float to_float(T src) {
@@ -391,4 +409,5 @@ OutputType convert_ref(InputType src) {
   }
 }
 
+} // namespace FBGEMM_ABI_NAMESPACE
 } // namespace fbgemm

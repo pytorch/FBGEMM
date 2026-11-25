@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright 2026 Arm Limited and/or its affiliates <open-source-office@arm.com>
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
@@ -41,6 +42,8 @@ function(add_gtest TESTNAME)
     ${ARGN}
     ../bench/BenchUtils.cc
     EmbeddingSpMDMTestUtils.cc
+    PlatformSpecificKernelsTests/Bfloat16ConvertTestUtils.cc
+    PlatformSpecificKernelsTests/Float16ConvertTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
 
@@ -95,13 +98,12 @@ function(add_gtest TESTNAME)
 endfunction()
 
 
-file(GLOB TEST_LIST "*Test.cc")
+file(GLOB TEST_LIST "*Test.cc" "PlatformSpecificKernelsTests/*Test.cc")
 foreach(TEST_FILE ${TEST_LIST})
   # NOTE: Skip tests on ARM for now until linking issues are fixed
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
     if(TEST_FILE MATCHES "GConvTest"
     OR TEST_FILE MATCHES "UniConvTest"
-    OR(TEST_FILE MATCHES "FP16Test.cc$" AND (NOT APPLE))
     OR TEST_FILE MATCHES "I8DepthwiseTest.cc$"
     OR TEST_FILE MATCHES "I8SpmdmTest.cc$"
     OR TEST_FILE MATCHES "I8DirectconvTest.cc$"
@@ -113,6 +115,5 @@ foreach(TEST_FILE ${TEST_LIST})
   message(STATUS "Processing: ${TEST_FILE}")
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
-  get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)
-  add_gtest("${TEST_NAME}" "${TEST_FILE_ONLY}")
+  add_gtest("${TEST_NAME}" "${TEST_FILE}")
 endforeach()

@@ -18,10 +18,15 @@ namespace fbgemm {
 namespace {
 
 inline __m256i QuantizeBfloat16Avx512(const __m512& x0) {
-  // Add 2^15 and right shift 16 to do round-nearest
-  __m512i y0 = _mm512_srli_epi32(
-      _mm512_add_epi32(_mm512_castps_si512(x0), _mm512_set1_epi32(1 << 15)),
-      16);
+  const __m512i bits = _mm512_castps_si512(x0);
+  const __mmask16 nan_mask = _mm512_cmpgt_epi32_mask(
+      _mm512_and_si512(bits, _mm512_set1_epi32(0x7fffffff)),
+      _mm512_set1_epi32(0x7f800000));
+  const __m512i nan =
+      _mm512_or_si512(_mm512_srli_epi32(bits, 16), _mm512_set1_epi32(0x0040));
+  const __m512i rounded =
+      _mm512_srli_epi32(_mm512_add_epi32(bits, _mm512_set1_epi32(1 << 15)), 16);
+  const __m512i y0 = _mm512_mask_mov_epi32(rounded, nan_mask, nan);
   return _mm512_cvtepi32_epi16(y0);
 }
 

@@ -10,6 +10,7 @@
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/dram_kv_embedding_cache.h"
 
 #include <fmt/format.h>
+#include <folly/Synchronized.h>
 #include <folly/system/EnvUtil.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
@@ -24,6 +25,10 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
+#include "caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h"
+#include "servicerouter/client/cpp2/mocks/MockSRClientFactory.h"
+#include "thrift/lib/cpp2/util/ScopedServerInterfaceThread.h"
 
 namespace kv_mem {
 
@@ -1823,5 +1828,194 @@ INSTANTIATE_TEST_SUITE_P(
     [](const ::testing::TestParamInfo<bool>& info) {
       return info.param ? "On" : "Off";
     });
+
+namespace training_ps = aiplatform::gmpp::experimental::training_ps;
+
+// Stands in for the TrainingPs: keeps the ids and rows of every RES request.
+class RecordingTrainingPs : public apache::thrift::ServiceHandler<
+                                training_ps::TrainingParameterServerService> {
+ public:
+  folly::coro::Task<std::unique_ptr<training_ps::SetEmbeddingsResponse>>
+  co_setEmbeddings(
+      std::unique_ptr<training_ps::SetEmbeddingsRequest> request) override {
+    auto received = received_requests_.wlock();
+    received->ids.push_back(
+        torch::distributed::wireLoadTensor(*request->rowIndices()).value());
+    received->rows.push_back(
+        torch::distributed::wireLoadTensor(*request->weights()).value());
+    co_return std::make_unique<training_ps::SetEmbeddingsResponse>();
+  }
+
+  // Returns how many rows arrived once `num_rows` did, or after `timeout`.
+  int64_t wait_for_received_rows(
+      int64_t num_rows,
+      std::chrono::milliseconds timeout = std::chrono::seconds(10)) const {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (num_received_rows() < num_rows &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return num_received_rows();
+  }
+
+  at::Tensor received_ids() const {
+    return at::cat(received_requests_.rlock()->ids);
+  }
+
+  at::Tensor received_rows() const {
+    return at::cat(received_requests_.rlock()->rows);
+  }
+
+ private:
+  int64_t num_received_rows() const {
+    int64_t num_rows = 0;
+    for (const auto& ids : received_requests_.rlock()->ids) {
+      num_rows += ids.numel();
+    }
+    return num_rows;
+  }
+
+  struct ReceivedRequests {
+    std::vector<at::Tensor> ids;
+    std::vector<at::Tensor> rows;
+  };
+  folly::Synchronized<ReceivedRequests> received_requests_;
+};
+
+class RowWriteResTest : public DramKVEmbeddingCacheTest {
+ protected:
+  void SetUp() override {
+    DramKVEmbeddingCacheTest::SetUp();
+    training_ps_server_ =
+        std::make_shared<apache::thrift::ScopedServerInterfaceThread>(
+            training_ps_,
+            "::1",
+            0,
+            facebook::services::TLSConfig::applyDefaultsToThriftServer);
+    facebook::servicerouter::getMockSRClientFactory(false /* strict */)
+        .registerMockService("realtime.delta.publish.esr", training_ps_server_);
+  }
+
+  // RES on for one table over ids [0, 100000), so streamed ids equal cache
+  // ids. KVZCH_ROW_WRITE_RES is read at construction.
+  std::shared_ptr<DramKVEmbeddingCache<float>> makeResCache() {
+    return std::make_shared<DramKVEmbeddingCache<float>>(
+        EMBEDDING_DIM,
+        /*uniform_init_lower=*/-0.1,
+        /*uniform_init_upper=*/0.1,
+        /*feature_evict_config=*/std::nullopt,
+        NUM_SHARDS,
+        /*num_threads=*/4,
+        /*row_storage_bitwidth=*/32,
+        /*backend_return_whole_row=*/false,
+        /*enable_async_update=*/false,
+        /*table_dims=*/std::nullopt,
+        /*hash_size_cumsum=*/at::tensor({0, 100000}, at::kLong),
+        /*is_training=*/true,
+        /*disable_random_init=*/true,
+        /*enable_raw_embedding_streaming=*/true,
+        /*res_store_shards=*/1,
+        /*res_server_port=*/0,
+        /*table_names=*/std::vector<std::string>{"t"},
+        /*table_offsets=*/std::vector<int64_t>{0},
+        /*table_sizes=*/std::vector<int64_t>{0, 100000},
+        makeTestEnrichmentConfig());
+  }
+
+  // A Laser fill always streams with RES on, so its arrival means earlier
+  // row-write streams were queued before it. With several ship threads a late
+  // ship can still land after it, so this can miss a stray stream but never
+  // fails falsely.
+  void waitForLaserSentinel(
+      DramKVEmbeddingCache<float>& cache,
+      int64_t sentinel_id) {
+    set_embedding_cache_enrich_query_id_async(cache, {sentinel_id});
+    ASSERT_GE(training_ps_->wait_for_received_rows(1), 1);
+  }
+
+  void writeRowsAndWait(DramKVEmbeddingCache<float>& cache) {
+    cache.set_embedding_cache_rows_async(
+        row_write_ids_,
+        row_write_rows_,
+        at::tensor({row_write_ids_.size(0)}, at::kLong));
+    cache.wait_row_writes_done();
+  }
+
+  const std::shared_ptr<RecordingTrainingPs> training_ps_ =
+      std::make_shared<RecordingTrainingPs>();
+  std::shared_ptr<apache::thrift::ScopedServerInterfaceThread>
+      training_ps_server_;
+  // 14's row is all zeros; StreamsOnlyStoredNonZeroRows prefills 20.
+  const at::Tensor row_write_ids_ =
+      at::tensor({10, 11, 12, 13, 14, 20}, at::kLong);
+  const at::Tensor row_write_rows_ = at::cat(
+      {at::arange(1, 4 * EMBEDDING_DIM + 1, at::kFloat)
+           .reshape({4, EMBEDDING_DIM}),
+       at::zeros({1, EMBEDDING_DIM}, at::kFloat),
+       at::full({1, EMBEDDING_DIM}, 2.0, at::kFloat)});
+};
+
+// Test: 20 already holds a row, and 14's row is all zeros, so 14 is stored but
+// reads as absent. 14 is an exact-zero input standing in for a row that serving
+// QDQ rounds to all zeros (QDQ only runs on half-precision caches). Only 10-13
+// are streamed.
+TEST_F(RowWriteResTest, StreamsOnlyStoredNonZeroRows) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_ROW_WRITE_RES", "1", /*overwrite=*/1);
+  auto cache = makeResCache();
+  cache
+      ->set_kv_db_async_on_enrichment_executor(
+          at::tensor({20}, at::kLong),
+          at::ones({1, EMBEDDING_DIM}, at::kFloat),
+          at::tensor({1}, at::kLong),
+          cache->laser_write_epoch())
+      .get();
+
+  writeRowsAndWait(*cache);
+
+  ASSERT_EQ(training_ps_->wait_for_received_rows(4), 4);
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_ids(), row_write_ids_.slice(0, 0, 4)));
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_rows(), row_write_rows_.slice(0, 0, 4)));
+  EXPECT_TRUE(hasRow(*cache, 14));
+}
+
+// Test: without KVZCH_ROW_WRITE_RES the row write stores its rows but streams
+// none of them.
+TEST_F(RowWriteResTest, StreamsNoRowWriteByDefault) {
+  folly::test::EnvVarSaver env_saver;
+  unsetenv("KVZCH_ROW_WRITE_RES");
+  auto cache = makeResCache();
+
+  writeRowsAndWait(*cache);
+  waitForLaserSentinel(*cache, /*sentinel_id=*/500);
+
+  EXPECT_TRUE(hasRow(*cache, 10));
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_ids(), at::tensor({500}, at::kLong)));
+}
+
+// Test: the write-side epoch check. A checkpoint load that starts before the
+// write moves the epoch again when it ends, so the write stores nothing and
+// streams nothing.
+TEST_F(RowWriteResTest, StoresAndStreamsNothingWhenACheckpointLoadStartsFirst) {
+  folly::test::EnvVarSaver env_saver;
+  setenv("KVZCH_ROW_WRITE_RES", "1", /*overwrite=*/1);
+  auto cache = makeResCache();
+
+  const auto pause_state = cache->pause_for_stream_write();
+  cache->set_embedding_cache_rows_async(
+      row_write_ids_,
+      row_write_rows_,
+      at::tensor({row_write_ids_.size(0)}, at::kLong));
+  cache->resume_after_stream_write(pause_state);
+  cache->wait_row_writes_done();
+  waitForLaserSentinel(*cache, /*sentinel_id=*/500);
+
+  EXPECT_FALSE(hasRow(*cache, 10));
+  EXPECT_TRUE(
+      at::equal(training_ps_->received_ids(), at::tensor({500}, at::kLong)));
+}
 
 } // namespace kv_mem

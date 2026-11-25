@@ -19,6 +19,7 @@
 #include <mutex>
 #include <tuple>
 #include "./CodeCache.h" // @manual
+#include "./CodeGenHelpers.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
 #include "./EmbeddingSpMDMSve.h"
 #include "./EmbeddingStatsTracker.h"
@@ -410,6 +411,8 @@ GenEmbeddingSpMDMLookup<
         Ymm mask_vreg; // mask for avx2
         Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
         vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
+        vec_reg_t bf16_nan_vreg;
+        vec_reg_t bf16_value_vreg;
 
         if constexpr (is_8bit_in) {
           // We need 2 vec registers for 1. scale 2. bias
@@ -425,9 +428,11 @@ GenEmbeddingSpMDMLookup<
           a->mov(scratchReg2_, 1 << 15);
           a->vpinsrd(ones_vreg.xmm(), ones_vreg.xmm(), scratchReg2_, 0);
           a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
+          bf16_nan_vreg = vec_reg_t(--unroll_factor);
+          bf16_value_vreg = vec_reg_t(--unroll_factor);
         }
 
-        if (is_8bit_in || is_16bit_in ||
+        if (is_bf16_out || is_8bit_in || is_16bit_in ||
             (remainder && instSet == inst_set_t::avx2)) {
           --unroll_factor;
           src_vreg = vec_reg_t(unroll_factor);
@@ -865,13 +870,21 @@ GenEmbeddingSpMDMLookup<
               }
             } else {
               // fp16/bf16 output
+              if constexpr (is_bf16_out) {
+                emitFp32ToBf16<instSet>(
+                    a,
+                    out_vreg,
+                    bf16_nan_vreg,
+                    bf16_value_vreg,
+                    src_vreg,
+                    ones_vreg,
+                    scratchReg2_);
+              }
               if constexpr (instSet == inst_set_t::avx2) {
                 // round nearest with no exception
                 if constexpr (is_fp16_out) {
                   a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
                 } else if constexpr (is_bf16_out) {
-                  a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                  a->vpsrld(out_vreg, out_vreg, 16);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
                 }
@@ -901,8 +914,6 @@ GenEmbeddingSpMDMLookup<
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
                   } else if constexpr (is_bf16_out) {
                     // bf16
-                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   }
                 } else {
@@ -910,8 +921,6 @@ GenEmbeddingSpMDMLookup<
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
                   } else if constexpr (is_bf16_out) {
                     // bf16
-                    a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->vpsrld(out_vreg, out_vreg, 16);
                     a->vpmovdw(dst_addr, out_vreg);
                   }
                 }

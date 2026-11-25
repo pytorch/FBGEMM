@@ -3661,7 +3661,7 @@ def _kernel_quantize_fp8_group(
     scale_row_offset = pid * stride_a_scale_m
     k_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE)
     scale_k_offset = tl.arange(0, GROUP_LOAD)
-    NUM_GROUPS: tl.constexpr = K // GROUP_SIZE
+    NUM_GROUPS: tl.constexpr = tl.cdiv(K, GROUP_SIZE)
 
     # When dealing with an M-major grouped gemm, we need to figure out
     # which group this thread corresponds to and figure out the corresponding

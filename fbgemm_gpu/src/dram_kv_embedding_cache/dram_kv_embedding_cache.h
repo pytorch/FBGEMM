@@ -225,6 +225,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     refresh_timestamp_on_enrich_hit_ =
         is_env_flag_set("KVZCH_REFRESH_TIMESTAMP_ON_ENRICH_HIT");
     restamp_on_restore_ = is_env_flag_set("KVZCH_RESTAMP_ON_RESTORE");
+    stream_trainer_row_writes_ = enable_raw_embedding_streaming_ &&
+        is_env_flag_set("KVZCH_ROW_WRITE_RES");
     if (refresh_timestamp_on_enrich_hit_ || restamp_on_restore_) {
       LOG(INFO) << "KVZCH timestamp refresh on enrich hit: "
                 << refresh_timestamp_on_enrich_hit_
@@ -965,13 +967,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// for thread pool resources. Uses pause/resume to yield to fwd/bwd —
   /// removing this and reusing the main write path causes QPS regression.
   /// With skip_nonzero_rows, a key whose row is already non-zero keeps it.
+  /// written_row_mask, when given, is set true at each position whose row was
+  /// written and its stored row is non-zero (an all-zero row reads as absent).
   folly::SemiFuture<std::vector<folly::Unit>>
   set_kv_db_async_on_enrichment_executor(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
       uint64_t write_epoch,
-      bool skip_nonzero_rows = false) {
+      bool skip_nonzero_rows = false,
+      const std::optional<at::Tensor>& written_row_mask = std::nullopt) {
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
@@ -989,7 +994,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           indices,
                           weights,
                           write_epoch,
-                          skip_nonzero_rows](folly::Unit) {
+                          skip_nonzero_rows,
+                          written_row_mask](folly::Unit) {
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kv_set_laser",
@@ -999,7 +1005,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                      &indices,
                      &weights,
                      write_epoch,
-                     skip_nonzero_rows] {
+                     skip_nonzero_rows,
+                     &written_row_mask] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -1007,6 +1014,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       int64_t stride = weights.size(1);
                       auto indices_data_ptr = indices.data_ptr<index_t>();
                       auto weights_data_ptr = weights.data_ptr<weight_type>();
+                      // Each position belongs to one shard, so shards write
+                      // disjoint flags.
+                      bool* written_row_mask_data_ptr =
+                          written_row_mask.has_value()
+                          ? written_row_mask->mutable_data_ptr<bool>()
+                          : nullptr;
 
                       // Two-level loop like eviction pattern:
                       // Outer loop: check pause/resume
@@ -1072,6 +1085,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 stride);
                             if (enable_ssd_backend_) {
                               pool->set_dirty(block, true);
+                            }
+                            if (written_row_mask_data_ptr != nullptr &&
+                                !FixedBlockPool::is_weights_all_zero(
+                                    block, payload_end_bytes())) {
+                              written_row_mask_data_ptr[id_index] = true;
                             }
                             cursor++;
                             // Check if we should pause and yield lock
@@ -1630,13 +1648,54 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           }
           XLOG(INFO) << "[EmbeddingCacheEnrich] row write: "
                      << count.item<int64_t>() << " rows";
-          return set_kv_db_async_on_enrichment_executor(
-                     indices,
-                     weights,
-                     count,
-                     write_epoch,
-                     /*skip_nonzero_rows=*/true)
-              .via(enrichment_executor_.get());
+          std::optional<at::Tensor> written_row_mask;
+          if (stream_trainer_row_writes_) {
+            written_row_mask = at::zeros({indices.size(0)}, at::kBool);
+          }
+          auto row_write = set_kv_db_async_on_enrichment_executor(
+                               indices,
+                               weights,
+                               count,
+                               write_epoch,
+                               /*skip_nonzero_rows=*/true,
+                               written_row_mask)
+                               .via(enrichment_executor_.get());
+          if (!written_row_mask.has_value()) {
+            return row_write;
+          }
+          // A skipped key keeps its old row, so only written rows are streamed.
+          // Laser writes without skip_nonzero_rows, so a Laser fetch already in
+          // flight can overwrite a key this write filled; a fill-only predictor
+          // can then keep this row, not DRAM's Laser row, until the next full
+          // snapshot.
+          return std::move(row_write).thenValue(
+              [this, indices, weights, written_row_mask, write_epoch](
+                  std::vector<folly::Unit> results) {
+                const auto written_row_positions =
+                    written_row_mask->nonzero().squeeze(1);
+                const auto num_written_rows = written_row_positions.numel();
+                if (num_written_rows == 0) {
+                  return results;
+                }
+                const auto written_indices =
+                    indices.index_select(0, written_row_positions);
+                const auto written_weights =
+                    weights.index_select(0, written_row_positions);
+                if (begin_laser_write(write_epoch)) {
+                  SCOPE_EXIT {
+                    end_laser_write();
+                  };
+                  raw_embedding_streamer_->stream(
+                      written_indices,
+                      written_weights,
+                      std::nullopt, /*identities*/
+                      std::nullopt, /*runtime_meta*/
+                      at::tensor({num_written_rows}, at::kLong),
+                      false, /*require_tensor_copy - tensors already on CPU*/
+                      false /*blocking_tensor_copy*/);
+                }
+                return results;
+              });
         })
         .ensure([this]() { row_write_in_progress_.store(false); });
   }
@@ -3141,6 +3200,59 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
     return sizeof(FixedBlockPool::MetaHeader) +
         serving_qdq::Int8Layout{packed_->dim, packed_->tail}.payload_bytes();
+  }
+
+  /// Raw rows of this table's own format to the [MetaHeader, max_D_] fp16
+  /// rows that read_row_with_metaheader returns for them.
+  at::Tensor decode_raw_rows(const at::Tensor& raw_rows) override {
+    TORCH_CHECK(
+        decodes_raw_rows(),
+        "Only fp16 INT8 or packed g8 DRAM storage decodes its raw rows");
+    TORCH_CHECK(
+        raw_rows.device().is_cpu() && raw_rows.scalar_type() == at::kByte &&
+            raw_rows.dim() == 2 && raw_rows.is_contiguous(),
+        "raw rows must be a contiguous 2D uint8 CPU tensor");
+    const int64_t row_bytes = raw_rows.size(1);
+    TORCH_CHECK(
+        row_bytes == static_cast<int64_t>(payload_end_bytes()),
+        "raw rows must be ",
+        payload_end_bytes(),
+        " bytes wide, got ",
+        row_bytes);
+    constexpr int64_t kMetaBytes = sizeof(FixedBlockPool::MetaHeader);
+    const int64_t meta_dim = FixedBlockPool::get_metaheader_dim<weight_type>();
+    const int64_t width = meta_dim + max_D_;
+    auto out = at::empty({raw_rows.size(0), width}, at::kHalf);
+    if constexpr (std::is_same_v<weight_type, at::Half>) {
+      const auto format = int8_ ? RawRowFormat::kInt8 : RawRowFormat::kPacked;
+      const auto* src = raw_rows.const_data_ptr<uint8_t>();
+      auto* dst = out.data_ptr<at::Half>();
+      for (int64_t i = 0; i < raw_rows.size(0); ++i) {
+        const auto* row = src + i * row_bytes;
+        auto* out_row = dst + i * width;
+        std::memcpy(out_row, row, kMetaBytes);
+        decode_raw_payload(
+            format,
+            row + kMetaBytes,
+            row_bytes - kMetaBytes,
+            out_row + meta_dim);
+      }
+    }
+    return out;
+  }
+
+  /// A packed row kept as fp16 exports a lossy raw row
+  /// (encode_fallback_raw_row) but reads back exactly, so its decode differs
+  /// from the read.
+  std::optional<int64_t> raw_rows_inexact_rows() override {
+    if (!decodes_raw_rows()) {
+      return std::nullopt;
+    }
+    return int8_ ? 0 : packed_fallback_stats()[0];
+  }
+
+  int64_t raw_rows_inexact_writes() const override {
+    return packed_fallback_writes_.load();
   }
 
   /// Names the raw format of the next raw rows loaded ("int8" or "packed"),
@@ -5769,6 +5881,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         static_cast<int64_t>(sizeof(weight_type));
   }
 
+  /// Whether decode_raw_payload decodes this table's raw rows: it writes only
+  /// fp16 rows and unpacks the g8 packed layout.
+  bool decodes_raw_rows() const {
+    return std::is_same_v<weight_type, at::Half> &&
+        (int8_ || (packed_ && packed_->group_size == 8));
+  }
+
   /// Decodes a raw row payload of `payload_bytes` in `format` to max_D_ fp16
   /// columns: the encoded dims, then the fp16 tail columns both rows have;
   /// columns the source lacks are zero.
@@ -6978,6 +7097,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   bool skip_disabled_initializers_{false};
   bool refresh_timestamp_on_enrich_hit_{false};
   bool restamp_on_restore_{false};
+  bool stream_trainer_row_writes_{false};
   // Drops a refresh-only pass while the previous one is still running.
   std::atomic<bool> timestamp_refresh_in_progress_{false};
   std::atomic<int64_t> timestamp_refresh_ids_{0};

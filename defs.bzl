@@ -159,7 +159,7 @@ def oss_ci_compiler_flags():
         })
         + select({
             "DEFAULT": [],
-            "ovr_config//build_mode/constraints:static": ["-DFBGEMM_STATIC"],
+            "ovr_config//build_mode/constraints:default_link_style[static]": ["-DFBGEMM_STATIC"],
         }),
     })
 
@@ -206,7 +206,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/GroupwiseConv.cc",
         "src/GroupwiseConvAcc32Avx2.cc",
         "src/GroupwiseConvAcc32Avx512.cc",
-        "src/InstructionSet.cc",
         "src/PackAMatrix.cc",
         "src/PackAWithIm2Col.cc",
         "src/PackAWithQuantRowOffset.cc",
@@ -216,7 +215,6 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/PackWeightMatrixForGConv.cc",
         "src/PackWeightsForConv.cc",
         "src/PackWeightsForDirectConv.cc",
-        "src/PlatformSpecificKernels.cc",
         "src/QuantUtils.cc",
         "src/RowWiseSparseAdagradFused.cc",
         "src/SparseAdagrad.cc",
@@ -235,6 +233,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmConvert.h",
         "include/fbgemm/FbgemmEmbedding.h",
         "include/fbgemm/detail/EmbeddingSpMDMFP8.h",
+        "include/fbgemm/detail/PlatformSpecificKernelsInterface.h",
         "include/fbgemm/FbgemmFP16.h",
         "include/fbgemm/FbgemmFP32.h",
         "include/fbgemm/FbgemmFPCommon.h",
@@ -259,9 +258,18 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Types.h",
     ]
 
+def get_fbgemm_platform_kernels_dispatch_srcs():
+    return [
+        "src/InstructionSet.cc",
+        "src/PlatformSpecificKernels.cc",
+    ]
+
 def get_fbgemm_platform_kernels_srcs():
     return [
-        "src/isa_specific/FbgemmBfloat16ConvertKernels.cc",
+        "src/isa_specific/FbgemmBfloat16ConvertKernelsAutovectorized.cc",
+        "src/isa_specific/FbgemmBfloat16ConvertKernelsIntrinsics.cc",
+        "src/isa_specific/FbgemmFloat16ConvertKernelsAutovectorized.cc",
+        "src/isa_specific/FbgemmFloat16ConvertKernelsIntrinsics.cc",
         "src/isa_specific/PlatformSpecificKernelsIsa.cc",
     ]
 
@@ -474,7 +482,7 @@ def get_fbgemm_autovec_srcs():
     ]
 
 def get_fbgemm_tests(skip_tests = []):
-    return native.glob(["test/*Test.cc"], exclude = skip_tests)
+    return native.glob(["test/*Test.cc", "test/PlatformSpecificKernelsTests/*Test.cc"], exclude = skip_tests)
 
 def select_fbgemm_codegen_mode(inference, training):
     return select({

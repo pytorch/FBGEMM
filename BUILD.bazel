@@ -5,7 +5,7 @@
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
-load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_inline_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_inline_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers", "get_fbgemm_tests", "get_fbgemm_autovec_srcs", "get_fbgemm_platform_kernels_srcs", "get_fbgemm_platform_kernels_isas", "get_fbgemm_platform_kernels_defines", "get_fbgemm_platform_kernels_flags", "get_fbgemm_avx2_flags", "get_fbgemm_avx512_bf16_flags")
+load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_inline_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_inline_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers", "get_fbgemm_tests", "get_fbgemm_autovec_srcs", "get_fbgemm_platform_kernels_srcs", "get_fbgemm_platform_kernels_isas", "get_fbgemm_platform_kernels_defines", "get_fbgemm_platform_kernels_dispatch_srcs", "get_fbgemm_platform_kernels_flags", "get_fbgemm_avx2_flags", "get_fbgemm_avx512_bf16_flags")
 
 config_setting(
     name = "linux-x86_64",
@@ -58,22 +58,37 @@ cc_library(
         "src",
         "src/fp32",
     ],
-    local_defines = select({
-        ":linux-x86_64": get_fbgemm_platform_kernels_defines(get_fbgemm_platform_kernels_isas("x86_64")),
-    }),
     deps = [
         ":fbgemm_autovec",
         ":fbgemm_base",
         ":fbgemm_headers",
+        ":fbgemm_platform_kernels",
     ]+ select({
         ":linux-x86_64": [
         ":fbgemm_avx2",
         ":fbgemm_inline_avx2",
         ":fbgemm_avx512",
-        ":fbgemm_inline_avx512"] + [
-        ":fbgemm_platform_kernels_" + isa
-        for isa in get_fbgemm_platform_kernels_isas("x86_64")
-    ]}),
+        ":fbgemm_inline_avx512"],
+    }),
+    linkstatic = 1,
+)
+
+cc_library(
+    name = "fbgemm_platform_kernels",
+    srcs = get_fbgemm_platform_kernels_dispatch_srcs(),
+    hdrs = glob(["src/*.h"]),
+    local_defines = select({
+        ":linux-x86_64": get_fbgemm_platform_kernels_defines(get_fbgemm_platform_kernels_isas("x86_64")),
+    }),
+    deps = [
+        ":fbgemm_base",
+        ":fbgemm_headers",
+    ] + select({
+        ":linux-x86_64": [
+            ":fbgemm_platform_kernels_" + isa
+            for isa in get_fbgemm_platform_kernels_isas("x86_64")
+        ],
+    }),
     linkstatic = 1,
 )
 
@@ -192,10 +207,12 @@ cc_library(
 
 cc_library(
     name = "test_utils",
-    hdrs = get_fbgemm_public_headers() + glob(["test/*.h", "bench/*.h"]),
+    hdrs = get_fbgemm_public_headers() + glob(["test/*.h", "test/PlatformSpecificKernelsTests/*.h", "bench/*.h"]),
     srcs = [
         "bench/BenchUtils.cc",
         "test/EmbeddingSpMDMTestUtils.cc",
+        "test/PlatformSpecificKernelsTests/Bfloat16ConvertTestUtils.cc",
+        "test/PlatformSpecificKernelsTests/Float16ConvertTestUtils.cc",
         "test/QuantizationHelpers.cc",
         "test/TestUtils.cc",
     ],

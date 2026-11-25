@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <bit>
 #include <random>
 
 #include <gtest/gtest.h>
@@ -219,6 +220,77 @@ TEST(EmbeddingSpMDMTest, LegacyBfloat16HalfwayRoundingAutovec) {
   }
 #endif
   checkLegacyBfloat16HalfwayRounding(DISPATCH_AUTOVEC);
+}
+
+static void checkBfloat16NaNOutput(EmbeddingSpMDMKernelChoice dispatch) {
+  const vector<uint32_t> bits{
+      0x7fffffff,
+      0xffffffff,
+      0x7f800001,
+      0xff800001,
+      0x3f808000,
+      0xbf808000,
+      0x7f800000,
+      0xff800000};
+  const vector<bfloat16> words{
+      {0x7fff},
+      {0xffff},
+      {0x7fc0},
+      {0xffc0},
+      {0x3f81},
+      {0xbf81},
+      {0x7f80},
+      {0xff80}};
+  const vector<int32_t> indices{0};
+  const vector<int32_t> offsets{0, 1};
+  const vector<float> weights{1.f};
+  ScopedKernelOverride kernel_override(dispatch);
+  vector<int64_t> sizes;
+  for (int64_t i = 1; i <= 33; ++i) {
+    sizes.push_back(i);
+  }
+  sizes.insert(sizes.end(), {63, 64, 65, 127, 128, 129, 513});
+  for (int64_t block_size : sizes) {
+    for (bool weighted : {false, true}) {
+      for (bool normalized : {false, true}) {
+        SCOPED_TRACE(
+            testing::Message() << "block=" << block_size << " weighted="
+                               << weighted << " normalized=" << normalized);
+        vector<float> input(block_size);
+        vector<bfloat16> expected(block_size + 2, bfloat16{0xbeef});
+        auto actual = expected;
+        for (int64_t i = 0; i < block_size; ++i) {
+          input[i] = std::bit_cast<float>(bits[i % bits.size()]);
+          expected[i + 1] = words[i % words.size()];
+        }
+        auto kernel = GenerateEmbeddingSpMDM<float, int32_t, int32_t, bfloat16>(
+            block_size, weighted, normalized, 16, false, true);
+        ASSERT_TRUE(kernel(
+            1,
+            1,
+            1,
+            input.data(),
+            indices.data(),
+            offsets.data(),
+            weighted ? weights.data() : nullptr,
+            actual.data() + 1));
+        EXPECT_EQ(actual, expected);
+      }
+    }
+  }
+}
+
+TEST(EmbeddingSpMDMTest, Bfloat16NaNOutput) {
+  checkBfloat16NaNOutput(DISPATCH_DEFAULT);
+}
+
+TEST(EmbeddingSpMDMTest, Bfloat16NaNOutputAutovec) {
+#if defined(__x86_64__) || defined(_M_X64)
+  if (!fbgemmHasAvx512Support()) {
+    GTEST_SKIP() << "The x86 autovec library requires AVX-512";
+  }
+#endif
+  checkBfloat16NaNOutput(DISPATCH_AUTOVEC);
 }
 
 template <FbgemmFP8Type InType>

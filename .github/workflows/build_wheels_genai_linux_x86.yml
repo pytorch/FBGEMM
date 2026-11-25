@@ -1,14 +1,12 @@
 name: Build FBGEMM GenAI x86 Linux Wheels
 
 on:
+  pull_request:
   push:
     branches:
       - nightly
       - main
     tags:
-      # A pull request opts into the wheel builds with the ciflow/binaries
-      # label, which pushes this tag.
-      - ciflow/binaries/*
       # Release candidate tag look like: v1.11.0-rc1
       - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
       - v[0-9]+.[0-9]+.[0-9]+
@@ -55,9 +53,6 @@ jobs:
       # Nova Coordinate Filters:
       # cuda/11.8: No longer supported in FBGEMM
       # cuda/12.9: No longer supported in PyTorch
-      # cuda 13.2 (cu132), 13.4 (cu134): not supported by FBGEMM yet; validate step
-      #   fails with "Unknown distribution". 13.4 is still on toolkit 13.4.0rc1
-      #   (not GA). Drop until each is supported.
       # rocm/3.13t: causes segfaults at runtime
       #
       # Nova Runner Overrides:
@@ -84,9 +79,18 @@ jobs:
             runner_args=(--runner 'gpu_arch_type:cuda=mt-l-x86aavx2-29-113-l4') ;;
         esac
 
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' --filter 'gpu_arch_version:13.2,13.4' "${runner_args[@]}" )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t,3.14t' "${runner_args[@]}" )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
+    - name: Save the build matrix
+      env:
+        MATRIX_BLOB: ${{ steps.filter.outputs.matrix }}
+      run: printf '%s' "${MATRIX_BLOB}" > build-matrix.json
+    - name: Upload the build matrix
+      uses: actions/upload-artifact@v6
+      with:
+        name: build-matrix
+        path: build-matrix.json
 
   build:
     if: ${{ github.repository_owner == 'pytorch' }}
@@ -109,7 +113,3 @@ jobs:
       # Based on current measurements for CUDA 12.9 workflows, builds take
       # 2.5 hours while tests take 0.1 hours
       timeout: 210
-    secrets:
-      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

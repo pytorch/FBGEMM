@@ -800,15 +800,13 @@ class TestFp8Matmul(unittest.TestCase):
             a_torch = a_fp8.to(torch.float)
 
             # Undo scaling.
-            a_torch = a_torch.view(-1, K // group_size, group_size) * a_scale.unsqueeze(
-                -1
-            )
-            a_torch = a_torch.view(M, K)
+            a_torch = a_torch * a_scale.repeat_interleave(group_size, dim=-1)[:, :K]
 
             self.assertTrue(torch.allclose(a, a_torch, atol=2e-1, rtol=5e-2))
 
         _test_quantize_fp8_group((128, 128), 128)
         _test_quantize_fp8_group((1, 256), 64)
+        _test_quantize_fp8_group((2, 200), 128)
         _test_quantize_fp8_group((2, 384), 128, use_scale_ub=True)
 
     def test_quantize_fp8_block(self) -> None:
