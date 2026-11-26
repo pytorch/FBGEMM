@@ -2098,16 +2098,17 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_kernel(
   float batch_max = 0;
   int32_t batch_size = 0;
   const auto report_batch = [&]() {
-    const auto victim_mask = fbgemm_gpu::ballot_sync(
-        static_cast<int32_t>(lane) < batch_size && batch_victim >= 0);
+    const auto victim_mask = static_cast<unsigned long long>(
+        fbgemm_gpu::ballot_sync(
+            static_cast<int32_t>(lane) < batch_size && batch_victim >= 0));
     int32_t victim_base = 0;
     if (lane == 0 && victim_mask != 0) {
-      victim_base = atomicAdd(victims.count, __popc(victim_mask));
+      victim_base = atomicAdd(victims.count, __popcll(victim_mask));
     }
     victim_base = shfl_sync(victim_base, 0);
     if (static_cast<int32_t>(lane) < batch_size && batch_victim >= 0) {
       const auto position =
-          victim_base + __popc(victim_mask & ((uint32_t{1} << lane) - 1));
+          victim_base + __popcll(victim_mask & ((uint64_t{1} << lane) - 1));
       victims.keys[position] = batch_victim;
       victims.last_access[position] = batch_access;
     }
@@ -2115,9 +2116,9 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_kernel(
       const auto slot = shfl_sync(batch_slot, i);
       const auto n = shfl_sync(batch_n, i);
       auto* const dst = &cache_weights[slot][0];
-      if ((victim_mask & (uint32_t{1} << i)) != 0) {
+      if ((victim_mask & (uint64_t{1} << i)) != 0) {
         const auto position =
-            victim_base + __popc(victim_mask & ((uint32_t{1} << i) - 1));
+            victim_base + __popcll(victim_mask & ((uint64_t{1} << i) - 1));
         auto* const victim_row = reinterpret_cast<uint32_t*>(
             victims.rows + static_cast<int64_t>(position) * row_bytes);
         const auto* const old_row = reinterpret_cast<const uint32_t*>(dst);
