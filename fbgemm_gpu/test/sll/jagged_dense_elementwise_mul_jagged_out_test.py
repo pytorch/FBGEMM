@@ -95,6 +95,7 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
     @given(
         B=st.integers(10, 512),
         L=st.integers(1, 200),
+        strided=st.booleans(),
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
     @settings(deadline=None)
@@ -102,6 +103,7 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
         self,
         B: int,
         L: int,
+        strided: bool,
         device_type: str,
     ) -> None:
         torch.manual_seed(0)
@@ -123,6 +125,8 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
             .requires_grad_(True)
         )
         dense_B = torch.rand((L, L), device=device)
+        if strided:
+            dense_B = dense_B.T
         jagged_A_ref = jagged_A.clone().detach().requires_grad_(True)
 
         # check forward
@@ -150,6 +154,8 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
 
         # check backward
         grad_output = torch.rand(ref.shape, device=device) * 0.01
+        if strided:
+            grad_output = grad_output[:1].expand_as(grad_output)
         ref.backward(grad_output)
         result.backward(grad_output)
 

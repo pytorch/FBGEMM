@@ -30,6 +30,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),
         D=st.integers(1, 100),
+        broadcast=st.booleans(),
     )
     # pyrefly: ignore [bad-argument-type]
     @unittest.skipIf(*gpu_unavailable)
@@ -39,6 +40,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         B: int,
         max_L: int,
         D: int,
+        broadcast: bool,
     ) -> None:
         torch.backends.cudnn.allow_tf32 = False
         torch.backends.cuda.matmul.allow_tf32 = False
@@ -60,6 +62,8 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
         )
 
         array_A = torch.rand(int(lengths_am.sum().item())).cuda() * 0.01
+        if broadcast:
+            array_A = array_A[:1].expand_as(array_A)
         jagged_B = torch.rand(int(lengths_bk.sum().item()), D).cuda()
 
         def ref_array_jagged_bmm_jagged_out(
