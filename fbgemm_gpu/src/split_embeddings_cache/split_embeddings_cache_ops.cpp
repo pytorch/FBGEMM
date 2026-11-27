@@ -79,6 +79,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "get_unique_indices_with_inverse", get_unique_indices_with_inverse_cpu);
 
   DISPATCH_TO_META("linearize_cache_indices", linearize_cache_indices_meta);
+  // The CPU placeholder and CUDA kernel both return empty_like(row_indices).
+  DISPATCH_TO_META(
+      "linearize_cache_indices_from_row_idx",
+      linearize_cache_indices_from_row_idx_cpu);
   DISPATCH_TO_META("lxu_cache_lookup", lxu_cache_lookup_meta);
   DISPATCH_TO_META("get_unique_indices", get_unique_indices_meta);
   DISPATCH_TO_META(
