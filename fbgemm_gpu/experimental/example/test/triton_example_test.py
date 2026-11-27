@@ -12,6 +12,8 @@ import torch
 import triton
 import triton.language as tl
 
+from . import gpu_unavailable
+
 
 @triton.jit
 # fmt: off
@@ -64,11 +66,8 @@ def triton_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return output
 
 
-@unittest.skip(
-    "Example test intermittently fails with the following unknown error: "
-    "SystemError: PY_SSIZE_T_CLEAN macro must be defined for '#' formats",
-)
 class TestTriton(unittest.TestCase):
+    @unittest.skipIf(*gpu_unavailable)
     def test_triton_example(self) -> None:
         size = 98432
         X = torch.rand(size, device="cuda")
