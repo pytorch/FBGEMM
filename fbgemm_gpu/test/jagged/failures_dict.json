@@ -17,12 +17,7 @@
       }
     },
     "fbgemm::expand_into_jagged_permute": {},
-    "fbgemm::get_source_mask": {
-      "GetSourceMaskTest.test_aot_dispatch_dynamic__test_python_wrapper_fx_tracing_and_jit_scripting": {
-        "comment": "Test runs torch.fx.symbolic_trace + torch.jit.script; incompatible with the opcheck aot_dispatch_dynamic harness. Meta impl is correct. T191384137",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::get_source_mask": {},
     "fbgemm::jagged_1d_to_dense": {},
     "fbgemm::jagged_1d_to_truncated_values": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_1d_to_truncated_values": {
