@@ -10,6 +10,7 @@ import logging
 import os
 import unittest
 
+import fbgemm_gpu.sparse_ops  # noqa: F401
 import hypothesis.strategies as st
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
