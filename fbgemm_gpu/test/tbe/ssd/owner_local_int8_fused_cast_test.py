@@ -35,6 +35,7 @@ from fbgemm_gpu.tbe.ssd.utils.partially_materialized_tensor import (
 
 ENV = "TORCHREC_KVZCH_OWNER_LOCAL_CACHE_INT8_FUSED_CAST"
 _HAS_TRITON: bool = importlib.util.find_spec("triton") is not None
+gpu_unavailable: bool = not torch.cuda.is_available()
 # The OSS build has no KV ZCH owner-cache ops or DRAM KV classes.
 _OPEN_SOURCE: bool = getattr(fbgemm_gpu, "open_source", False)
 
@@ -1007,8 +1008,25 @@ class ExclusiveOwnerCacheTest(unittest.TestCase):
                     )
 
     def test_batched_int8_reports_preserve_all_victim_rows(self) -> None:
+        self._check_batched_int8_victim_rows(slots=1 << 18, n=150001)
+
+    @unittest.skipIf(gpu_unavailable, "requires a GPU")
+    def test_batched_int8_reports_preserve_upper_wave_lane_victim_rows(self) -> None:
         device = _cuda_device()
-        slots, n, dim = 1 << 18, 150001, 128
+        # The launch caps its grid at four blocks per SM. A 64-entry batch
+        # per warp exercises victim ballots above lane31 on wave64 GPUs.
+        # Use the maximum supported block width to remain independent of
+        # whether the kernel's launch bound is512 or1024 threads.
+        properties = torch.cuda.get_device_properties(device)
+        arch = properties.gcnArchName.split(":", 1)[0] if torch.version.hip else ""
+        wave_size = 64 if arch in {"gfx942", "gfx950"} else 32
+        n = 4 * properties.multi_processor_count * (1024 // wave_size) * 64 + 1
+        slots = 1 << (2 * n - 1).bit_length()
+        self._check_batched_int8_victim_rows(slots=slots, n=n)
+
+    def _check_batched_int8_victim_rows(self, slots: int, n: int) -> None:
+        device = _cuda_device()
+        dim = 128
         state = _full_owner_cache_tags(slots, device)
         saved_tags = state.clone()
         weights = torch.full((slots, dim + 8), 17, dtype=torch.uint8, device=device)
