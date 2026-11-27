@@ -445,7 +445,15 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(t["w"], (3, 1, 2, 1 / 3))
 
 
-@unittest.skipUnless(_rocm(), "ROCm only")
+@unittest.skipUnless(
+    _rocm()
+    and gate_decision(
+        torch.cuda.get_device_properties(0).gcnArchName,
+        os.environ.get(REQUIRE_ENV, ""),
+    )
+    == "run",
+    f"ROCm {REQUIRED_ARCH} only (or set {REQUIRE_ENV}=1)",
+)
 class BitwiseABTest(unittest.TestCase):
     res: dict = {}
 
