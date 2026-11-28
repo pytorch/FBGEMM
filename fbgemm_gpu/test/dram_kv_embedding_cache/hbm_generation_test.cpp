@@ -1347,6 +1347,24 @@ TEST_P(ServedSnapshotTest, NewIdDeltaWithoutPlannedRowsTakesTheWriteGuard) {
   EXPECT_EQ(delta(make_unplanned_wrapper(staged_), 6), 2);
 }
 
+// An unfilled id of a snapshot is stored as an all-zero row, which a fill-only
+// delta still fills even though the backend reports the key present.
+TEST_P(ServedSnapshotTest, FillWritesStoredZeroRowsOncePerId) {
+  write(full_, 3, 0);
+  const auto rows = at::stack(
+      {at::full({72}, 21, at::kByte),
+       at::full({72}, 21, at::kByte),
+       at::full({72}, 22, at::kByte)});
+
+  EXPECT_EQ(
+      full_->fill_new_embeddings(at::tensor({3, 3, 1}, at::kLong), rows), 1);
+
+  EXPECT_EQ(full_->get_fill_stats(), (std::vector<int64_t>{1, 2}));
+  const auto stored = full_->get_embeddings(at::tensor({3, 1}, at::kLong));
+  EXPECT_TRUE(stored[0].eq(21).all().item<bool>());
+  EXPECT_TRUE(stored[1].eq(10).all().item<bool>());
+}
+
 TEST_P(ServedSnapshotTest, PublicationMakesNewIdVisible) {
   auto snapshot = begin_staged_snapshot();
   write(early_, 1, 10);

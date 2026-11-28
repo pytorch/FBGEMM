@@ -1854,18 +1854,9 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings_with_value_versions(
       epoch);
 }
 
-void DramKVEmbeddingInferenceWrapper::set_embeddings_impl(
-    const at::Tensor& indices,
+at::Tensor DramKVEmbeddingInferenceWrapper::stored_rows(
     const at::Tensor& weights,
-    std::optional<int64_t> inplace_update_ts_opt,
-    const at::Tensor* value_versions,
-    int64_t watermark,
-    int64_t epoch) {
-  const auto binding = backend_binding();
-  TORCH_CHECK(
-      weights.dim() == 2, "Embedding updates must be a two-dimensional tensor");
-  const auto backend_row_bytes =
-      binding.storage_row_bytes.value_or(storage_max_row_bytes_);
+    int64_t backend_row_bytes) const {
   // Loaders targeting CUDA pad rows to 16 bytes, including those of a KV-ZCH
   // GPU serving shard planned with no HBM cache rows; its all-zero padding is
   // not stored. Other wrappers reject the wider rows as on trunk.
@@ -1883,15 +1874,115 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings_impl(
                .any()
                .item<bool>(),
       "Embedding update rows carry non-zero bytes past the KV storage width");
-  const at::Tensor stored_weights = cuda_padded
+  auto stored = cuda_padded
       ? weights.narrow(1, 0, storage_max_row_bytes_).contiguous()
       : weights;
   TORCH_CHECK(
-      stored_weights.size(1) <= storage_max_row_bytes_,
+      stored.size(1) <= storage_max_row_bytes_,
       "Embedding update row is wider than KV storage");
   TORCH_CHECK(
-      stored_weights.size(1) <= backend_row_bytes,
+      stored.size(1) <= backend_row_bytes,
       "Embedding update row is wider than backend storage capacity");
+  return stored;
+}
+
+int64_t DramKVEmbeddingInferenceWrapper::fill_new_embeddings(
+    const at::Tensor& indices,
+    const at::Tensor& weights) {
+  TORCH_CHECK(
+      indices.device().is_cpu() && weights.device().is_cpu(),
+      "Fill-only KV writes take CPU indices and rows");
+  TORCH_CHECK(
+      weights.dim() == 2 && weights.size(0) == indices.numel(),
+      "Fill-only KV writes need one row per index");
+  if (indices.numel() == 0) {
+    return 0;
+  }
+  // The write never touches an HBM cache: absent ids are never admitted to
+  // one.
+  const auto binding = backend_binding();
+  const auto backend_row_bytes =
+      binding.storage_row_bytes.value_or(storage_max_row_bytes_);
+  const auto stored_weights = stored_rows(weights, backend_row_bytes);
+  const auto flat_indices = indices.reshape({-1});
+  // An all-zero row is an unfilled row, as for the HBM cache, which never
+  // admits one: a backend that keeps such a row still counts it absent.
+  at::Tensor absent;
+  if (const auto present = binding.backend->contains_keys(flat_indices)) {
+    absent = present->logical_not();
+    const auto stored = present->nonzero().squeeze(1);
+    if (stored.numel() > 0) {
+      absent.index_copy_(
+          0,
+          stored,
+          get_embeddings_cpu(
+              flat_indices.index_select(0, stored),
+              /*for_cuda=*/false,
+              binding)
+              .eq(0)
+              .all(1));
+    }
+  } else {
+    TORCH_CHECK(
+        binding.backend->missing_rows_are_zero().value_or(disable_random_init_),
+        "Fill-only KV writes need a backend that answers contains_keys or "
+        "returns zero rows for absent ids");
+    absent = get_embeddings_cpu(flat_indices, /*for_cuda=*/false, binding)
+                 .eq(0)
+                 .all(1);
+  }
+  auto positions = absent.nonzero().squeeze(1);
+  if (positions.numel() > 1) {
+    // One row per id: the first of an id repeated in the call.
+    const auto [sorted_keys, order] =
+        flat_indices.index_select(0, positions)
+            .sort(/*stable=*/true, /*dim=*/0, /*descending=*/false);
+    auto first = at::ones_like(sorted_keys, at::kBool);
+    first.narrow(0, 1, first.numel() - 1)
+        .copy_(sorted_keys.narrow(0, 1, sorted_keys.numel() - 1)
+                   .ne(sorted_keys.narrow(0, 0, sorted_keys.numel() - 1)));
+    positions = positions.index_select(0, order.masked_select(first));
+  }
+  const auto num_new = positions.numel();
+  const auto existing = indices.numel() - num_new;
+  fill_existing_rows_ += existing;
+  facebook::fb303::fbData->addStatValue(
+      "fbgemm.kv_fill.existing_rows", existing, facebook::fb303::SUM);
+  if (num_new == 0) {
+    return 0;
+  }
+  const auto keys = flat_indices.index_select(0, positions);
+  auto rows = stored_weights.index_select(0, positions);
+  if (!binding.uses_dram && rows.size(1) < backend_row_bytes) {
+    auto padded = at::zeros({rows.size(0), backend_row_bytes}, rows.options());
+    padded.slice(1, 0, rows.size(1)).copy_(rows);
+    rows = padded;
+  }
+  folly::coro::blockingWait(binding.backend->inference_set_kv_db_async(
+      keys, rows, at::tensor({num_new}, at::ScalarType::Long), std::nullopt));
+  fill_written_rows_ += num_new;
+  facebook::fb303::fbData->addStatValue(
+      "fbgemm.kv_fill.written_rows", num_new, facebook::fb303::SUM);
+  return num_new;
+}
+
+std::vector<int64_t> DramKVEmbeddingInferenceWrapper::get_fill_stats() const {
+  return {fill_written_rows_.load(), fill_existing_rows_.load()};
+}
+
+void DramKVEmbeddingInferenceWrapper::set_embeddings_impl(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    std::optional<int64_t> inplace_update_ts_opt,
+    const at::Tensor* value_versions,
+    int64_t watermark,
+    int64_t epoch) {
+  const auto binding = backend_binding();
+  TORCH_CHECK(
+      weights.dim() == 2, "Embedding updates must be a two-dimensional tensor");
+  const auto backend_row_bytes =
+      binding.storage_row_bytes.value_or(storage_max_row_bytes_);
+  const auto stored_weights = stored_rows(weights, backend_row_bytes);
   const auto count = at::tensor({indices.numel()}, at::ScalarType::Long);
   std::optional<uint32_t> inplacee_update_ts = std::nullopt;
   if (inplace_update_ts_opt.has_value()) {
@@ -2417,6 +2508,12 @@ int64_t DramKVEmbeddingInferenceWrapper::mark_existing_keys(
 
 void DramKVEmbeddingInferenceWrapper::log_inplace_update_stats() {
   backend_binding().backend->log_inplace_update_stats();
+  const auto written = fill_written_rows_.load();
+  const auto existing = fill_existing_rows_.load();
+  if (written + existing > 0) {
+    LOG(INFO) << "[KV fill] this = " << this << " written=" << written
+              << " existing=" << existing;
+  }
 }
 
 std::vector<int64_t>
@@ -2581,6 +2678,12 @@ static auto dram_kv_embedding_inference_wrapper =
                 torch::arg("weights"),
                 torch::arg("inplace_update_ts_opt") = std::nullopt,
             })
+        .def(
+            "fill_new_embeddings",
+            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::fill_new_embeddings)
+        .def(
+            "get_fill_stats",
+            &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::get_fill_stats)
         .def(
             "get_embeddings",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::get_embeddings)

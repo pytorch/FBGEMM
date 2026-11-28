@@ -18,7 +18,10 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
     random_quant_scaled_tensor,
 )
-from fbgemm_gpu.tbe.cache import kv_embedding_ops_inference
+from fbgemm_gpu.tbe.cache import (  # @manual=//deeplearning/fbgemm/fbgemm_gpu:kv_zch_gpu_bucket_wise_embedding  # noqa: B950
+    kv_embedding_ops_inference,
+    kv_zch_gpu_bucket_wise_embedding,
+)
 from fbgemm_gpu.tbe.cache.kv_embedding_ops_inference import (
     _supports_packed_int4_rows,
     KVEmbeddingInference,
@@ -132,7 +135,7 @@ class KVEmbeddingTest(TestCase):
         for name in (
             "zeros_before_kv_init",
             "kv_cuda_row_alignment",
-            "fill_written_rows",
+            "fill_new_embeddings_supported",
         ):
             self.assertFalse(hasattr(kv, name))
         kv.initialize_weights()
@@ -153,6 +156,56 @@ class KVEmbeddingTest(TestCase):
                 kv.embedding_inplace_update_per_table(
                     0, torch.tensor([1, 2]), torch.zeros(rows, 24, dtype=torch.uint8)
                 )
+
+    def test_fill_only_native_capability_is_compiled_out_unless_enabled(self) -> None:
+        # Calls to the native method reach the artifact only for a table
+        # published with fill_new_embeddings_enabled, and only when the native
+        # class has the method (an older predictor's does not).
+        def without_native_fill(obj: object, name: str) -> bool:
+            return name != "fill_new_embeddings" and hasattr(obj, name)
+
+        for enabled, older_native in ((False, False), (True, True), (True, False)):
+            with self.subTest(enabled=enabled, older_native=older_native):
+                with patch.object(
+                    kv_zch_gpu_bucket_wise_embedding,
+                    "hasattr",
+                    without_native_fill if older_native else hasattr,
+                    create=True,
+                ):
+                    kv = KVZCHGPUBucketWiseEmbeddingInference(
+                        [("cu", 16, 16, SparseType.INT8, EmbeddingLocation.HOST)],
+                        pooling_mode=PoolingMode.NONE,
+                        device="cpu",
+                        fill_new_embeddings_enabled=enabled,
+                    )
+                supported = enabled and not older_native
+                self.assertEqual(kv.fill_new_embeddings_supported, supported)
+                kv.initialize_weights()
+                scripted = torch.jit.script(kv)
+                archive = io.BytesIO()
+                torch.jit.save(scripted, archive)
+                archive.seek(0)
+                loaded = torch.jit.load(archive)
+                for module in (scripted, loaded):
+                    self.assertTrue(module._c.hasattr("fill_new_embeddings_supported"))
+                    self.assertEqual(module.fill_new_embeddings_supported, supported)
+                    self.assertEqual(
+                        ".fill_new_embeddings("
+                        in module.embedding_fill_new_rows_per_table.code,
+                        supported,
+                    )
+                    module.initialize_kv_embedding_cache()
+                    module.log_inplace_update_stats()
+                if supported:
+                    continue
+                for module in (kv, scripted, loaded):
+                    with self.assertRaisesRegex(
+                        (RuntimeError, torch.jit.Error),
+                        "require native fill_new_embeddings",
+                    ):
+                        module.embedding_fill_new_rows_per_table(
+                            0, torch.tensor([1]), torch.zeros(1, 20, dtype=torch.uint8)
+                        )
 
     def test_set_device_is_exported(self) -> None:
         kv = KVZCHGPUBucketWiseEmbeddingInference(
@@ -222,6 +275,106 @@ class KVEmbeddingTest(TestCase):
             actual.untyped_storage().nbytes(), indices.numel() * logical_bytes
         )
         self.assertTrue(torch.equal(actual.int_repr(), expected.int_repr()))
+
+    def _fill_only_shard(
+        self, shard_offset: int, module_fn: str = "eager"
+    ) -> tuple[KVZCHGPUBucketWiseEmbeddingInference, torch.Tensor]:
+        """A row-wise shard of 8 INT8 rows starting at global row
+        shard_offset, with zero rows for absent ids, and 8 random rows."""
+        dim, shard_rows = 16, 8
+        specs = [("", shard_rows, dim, SparseType.INT8, EmbeddingLocation.HOST)]
+        baseline = IntNBitTableBatchedEmbeddingBagsCodegen(
+            specs, pooling_mode=PoolingMode.NONE, device="cpu"
+        )
+        baseline.fill_random_weights()
+        rows = baseline.split_embedding_weights(split_scale_shifts=False)[0][0]
+        kv = KVZCHGPUBucketWiseEmbeddingInference(
+            specs,
+            pooling_mode=PoolingMode.NONE,
+            output_dtype=SparseType.FP16,
+            device="cpu",
+            embedding_cache_mode=True,
+            fill_new_embeddings_enabled=True,
+        )
+        if module_fn == "scripted":
+            kv.initialize_weights()
+            # The scripted module exposes the same exported methods.
+            kv = cast(KVZCHGPUBucketWiseEmbeddingInference, torch.jit.script(kv))
+        kv.init_tbe_config([shard_offset])
+        kv.initialize_kv_embedding_cache()
+        return kv, rows
+
+    def _stored(self, kv: KVEmbeddingInference, width: int) -> torch.Tensor:
+        return kv.kv_embedding_cache.get_embeddings(torch.arange(8, dtype=torch.int64))[
+            :, :width
+        ]
+
+    def test_fill_only_delta_writes_only_new_in_shard_rows(self) -> None:
+        for shard_offset in (0, 8):
+            for module_fn in ("eager", "scripted"):
+                with self.subTest(shard_offset=shard_offset, module_fn=module_fn):
+                    kv, rows = self._fill_only_shard(shard_offset, module_fn)
+                    width = rows.size(1)
+                    # The snapshot load already wrote the shard's row 1.
+                    kv.embedding_inplace_update_per_table(
+                        0, torch.tensor([shard_offset + 1]), rows[5:6]
+                    )
+                    # Two rows on each side of the shard, and the whole shard.
+                    ids = torch.arange(shard_offset - 2, shard_offset + 10)
+                    deltas = torch.cat([rows[:2], rows, rows[:2]])
+
+                    kv.embedding_fill_new_rows_per_table(0, ids, deltas)
+
+                    expected = rows.clone()
+                    expected[1] = rows[5]
+                    self.assertTrue(torch.equal(self._stored(kv, width), expected))
+                    self.assertEqual(kv.kv_embedding_cache.get_fill_stats(), [7, 1])
+                    kv.log_inplace_update_stats()
+
+    def test_fill_only_delta_outside_the_shard_writes_nothing(self) -> None:
+        kv, rows = self._fill_only_shard(8)
+        kv.embedding_fill_new_rows_per_table(0, torch.tensor([0, 16]), rows[:2])
+        self.assertEqual(kv.kv_embedding_cache.get_fill_stats(), [0, 0])
+        self.assertTrue(torch.all(self._stored(kv, rows.size(1)) == 0))
+
+    def test_fill_only_delta_writes_zero_rows_and_one_row_per_id(self) -> None:
+        kv, rows = self._fill_only_shard(0)
+        width = rows.size(1)
+        # A snapshot that carried id 2 unfilled stored an all-zero row for it.
+        kv.embedding_inplace_update_per_table(
+            0, torch.tensor([2]), torch.zeros_like(rows[:1])
+        )
+        kv.embedding_fill_new_rows_per_table(
+            0, torch.tensor([2, 3, 3]), torch.stack([rows[2], rows[3], rows[3]])
+        )
+        self.assertTrue(torch.equal(self._stored(kv, width)[2:4], rows[2:4]))
+        self.assertEqual(kv.kv_embedding_cache.get_fill_stats(), [2, 1])
+
+    def test_fill_only_delta_takes_cuda_padded_rows_of_a_gpu_shard(self) -> None:
+        # SparseDelta pads rows to 16 bytes for CUDA modules.
+        kv, _ = self._fill_only_shard(0)
+        cache = kv.kv_embedding_cache
+        width = cache.get_max_row_bytes()
+        padded_width = (width + 15) // 16 * 16
+        self.assertGreater(padded_width, width + 1)
+        rows = torch.randint(1, 255, (2, width), dtype=torch.uint8)
+        padded = torch.zeros(2, padded_width, dtype=torch.uint8)
+        padded[:, :width] = rows
+        # Only a planned KV-ZCH GPU serving shard takes padded rows.
+        with self.assertRaisesRegex(RuntimeError, "wider than KV storage"):
+            cache.fill_new_embeddings(torch.tensor([1]), padded[:1])
+        cache.set_hbm_cache_rows(0)
+        for wider in (width + 1, padded_width - 1, padded_width + 1):
+            with self.assertRaisesRegex(RuntimeError, "wider than KV storage"):
+                cache.fill_new_embeddings(
+                    torch.tensor([1]), torch.zeros(1, wider, dtype=torch.uint8)
+                )
+        tail = padded[:1].clone()
+        tail[0, -1] = 1
+        with self.assertRaisesRegex(RuntimeError, "non-zero bytes past"):
+            cache.fill_new_embeddings(torch.tensor([1]), tail)
+        self.assertEqual(cache.fill_new_embeddings(torch.tensor([1, 4]), padded), 2)
+        self.assertTrue(torch.equal(self._stored(kv, width)[[1, 4]], rows))
 
     def _grouped_int4_module(
         self, pooling_mode: PoolingMode, num_embeddings: int, dim: int, group_size: int
@@ -636,6 +789,7 @@ def _cuda_kv_with_reference(
     weight_ty: SparseType = SparseType.INT8,
     pooling_mode: PoolingMode = PoolingMode.SUM,
     embedding_cache_mode: bool = True,
+    fill_new_embeddings_enabled: bool = False,
 ) -> tuple[
     IntNBitTableBatchedEmbeddingBagsCodegen, KVZCHGPUBucketWiseEmbeddingInference
 ]:
@@ -653,6 +807,7 @@ def _cuda_kv_with_reference(
         output_dtype=SparseType.FP16,
         device="cuda",
         embedding_cache_mode=embedding_cache_mode,
+        fill_new_embeddings_enabled=fill_new_embeddings_enabled,
     )
     kv.initialize_kv_embedding_cache()
     # As the predictor loader does, plan the shard before loading its weights:
@@ -1549,6 +1704,43 @@ class KVEmbeddingCudaTest(TestCase):
                 self.assertGreater(invalidated, 0)
                 cache.get_embeddings(keys)
                 self.assertEqual(cache.get_hbm_cache_stats()[0], hits + 40)
+
+    def test_filled_id_is_served_after_an_absent_lookup(self) -> None:
+        # A lookup of an absent id must not leave anything in HBM that would
+        # shadow the row a later fill-only delta writes to the store.
+        for fused in (False, True):
+            with self.subTest(fused=fused):
+                reference, kv = _cuda_kv_with_reference(
+                    1, 64, self.dim, fill_new_embeddings_enabled=True
+                )
+                absent_id = 40
+                rows = reference.split_embedding_weights(split_scale_shifts=False)[0][
+                    0
+                ].cpu()
+                # The snapshot did not carry absent_id.
+                kv.kv_embedding_cache.set_embeddings(
+                    torch.tensor([absent_id]), torch.zeros_like(rows[:1])
+                )
+                cache = kv.kv_embedding_cache
+                cache.set_hbm_cache_rows(1024)
+                cache.set_hbm_cache_fused_lookup(fused)
+                cache.set_hbm_cache_fused_admission(fused)
+                key = torch.tensor([absent_id]).to(
+                    torch.accelerator.current_accelerator()
+                )
+                self.assertTrue(torch.all(cache.get_embeddings(key) == 0))
+
+                kv.embedding_fill_new_rows_per_table(
+                    0, torch.tensor([absent_id]), rows[absent_id : absent_id + 1]
+                )
+
+                self.assertEqual(kv.kv_embedding_cache.get_fill_stats()[1], 0)
+                served = cache.get_embeddings(key).cpu()
+                self.assertTrue(
+                    torch.equal(
+                        served[:, : rows.size(1)], rows[absent_id : absent_id + 1]
+                    )
+                )
 
     def test_absent_ids_are_not_admitted(self) -> None:
         for fused in (False, True):
