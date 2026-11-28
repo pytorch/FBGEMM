@@ -10,6 +10,7 @@ from functools import partial
 import torch
 import triton
 from ikbo.ops.tlx_ikbo_lce import create_user_flag, tlx_ikbo_lce
+from ikbo.ops.tlx_ikbo_lce_blackwell import tlx_ikbo_lce_blackwell
 from ikbo.ops.torch_lce import torch_decomposed_lce, torch_lce
 from ikbo.ops.triton_ikbo_lce import triton_ikbo_lce
 from torch._inductor.utils import do_bench_using_profiling
@@ -39,6 +40,15 @@ PROVIDER_NAMES = [
     "Opt 3 Kernel Fusion",
     "Opt 4 TLX",
 ]
+IS_BLACKWELL = (
+    torch.cuda.is_available()
+    and torch.version.hip is None
+    and torch.cuda.get_device_capability()[0] == 10
+)
+if IS_BLACKWELL:
+    # The Hopper TLX kernel (WGMMA) does not run on Blackwell; use the Blackwell one.
+    PROVIDERS[-1] = "opt_4_tlx_blackwell"
+    PROVIDER_NAMES[-1] = "Opt 4 TLX Blackwell"
 
 
 def prepare_inputs_by_config(
@@ -146,6 +156,11 @@ def _run_provider(provider, B, num_cands_per_user):
         )
         user_flag = create_user_flag(cw_u, e_u)
         fn = partial(tlx_ikbo_lce, cw_c, cw_u, e_c, e_u, idx, user_flag)
+    elif provider == "opt_4_tlx_blackwell":
+        cw_c, cw_u, e_c, e_u, idx, _, _ = prepare_inputs_by_config(
+            B, M, N, K_USER, K_CAND, **kwargs, pad_k=True
+        )
+        fn = partial(tlx_ikbo_lce_blackwell, cw_c, cw_u, e_c, e_u, idx)
     else:
         return 100
 
