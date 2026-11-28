@@ -32,5 +32,9 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "PaddedFP8RowwiseQuantizedToFloat",
     fbgemm_gpu::_paddedFP8rowwise_to_float_gpu);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "GroupedInt4E4M3ToHalf",
+    fbgemm_gpu::_grouped_int4_e4m3_to_half_gpu);
 FBGEMM_OP_DISPATCH(CUDA, "quantize_mx_cuda", fbgemm_gpu::quantize_mx_cuda);
 FBGEMM_OP_DISPATCH(CUDA, "dequantize_mx_cuda", fbgemm_gpu::dequantize_mx_cuda);
