@@ -16,3 +16,6 @@ Stable API
 
 Other API
 ---------
+
+.. autoclass:: fbgemm_gpu.split_table_batched_embeddings_ops_training.RESParams
+    :members:
