@@ -35,6 +35,28 @@ Tensor asynchronous_exclusive_cumsum_meta(const Tensor& t_in) {
   return at::zeros_symint(t_in.sym_sizes(), t_in.options());
 }
 
+Tensor asynchronous_segmented_complete_cumsum_meta(
+    const Tensor& t_in,
+    c10::SymIntArrayRef segment_sizes) {
+  TORCH_CHECK(t_in.dim() == 1, "t_in must be 1-D, got ", t_in.dim(), "-D");
+  c10::SymInt total_size = 0;
+  for (const auto& size : segment_sizes) {
+    TORCH_SYM_CHECK(size.sym_ge(0), "segment_sizes must be non-negative");
+    TORCH_SYM_CHECK(
+        size.sym_le(t_in.sym_numel() - total_size),
+        "segment_sizes sum to more than the number of elements of t_in");
+    total_size += size;
+  }
+  TORCH_SYM_CHECK(
+      total_size.sym_eq(t_in.sym_numel()),
+      "segment_sizes must sum to the number of elements of t_in");
+  // Sized from segment_sizes (not t_in) so that splitting the output by
+  // [size + 1 for size in segment_sizes] needs no extra shape reasoning.
+  return at::empty_symint(
+      {total_size + static_cast<int64_t>(segment_sizes.size())},
+      t_in.options());
+}
+
 namespace {
 
 Tensor pack_segments_forward_meta(
@@ -139,6 +161,9 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "asynchronous_complete_cumsum",
       TORCH_FN(fbgemm_gpu::asynchronous_complete_cumsum_meta));
+  m.impl(
+      "asynchronous_segmented_complete_cumsum",
+      TORCH_FN(fbgemm_gpu::asynchronous_segmented_complete_cumsum_meta));
   m.impl("offsets_range", TORCH_FN(fbgemm_gpu::offsets_range_meta_symint));
   m.impl(
       "batched_unary_embeddings",

@@ -126,6 +126,60 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
   return asynchronous_complete_cumsum_cpu_out(output, t_in);
 }
 
+int64_t check_segmented_cumsum_inputs(
+    const Tensor& t_in,
+    at::IntArrayRef segment_sizes) {
+  TORCH_CHECK(t_in.dim() == 1, "t_in must be 1-D, got ", t_in.dim(), "-D");
+  const auto numel = t_in.numel();
+  int64_t total_size = 0;
+  for (const auto size : segment_sizes) {
+    TORCH_CHECK(size >= 0, "segment_sizes must be non-negative, got ", size);
+    // Checked before adding, so the sum cannot overflow.
+    TORCH_CHECK(
+        size <= numel - total_size,
+        "segment_sizes sum to more than the ",
+        numel,
+        " elements of t_in");
+    total_size += size;
+  }
+  TORCH_CHECK(
+      total_size == numel,
+      "segment_sizes sum to ",
+      total_size,
+      " but t_in has ",
+      numel,
+      " elements");
+  return total_size;
+}
+
+// Complete cumsum of each segment of a 1-D tensor, concatenated: equivalent to
+// cat([asynchronous_complete_cumsum(s) for s in t_in.split(segment_sizes)]).
+Tensor asynchronous_segmented_complete_cumsum_cpu(
+    const Tensor& t_in,
+    at::IntArrayRef segment_sizes) {
+  TENSOR_ON_CPU(t_in);
+  const auto total_size = check_segmented_cumsum_inputs(t_in, segment_sizes);
+
+  const auto t_in_contig = t_in.expect_contiguous();
+  auto output = at::empty(
+      {total_size + static_cast<int64_t>(segment_sizes.size())},
+      t_in.options());
+
+  FBGEMM_DISPATCH_ALL_TYPES(
+      t_in_contig->scalar_type(),
+      "asynchronous_segmented_complete_cumsum_cpu_kernel",
+      [&] {
+        const auto* in_ptr = t_in_contig->const_data_ptr<scalar_t>();
+        auto* out_ptr = output.mutable_data_ptr<scalar_t>();
+        for (const auto size : segment_sizes) {
+          out_ptr[size] = exclusive_scan_ptrs_cpu(size, in_ptr, out_ptr);
+          in_ptr += size;
+          out_ptr += size + 1;
+        }
+      });
+  return output;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -137,6 +191,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       {PT2_COMPLIANT_TAG});
   m.def(
       "asynchronous_complete_cumsum(Tensor t_in) -> Tensor",
+      {PT2_COMPLIANT_TAG});
+  m.def(
+      "asynchronous_segmented_complete_cumsum(Tensor t_in, SymInt[] segment_sizes) -> Tensor",
       {PT2_COMPLIANT_TAG});
 }
 
@@ -150,4 +207,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "asynchronous_complete_cumsum",
       fbgemm_gpu::asynchronous_complete_cumsum_cpu);
+  DISPATCH_TO_CPU(
+      "asynchronous_segmented_complete_cumsum",
+      fbgemm_gpu::asynchronous_segmented_complete_cumsum_cpu);
 }

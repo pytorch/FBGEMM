@@ -91,6 +91,27 @@ at::Tensor asynchronous_complete_cumsum_cpu_out(
 ///@ingroup sparse-data-cpu
 at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in);
 
+/// Checks the inputs of asynchronous_segmented_complete_cumsum (a 1-D t_in and
+/// non-negative segment_sizes that sum to its length) and returns the sum.
+int64_t check_segmented_cumsum_inputs(
+    const at::Tensor& t_in,
+    at::IntArrayRef segment_sizes);
+
+///@ingroup sparse-data-cpu
+at::Tensor asynchronous_segmented_complete_cumsum_cpu(
+    const at::Tensor& t_in,
+    at::IntArrayRef segment_sizes);
+
+///@ingroup sparse-data-cuda
+at::Tensor asynchronous_segmented_complete_cumsum_gpu(
+    const at::Tensor& t_in,
+    at::IntArrayRef segment_sizes);
+
+///@ingroup sparse-data-cuda
+at::Tensor asynchronous_segmented_complete_cumsum_meta(
+    const at::Tensor& t_in,
+    c10::SymIntArrayRef segment_sizes);
+
 ///@ingroup sparse-data-cuda
 at::Tensor asynchronous_complete_cumsum_meta(const at::Tensor& t_in);
 
