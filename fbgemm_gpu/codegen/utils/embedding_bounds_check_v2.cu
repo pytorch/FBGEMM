@@ -474,11 +474,29 @@ void _bounds_check_indices_cuda_v2(
   auto num_threads = kNumThreads;
   auto thread_group_size = fbgemm_gpu::kWarpSizeHost();
 #ifdef USE_ROCM
+  // rocm vbe uses adaptive threading by default
+  constexpr bool adaptive_vbe = true;
   static const bool adaptive_all = [] {
     const char* v = std::getenv("TBE_ROCM_BOUNDS_CHECK_ADAPTIVE_ALL");
     return v != nullptr && v[0] == '1' && v[1] == '\0';
   }();
-  if ((vbe || adaptive_all) &&
+#else
+  // for nvidia we gate all adaptive threading behind flags
+  static const bool adaptive_vbe = [] {
+    const char* v = std::getenv("TBE_BOUNDS_CHECK_ADAPTIVE_THREADING_VBE");
+    return v != nullptr && v[0] == '1' && v[1] == '\0';
+  }();
+  static const bool adaptive_all = [] {
+    const char* v = std::getenv("TBE_BOUNDS_CHECK_ADAPTIVE_THREADING_ALL");
+    return v != nullptr && v[0] == '1' && v[1] == '\0';
+  }();
+#endif
+  // By default, we use a whole warp (nvda) or wavefront (amd) to process a
+  // single bag. This can be quite inefficient if the bag sizes are very small
+  // on average. Adaptive threading allows kernel to dynamically allocate less
+  // threads when the average bag sizes are small, and vice versa.
+  bool enable_adaptive_threading = (vbe && adaptive_vbe) || adaptive_all;
+  if (enable_adaptive_threading &&
       (bounds_check_mode == BoundsCheckMode::WARNING ||
        bounds_check_mode == BoundsCheckMode::IGNORE)) {
     // Average pooling factor. Integer division, so sparse batches
@@ -493,7 +511,7 @@ void _bounds_check_indices_cuda_v2(
       // block, and a smaller block spreads those groups over more CUs than a
       // 1024-thread block does. Chosen in the same MI350 sweep as the widths.
       num_threads = prefetch_pipeline ? kNumThreads : 256;
-      // No wave-level collectives are used, so one AMD wave can process
+      // No wave-level collectives are used, so one warp or wave can process
       // multiple bags. That holds for WARNING too: its post-loop work is a
       // lone gpuAtomicIncrement, and the kernel's block-wide reduction is
       // compile-time dead in that specialization, so nothing there is tied to
@@ -528,7 +546,6 @@ void _bounds_check_indices_cuda_v2(
       }
     }
   }
-#endif
   auto grid_dim = fbgemm_gpu::utils::cuda::cap_grid_dim_x(
       cuda_calc_xblock_count(total_B, num_threads / thread_group_size),
       num_threads,
