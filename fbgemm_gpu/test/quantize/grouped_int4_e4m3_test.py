@@ -191,13 +191,73 @@ class GroupedInt4E4M3Test(unittest.TestCase):
             )
         )
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Requires CUDA")
+    def test_cuda_decode_matches_cpu_decode(self) -> None:
+        generator = torch.Generator().manual_seed(0)
+        for dim, group_size, padding in ((128, 8, 0), (128, 8, 16), (64, 32, 4)):
+            with self.subTest(dim=dim, group_size=group_size, padding=padding):
+                code_bytes = dim // 2
+                packed = torch.randint(
+                    0,
+                    256,
+                    (1000, code_bytes + dim // group_size + padding),
+                    dtype=torch.uint8,
+                    generator=generator,
+                )
+                # Every scale byte but the two e4m3 NaNs.
+                scales = packed[:, code_bytes : code_bytes + dim // group_size]
+                scales[(scales & 0x7F) == 0x7F] = 0x7E
+                expected = torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                    packed, group_size, dim
+                )
+                for as_bytes in (False, True):
+                    actual = torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                        packed.to(torch.accelerator.current_accelerator()),
+                        group_size,
+                        dim,
+                        as_bytes=as_bytes,
+                    )
+                    self.assertEqual(actual.device.type, "cuda")
+                    if as_bytes:
+                        self.assertEqual(actual.dtype, torch.uint8)
+                        actual = actual.view(torch.float16)
+                    self.assertTrue(same_bits(actual.cpu(), expected))
+                # Rows sliced out of wider rows take the .contiguous() path.
+                wide = torch.zeros(
+                    packed.shape[0], packed.shape[1] + 8, dtype=torch.uint8
+                )
+                wide[:, 4 : 4 + packed.shape[1]] = packed
+                sliced = wide.to(torch.accelerator.current_accelerator())[
+                    :, 4 : 4 + packed.shape[1]
+                ]
+                self.assertFalse(sliced.is_contiguous())
+                self.assertTrue(
+                    same_bits(
+                        torch.ops.fbgemm.GroupedInt4E4M3ToHalf(
+                            sliced, group_size, dim
+                        ).cpu(),
+                        expected,
+                    )
+                )
+        empty = torch.zeros(
+            0, 80, dtype=torch.uint8, device=torch.accelerator.current_accelerator()
+        )
+        self.assertEqual(
+            torch.ops.fbgemm.GroupedInt4E4M3ToHalf(empty, 8, 128).shape, (0, 128)
+        )
+
     def test_rejects_bad_dims(self) -> None:
-        for device in ("cpu", "meta"):
+        devices = ["cpu", "meta"] + (["cuda"] if torch.cuda.is_available() else [])
+        for device in devices:
             with self.subTest(device=device):
-                rows = torch.zeros(2, 12, dtype=torch.float16, device=device)
-                for group_size in (8, 3, 0):
-                    with self.assertRaises(RuntimeError):
-                        torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(rows, group_size)
+                # Encoding has no CUDA kernel.
+                if device != "cuda":
+                    rows = torch.zeros(2, 12, dtype=torch.float16, device=device)
+                    for group_size in (8, 3, 0):
+                        with self.assertRaises(RuntimeError):
+                            torch.ops.fbgemm.FloatOrHalfToGroupedInt4E4M3(
+                                rows, group_size
+                            )
                 packed = torch.zeros(2, 70, dtype=torch.uint8, device=device)
                 for group_size in (8, 0):
                     with self.assertRaises(RuntimeError):
