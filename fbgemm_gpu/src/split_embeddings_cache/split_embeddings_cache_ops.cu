@@ -23,6 +23,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("lfu_cache_populate", lfu_cache_populate_cuda);
   DISPATCH_TO_CUDA("lfu_cache_populate_byte", lfu_cache_populate_byte_cuda);
   DISPATCH_TO_CUDA("lxu_cache_lookup", lxu_cache_lookup_cuda);
+  DISPATCH_TO_CUDA("kv_hbm_cache_lookup", kv_hbm_cache_lookup_cuda);
+  DISPATCH_TO_CUDA("kv_hbm_cache_admit", kv_hbm_cache_admit_cuda);
+  DISPATCH_TO_CUDA(
+      "kv_hbm_cache_lookup_direct", kv_hbm_cache_lookup_direct_cuda);
+  DISPATCH_TO_CUDA("kv_hbm_cache_admit_direct", kv_hbm_cache_admit_direct_cuda);
+  DISPATCH_TO_CUDA("kv_hbm_cache_pad_output", kv_hbm_cache_pad_output_cuda);
   DISPATCH_TO_CUDA(
       "direct_mapped_lxu_cache_lookup", direct_mapped_lxu_cache_lookup_cuda);
   DISPATCH_TO_CUDA("lxu_cache_flush", lxu_cache_flush_cuda);
