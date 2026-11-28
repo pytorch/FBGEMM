@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include "./FbgemmBuild.h" // @manual
+#include "./Types.h" // @manual
 #include "./UtilsAvx2.h" // @manual
 
 /// @defgroup fbgemm-quant-utils-avx2 Quantization Utilities (AVX2)
@@ -66,6 +67,14 @@ void FBGEMM_API FindMinMax(const float* m, float* min, float* max, int64_t len);
 template <typename T = std::uint8_t>
 void QuantizeAvx2(
     const float* src,
+    T* dst,
+    int64_t len,
+    const TensorQuantizationParams& qparams);
+
+template <typename T, FbgemmHalfType InputType>
+  requires(std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t>)
+void QuantizeAvx2(
+    const InputType* src,
     T* dst,
     int64_t len,
     const TensorQuantizationParams& qparams);
