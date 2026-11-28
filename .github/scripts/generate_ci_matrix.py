@@ -289,7 +289,7 @@ class BuildConfigScheme:
             return ["3.14"]
         if self.variant == VARIANT_ROCM and self.jobtype != JOBTYPE_INSTALL:
             return ["3.14"]
-        return ["3.11", "3.12", "3.13", "3.14"]
+        return ["3.11", "3.12", "3.13", "3.14", "3.15"]
 
     def compilers(self) -> list[str]:
         if GitRepo.ref() == REFS_MAIN and GitRepo.event_name() == EVENT_NAME_PUSH:
@@ -391,7 +391,14 @@ class BuildConfigScheme:
             table |= {"rocm-version": self.rocm_versions()}
 
         # Generate the Cartesian product matrix from the table
-        return self._dict_cartesian_product(table)
+        return [
+            entry
+            for entry in self._dict_cartesian_product(table)
+            if not (
+                entry["python-version"] == "3.15"
+                and entry.get("cuda-version") == "12.8.1"
+            )
+        ]
 
 
 def main():

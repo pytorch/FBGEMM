@@ -25,9 +25,13 @@ from .common import open_source
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
+    from test_utils import gpu_unavailable, optests, torch_compile_strategy
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
+    from fbgemm_gpu.test.test_utils import (
+        gpu_unavailable,
+        optests,
+        torch_compile_strategy,
+    )
 
 
 @optests.generate_opcheck_tests()
@@ -62,7 +66,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
                 torch.bfloat16,
             ],
         ),
-        test_compile=st.booleans(),
+        test_compile=torch_compile_strategy(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=max_examples, deadline=None)
     def test_quantize_and_dequantize_op_fp8_rowwise(

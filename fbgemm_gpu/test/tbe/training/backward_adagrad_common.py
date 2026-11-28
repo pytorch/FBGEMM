@@ -53,6 +53,7 @@ if open_source:
         optests,
         skipIfNotRocm,
         TEST_WITH_ROCM,
+        torch_compile_strategy,
         use_cpu_strategy,
     )
 else:
@@ -66,6 +67,7 @@ else:
         optests,
         skipIfNotRocm,
         TEST_WITH_ROCM,
+        torch_compile_strategy,
         use_cpu_strategy,
     )
 

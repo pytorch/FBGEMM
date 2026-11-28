@@ -59,7 +59,8 @@ class GatherScatterTests(unittest.TestCase):
         _test_gather_along_first_dim(255, 129, 2049)
         _test_gather_along_first_dim(255, 129, 2048)
         _test_gather_along_first_dim(1024, 1024, 1024)
-        _test_gather_along_first_dim(1024, 1024, 1024, compile=True)
+        if torch._dynamo.is_dynamo_supported():
+            _test_gather_along_first_dim(1024, 1024, 1024, compile=True)
 
         _test_gather_along_first_dim(1, 1, 5120)
         _test_gather_along_first_dim(128, 128, 5120)

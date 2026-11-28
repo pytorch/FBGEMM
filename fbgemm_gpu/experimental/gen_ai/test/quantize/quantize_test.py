@@ -1155,10 +1155,10 @@ class FP8Tests(unittest.TestCase):
             (torch.ops.fbgemm.quantize_fp8_per_row, (6,)),
         ):
             eager = op(x)
-            compiled = torch.compile(op)(x)
             with self.subTest(op=op):
                 self.assertEqual(eager[1].shape, expected_shape)
-                self.assertEqual(compiled[1].shape, expected_shape)
+                if torch._dynamo.is_dynamo_supported():
+                    self.assertEqual(torch.compile(op)(x)[1].shape, expected_shape)
 
     def test_quantize_fp8_per_row_empty_width(self) -> None:
         # Citrine C3: create the empty input directly on the accelerator.
@@ -1201,7 +1201,11 @@ class FP8Tests(unittest.TestCase):
             ops.append(torch.ops.fbgemm.quantize_fp8_per_col)
 
         for op in ops:
-            for candidate in (op, torch.compile(op)):
+            for candidate in (
+                (op, torch.compile(op))
+                if torch._dynamo.is_dynamo_supported()
+                else (op,)
+            ):
                 with self.subTest(op=op, candidate=candidate):
                     with self.assertRaisesRegex(RuntimeError, "dim.*2 or 3"):
                         candidate(rank_four)
@@ -1216,7 +1220,11 @@ class FP8Tests(unittest.TestCase):
             torch.ops.fbgemm.quantize_fp8_per_tensor,
             torch.ops.fbgemm.quantize_fp8_per_row,
         ):
-            for candidate in (op, torch.compile(op)):
+            for candidate in (
+                (op, torch.compile(op))
+                if torch._dynamo.is_dynamo_supported()
+                else (op,)
+            ):
                 with self.subTest(op=op, candidate=candidate):
                     with self.assertRaisesRegex(RuntimeError, "multiple of 4"):
                         candidate(stochastic_width, stochastic_rounding=True)
@@ -1742,12 +1750,12 @@ class FP8Tests(unittest.TestCase):
         invalid_dtype_input = torch.ones(
             2, 128, dtype=torch.bfloat16, device=self.device
         )
-        for op in (
-            torch.ops.fbgemm.quantize_fp8_per_row,
-            torch.compile(torch.ops.fbgemm.quantize_fp8_per_row),
+        op = torch.ops.fbgemm.quantize_fp8_per_row
+        for candidate in (
+            (op, torch.compile(op)) if torch._dynamo.is_dynamo_supported() else (op,)
         ):
             with self.assertRaisesRegex(RuntimeError, "output must be e4m3 or e5m2"):
-                op(invalid_dtype_input, output_dtype=torch.bfloat16)
+                candidate(invalid_dtype_input, output_dtype=torch.bfloat16)
 
         storage = torch.ones(2 * 128 + 1, dtype=torch.bfloat16, device=self.device)
         unaligned = storage[1:].view(2, 128)

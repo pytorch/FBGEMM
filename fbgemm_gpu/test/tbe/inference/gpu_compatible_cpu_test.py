@@ -191,6 +191,9 @@ class GpuCompatibleCpuTest(unittest.TestCase):
                 atol=0,
             )
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     def test_compile(self) -> None:
         for output_dtype in (SparseType.FP16, SparseType.FP32):
             module = LookupModule(output_dtype=output_dtype)

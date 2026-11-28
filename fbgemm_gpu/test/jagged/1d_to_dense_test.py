@@ -137,6 +137,9 @@ class Jagged1DToDenseTest(unittest.TestCase):
             )
             torch.testing.assert_close(ref_output, output)
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @settings(

@@ -20,6 +20,9 @@ from parameterized import parameterized
 
 
 class FP16ClampTest(unittest.TestCase):
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     def test_compiled_no_grad(self) -> None:
         values = torch.tensor(
             [-1e30, -65504.01, -1, 0, 1, 65504.01, 1e30],

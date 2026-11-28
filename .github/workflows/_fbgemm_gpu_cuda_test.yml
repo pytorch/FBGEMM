@@ -149,6 +149,10 @@ jobs:
     - name: Install FBGEMM_GPU dependencies (pip)
       run: . $PRELUDE; cd fbgemm_gpu; install_fbgemm_gpu_deps $BUILD_ENV
 
+    - name: Install Triton for Python 3.15
+      if: ${{ matrix.python-version == '3.15' }}
+      run: . $PRELUDE; install_triton_pip $BUILD_ENV
+
     - name: Download Wheel Artifact from GHA
       if: ${{ inputs.fbgemm-channel-version == '' }}
       uses: actions/download-artifact@v7

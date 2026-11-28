@@ -47,7 +47,9 @@ class ActivationTests(unittest.TestCase):
         D=st.sampled_from([5120, 7168]),
         contiguous=st.sampled_from([True, False]),
         partial=st.sampled_from([True, False]),
-        compiled=st.sampled_from([True, False]),
+        compiled=st.sampled_from(
+            [True, False] if torch._dynamo.is_dynamo_supported() else [False]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_silu_mul(
@@ -106,7 +108,9 @@ class ActivationTests(unittest.TestCase):
         scale_ub=st.sampled_from([None, 1200.00]),
         contiguous=st.sampled_from([True, False]),
         partial=st.sampled_from([True, False]),
-        compiled=st.sampled_from([True, False]),
+        compiled=st.sampled_from(
+            [True, False] if torch._dynamo.is_dynamo_supported() else [False]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_silu_mul_quant(

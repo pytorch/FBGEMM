@@ -98,6 +98,9 @@ class KVCacheTests(unittest.TestCase):
         except Exception:
             cls.compile_backend = "eager"
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @settings(deadline=None)
     @given(
         num_groups=st.sampled_from([1, 2, 4, 8]),
@@ -236,6 +239,9 @@ class KVCacheTests(unittest.TestCase):
             cache_v[:, :T], cache_v_bf16[:, :T], atol=atol, rtol=0
         )
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @settings(deadline=None)
     @given(
         MAX_T=st.sampled_from([8000, 16384]),
@@ -560,6 +566,9 @@ class KVCacheTests(unittest.TestCase):
             )
             assert torch.equal(qparam_fp16x2_v, qparam_fp16x2_v_expected)
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @settings(deadline=None)
     @given(
         prefill=st.booleans(),
@@ -742,6 +751,9 @@ class KVCacheTests(unittest.TestCase):
                     ]
                     torch.testing.assert_close(ref_vals, packed_vals)
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @settings(deadline=None)
     @given(
         prefill=st.booleans(),

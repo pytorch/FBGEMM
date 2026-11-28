@@ -174,6 +174,9 @@ class BatchedDenseVecJagged2DMulTest(unittest.TestCase):
         )
         assert output.size() == output_ref.size()
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @settings(
         verbosity=Verbosity.verbose,

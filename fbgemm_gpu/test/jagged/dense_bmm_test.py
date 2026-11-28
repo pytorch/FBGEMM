@@ -168,6 +168,9 @@ class DenseBmmTest(unittest.TestCase):
         torch.testing.assert_close(x_values.grad, x_values_ref.grad)
         torch.testing.assert_close(y.grad, y_ref.grad)
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @given(
         B=st.integers(10, 512),

@@ -15,9 +15,9 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, torch_compile_strategy
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, torch_compile_strategy
 
 
 class DenseJaggedCatJaggedOutTest(unittest.TestCase):
@@ -28,7 +28,7 @@ class DenseJaggedCatJaggedOutTest(unittest.TestCase):
         B=st.integers(10, 512),
         max_L=st.integers(1, 200),
         device_type=st.sampled_from(["cpu", "cuda"]),
-        enable_pt2=st.sampled_from([True, False]),
+        enable_pt2=torch_compile_strategy(),
     )
     @settings(deadline=None)
     def test_dense_jagged_cat_jagged_out(

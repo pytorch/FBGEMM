@@ -93,6 +93,12 @@ running_in_oss: tuple[bool, str] = (
 )
 
 
+def torch_compile_strategy() -> st.SearchStrategy[bool]:
+    if torch._dynamo.is_dynamo_supported():
+        return st.booleans()
+    return st.just(False)
+
+
 def seed_all(seed: int = 0) -> None:
     """Seed all RNGs used by FBGEMM tests for deterministic behavior.
 

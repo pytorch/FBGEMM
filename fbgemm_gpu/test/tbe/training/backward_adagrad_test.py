@@ -47,6 +47,7 @@ from .backward_adagrad_common import (
     skipIfNotRocm,
     SparseType,
     st,
+    torch_compile_strategy,
 )
 
 # Set up test strategy
@@ -181,7 +182,7 @@ class BackwardAdagradTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         mixed_B=st.booleans(),
-        compile=st.booleans(),
+        compile=torch_compile_strategy(),
         **test_st,
     )
     @settings(**common_settings)
@@ -198,7 +199,7 @@ class BackwardAdagradTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        compile=st.booleans(),
+        compile=torch_compile_strategy(),
         **test_st,
     )
     @settings(**common_settings)
@@ -215,7 +216,7 @@ class BackwardAdagradTest(unittest.TestCase):
 
     @given(
         mixed_B=st.booleans(),
-        compile=st.booleans(),
+        compile=torch_compile_strategy(),
         **test_st,
     )
     @settings(**common_settings)
@@ -231,7 +232,7 @@ class BackwardAdagradTest(unittest.TestCase):
         )
 
     @given(
-        compile=st.booleans(),
+        compile=torch_compile_strategy(),
         pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
         **test_st_cpu,
     )
@@ -253,7 +254,7 @@ class BackwardAdagradTest(unittest.TestCase):
         )
 
     @given(
-        compile=st.booleans(),
+        compile=torch_compile_strategy(),
         **test_st_cpu,
     )
     @settings(**common_settings)
@@ -270,7 +271,7 @@ class BackwardAdagradTest(unittest.TestCase):
 
     @given(
         mixed_B=st.booleans(),
-        compile=st.booleans(),
+        compile=torch_compile_strategy(),
         **test_st,
     )
     @settings(**common_settings)
@@ -287,7 +288,7 @@ class BackwardAdagradTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        compile=st.booleans(),
+        compile=torch_compile_strategy(),
         **test_st,
     )
     @settings(**common_settings)
