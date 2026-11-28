@@ -1325,6 +1325,7 @@ def nbit_uvm(
         )
 
         # benchmark prefetch
+        # pyrefly: ignore [unbound-name]
         emb_mixed.reset_cache_states()
         for req in requests:
             indices, offsets = req.unpack_2()
