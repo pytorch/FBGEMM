@@ -9,6 +9,10 @@ from functools import partial
 
 import torch
 import triton
+from ikbo.ops.tlx_ikbo_fa_blackwell import (
+    plan_flash_attn_ikbo_blackwell,
+    tlx_flash_attn_ikbo_blackwell,
+)
 from ikbo.ops.tlx_ikbo_fa_ws import tlx_flash_attn_ikbo_tma_persistent
 from ikbo.ops.triton_ikbo_fa import triton_flash_attn_ikbo_tma
 from torch._inductor.utils import do_bench_using_profiling
@@ -31,6 +35,15 @@ PROVIDER_NAMES = [
     "Triton IKBO FA2",
     "TLX IKBO FA3 persistence generalized",
 ]
+IS_BLACKWELL = (
+    torch.cuda.is_available()
+    and torch.version.hip is None
+    and torch.cuda.get_device_capability()[0] == 10
+)
+if IS_BLACKWELL:
+    # The Hopper TLX kernel (WGMMA) does not run on Blackwell; use the Blackwell one.
+    PROVIDERS[-1] = "TLX IKBO FA Blackwell"
+    PROVIDER_NAMES[-1] = "TLX IKBO FA Blackwell"
 
 
 def pytorch_sdpa(query, key, value):
@@ -157,6 +170,22 @@ def _run_provider(provider, seq_len):
     elif provider == "Triton IKBO FA2":
         fn = partial(
             triton_flash_attn_ikbo_tma, q, k, v, cand_to_user_index, n_seed, seq_len
+        )
+    elif provider == "TLX IKBO FA Blackwell":
+        # The plan (kernel choice + tile table) is built once per candidate layout,
+        # like cand_grid for the Hopper kernel.
+        plan = plan_flash_attn_ikbo_blackwell(
+            cand_to_user_index, n_seed, num_heads, seq_len
+        )
+        fn = partial(
+            tlx_flash_attn_ikbo_blackwell,
+            q,
+            k,
+            v,
+            cand_to_user_index,
+            n_seed,
+            seq_len,
+            plan=plan,
         )
     elif provider == "TLX IKBO FA3 persistence generalized":
         fn = partial(

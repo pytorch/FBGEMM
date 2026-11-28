@@ -44,6 +44,31 @@ user_flag = create_user_flag(W_user, E_user)
 output = tlx_ikbo_lce(W_cand, W_user, E_cand, E_user, cand_to_user_index, user_flag)
 ```
 
+### TLX Kernels for Blackwell (sm_100 / sm_103)
+The Hopper TLX kernels above use WGMMA and do not run on Blackwell. The Blackwell kernels use tcgen05 MMA with
+TMEM accumulators and 2-CTA (cta_group::2) tiles:
+```python
+from ikbo.ops.tlx_ikbo_lce_blackwell import tlx_ikbo_lce_blackwell
+output = tlx_ikbo_lce_blackwell(W_cand, W_user, E_cand, E_user, cand_to_user_index)  # N == 256
+
+from ikbo.ops.tlx_ikbo_fa_blackwell import plan_flash_attn_ikbo_blackwell, tlx_flash_attn_ikbo_blackwell
+plan = plan_flash_attn_ikbo_blackwell(cand_to_user_index, n_seed, num_heads, max_seq_len)  # once per candidate layout
+output = tlx_flash_attn_ikbo_blackwell(query, key, value, cand_to_user_index, n_seed, max_seq_len, plan=plan)
+```
+The LCE kernel keeps a per-device workspace across calls (no per-call memset); with CUDA graphs, run the largest
+shape eagerly once before capturing. The FA plan needs `cand_to_user_index` sorted by user.
+
+GB300 (default 1350 W power limit, benchmark inputs below):
+
+| | Blackwell TLX | Triton IKBO | baseline |
+|---|---|---|---|
+| LCE, B=1024, ratio 70 | 185-192 us | 400 us | 310 us (torch decomposed, cuBLAS) |
+| FA, max_seq_len 512 / 1024 / 4096 / 16384 (TFLOP/s) | 1400 / 1621 / 1662 / 1696 | 501 / 623 / 766 / 801 | 307 / 343 / 377 / 383 (SDPA on pre-broadcast K/V) |
+
+Both kernels run at the board power limit on GB300, so their time tracks energy per call: the LCE kernel uses ~30%
+less energy per call than the cuBLAS decomposition, and the FA kernel matches cuDNN's dense attention in energy per
+FLOP at long sequences.
+
 ## Accuracy Testing
 ```bash
 FAST_TUNE=1 python -m pytest tests/ -v
