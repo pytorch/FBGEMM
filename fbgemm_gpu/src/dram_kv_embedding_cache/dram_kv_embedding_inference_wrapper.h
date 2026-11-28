@@ -37,15 +37,20 @@ struct KVLookupCoverage {
 // Tables with planned HBM cache rows export their lookup coverage as fb303
 // sums fbgemm.kv_lookup.<device>.<count>: host-known counts after each lookup,
 // and device-computed counts once their asynchronous device-to-host copy
-// lands, at most about once a second per device. The fb303 counter
-// fbgemm.kv_hbm_cache.disabled_backends counts KV backends with HBM caches
-// whose caches are disabled.
+// lands, at most about once a second per device. CUDA lookups compute the
+// device counts on a sample of calls, scaled to estimate the totals. The fb303
+// counter fbgemm.kv_hbm_cache.disabled_backends counts KV backends with HBM
+// caches whose caches are disabled.
 // Blocks until every device count so far has been exported.
 void flush_kv_lookup_coverage();
 
 // Tests only: how often lookups retry HBM caches disabled after a failed cache
 // update (60 s by default); zero keeps them disabled.
 void set_kv_hbm_cache_recover_interval_ms_for_testing(int64_t interval_ms);
+// Tests only: CUDA lookups compute the device counts (zero rows, backend keys)
+// on one call in this many per thread and report them scaled by it (16 by
+// default); 1 counts every call exactly.
+void set_kv_lookup_coverage_sample_every_for_testing(int64_t every);
 
 class KVBackendSnapshotGuard {
  public:
@@ -285,6 +290,7 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
       const BackendBinding& binding);
   struct CudaLookupCoverage {
     KVLookupCoverage host;
+    bool device_counts = false; // Whether to compute device_backend_keys.
     at::Tensor device_backend_keys; // Set when only the device knows it.
   };
   at::Tensor get_embeddings_cuda(
@@ -340,6 +346,8 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   // Set by set_hbm_cache_rows, 0 rows included: only a KV-ZCH GPU serving
   // shard is planned, so only it takes CUDA-padded rows.
   std::atomic<bool> kv_gpu_serving_{false};
+  // CUDA lookups that reported coverage, for sampling the device counts.
+  std::atomic<int64_t> coverage_calls_{0};
   bool values_immutable_ = false;
   std::atomic<bool> hbm_cache_fused_lookup_{true};
   std::atomic<bool> hbm_cache_fused_admission_{true};

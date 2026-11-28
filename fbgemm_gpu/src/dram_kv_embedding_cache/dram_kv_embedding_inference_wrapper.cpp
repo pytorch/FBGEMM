@@ -65,6 +65,11 @@ void export_kv_lookup_coverage(
   add("hbm_unique_hits", coverage.hbm_unique_hits);
 }
 
+std::atomic<int64_t>& coverage_sample_every() {
+  static std::atomic<int64_t> every{16};
+  return every;
+}
+
 at::Tensor zero_row_count(const at::Tensor& rows, int64_t row_bytes) {
   return rows.narrow(1, 0, row_bytes).ne(0).any(1).logical_not().sum();
 }
@@ -2084,6 +2089,11 @@ void set_kv_hbm_cache_recover_interval_ms_for_testing(int64_t interval_ms) {
   hbm_cache_recover_interval_ms().store(interval_ms, std::memory_order_relaxed);
 }
 
+void set_kv_lookup_coverage_sample_every_for_testing(int64_t every) {
+  TORCH_CHECK(every > 0, "coverage sample interval must be positive");
+  coverage_sample_every().store(every, std::memory_order_relaxed);
+}
+
 void flush_kv_lookup_coverage() {
   std::scoped_lock lock(device_coverages_mutex());
   for (auto& [device, coverage] : device_coverages()) {
@@ -2107,19 +2117,28 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
     }
     return rows;
   }
-  CudaLookupCoverage cuda_coverage{.host = coverage};
+  CudaLookupCoverage cuda_coverage{
+      .host = coverage,
+      // One call in coverage_sample_every() per wrapper, so most lookups launch
+      // no reductions and every table is sampled at the same rate.
+      .device_counts = report &&
+          (coverage_calls_.fetch_add(1, std::memory_order_relaxed) + 1) %
+                  coverage_sample_every().load(std::memory_order_relaxed) ==
+              0};
   auto rows =
       get_embeddings_cuda(indices, binding, report ? &cuda_coverage : nullptr);
   if (report) {
     export_kv_lookup_coverage(indices.device(), cuda_coverage.host);
+  }
+  if (cuda_coverage.device_counts) {
     const auto zero_rows = zero_row_count(rows, lookup_max_row_bytes_);
     const auto& backend_keys = cuda_coverage.device_backend_keys;
     device_coverage(rows.device())
         .add(
-            at::stack(
-                {zero_rows,
-                 backend_keys.defined() ? backend_keys
-                                        : at::zeros_like(zero_rows)}));
+            at::stack({zero_rows,
+                       backend_keys.defined() ? backend_keys
+                                              : at::zeros_like(zero_rows)})
+                .mul_(coverage_sample_every().load(std::memory_order_relaxed)));
   }
   return rows;
 }
@@ -2200,11 +2219,13 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings_cuda(
   auto rows = lookup->rows.index_select(0, lookup->inverse);
   if (coverage != nullptr) {
     const auto unique_keys = lookup->rows.size(0);
-    coverage->device_backend_keys =
-        at::zeros({unique_keys}, lookup->inverse.options().dtype(at::kBool))
-            .index_fill_(0, lookup->miss_positions, true)
-            .index_select(0, lookup->inverse)
-            .sum();
+    if (coverage->device_counts) {
+      coverage->device_backend_keys =
+          at::zeros({unique_keys}, lookup->inverse.options().dtype(at::kBool))
+              .index_fill_(0, lookup->miss_positions, true)
+              .index_select(0, lookup->inverse)
+              .sum();
+    }
     coverage->host.hbm_unique_keys = unique_keys;
     coverage->host.hbm_unique_hits = unique_keys - lookup->miss_keys.numel();
   }
