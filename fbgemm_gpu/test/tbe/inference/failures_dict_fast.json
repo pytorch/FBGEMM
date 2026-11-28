@@ -84,12 +84,7 @@
       }
     },
     "fbgemm::linearize_cache_indices": {},
-    "fbgemm::linearize_cache_indices_from_row_idx": {
-      "LinearizeCacheIndicesTest.test_faketensor__test_linearize_cache_indices_from_row_idx": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::linearize_cache_indices_from_row_idx": {},
     "fbgemm::lru_cache_populate": {
       "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
         "comment": "",

@@ -54,16 +54,7 @@
     "fbgemm::generic_histogram_binning_calibration_by_feature": {},
     "fbgemm::group_index_select_dim0": {},
     "fbgemm::histogram_binning_calibration": {},
-    "fbgemm::histogram_binning_calibration_by_feature": {
-      "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "HistogramBinningCalibrationTest.test_faketensor__test_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::histogram_binning_calibration_by_feature": {},
     "fbgemm::invert_permute": {},
     "fbgemm::jagged_acc_weights_and_counts": {
       "UniqueIndicesTest.test_aot_dispatch_dynamic__test_jagged_acc_weights_and_counts_1d": {

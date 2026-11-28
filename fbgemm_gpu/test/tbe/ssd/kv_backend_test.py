@@ -1938,6 +1938,11 @@ class SSDCheckpointTest(unittest.TestCase):
 
             zero_payload_row = checkpoint_rows[:1].clone()
             zero_payload_row[:, metaheader_dim:] = 0
+            # Integer timestamps can encode NaNs when viewed as FP16.
+            zero_payload_metadata = zero_payload_row[
+                :, metaheader_dim // 2 : metaheader_dim
+            ].view(torch.int64)
+            zero_payload_metadata.bitwise_and_(-1 << 16).bitwise_or_(0xFE01)
             tensor_wrapper.set_prefixed_weights_and_ids(
                 zero_payload_row, checkpoint_view_ids[:1]
             )
@@ -1949,11 +1954,22 @@ class SSDCheckpointTest(unittest.TestCase):
 
             missing_row = torch.zeros_like(original_narrowed[:1])
             before_missing_restore = tensor_wrapper.narrow(0, 0, 1)
+            if dtype == torch.float16:
+                self.assertTrue(
+                    torch.isnan(
+                        before_missing_restore[:, metaheader_dim // 2 : metaheader_dim]
+                    ).any()
+                )
             tensor_wrapper.set_prefixed_weights_and_ids(
                 missing_row, checkpoint_view_ids[:1]
             )
+            # Whole rows contain integer metadata reinterpreted as floats.
+            # A no-op restore must preserve every byte, including NaN bit patterns.
             torch.testing.assert_close(
-                tensor_wrapper.narrow(0, 0, 1), before_missing_restore
+                tensor_wrapper.narrow(0, 0, 1).contiguous().view(torch.uint8),
+                before_missing_restore.contiguous().view(torch.uint8),
+                rtol=0,
+                atol=0,
             )
 
             mismatched_ids = checkpoint_view_ids.clone()
@@ -2022,7 +2038,12 @@ class SSDCheckpointTest(unittest.TestCase):
 
             range_wrapper.set_range(0, 0, 0, sparse_rows[:0].contiguous())
             torch.testing.assert_close(
-                range_wrapper.get_weights_by_ids(neighboring_ids), neighboring_before
+                range_wrapper.get_weights_by_ids(neighboring_ids)
+                .contiguous()
+                .view(torch.uint8),
+                neighboring_before.contiguous().view(torch.uint8),
+                rtol=0,
+                atol=0,
             )
 
             with self.assertRaisesRegex(
@@ -2043,7 +2064,12 @@ class SSDCheckpointTest(unittest.TestCase):
             absent_row = torch.zeros_like(sparse_rows[:1])
             range_wrapper.set_range(0, 0, 1, absent_row)
             torch.testing.assert_close(
-                range_wrapper.get_weights_by_ids(neighboring_ids), neighboring_before
+                range_wrapper.get_weights_by_ids(neighboring_ids)
+                .contiguous()
+                .view(torch.uint8),
+                neighboring_before.contiguous().view(torch.uint8),
+                rtol=0,
+                atol=0,
             )
 
             range_wrapper.set_range(0, 0, N, sparse_rows)

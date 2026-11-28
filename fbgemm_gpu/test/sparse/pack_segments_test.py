@@ -147,7 +147,9 @@ class PackedSegmentsTest(unittest.TestCase):
             t_in=input_data, lengths=lengths, max_length=max_length
         )
 
-        packed_ref = self._pack_segments_ref(lengths, input_raw)
+        packed_ref = self._pack_segments_ref(
+            lengths, input_data.detach().float().numpy()
+        )
         packed_ref = torch.Tensor(packed_ref).to(dtype)
 
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
@@ -211,7 +213,9 @@ class PackedSegmentsTest(unittest.TestCase):
                 t_in=input_data, lengths=lengths, max_length=max_length
             )
 
-            packed_ref = self._pack_segments_ref(lengths, input_raw)
+            packed_ref = self._pack_segments_ref(
+                lengths, input_data.detach().float().numpy()
+            )
             packed_ref = torch.Tensor(packed_ref).to(dtype)
 
             self.assertTrue(torch.equal(packed_tensor, packed_ref))
@@ -419,7 +423,7 @@ class PackedSegmentsTest(unittest.TestCase):
 
         packed_ref = self._pack_segments_ref(
             lengths,
-            input_raw,
+            input_data.detach().float().numpy(),
             max_length=max_length,
         )
         packed_ref = torch.Tensor(packed_ref).to(dtype)
