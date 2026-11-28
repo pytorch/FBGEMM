@@ -1670,7 +1670,7 @@ class DramKvPerfStat(str, Enum):
         "dram_metadata_write_acquire_lock_avg_duration"
     )
     # Eviction-score (metadata) write: avg cache-miss count per row.
-    METADATA_WRITE_CACHE_MISS_AVG_COUNT = "dram_metadata_write_cache_miss_avg_count"
+    METADATA_WRITE_CACHE_HIT_AVG_COUNT = "dram_metadata_write_cache_hit_avg_count"
 
     # Eviction-score (metadata) read: total wall time (us).
     READ_METADATA_TOTAL_DURATION = "dram_read_metadata_total_duration"
@@ -1759,6 +1759,22 @@ def _inserted_rows_pool_depth_from_env() -> int | None:
         )
         return None
     return depth
+
+
+def _sum_scores_by_id(ids: Tensor, scores: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Sums the scores of repeated ids without a device-to-host sync.
+
+    Returns (unique_ids, summed_scores, num_unique). The outputs keep the input
+    length; only the first ``num_unique`` (a one-element device tensor) entries
+    are valid.
+    """
+    sorted_ids, order = torch.sort(ids)
+    is_first = torch.ones_like(sorted_ids, dtype=torch.bool)
+    is_first[1:] = sorted_ids[1:] != sorted_ids[:-1]
+    segment = torch.cumsum(is_first, dim=0) - 1
+    unique_ids = torch.zeros_like(sorted_ids).scatter_(0, segment, sorted_ids)
+    summed_scores = torch.zeros_like(scores).index_add_(0, segment, scores[order])
+    return unique_ids, summed_scores, is_first.sum(dtype=torch.int64).reshape(1)
 
 
 class SSDTableBatchedEmbeddingBags(nn.Module):
@@ -4148,9 +4164,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Record streams to prevent premature deallocation
             linear_cache_indices.record_stream(d2h_stream)
             weights.record_stream(d2h_stream)
+            # Sum repeated ids so the backend does one hashmap lookup per id.
+            unique_indices, summed_weights, num_unique = _sum_scores_by_id(
+                linear_cache_indices, weights
+            )
             # Do the D2H copy
-            linear_cache_indices_cpu = self.to_pinned_cpu(linear_cache_indices)
-            score_weights_cpu = self.to_pinned_cpu(weights)
+            linear_cache_indices_cpu = self.to_pinned_cpu(unique_indices)
+            score_weights_cpu = self.to_pinned_cpu(summed_weights)
+            num_unique_cpu = self.to_pinned_cpu(num_unique)
 
         # Write feature score metadata to DRAM
         with record_function("## ssd_write_feature_score_metadata ##"):
@@ -4161,14 +4182,44 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     "## ssd_write_feature_score_metadata ##",
                     self.ssd_db.set_feature_score_metadata_cuda,
                     linear_cache_indices_cpu,
-                    torch.tensor(
-                        [score_weights_cpu.shape[0]], device="cpu", dtype=torch.long
-                    ),
+                    num_unique_cpu,
                     score_weights_cpu,
                 )
 
                 if post_event is not None:
                     write_stream.record_event(post_event)
+
+    def _write_direct_feature_scores(
+        self, indices: Tensor, weights: Tensor | None
+    ) -> None:
+        """Writes feature scores for a direct-gather lookup, which skips the
+        prefetch path that normally writes them."""
+        eviction_policy = (
+            self.kv_zch_params.eviction_policy if self.kv_zch_params else None
+        )
+        if (
+            weights is None
+            or indices.numel() == 0
+            or eviction_policy is None
+            or eviction_policy.eviction_strategy != 5
+            or self.backend_type not in (BackendType.DRAM, BackendType.DRAM_SSD)
+        ):
+            return
+        stream = self.feature_score_stream
+        # The write runs as a host callback, so keep it off the lookup stream.
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(stream):
+            indices.record_stream(stream)
+            weights.record_stream(stream)
+            # The host callback runs after the copies queued before it land.
+            unique_ids, summed_scores, num_unique = _sum_scores_by_id(
+                indices.to(torch.int64), weights.to(torch.float32)
+            )
+            self.ssd_db.set_feature_score_metadata_cuda(
+                self.to_pinned_cpu(unique_ids),
+                self.to_pinned_cpu(num_unique),
+                self.to_pinned_cpu(summed_scores),
+            )
 
     @property
     def direct_backend_gather_enabled(self) -> bool:
@@ -4313,7 +4364,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.may_trigger_eviction()
         self.step += 1
 
-    def _prefetch_direct_enrichment(self, indices: torch.Tensor) -> None:
+    def _prefetch_direct_enrichment(
+        self, indices: torch.Tensor, weights: Tensor | None = None
+    ) -> None:
         if self._prefetched_direct_backend_output is not None:
             if self._same_direct_prefetch_indices(
                 self._prefetched_direct_backend_indices, indices
@@ -4330,6 +4383,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 indices
             )
             self._prefetched_direct_backend_indices = indices
+        self._write_direct_feature_scores(indices, weights)
 
     def _populate_direct_enrichment_cache_from_pending(
         self,
@@ -4581,7 +4635,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         of freed. TorchRec's prefetch pipelines already wait.
         """
         if self._direct_backend_gather:
-            self._prefetch_direct_enrichment(indices)
+            self._prefetch_direct_enrichment(indices, weights)
             return
         if self.prefetch_stream is None and forward_stream is not None:
             # Set the prefetch stream to the current stream
@@ -5237,7 +5291,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             with torch.no_grad(), record_function(
                 "## kvzch_enrichment_direct_backend_gather ##"
             ):
-                return self._direct_enrichment_lookup(indices)
+                output = self._direct_enrichment_lookup(indices)
+            self._write_direct_feature_scores(
+                indices, weights if weights is not None else per_sample_weights
+            )
+            return output
         self.clear_cache()
         if vbe_output is not None or vbe_output_offsets is not None:
             # CPU is not supported in SSD TBE
@@ -8075,8 +8133,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
-            event_name="dram_kv.perf.set.dram_eviction_score_write_cache_miss_avg_count",
-            data_bytes=stats[DramKvPerfStat.METADATA_WRITE_CACHE_MISS_AVG_COUNT],
+            event_name="dram_kv.perf.set.dram_eviction_score_write_cache_hit_avg_count",
+            data_bytes=stats[DramKvPerfStat.METADATA_WRITE_CACHE_HIT_AVG_COUNT],
             enable_tb_metrics=True,
         )
         stats_reporter.report_duration(

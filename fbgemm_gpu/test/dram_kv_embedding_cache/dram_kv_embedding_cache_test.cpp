@@ -345,6 +345,19 @@ class DramKVEmbeddingCacheTest : public ::testing::Test {
     return false;
   }
 
+  float featureScoreRate(DramKVEmbeddingCache<float>& cache, int64_t id) {
+    auto& kv_store = cache.get_kv_store();
+    for (int shard = 0; shard < cache.get_num_shards(); ++shard) {
+      auto rlmap = kv_store.by(shard).rlock();
+      auto it = rlmap->find(id);
+      if (it != rlmap->end()) {
+        return FixedBlockPool::get_feature_score_rate(it->second);
+      }
+    }
+    ADD_FAILURE() << "key " << id << " not found in any shard";
+    return 0.0f;
+  }
+
   // Clear the dirty bit for `id` so a subsequent write must re-set it.
   void clearDirty(DramKVEmbeddingCache<float>& cache, int64_t id) {
     auto& kv_store = cache.get_kv_store();
@@ -1816,9 +1829,35 @@ TEST_P(DirtyBitParamTest, FeatureScoreMetadataDirtiesIffBackendEnabled) {
   const bool enable_ssd_backend = GetParam();
   auto cache = makeCacheWithFeatureScoreEvict(enable_ssd_backend);
   const int64_t test_id = 55;
+  set_kv_db_async(*cache, test_id);
+  clearDirty(*cache, test_id);
+
   set_kv_zch_eviction_metadata_async(*cache, test_id, /*engage_rate=*/0.5f);
 
   EXPECT_FALSE(isKeyDirty(*cache, test_id));
+}
+
+// In embedding cache mode rows are created only by enrichment writes, so a
+// feature-score write for an absent id must not allocate a row.
+TEST_F(DramKVEmbeddingCacheTest, CacheModeFeatureScoreSkipsMissingKey) {
+  auto cache = makeCacheWithFeatureScoreEvict(
+      /*enable_ssd_backend=*/false, /*ttl_in_mins=*/0);
+
+  set_kv_zch_eviction_metadata_async(*cache, /*id=*/55, /*engage_rate=*/1.0f);
+
+  EXPECT_EQ(cache->get_num_rows(), 0);
+}
+
+TEST_F(DramKVEmbeddingCacheTest, CacheModeFeatureScoreUpdatesExistingKey) {
+  // A positive TTL bypasses the score histogram, so disable it.
+  auto cache = makeCacheWithFeatureScoreEvict(
+      /*enable_ssd_backend=*/false, /*ttl_in_mins=*/0);
+  const int64_t test_id = 55;
+  set_kv_db_async(*cache, test_id);
+
+  set_kv_zch_eviction_metadata_async(*cache, test_id, /*engage_rate=*/0.5f);
+
+  EXPECT_FLOAT_EQ(featureScoreRate(*cache, test_id), 0.5f);
 }
 
 INSTANTIATE_TEST_SUITE_P(
