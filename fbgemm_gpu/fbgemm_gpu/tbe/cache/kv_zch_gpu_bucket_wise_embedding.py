@@ -142,10 +142,10 @@ class KVZCHGPUBucketWiseEmbeddingInference(KVEmbeddingInference):
             for (_, _, dims, sparse_type, _) in self.embedding_specs
         ]
         # True when every table shares one dim and weight type and rows are not
-        # pooled, so CUDA lookups can treat all indices as one table.
+        # pooled, so CUDA lookups can treat all indices as one table. Grouped
+        # INT4 tables always do, and their rows are decoded to FP16 first.
         self.kv_cuda_single_spec: bool = (
-            not self.use_grouped_int4_rows
-            and int(self.pooling_mode) == int(PoolingMode.NONE)
+            int(self.pooling_mode) == int(PoolingMode.NONE)
             and len(
                 {
                     (dims, sparse_type)

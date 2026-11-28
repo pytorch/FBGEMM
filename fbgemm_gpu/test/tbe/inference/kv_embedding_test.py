@@ -2271,6 +2271,36 @@ class KVEmbeddingCudaTest(TestCase):
                 self.assertGreater(misses, 0)
                 self.assertGreater(admitted, 0)
 
+    def test_grouped_int4_unpooled_lookup_spreads_rows_over_warps(self) -> None:
+        kv, packed = self._cuda_grouped_int4_kv()
+        self.assertTrue(kv.kv_cuda_single_spec)
+        device = torch.accelerator.current_accelerator()
+        keys = torch.randint(128, (20_000,), generator=torch.Generator().manual_seed(0))
+        indices = keys.to(device=device, dtype=torch.int32)
+        # Two long bags, as a batch of two requests gives the per-bag kernel.
+        offsets = torch.tensor([0, 7_000, 20_000], dtype=torch.int32, device=device)
+        rows = kv.decode_grouped_int4_rows(
+            kv.kv_embedding_cache.get_embeddings(indices.to(torch.int64))
+        )
+
+        per_index = kv.lookup_kv_rows(
+            rows, indices, offsets, None, decoded_grouped_int4=True
+        )
+        kv.kv_cuda_single_spec = False
+        per_bag = kv.lookup_kv_rows(
+            rows, indices, offsets, None, decoded_grouped_int4=True
+        )
+
+        decoded = torch.ops.fbgemm.GroupedInt4E4M3ToHalf(packed, 8, 128)
+        self.assertTrue(
+            torch.equal(per_index.view(torch.int16), per_bag.view(torch.int16))
+        )
+        self.assertTrue(
+            torch.equal(
+                per_index.cpu().view(torch.int16), decoded[keys].view(torch.int16)
+            )
+        )
+
     def test_grouped_int4_cuda_lookup_matches_the_cpu_module(self) -> None:
         device = torch.accelerator.current_accelerator()
         indices = torch.tensor([3, 1, 7, 0, 5, 5, 90, 3], dtype=torch.int32)
