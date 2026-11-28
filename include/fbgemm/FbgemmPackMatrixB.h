@@ -11,6 +11,7 @@
 
 #include <assert.h>
 #include <cpuinfo.h>
+#include <atomic>
 #include <stdexcept>
 
 #include "SimdUtils.h" // @manual
@@ -26,6 +27,13 @@ struct TypeConverter {
 };
 
 #define PMAT_ALIGNMENT 64
+
+/// When true, PackedGemmMatrixB allocates only the rows of the last row
+/// block that addr() can reach (last_brow_) instead of a full blockRowSize().
+inline std::atomic<bool>& packedGemmMatrixBCompactLastRowBlock() {
+  static std::atomic<bool> enabled{false};
+  return enabled;
+}
 
 /// class that performs packing of matrix in
 /// row-major format into
@@ -66,7 +74,8 @@ class PackedGemmMatrixB {
     }
 #endif
     initializeParam();
-    initializeMemory();
+    initializeMemory(
+        packedGemmMatrixBCompactLastRowBlock().load(std::memory_order_relaxed));
     // copy source matrix into packed matrix
     this->packFromSrc(trans, alpha, smat);
   }
@@ -164,9 +173,14 @@ class PackedGemmMatrixB {
     return packed_;
   }
 
-  void initializeMemory() {
+  // Constructors that receive an externally laid-out buffer (deserialization)
+  // must keep the full layout, since callers copy the serialized size in.
+  void initializeMemory(bool compactLastRowBlock = false) {
     // allocate and initialize packed memory
-    size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
+    const uint64_t numRowsAllocated = compactLastRowBlock
+        ? uint64_t(blockRowSize()) * (nbrow_ - 1) + last_brow_
+        : uint64_t(blockRowSize()) * nbrow_;
+    size_ = numRowsAllocated * (blockColSize() * nbcol_);
     pmat_ = static_cast<T*>(
         fbgemmAlignedAlloc(PMAT_ALIGNMENT, matSize() * sizeof(T)));
     memset(pmat_, 0, matSize() * sizeof(T));

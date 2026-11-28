@@ -44,7 +44,8 @@ PackedGemmMatrixB<float16, TypeConverter<float16>>::PackedGemmMatrixB(
   kernel_ncol_blocks_ = 1;
 #endif
   initializeParam();
-  initializeMemory();
+  initializeMemory(
+      packedGemmMatrixBCompactLastRowBlock().load(std::memory_order_relaxed));
   // copy source matrix into packed matrix
   this->PackedGemmMatrixB<float16, TypeConverter<float16>>::packFromSrc(
       trans, alpha, smat);
