@@ -38,6 +38,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "lxu_cache_flush(Tensor(a!) uvm_weights, Tensor cache_hash_size_cumsum, Tensor cache_index_table_map, Tensor weights_offsets, Tensor D_offsets, int total_D, Tensor(b!) lxu_cache_state, Tensor(c!) lxu_cache_weights, bool stochastic_rounding) -> ()");
   m.def("lxu_cache_slot(int h_in, int C) -> int");
+  // KV TBE HBM row cache (dram_kv_embedding_inference_wrapper.cpp).
+  m.def(
+      "kv_hbm_cache_lookup(Tensor unique_keys, Tensor tags, Tensor cache_rows, Tensor(a!) lru, int tick) -> (Tensor, Tensor)");
+  m.def(
+      "kv_hbm_cache_admit(Tensor keys, Tensor input_rows, Tensor(a!) tags, Tensor(b!) cache_rows, Tensor(c!) lru, Tensor(d!) epochs, Tensor(e!) heads, Tensor(f!) counts, Tensor(g!) next, Tensor(h!) touched, int tick, int generation) -> (int, int, bool, bool, bool, bool)");
+  m.def(
+      "kv_hbm_cache_lookup_direct(Tensor keys, Tensor tags, Tensor cache_rows, Tensor(a!) lru, int tick) -> (Tensor, Tensor, Tensor, Tensor, int)");
+  m.def(
+      "kv_hbm_cache_admit_direct(Tensor keys, Tensor input_rows, Tensor(a!) tags, Tensor(b!) cache_rows, Tensor(c!) lru, Tensor(d!) epochs, Tensor(e!) heads, Tensor(f!) counts, Tensor(g!) next, Tensor(h!) touched, Tensor miss_slots, Tensor miss_rank, Tensor(i!) output_rows, int tick, int generation) -> (int, int, bool, bool, bool, bool)");
+  m.def(
+      "kv_hbm_cache_pad_output(Tensor input_rows, Tensor miss_slots, Tensor miss_rank, Tensor(a!) output_rows) -> Tensor");
   m.def(
       "reset_weight_momentum(Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor momentum1_dev, Tensor momentum1_uvm, Tensor momentum1_placements, Tensor momentum1_offsets, Tensor D_offsets, Tensor pruned_indices, Tensor pruned_indices_offsets, Tensor logical_table_ids, Tensor buffer_ids, Tensor cache_hash_size_cumsum, Tensor lxu_cache_state, int total_cache_hash_size) -> ()");
   m.def(
