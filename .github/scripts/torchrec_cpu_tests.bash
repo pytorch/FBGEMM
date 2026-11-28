@@ -99,7 +99,26 @@ echo "## 4. Run TorchRec tests"
 
 conda install -n "$env_name" -y pytest
 
+torchrec_test_status=0
 conda run -n "$env_name" \
   python -m pytest torchrec -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors \
   --ignore-glob=**/test_utils/ \
-  -k "not _disabled_in_oss_compatibility"
+  -k "not _disabled_in_oss_compatibility" || torchrec_test_status=$?
+
+if [ "$torchrec_test_status" -ne 0 ]; then
+  # Keep package diagnostics in the failure context without changing the test result.
+  conda run -n "$env_name" python -c '
+import json
+import sys
+import torch
+print("TORCHREC_FAILURE_ENV " + json.dumps({
+    "python": sys.version,
+    "torch_version": torch.__version__,
+    "torch_file": torch.__file__,
+    "torch_jit_file": getattr(torch.jit, "__file__", None),
+    "torch_jit_script_present": hasattr(torch.jit, "script"),
+}), flush=True)
+' || true
+fi
+
+exit "$torchrec_test_status"
