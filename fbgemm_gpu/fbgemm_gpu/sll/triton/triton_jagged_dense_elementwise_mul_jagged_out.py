@@ -40,9 +40,8 @@ def jagged_dense_elementwise_mul_jagged_out_kernel(
     # a start + batch offset + row offsets + initial col offsets
     a_ptrs = (
         a_ptr
-        + batch_offset * stride_a
-        + rows[:, None] * truncated_seq_len
-        + offs_col[None, :]
+        + (batch_offset + rows[:, None] * truncated_seq_len + offs_col[None, :])
+        * stride_a
     )
 
     # b start + row offsets + initial col offsets
@@ -58,10 +57,10 @@ def jagged_dense_elementwise_mul_jagged_out_kernel(
         # pyre-fixme[16]: `int` has no attribute `__getitem__`.
         mask = (rows[:, None] < truncated_seq_len) & (cols[None, :] < truncated_seq_len)
         a = tl.load(a_ptrs, mask=mask)
-        a_ptrs += BLOCK_N
+        a_ptrs += BLOCK_N * stride_a
 
         b = tl.load(b_ptrs, mask=mask)
-        b_ptrs += BLOCK_N
+        b_ptrs += BLOCK_N * stride_bn
 
         c = a * b
         tl.store(c_ptrs, c, mask=mask)

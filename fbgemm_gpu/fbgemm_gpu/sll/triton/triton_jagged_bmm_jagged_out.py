@@ -20,6 +20,7 @@ def array_jagged_bmm_kernel(
     b_offsets_ptr,
     c_offsets_ptr,
     D,  # emb dimension
+    stride_a,
     stride_bk,
     stride_bn,
     stride_cm,
@@ -45,8 +46,8 @@ def array_jagged_bmm_kernel(
     batch_M = tl.load(c_offsets_ptr + pid_batch + 1) - batch_offset_cm
 
     # use uncapped seq length to determine strides of a
-    stride_am = batch_M * (1 - transpose) + 1 * transpose
-    stride_ak = batch_M * transpose + 1 * (1 - transpose)
+    stride_am = (batch_M * (1 - transpose) + transpose) * stride_a
+    stride_ak = (batch_M * transpose + (1 - transpose)) * stride_a
 
     # truncate seq length
     batch_K = tl.minimum(batch_K, max_seq_len)
@@ -66,7 +67,7 @@ def array_jagged_bmm_kernel(
     offs_k = tl.arange(0, BLOCK_SIZE_K)
     a_ptrs = (
         a_ptr
-        + batch_offset_am
+        + batch_offset_am * stride_a
         + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
     )
     b_ptrs = (
@@ -225,6 +226,7 @@ def triton_array_jagged_bmm_jagged_out(
         offsets_bk,
         offsets_cm,
         D,
+        array_A.stride(0),
         jagged_B.stride(0),
         jagged_B.stride(1),
         jagged_C.stride(0),
