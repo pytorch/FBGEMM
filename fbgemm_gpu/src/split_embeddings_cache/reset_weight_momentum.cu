@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/utils/chunked_weights.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -166,7 +167,8 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
     int64_t pruned_index = pruned_indices_table[idx];
 
     if (weights_placement == PlacementType::DEVICE) {
-      weights = &dev_weights[weights_offset + pruned_index * D_emb];
+      weights = tbe_weights_table_ptr(&dev_weights[0], weights_offset) +
+          tbe_weights_row_rel_offset(weights_offset, pruned_index, D_emb);
     } else {
       weights = &uvm_weights[weights_offset + pruned_index * D_emb];
     }
