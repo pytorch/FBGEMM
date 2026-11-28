@@ -65,7 +65,7 @@ template <int SPATIAL_DIM>
 }
 
 template <int SPATIAL_DIM = 2>
-static kernel_sig_t getKernelSig(
+[[maybe_unused]] static kernel_sig_t getKernelSig(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     bool isAZeroPointZero,
     bool needRowOffset,
@@ -102,7 +102,7 @@ static kernel_sig_t getKernelSig(
 }
 
 template <int SPATIAL_DIM = 2>
-static jit_conv_kernel_fp getOrCreateConvKernel(
+[[maybe_unused]] static jit_conv_kernel_fp getOrCreateConvKernel(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     int a_zero_point,
     bool needRowOffset,
