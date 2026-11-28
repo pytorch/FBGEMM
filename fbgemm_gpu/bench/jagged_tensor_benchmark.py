@@ -767,9 +767,69 @@ def jagged_1d_to_truncated_values(
                 prof.step()
 
 
+def split_sizes(total: int, min_size: int, max_size: int) -> list[int]:
+    sizes = []
+    while total > 0:
+        size = min(random.randint(min_size, max_size), total)
+        sizes.append(size)
+        total -= size
+    return sizes
+
+
+def random_mask(lengths: torch.Tensor) -> torch.Tensor:
+    return torch.randint(2, (int(lengths.sum()),)) > 0
+
+
+def contiguous_mask(lengths: torch.Tensor) -> torch.Tensor:
+    kept = (torch.rand(lengths.numel()) * (lengths + 1)).long()
+    start = (torch.rand(lengths.numel()) * (lengths - kept + 1)).long()
+    offsets = torch.cumsum(lengths, 0) - lengths
+    position = torch.arange(int(lengths.sum())) - offsets.repeat_interleave(lengths)
+    return (position >= start.repeat_interleave(lengths)) & (
+        position < (start + kept).repeat_interleave(lengths)
+    )
+
+
+def generate_one_input(
+    size: int,
+    row_size: tuple[int, int],
+    generate_mask: Callable[[torch.Tensor], torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    lengths = torch.tensor(split_sizes(size, *row_size), dtype=torch.long)
+    values = torch.randint(2**16, (size,), dtype=torch.long)
+    return values, lengths, generate_mask(lengths)
+
+
+def run_all(
+    f: Callable[
+        [torch.Tensor, torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+    ],
+    inputs: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return [f(values, lengths, mask) for values, lengths, mask in inputs]
+
+
 @cli.command()
-@click.option("--batch-size", type=int, default=1024)
-@click.option("--max-len", type=int, default=256)
+@click.option(
+    "--tensor-size",
+    type=(click.IntRange(min=1), click.IntRange(min=1)),
+    default=(1, 10000),
+    help="Range of the number of elements of each input.",
+)
+@click.option(
+    "--row-size",
+    type=(click.IntRange(min=0), click.IntRange(min=1)),
+    default=(1, 10000),
+    help="Range of the number of elements of each row.",
+)
+@click.option(
+    "--mask-pattern",
+    type=click.Choice(["random", "contiguous"]),
+    default="random",
+    help="random: every element is kept with probability 1/2. "
+    "contiguous: every row keeps one run of elements at a random position.",
+)
 @click.option(
     "--manual-seed/--skip-manual-seed",
     default=False,
@@ -793,8 +853,9 @@ def jagged_1d_to_truncated_values(
     default="masked_select_jagged_1d_trace_{ospid}.json",
 )
 def masked_select_jagged_1d(
-    batch_size: int,
-    max_len: int,
+    tensor_size: tuple[int, int],
+    row_size: tuple[int, int],
+    mask_pattern: str,
     manual_seed: bool,
     device: str,
     export_trace: bool,
@@ -805,11 +866,11 @@ def masked_select_jagged_1d(
         torch.manual_seed(42)
         random.seed(42)
 
-    lengths = torch.randint(2 * max_len, size=(batch_size,), device=device)
-    total_lengths = int(lengths.sum())
-    dtype = torch.long
-    values = torch.randint(2**16, (total_lengths,), dtype=dtype, device=device)
-    mask = torch.randint(2, (total_lengths,), device=device) > 0
+    generate_mask = random_mask if mask_pattern == "random" else contiguous_mask
+    inputs = [
+        generate_one_input(size, row_size, generate_mask)
+        for size in split_sizes(2**20, *tensor_size)
+    ]
 
     def ref(
         values: torch.Tensor, lengths: torch.Tensor, mask: torch.Tensor
@@ -823,34 +884,34 @@ def masked_select_jagged_1d(
         masked_lengths_ref = cum_length - cum_length_shift_right
         return masked_values_ref, masked_lengths_ref
 
-    time_ref, (masked_values_ref, masked_lengths_ref) = benchmark_torch_function(
-        ref,
-        (values, lengths, mask),
+    time_ref, outputs_ref = benchmark_torch_function(
+        run_all,
+        (ref, inputs),
     )
 
-    time, (masked_values, masked_lengths) = benchmark_torch_function(
-        torch.ops.fbgemm.masked_select_jagged_1d,
-        (values, lengths, mask),
+    time, outputs = benchmark_torch_function(
+        run_all,
+        (torch.ops.fbgemm.masked_select_jagged_1d, inputs),
     )
 
-    torch.testing.assert_close(masked_values, masked_values_ref)
-    torch.testing.assert_close(masked_lengths, masked_lengths_ref)
+    for (masked_values, masked_lengths), (
+        masked_values_ref,
+        masked_lengths_ref,
+    ) in zip(outputs, outputs_ref):
+        torch.testing.assert_close(masked_values, masked_values_ref)
+        torch.testing.assert_close(masked_lengths, masked_lengths_ref)
 
-    bytes = (2 * values.numel() + 2 * lengths.numel() + 2 * masked_values.numel()) * 4
-
-    logging.info(f"reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
-    logging.info(f"masked_select_jagged_1d {time} sec {bytes / time / 1e9} GB/s")
+    logging.info(f"{len(inputs)} inputs")
+    logging.info(f"reference {time_ref} sec")
+    logging.info(f"masked_select_jagged_1d {time} sec")
 
     if export_trace:
 
-        # pyre-fixme[53]: Captured variable `values` is not annotated.
-        # pyre-fixme[53]: Captured variable `lengths` is not annotated.
-        # pyre-fixme[53]: Captured variable `mask` is not annotated.
-        def fn() -> tuple[torch.Tensor, torch.Tensor]:
-            return torch.ops.fbgemm.masked_select_jagged_1d(values, lengths, mask)
+        def fn() -> list[tuple[torch.Tensor, torch.Tensor]]:
+            return run_all(torch.ops.fbgemm.masked_select_jagged_1d, inputs)
 
-        num_warmup = 100
-        num_active = 1000
+        num_warmup = 2
+        num_active = 10
 
         for _ in range(num_warmup):
             fn()

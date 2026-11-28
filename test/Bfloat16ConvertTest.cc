@@ -230,38 +230,6 @@ TEST(FBGemmBfloat16Test, NaNPreservationJitAvx512) {
   }
   checkNaNPreservationJit<inst_set_t::avx512>();
 }
-
-TEST(FBGemmBfloat16Test, NaNPreservationAvx2) {
-  ASSERT_TRUE(cpuinfo_initialize());
-  if (!fbgemmHasAvx2Support()) {
-    GTEST_SKIP() << "AVX2 is unavailable";
-  }
-  checkNaNPreservation(FloatToBfloat16_avx2);
-}
-
-TEST(FBGemmBfloat16Test, NaNPreservationAvx512) {
-  ASSERT_TRUE(cpuinfo_initialize());
-  if (!fbgemmHasAvx512Support()) {
-    GTEST_SKIP() << "AVX512 is unavailable";
-  }
-  checkNaNPreservation(FloatToBfloat16_avx512);
-}
-
-TEST(FBGemmBfloat16Test, LegacyFiniteRoundingAvx2) {
-  ASSERT_TRUE(cpuinfo_initialize());
-  if (!fbgemmHasAvx2Support()) {
-    GTEST_SKIP() << "AVX2 is unavailable";
-  }
-  checkLegacyFiniteRounding(FloatToBfloat16_avx2);
-}
-
-TEST(FBGemmBfloat16Test, LegacyFiniteRoundingAvx512) {
-  ASSERT_TRUE(cpuinfo_initialize());
-  if (!fbgemmHasAvx512Support()) {
-    GTEST_SKIP() << "AVX512 is unavailable";
-  }
-  checkLegacyFiniteRounding(FloatToBfloat16_avx512);
-}
 #endif
 
 TEST(FBGemmBfloat16Test, Conversion) {

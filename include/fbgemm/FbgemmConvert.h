@@ -12,6 +12,7 @@
 #include <cstdint>
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/Types.h"
+#include "fbgemm/detail/PlatformSpecificKernelsInterface.h"
 
 namespace fbgemm {
 
@@ -36,46 +37,18 @@ Bfloat16ToFloat_ref(const bfloat16* src, float* dst, size_t size);
  * implementation.
  *
  */
-FBGEMM_API void
-FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size);
+inline void FloatToBfloat16_simd(const float* src, bfloat16* dst, size_t size) {
+  platformKernels().Float32ToBFloat16(src, dst, size);
+}
 
 /**
  * @ Transform all entries in a matrix from bfloat16 to fp32: simd
  * implementation.
  *
  */
-FBGEMM_API void
-Bfloat16ToFloat_simd(const bfloat16* src, float* dst, size_t size);
-
-#if !defined(__aarch64__)
-/**
- * @brief AVX2 implementation to convert fp32 numbers to bf16 numbers.
- *
- */
-FBGEMM_API void
-FloatToBfloat16_avx2(const float* src, bfloat16* dst, size_t size);
-
-/**
- * @brief AVX512 implementation to convert fp32 numbers to bf16 numbers.
- *
- */
-FBGEMM_API void
-FloatToBfloat16_avx512(const float* src, bfloat16* dst, size_t size);
-
-/**
- * @brief AVX2 implementation to convert bf16 numbers to fp32 numbers.
- *
- */
-FBGEMM_API void
-Bfloat16ToFloat_avx2(const bfloat16* src, float* dst, size_t size);
-
-/**
- * @brief AVX512 implementation to convert bf16 numbers to fp32 numbers.
- *
- */
-FBGEMM_API void
-Bfloat16ToFloat_avx512(const bfloat16* src, float* dst, size_t size);
-#endif
+inline void Bfloat16ToFloat_simd(const bfloat16* src, float* dst, size_t size) {
+  platformKernels().BFloat16ToFloat32(src, dst, size);
+}
 
 /**
  * @ Transform all entries in a matrix from fp32 to float16: reference
@@ -101,89 +74,64 @@ FBGEMM_API void Float16ToFloat_ref(const float16* src, float* dst, size_t size);
  * @ Transform all entries in a matrix from fp32 to float16: simd
  * implementation.
  *
+ */
+inline void FloatToFloat16_simd(const float* src, float16* dst, size_t size) {
+  platformKernels().Float32ToFloat16(src, dst, size);
+}
+
+/**
+ * @ Transform all entries in a matrix from fp32 to float16: simd
+ * implementation.
+ *
  * @param do_clip if true we saturate to fp16 min and max instead of generating
  *                infinities.
  */
-FBGEMM_API void FloatToFloat16_simd(
-    const float* src,
-    float16* dst,
-    size_t size,
-    bool do_clip = false);
+inline void
+FloatToFloat16_simd(const float* src, float16* dst, size_t size, bool do_clip) {
+  if (do_clip) {
+    platformKernels().Float32ToFloat16Clipping(src, dst, size);
+  } else {
+    platformKernels().Float32ToFloat16(src, dst, size);
+  }
+}
 
 /**
  * @ Transform all entries in a matrix from float16 to fp32: simd
  * implementation.
  *
  */
-FBGEMM_API void
-Float16ToFloat_simd(const float16* src, float* dst, size_t size);
+inline void Float16ToFloat_simd(const float16* src, float* dst, size_t size) {
+  platformKernels().Float16ToFloat32(src, dst, size);
+}
 
 #if !defined(__aarch64__)
 /**
- * @brief AVX2 implementation to convert fp32 numbers to fp16 numbers.
+ * @brief Same as FloatToFloat16_simd, kept for existing callers.
  *
  */
-FBGEMM_API void FloatToFloat16_avx2(
-    const float* src,
-    float16* dst,
-    size_t size,
-    bool do_clip = false);
+inline void FloatToFloat16_avx2(const float* src, float16* dst, size_t size) {
+  FloatToFloat16_simd(src, dst, size);
+}
 
 /**
- * @brief AVX512 implementation to convert fp32 numbers to fp16 numbers.
- *
- */
-FBGEMM_API void FloatToFloat16_avx512(
-    const float* src,
-    float16* dst,
-    size_t size,
-    bool do_clip = false);
-#endif
-
-/**
- * @brief SVE2 implementation to convert fp32 numbers to fp16 numbers.
- *
- */
-FBGEMM_API void FloatToFloat16_sve2(
-    const float* src,
-    float16* dst,
-    size_t size,
-    bool do_clip = false);
-
-/**
- * @brief NEON implementation to convert fp32 numbers to fp16 numbers.
+ * @brief Same as FloatToFloat16_simd, kept for existing callers.
  *
  * @param do_clip if true we saturate to fp16 min and max instead of generating
  *                infinities.
  */
-FBGEMM_API void FloatToFloat16_neon(
-    const float* src,
-    float16* dst,
-    size_t size,
-    bool do_clip = false);
-
-#if !defined(__aarch64__)
-/**
- * @brief AVX2 implementation to convert fp16 numbers to fp32 numbers.
- *
- */
-FBGEMM_API void
-Float16ToFloat_avx2(const float16* src, float* dst, size_t size);
+inline void
+FloatToFloat16_avx2(const float* src, float16* dst, size_t size, bool do_clip) {
+  FloatToFloat16_simd(src, dst, size, do_clip);
+}
 
 /**
- * @brief AVX512 implementation to convert fp16 numbers to fp32 numbers.
+ * @brief Same as Float16ToFloat_simd, kept for existing callers.
  *
  */
-FBGEMM_API void
-Float16ToFloat_avx512(const float16* src, float* dst, size_t size);
+inline void Float16ToFloat_avx2(const float16* src, float* dst, size_t size) {
+  Float16ToFloat_simd(src, dst, size);
+}
 #endif
-
-/**
- * @brief NEON implementation to convert fp16 numbers to fp32 numbers.
- *
- */
-FBGEMM_API void
-Float16ToFloat_neon(const float16* src, float* dst, size_t size);
 
 /**
  * @brief Transform all entries in a matrix from fp32 to float16 and back to
