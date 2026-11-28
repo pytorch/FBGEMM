@@ -23,13 +23,20 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_memory_lt_gb, gpu_unavailable, optests
+    from test_utils import (
+        gpu_available,
+        gpu_memory_lt_gb,
+        gpu_unavailable,
+        optests,
+        torch_compile_strategy,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_memory_lt_gb,
         gpu_unavailable,
         optests,
+        torch_compile_strategy,
     )
 
 
@@ -102,7 +109,7 @@ class PackedSegmentsTest(unittest.TestCase):
                 torch.int,
             ]
         ),
-        torch_compile=st.booleans(),
+        torch_compile=torch_compile_strategy(),
     )
     @settings(deadline=None)
     def test_pack_segments(
@@ -372,7 +379,7 @@ class PackedSegmentsTest(unittest.TestCase):
                 torch.int,
             ]
         ),
-        torch_compile=st.booleans(),
+        torch_compile=torch_compile_strategy(),
     )
     @settings(deadline=None)
     def test_pack_segments_smaller_max_len(
@@ -532,7 +539,7 @@ class PackedSegmentsTest(unittest.TestCase):
                 torch.half,
             ]
         ),
-        torch_compile=st.booleans(),
+        torch_compile=torch_compile_strategy(),
         use_cpu=st.booleans(),
     )
     @settings(deadline=None)

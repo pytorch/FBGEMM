@@ -92,9 +92,26 @@ install_triton_pip () {
 
   # BUILD_VARIANT is provided by the github workflow file
   if [ "$BUILD_VARIANT" == "cuda" ]; then
-    echo "[BUILD] Installing pytorch-triton ${triton_version} from PIP ..."
+    local env_prefix
+    env_prefix=$(env_name_or_prefix "${env_name}") || return 1
+    local python_version
     # shellcheck disable=SC2086
-    install_from_pytorch_pip "${env_name}" pytorch-triton "${triton_version}" || return 1
+    python_version=$(conda run ${env_prefix} python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")') || return 1
+    if [ "$python_version" == "3.15" ]; then
+      local has_triton
+      # shellcheck disable=SC2086
+      has_triton=$(conda run ${env_prefix} python -c 'from importlib.util import find_spec; print(find_spec("triton") is not None)') || return 1
+      if [ "$has_triton" == "True" ]; then
+        echo "[BUILD] Keeping the Triton installed with PyTorch"
+      else
+        echo "[BUILD] Installing Triton 3.9.0 for Python 3.15 ..."
+        # shellcheck disable=SC2086
+        (exec_with_retries 3 conda run ${env_prefix} python -m pip install triton==3.9.0 --index-url https://pypi.org/simple) || return 1
+      fi
+    else
+      echo "[BUILD] Installing pytorch-triton ${triton_version} from PIP ..."
+      install_from_pytorch_pip "${env_name}" pytorch-triton "${triton_version}" || return 1
+    fi
 
   elif [ "$BUILD_VARIANT" == "rocm" ]; then
     echo "[BUILD] Installing pytorch-triton-rocm ${triton_version} from PIP ..."

@@ -78,7 +78,7 @@ jobs:
           { arch: arm, instance: "mt-l-arm64g3-16-62" },
         ]
         build-target: [ "default" ]
-        python-version: [ "3.11", "3.12", "3.13", "3.14" ]
+        python-version: [ "3.11", "3.12", "3.13", "3.14", "3.15" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -151,7 +151,7 @@ jobs:
           { arch: x86, instance: "mt-l-x86iavx512-16-128", timeout: 20 },
         ]
         build-target: [ "default" ]
-        python-version: [ "3.11", "3.12", "3.13", "3.14" ]
+        python-version: [ "3.11", "3.12", "3.13", "3.14", "3.15" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 

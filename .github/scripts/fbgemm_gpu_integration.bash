@@ -275,13 +275,13 @@ integration_fbgemm_gpu_install_matrix_run () {
     3.12
     3.13
     3.14
+    3.15
   )
 
   if [ "$variant_type" == "cuda" ]; then
     local variant_versions=(
       12.6.3
       12.8.1
-      13.0.2
       13.0.2
     )
   elif [ "$variant_type" == "genai" ]; then
@@ -306,6 +306,10 @@ integration_fbgemm_gpu_install_matrix_run () {
 
   for py_ver in "${python_versions[@]}"; do
     for var_ver in "${variant_versions[@]}"; do
+      if [ "$py_ver" == "3.15" ] && [ "$var_ver" == "12.8.1" ]; then
+        echo "[INTEGRATION] Skipping Python 3.15/CUDA 12.8: no matching Torch wheel"
+        continue
+      fi
       __single_run "${py_ver}" "${var_ver}" "${repo}" || return 1
     done
   done

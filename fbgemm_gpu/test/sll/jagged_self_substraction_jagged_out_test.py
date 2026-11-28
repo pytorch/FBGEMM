@@ -16,9 +16,9 @@ from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, torch_compile_strategy
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, torch_compile_strategy
 
 
 class JaggedSelfSubtractionJaggedOutTest(unittest.TestCase):
@@ -29,7 +29,7 @@ class JaggedSelfSubtractionJaggedOutTest(unittest.TestCase):
         B=st.integers(10, 100),
         L=st.integers(1, 200),
         device_type=st.sampled_from(["cpu", "cuda"]),
-        enable_pt2=st.booleans(),
+        enable_pt2=torch_compile_strategy(),
     )
     @settings(deadline=None)
     def test_triton_jagged_self_substraction_jagged_out(

@@ -561,7 +561,10 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True)
-        _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True, compile=True)
+        if torch._dynamo.is_dynamo_supported():
+            device = torch.accelerator.current_accelerator()
+            assert device is not None
+            _test_matmul_fp8_row((3, 4, 5), device, True, compile=True)
         _test_matmul_fp8_row(
             (5, 4, 5), torch.device("cuda"), True, transpose_input=True
         )
@@ -574,6 +577,9 @@ class TestFp8Matmul(unittest.TestCase):
     @unittest.skipIf(
         torch.version.hip is None,
         "Non-persistent kernel configs use AMD-only options.",
+    )
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
     )
     def test_matmul_fp8_row_dynamic_rows(self) -> None:
         counter = CompileCounterWithBackend("inductor")
@@ -689,7 +695,10 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
         _test_matmul_fp8_row_skip_scaling((3, 4, 5), torch.device("cuda"))
-        _test_matmul_fp8_row_skip_scaling((3, 4, 5), torch.device("cuda"), compile=True)
+        if torch._dynamo.is_dynamo_supported():
+            device = torch.accelerator.current_accelerator()
+            assert device is not None
+            _test_matmul_fp8_row_skip_scaling((3, 4, 5), device, compile=True)
         _test_matmul_fp8_row_skip_scaling(
             (5, 4, 5), torch.device("cuda"), transpose_input=True
         )

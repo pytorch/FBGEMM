@@ -133,6 +133,9 @@ class Jagged2DToDenseTest(unittest.TestCase):
             output_values.backward(ref_output_values)
             torch.testing.assert_close(expected_grad, values.grad)
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @settings(
         verbosity=Verbosity.verbose,

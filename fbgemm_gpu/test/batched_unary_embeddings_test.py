@@ -386,6 +386,9 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
                         indices,
                     )
 
+    @unittest.skipUnless(
+        torch._dynamo.is_dynamo_supported(), "torch.compile is unavailable"
+    )
     def test_batched_unary_embeddings_dynamic_shapes_forward(self) -> None:
         num_tasks = 2
         num_tables = 2
