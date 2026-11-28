@@ -757,6 +757,172 @@ TEST(SSDTableBatchedEmbeddingsTest, TestByteMissingRowsAreZeroInitialized) {
           at::zeros({2, EMBEDDING_DIMENSION}, at::kByte)));
 }
 
+namespace {
+// Checkpoints `db` and reads rows [start, start + out.size(0)) of that
+// checkpoint into `out` through a single-shard read-only reader.
+void readRangeFromCheckpoint(
+    MockEmbeddingRocksDB& db,
+    const at::Tensor& out,
+    int64_t start,
+    int64_t width_offset = 0) {
+  const auto ckpt_paths =
+      db.get_checkpoints(db.create_checkpoint(/*global_step=*/0));
+  ASSERT_EQ(ckpt_paths.size(), 1);
+  ssd::ReadOnlyEmbeddingKVDB readonly_db(
+      ckpt_paths,
+      /*tbe_uuid=*/"test_uuid",
+      /*num_shards=*/1,
+      /*num_threads=*/1,
+      /*max_D=*/EMBEDDING_DIMENSION);
+  readonly_db.get_range_from_rdb_checkpoint(
+      out, start, out.size(0), width_offset);
+}
+} // namespace
+
+TEST(SSDTableBatchedEmbeddingsTest, TestReadOnlyCheckpointFillsColdRows) {
+  // Sparse table: only rows {1, 3} of [0, 5) are ever written. Reading the
+  // dense range back from a read-only checkpoint must return the written
+  // rows and zeros for the cold rows. In-trainer publish reads dense ranges;
+  // the cold rows used to trip a CHECK and SIGABRT the publish subprocess.
+  // The trailing cold row 4 covers the exhausted-iterator (!Valid) branch.
+  auto mock_embedding_rocks = getMockEmbeddingRocksDB(
+      /*num_shards=*/1, "readOnlyColdRows");
+
+  auto indices = at::tensor({1L, 3L}, at::TensorOptions().dtype(at::kLong));
+  const auto row =
+      at::arange(EMBEDDING_DIMENSION, at::TensorOptions().dtype(at::kFloat));
+  auto rows = at::stack({row + 10, row + 30});
+  auto count = at::tensor({2L}, at::TensorOptions().dtype(at::kLong));
+  mock_embedding_rocks->set_kv_db_async(indices, rows, count).wait();
+
+  // Ones (not zeros) so the test proves cold rows are actively zero-filled.
+  auto out =
+      at::ones({5, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  readRangeFromCheckpoint(*mock_embedding_rocks, out, /*start=*/0);
+
+  auto expected = at::zeros_like(out);
+  expected[1].copy_(rows[0]);
+  expected[3].copy_(rows[1]);
+  EXPECT_TRUE(at::equal(out, expected));
+}
+
+TEST(SSDTableBatchedEmbeddingsTest, TestReadOnlyCheckpointShardMismatchThrows) {
+  // A 1-shard checkpoint (keys 0..9) opened as 2 shards reusing the same
+  // path: each shard's DB holds keys outside its hash partition, so some
+  // shard's iterator lands behind its expected key. Stray key behind
+  // expected -> c10::Error propagates to the caller (fail loud, never
+  // silent zeros).
+  auto mock_embedding_rocks =
+      getMockEmbeddingRocksDB(/*num_shards=*/1, "readOnlyMismatch");
+
+  std::vector<int64_t> ids(10);
+  std::iota(ids.begin(), ids.end(), 0);
+  auto indices = at::tensor(ids, at::TensorOptions().dtype(at::kLong));
+  auto rows = at::ones(
+      {10, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  auto count = at::tensor({10L}, at::TensorOptions().dtype(at::kLong));
+  mock_embedding_rocks->set_kv_db_async(indices, rows, count).wait();
+
+  const int64_t kStep = 0;
+  auto ckpt_uuid = mock_embedding_rocks->create_checkpoint(kStep);
+  auto ckpt_paths = mock_embedding_rocks->get_checkpoints(ckpt_uuid);
+  ASSERT_EQ(ckpt_paths.size(), 1);
+
+  ssd::ReadOnlyEmbeddingKVDB readonly_db(
+      {ckpt_paths[0], ckpt_paths[0]},
+      /*tbe_uuid=*/"test_uuid",
+      /*num_shards=*/2,
+      /*num_threads=*/2,
+      /*max_D=*/EMBEDDING_DIMENSION);
+
+  auto out = at::ones(
+      {10, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  try {
+    readonly_db.get_range_from_rdb_checkpoint(
+        out, /*start=*/0, /*length=*/10, /*width_offset=*/0);
+    FAIL() << "expected c10::Error for stray key behind expected";
+  } catch (const c10::Error& e) {
+    // Pin the mismatch detector specifically, not just any throw.
+    EXPECT_NE(std::string(e.what()).find("behind expected"), std::string::npos);
+  }
+}
+
+TEST(SSDTableBatchedEmbeddingsTest, TestReadOnlyCheckpointFillsColdUint8Rows) {
+  // Cold uint8 rows are zero bytes. Empty DB: every row is cold, so no
+  // uint8 writes are needed to pin the memset path's exact output.
+  auto mock_embedding_rocks =
+      getMockEmbeddingRocksDB(/*num_shards=*/1, "readOnlyColdU8");
+
+  auto out =
+      at::ones({5, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kByte));
+  readRangeFromCheckpoint(*mock_embedding_rocks, out, /*start=*/0);
+
+  EXPECT_TRUE(at::equal(out, at::zeros_like(out)));
+}
+
+TEST(SSDTableBatchedEmbeddingsTest, TestReadOnlyCheckpointRejectsWidthOffset) {
+  auto mock_embedding_rocks =
+      getMockEmbeddingRocksDB(/*num_shards=*/1, "readOnlyWidthOffset");
+
+  auto out =
+      at::ones({5, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  try {
+    readRangeFromCheckpoint(
+        *mock_embedding_rocks, out, /*start=*/0, /*width_offset=*/1);
+    FAIL() << "expected c10::Error for a nonzero width_offset";
+  } catch (const c10::Error& e) {
+    EXPECT_NE(std::string(e.what()).find("width_offset"), std::string::npos);
+  }
+  EXPECT_TRUE(at::equal(out, at::ones_like(out)));
+}
+
+TEST(
+    SSDTableBatchedEmbeddingsTest,
+    TestReadOnlyCheckpointColdRowsAcrossByteBoundary) {
+  // Little-endian key bytes sort 257 (01 01 ...) before 255 (ff 00 ...), the
+  // reverse of int64 order; [254, 258) reads back only if the iterator
+  // follows the Int64Comparator.
+  auto mock_embedding_rocks =
+      getMockEmbeddingRocksDB(/*num_shards=*/1, "readOnlyByteBoundary");
+
+  auto indices = at::tensor({255L, 257L}, at::TensorOptions().dtype(at::kLong));
+  const auto row =
+      at::arange(EMBEDDING_DIMENSION, at::TensorOptions().dtype(at::kFloat));
+  auto rows = at::stack({row + 10, row + 30});
+  auto count = at::tensor({2L}, at::TensorOptions().dtype(at::kLong));
+  mock_embedding_rocks->set_kv_db_async(indices, rows, count).wait();
+
+  auto out =
+      at::ones({4, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  readRangeFromCheckpoint(*mock_embedding_rocks, out, /*start=*/254);
+
+  auto expected = at::zeros_like(out);
+  expected[1].copy_(rows[0]);
+  expected[3].copy_(rows[1]);
+  EXPECT_TRUE(at::equal(out, expected));
+}
+
+TEST(
+    SSDTableBatchedEmbeddingsTest,
+    TestReadOnlyCheckpointRangeWithNoKeysReadsZeros) {
+  // Every key lies above the requested range, so every row takes the
+  // iterator-ahead path: a fully cold read returns zeros, not a mismatch.
+  auto mock_embedding_rocks =
+      getMockEmbeddingRocksDB(/*num_shards=*/1, "readOnlyNoKeysInRange");
+
+  auto indices = at::tensor({100L, 101L}, at::TensorOptions().dtype(at::kLong));
+  auto rows =
+      at::ones({2, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  auto count = at::tensor({2L}, at::TensorOptions().dtype(at::kLong));
+  mock_embedding_rocks->set_kv_db_async(indices, rows, count).wait();
+
+  auto out =
+      at::ones({4, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
+  readRangeFromCheckpoint(*mock_embedding_rocks, out, /*start=*/0);
+
+  EXPECT_TRUE(at::equal(out, at::zeros_like(out)));
+}
+
 TEST(
     SSDTableBatchedEmbeddingsTest,
     TestGetKvDbAsyncImplWithAndWithoutMetadataCf) {
