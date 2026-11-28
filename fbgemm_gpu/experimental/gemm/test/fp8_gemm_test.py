@@ -930,6 +930,27 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((256, 256, 64), (256, 256, 256), True)
         _test_matmul_fp8_block((256, 256, 192), (256, 256, 128), True)
 
+        # Each row or column has its own scale. Even the narrowest tile must
+        # cross a scale boundary. Reuse the shape across different K groups.
+        m, n, k = 33, 65, 96
+        a, b = [
+            torch.ones((size, k), device="cuda").to(get_fp8_constants()[0])
+            for size in (m, n)
+        ]
+        for fast in (False, True):
+            for bm, bn, bk in ((1, 128, 64), (128, 1, 32)):
+                groups_k = triton.cdiv(k, bk)
+                sa = torch.randint(
+                    1, 5, (triton.cdiv(m, bm), groups_k), device="cuda"
+                ).float()
+                sb = torch.randint(
+                    1, 5, (triton.cdiv(n, bn), groups_k), device="cuda"
+                ).float()
+                out = matmul_fp8_block(a, b, sa, sb, bm, bn, bk, fp8_fast_accum=fast)
+                av = sa.repeat_interleave(bm, 0).repeat_interleave(bk, 1)[:m, :k]
+                bv = sb.repeat_interleave(bn, 0).repeat_interleave(bk, 1)[:n, :k]
+                torch.testing.assert_close(out, (av @ bv.T).bfloat16(), rtol=0, atol=0)
+
     def test_matmul_fp8_row_tma_aligned(self) -> None:
         from fbgemm_gpu.experimental.gemm.triton_gemm.utils import TmaAutoTuneHelper
 
