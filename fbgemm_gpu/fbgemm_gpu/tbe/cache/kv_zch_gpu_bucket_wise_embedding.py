@@ -26,13 +26,23 @@ KV_CUDA_ROW_ALIGNMENT = 16
 # its `delta_refusal_marker` attribute, which the predictor matches refusals
 # against, so it can change without breaking that match.
 KV_SHARD_DELTA_REFUSAL_MARKER = "outside this shard's rows"
+# Default of fill_new_embeddings_enabled for modules that do not set it.
+KV_FILL_ROLLOUT_ENABLED = False
 
 
 class KVZCHGPUBucketWiseEmbeddingInference(KVEmbeddingInference):
-    """KV TBE selected by the explicit KV_ZCH_GPU_BUCKET_WISE declaration."""
+    """KV TBE selected by the explicit KV_ZCH_GPU_BUCKET_WISE declaration.
+
+    The constructor's parameters, the CPU branch of ``forward`` and
+    ``embedding_inplace_update_per_table`` copy the parent's (TorchScript has no
+    ``super()``, and the parent's artifacts must not change): keep them in sync
+    with ``KVEmbeddingInference``. ``test_cpu_forward_matches_parent`` checks
+    the forward.
+    """
 
     __constants__ = KVEmbeddingInference.__constants__ + [
         "kv_cuda_row_alignment",
+        "fill_new_embeddings_supported",
     ]
 
     def __init__(  # noqa C901
@@ -72,6 +82,11 @@ class KVZCHGPUBucketWiseEmbeddingInference(KVEmbeddingInference):
         # dims (fbgemm.FloatOrHalfToGroupedInt4E4M3); lookups decode the rows to
         # FP16, which the kernel then reads as FP16 tables.
         grouped_int4_group_size: int = 0,
+        # Compiles calls to the native fill_new_embeddings into the artifact,
+        # which predictors without it cannot load; publish sets it per table
+        # once every tenant serving the table runs such a predictor. Without
+        # it, fill-only deltas are refused. None takes KV_FILL_ROLLOUT_ENABLED.
+        fill_new_embeddings_enabled: bool | None = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super().__init__(
             embedding_specs=embedding_specs,
@@ -107,6 +122,12 @@ class KVZCHGPUBucketWiseEmbeddingInference(KVEmbeddingInference):
         self.kv_cuda_row_alignment: int = KV_CUDA_ROW_ALIGNMENT
         self.kv_cuda_uniform_rows: bool = False
         self.delta_refusal_marker: str = KV_SHARD_DELTA_REFUSAL_MARKER
+        if fill_new_embeddings_enabled is None:
+            fill_new_embeddings_enabled = KV_FILL_ROLLOUT_ENABLED
+        self.fill_new_embeddings_supported: bool = (
+            fill_new_embeddings_enabled
+            and hasattr(self.kv_embedding_cache, "fill_new_embeddings")
+        )
         # Grouped INT4 rows are stored, and cached in HBM, as opaque bytes.
         self.kv_cuda_table_row_bytes: list[int] = [
             (
@@ -386,6 +407,44 @@ class KVZCHGPUBucketWiseEmbeddingInference(KVEmbeddingInference):
                 f"grouped INT4 rows must be uint8 with {self.grouped_int4_row_bytes} "
                 f"bytes, got {update_weights.dtype} {list(update_weights.shape)}"
             )
+
+    @torch.jit.export
+    def embedding_fill_new_rows_per_table(
+        self,
+        table_id: int,
+        update_row_indices: Tensor,
+        update_weights: Tensor,
+    ) -> None:
+        """
+        Writes the rows of ids this row-wise shard has no row for to the KV
+        store only, never to an HBM row cache: fill-only sparse deltas, e.g.
+        RES, that never change an existing row. Ids are global; rows outside
+        [table_sharding_offset, table_sharding_offset + rows) belong to another
+        shard and are dropped. Kept ids are stored under the same key as the
+        snapshot load.
+        """
+        if not self.fill_new_embeddings_supported:
+            raise RuntimeError("KV fill-only deltas require native fill_new_embeddings")
+        else:
+            assert table_id < len(
+                self.embedding_specs
+            ), f"table index {table_id} is out of range {len(self.embedding_specs)}"
+            if update_row_indices.numel() == 0:
+                return
+            self._check_grouped_int4_rows(update_weights)
+            table_offset = self.hash_size_cumsum[table_id]
+            local_rows = update_row_indices - self.table_sharding_offset[table_id]
+            in_shard = (local_rows >= 0) & (
+                local_rows < self.embedding_specs[table_id][1]
+            )
+            num_in_shard = int(in_shard.sum().item())
+            if num_in_shard == 0:
+                return
+            if num_in_shard < update_row_indices.numel():
+                local_rows = local_rows[in_shard]
+                update_weights = update_weights[in_shard.to(update_weights.device)]
+            keys = local_rows + table_offset.to(local_rows.device)
+            self.kv_embedding_cache.fill_new_embeddings(keys, update_weights)
 
     @torch.jit.export
     def initialize_kv_embedding_cache(self) -> None:

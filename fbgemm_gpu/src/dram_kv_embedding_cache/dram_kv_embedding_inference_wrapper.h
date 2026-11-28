@@ -125,6 +125,19 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   // CPU indices return [N, lookup_row_bytes] CPU rows. CUDA indices return
   // [N, round_up(lookup_row_bytes, 16)] rows on the same device, served from an
   // HBM row cache in front of the backend when set_hbm_cache_rows set rows.
+  // Writes the rows of the CPU indices the backend has no row, or an all-zero
+  // row, for, one per id, never touching an HBM cache, and returns how many it
+  // wrote. For fill-only deltas, which never change an existing row and carry
+  // the same row for an id: concurrent calls may both write an id. Exports
+  // the written and dropped rows as fb303 sums fbgemm.kv_fill.written_rows and
+  // fbgemm.kv_fill.existing_rows; log_inplace_update_stats logs their totals.
+  int64_t fill_new_embeddings(
+      const at::Tensor& indices,
+      const at::Tensor& weights);
+
+  // [rows written, rows dropped] by fill_new_embeddings so far.
+  std::vector<int64_t> get_fill_stats() const;
+
   at::Tensor get_embeddings(const at::Tensor& indices);
 
   int64_t get_cuda_row_bytes() const;
@@ -286,6 +299,10 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   std::shared_ptr<KVHbmRowCache> hbm_cache_for(
       const at::Tensor& indices,
       const BackendBinding& binding);
+  // Rows as stored: drops the all-zero padding of rows padded to 16 bytes for
+  // a KV-ZCH GPU serving shard, and checks they fit the storage.
+  at::Tensor stored_rows(const at::Tensor& weights, int64_t backend_row_bytes)
+      const;
   void set_embeddings_impl(
       const at::Tensor& indices,
       const at::Tensor& weights,
@@ -328,6 +345,8 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   std::atomic<bool> hbm_cache_fused_admission_{true};
   std::atomic<bool> hbm_cache_direct_output_{false};
   std::atomic<int64_t> random_init_bypasses_{0};
+  std::atomic<int64_t> fill_written_rows_{0};
+  std::atomic<int64_t> fill_existing_rows_{0};
 };
 
 } // namespace fbgemm_gpu
