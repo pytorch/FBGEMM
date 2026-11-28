@@ -22,10 +22,9 @@ class GatherScatterTests(unittest.TestCase):
     """Test Gathers."""
 
     @unittest.skipIf(
-        torch.version.hip
-        or not torch.cuda.is_available()
-        or torch.cuda.get_device_capability() < (9, 0),
-        "Skip when no Hopper GPU is available. This test is only for Hopper GPU.",
+        not torch.cuda.is_available()
+        or (not torch.version.hip and torch.cuda.get_device_capability() < (9, 0)),
+        "Requires an AMD GPU or a CUDA GPU with compute capability 9.0 or newer.",
     )
     def test_gather_along_first_dim(self) -> None:
         def _test_gather_along_first_dim(
@@ -69,10 +68,9 @@ class GatherScatterTests(unittest.TestCase):
         _test_gather_along_first_dim(16384, 16384, 5120)
 
     @unittest.skipIf(
-        torch.version.hip
-        or not torch.cuda.is_available()
-        or torch.cuda.get_device_capability() < (9, 0),
-        "Skip when no Hopper GPU is available. This test is only for Hopper GPU.",
+        not torch.cuda.is_available()
+        or (not torch.version.hip and torch.cuda.get_device_capability() < (9, 0)),
+        "Requires an AMD GPU or a CUDA GPU with compute capability 9.0 or newer.",
     )
     def test_scatter_add_along_first_dim(self) -> None:
         def _test_scatter_add_along_first_dim(
