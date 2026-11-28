@@ -8,6 +8,7 @@
 
 #include "common.cuh"
 #include "fbgemm_gpu/utils/cuda_utilities.cuh"
+#include "fbgemm_gpu/utils/grouped_int4_e4m3.h"
 
 using Tensor = at::Tensor;
 
@@ -388,6 +389,87 @@ DLL_PUBLIC at::Tensor _fusednbitrowwise_to_single_or_half_precision_gpu(
   }
 
   return output;
+}
+
+namespace {
+
+// One thread per code byte: the two values it packs share the scale of their
+// group. Matches grouped_int4_e4m3::dequantize_row bit for bit.
+__global__ void grouped_int4_e4m3_to_half_kernel(
+    const uint8_t* __restrict__ input,
+    const int64_t nrows,
+    const int64_t row_bytes,
+    const int64_t dim,
+    const int64_t group_size,
+    at::Half* __restrict__ output) {
+  const int64_t pairs = dim / 2;
+  const int64_t total = nrows * pairs;
+  for (int64_t i = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+       i < total;
+       i += static_cast<int64_t>(gridDim.x) * blockDim.x) {
+    const int64_t row = i / pairs;
+    const int64_t col = 2 * (i - row * pairs);
+    const uint8_t* row_input = input + row * row_bytes;
+    const uint8_t byte = row_input[col / 2];
+    const float scale = static_cast<float>(c10::Float8_e4m3fn(
+        row_input[pairs + col / group_size], c10::Float8_e4m3fn::from_bits()));
+    const int low = static_cast<int>((byte & 0x0F) ^ 0x08) - 0x08;
+    const int high = static_cast<int>((byte >> 4) ^ 0x08) - 0x08;
+    output[row * dim + col] = static_cast<at::Half>(low * scale);
+    output[row * dim + col + 1] = static_cast<at::Half>(high * scale);
+  }
+}
+
+} // namespace
+
+/// @ingroup quantize-ops-cuda
+/// Decodes group-wise INT4 rows with float8_e4m3fn group scales into FP16, as
+/// `GroupedInt4E4M3ToHalf` does on the CPU. Rows may be wider than the packed
+/// row (e.g. padded to a CUDA row alignment); the padding is ignored.
+DLL_PUBLIC Tensor _grouped_int4_e4m3_to_half_gpu(
+    const Tensor& input,
+    const int64_t group_size,
+    const int64_t dim,
+    const bool as_bytes) {
+  TENSOR_ON_CUDA_GPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+  TORCH_CHECK(
+      input.scalar_type() == at::kByte,
+      "input must be uint8, got ",
+      input.scalar_type());
+  grouped_int4_e4m3::check_dims(dim, group_size);
+  const int64_t nrows = input.size(0);
+  const int64_t row_bytes = input.size(1);
+  TORCH_CHECK(
+      row_bytes >= grouped_int4_e4m3::packed_row_bytes(dim, group_size),
+      "rows of ",
+      row_bytes,
+      " bytes are too short for dim ",
+      dim,
+      " and group_size ",
+      group_size);
+  CUDA_DEVICE_GUARD(input);
+  const auto input_contig = input.contiguous();
+  auto output = at::empty({nrows, dim}, input.options().dtype(at::kHalf));
+  const int64_t total = nrows * (dim / 2);
+  if (total > 0) {
+    constexpr int kThreads = 256;
+    const auto blocks =
+        std::min<int64_t>((total + kThreads - 1) / kThreads, 65535 * 64);
+    FBGEMM_LAUNCH_KERNEL(
+        grouped_int4_e4m3_to_half_kernel,
+        dim3(blocks),
+        dim3(kThreads),
+        0,
+        at::cuda::getCurrentCUDAStream(),
+        input_contig.const_data_ptr<uint8_t>(),
+        nrows,
+        row_bytes,
+        dim,
+        group_size,
+        output.mutable_data_ptr<at::Half>());
+  }
+  return as_bytes ? output.view(at::kByte) : output;
 }
 
 } // namespace fbgemm_gpu

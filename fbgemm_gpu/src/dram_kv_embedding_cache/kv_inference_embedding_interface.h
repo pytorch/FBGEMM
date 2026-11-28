@@ -57,6 +57,12 @@ class KVInferenceEmbeddingInterface {
   /// @param disable_random_init whether to disable random initialization
   virtual void set_disable_random_init(bool /* disable_random_init */) {}
 
+  /// Whether a lookup miss returns an all-zero row. nullopt defers to the
+  /// wrapper's initializer settings.
+  virtual std::optional<bool> missing_rows_are_zero() const {
+    return std::nullopt;
+  }
+
   /// Set embeddings in the KV store (sync version)
   ///
   /// @param indices The 1D embedding index tensor
@@ -113,6 +119,13 @@ class KVInferenceEmbeddingInterface {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) = 0;
+
+  /// Whether each key of the 1D CPU index tensor has a row, as a bool tensor,
+  /// answered without reading rows. nullopt when the backend cannot do that.
+  virtual std::optional<at::Tensor> contains_keys(
+      const at::Tensor& /* indices */) {
+    return std::nullopt;
+  }
 
   /// Compact the KV store (placeholder for future implementations)
   virtual void compact() = 0;
