@@ -16,6 +16,7 @@
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_select.cuh>
 #include <cub/block/block_reduce.cuh>
+#include <cub/block/block_scan.cuh>
 #include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
 
@@ -41,6 +42,59 @@
 #include "fbgemm_gpu/utils/weight_row.cuh"
 
 using Tensor = at::Tensor;
+
+std::tuple<Tensor, Tensor> kv_hbm_cache_lookup_cuda(
+    const Tensor& unique_keys,
+    const Tensor& tags,
+    const Tensor& cache_rows,
+    const Tensor& lru,
+    int64_t tick);
+
+std::tuple<Tensor, Tensor, Tensor, Tensor, int64_t>
+kv_hbm_cache_lookup_direct_cuda(
+    const Tensor& keys,
+    const Tensor& tags,
+    const Tensor& cache_rows,
+    const Tensor& lru,
+    int64_t tick);
+
+Tensor kv_hbm_cache_pad_output_cuda(
+    const Tensor& input_rows,
+    const Tensor& miss_slots,
+    const Tensor& miss_rank,
+    const Tensor& output_rows);
+
+std::tuple<int64_t, int64_t, bool, bool, bool, bool> kv_hbm_cache_admit_cuda(
+    const Tensor& keys,
+    const Tensor& input_rows,
+    const Tensor& tags,
+    const Tensor& cache_rows,
+    const Tensor& lru,
+    const Tensor& epochs,
+    const Tensor& heads,
+    const Tensor& counts,
+    const Tensor& next,
+    const Tensor& touched,
+    int64_t tick,
+    int64_t generation);
+
+std::tuple<int64_t, int64_t, bool, bool, bool, bool>
+kv_hbm_cache_admit_direct_cuda(
+    const Tensor& keys,
+    const Tensor& input_rows,
+    const Tensor& tags,
+    const Tensor& cache_rows,
+    const Tensor& lru,
+    const Tensor& epochs,
+    const Tensor& heads,
+    const Tensor& counts,
+    const Tensor& next,
+    const Tensor& touched,
+    const Tensor& miss_slots,
+    const Tensor& miss_rank,
+    const Tensor& output_rows,
+    int64_t tick,
+    int64_t generation);
 
 namespace {
 

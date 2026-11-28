@@ -131,7 +131,7 @@ class DramKVInferenceEmbedding
         disable_random_init_(disable_random_init) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(std::max<size_t>(
         num_threads, facebook::Proc::getCpuInfo().numCpuCores));
-    initialize_initializers(
+    DramKVInferenceEmbedding::initialize_initializers(
         num_shards,
         max_D,
         uniform_init_lower,
@@ -171,6 +171,10 @@ class DramKVInferenceEmbedding
     });
     LOG(INFO) << "DramKVInferenceEmbedding initialized: disable_random_init "
               << disable_random_init_;
+  }
+
+  std::optional<bool> missing_rows_are_zero() const override {
+    return disable_random_init_;
   }
 
   void initialize_initializers(
