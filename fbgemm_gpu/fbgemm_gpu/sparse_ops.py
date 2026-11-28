@@ -1250,6 +1250,26 @@ def histogram_binning_calibration_abstract(
     )
 
 
+def histogram_binning_calibration_by_feature_abstract(
+    logit: Tensor,
+    segment_value: Tensor,
+    segment_lengths: Tensor,
+    num_segments: int,
+    bin_num_examples: Tensor,
+    bin_num_positives: Tensor,
+    num_bins: int,
+    positive_weight: float,
+    lower_bound: float,
+    upper_bound: float,
+    bin_ctr_in_use_after: int,
+    bin_ctr_weight_value: float,
+) -> tuple[Tensor, Tensor]:
+    torch._check(bin_num_examples.numel() == bin_num_positives.numel())
+    return torch.empty_like(logit), torch.empty(
+        [logit.numel()], dtype=torch.int64, device=logit.device
+    )
+
+
 def float_to_hfp8_quantized(
     input: Tensor, ebits: int, exponent_bias: int, max_pos: float
 ) -> Tensor:
@@ -1725,6 +1745,10 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::histogram_binning_calibration",
             histogram_binning_calibration_abstract,
+        )
+        impl_abstract(
+            "fbgemm::histogram_binning_calibration_by_feature",
+            histogram_binning_calibration_by_feature_abstract,
         )
         impl_abstract(
             "fbgemm::generic_histogram_binning_calibration_by_feature",
