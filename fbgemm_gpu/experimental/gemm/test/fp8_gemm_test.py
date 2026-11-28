@@ -938,16 +938,22 @@ class TestFp8Matmul(unittest.TestCase):
         b = torch.randn(128, 64, dtype=torch.bfloat16, device=device)
         a_fp8, a_scale = quantize_fp8_row(a)
         b_fp8, b_scale = quantize_fp8_row(b)
-        expected = (
-            a_fp8.float() @ b_fp8.float().T * a_scale[:, None] * b_scale[None, :]
-        ).to(torch.bfloat16)
-        with mock.patch(
-            "fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm.TmaAutoTuneHelper",
-            wraps=TmaAutoTuneHelper,
-        ) as descriptor_factory:
-            result = matmul_fp8_row(a_fp8, b_fp8, a_scale, b_scale, tma_persistent=True)
-        self.assertEqual(descriptor_factory.called, torch.version.hip is None)
-        torch.testing.assert_close(result, expected, atol=2e-2, rtol=1.6e-2)
+        activations = [a_fp8]
+        if torch.version.cuda:
+            activations.append(a_fp8.to(torch.float8_e5m2))
+        for activation in activations:
+            expected = (
+                activation.float() @ b_fp8.float().T * a_scale[:, None] * b_scale[None, :]
+            ).to(torch.bfloat16)
+            with mock.patch(
+                "fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm.TmaAutoTuneHelper",
+                wraps=TmaAutoTuneHelper,
+            ) as descriptor_factory:
+                result = matmul_fp8_row(
+                    activation, b_fp8, a_scale, b_scale, tma_persistent=True
+                )
+            self.assertEqual(descriptor_factory.called, torch.version.hip is None)
+            torch.testing.assert_close(result, expected, atol=2e-2, rtol=1.6e-2)
 
 
 class TestPruneConfigsNonPersistent(unittest.TestCase):

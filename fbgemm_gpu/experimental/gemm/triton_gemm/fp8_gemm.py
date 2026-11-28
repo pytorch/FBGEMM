@@ -1023,6 +1023,7 @@ def _kernel_matmul_fp8_row_tma_persistent(
     stride_cm,
     stride_cn,
     dot_out_dtype: tl.constexpr,
+    a_dtype: tl.constexpr,
     c_dtype: tl.constexpr,
     bias_dtype: tl.constexpr,
     allow_tf32: tl.constexpr,
@@ -1090,7 +1091,6 @@ def _kernel_matmul_fp8_row_tma_persistent(
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
 
-    dtype_fp8 = tl.float8e4nv
     scale_dtype = tl.float32
 
     for _ in range(0, k_tiles * tiles_per_SM):
@@ -1111,10 +1111,10 @@ def _kernel_matmul_fp8_row_tma_persistent(
         offs_k = ki * BLOCK_K
 
         a = tl._experimental_descriptor_load(
-            A_ptr, [offs_am, offs_k], [BLOCK_M, BLOCK_K], dtype_fp8
+            A_ptr, [offs_am, offs_k], [BLOCK_M, BLOCK_K], a_dtype
         )
         b = tl._experimental_descriptor_load(
-            B_ptr, [offs_bn, offs_k], [BLOCK_N, BLOCK_K], dtype_fp8
+            B_ptr, [offs_bn, offs_k], [BLOCK_N, BLOCK_K], tl.float8e4nv
         )
 
         if fp8_fast_accum:
@@ -1271,6 +1271,7 @@ def _kernel_matmul_fp8_row_tma_persistent_ws_cooperative(
     stride_cm,
     stride_cn,
     dot_out_dtype: tl.constexpr,
+    a_dtype: tl.constexpr,
     c_dtype: tl.constexpr,
     bias_dtype: tl.constexpr,
     allow_tf32: tl.constexpr,
@@ -1319,7 +1320,6 @@ def _kernel_matmul_fp8_row_tma_persistent_ws_cooperative(
     num_tiles = tl.cdiv(M, BLOCK_M) * tl.cdiv(N, BLOCK_N)
     num_pid_m = tl.cdiv(M, BLOCK_M)
     num_pid_n = tl.cdiv(N, BLOCK_N)
-    dtype_fp8 = tl.float8e4nv
     for pid in range(tl.program_id(0), num_tiles, tl.num_programs(0)):
         num_pid_in_group = GROUP_M * num_pid_n
         group_id = pid // num_pid_in_group
@@ -1349,10 +1349,10 @@ def _kernel_matmul_fp8_row_tma_persistent_ws_cooperative(
                     A_ptr,
                     [offs_am, offs_k],
                     [BLOCK_M, BLOCK_K],
-                    dtype_fp8,
+                    a_dtype,
                 )
                 b = tl._experimental_descriptor_load(
-                    B_ptr, [offs_bn, offs_k], [BLOCK_N, BLOCK_K], dtype_fp8
+                    B_ptr, [offs_bn, offs_k], [BLOCK_N, BLOCK_K], tl.float8e4nv
                 )
 
             if fp8_fast_accum:
@@ -1449,7 +1449,7 @@ def matmul_fp8_row(
     # if use_persistent is explicitly requested, set o_use_persistent to False
 
     # Get datatypes and constants to use.
-    pt_fp8_dtype, _, _, _ = get_fp8_constants()
+    pt_fp8_dtype, tl_fp8_dtype, _, _ = get_fp8_constants()
     # Handle 3D+ a shape
     a_shape = a.shape
     a = a.view(-1, a.size(-1))
@@ -1470,6 +1470,7 @@ def matmul_fp8_row(
             torch.float8_e5m2fnuz,
         )
     assert b.dtype == pt_fp8_dtype
+    a_dtype_triton = tl.float8e5 if a.dtype == torch.float8_e5m2 else tl_fp8_dtype
     M, N, K, m_key, n_key, k_key, c, c_dtype_triton, dot_out_dtype_triton, device = (
         prep_matmul(a, b, dot_out_dtype)
     )
@@ -1664,6 +1665,7 @@ def matmul_fp8_row(
             c.stride(0),
             c.stride(1),
             dot_out_dtype=dot_out_dtype_triton,
+            a_dtype=a_dtype_triton,
             c_dtype=c_dtype_triton,
             bias_dtype=bias_dtype_triton,
             allow_tf32=allow_tf32,
@@ -1777,6 +1779,7 @@ def matmul_fp8_row(
             c.stride(0),
             c.stride(1),
             dot_out_dtype=dot_out_dtype_triton,
+            a_dtype=a_dtype_triton,
             c_dtype=c_dtype_triton,
             bias_dtype=bias_dtype_triton,
             allow_tf32=allow_tf32,
