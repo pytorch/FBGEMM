@@ -934,6 +934,7 @@ TEST_P(HbmGenerationTest, ReportsLookupCoverage) {
   if (GetParam()) {
     GTEST_SKIP() << "Direct output reports unique misses only";
   }
+  set_kv_lookup_coverage_sample_every_for_testing(1);
   flush_kv_lookup_coverage();
   const auto before = exported_coverage();
   const auto keys = at::tensor({1, 1, 3}, at::kLong);
@@ -941,10 +942,62 @@ TEST_P(HbmGenerationTest, ReportsLookupCoverage) {
   read_keys(full_, keys, 0);
   read_keys(full_, at::tensor({1, 1}, at::kLong), 0);
   flush_kv_lookup_coverage();
+  set_kv_lookup_coverage_sample_every_for_testing(16);
 
   // {keys, zero rows, backend keys, HBM unique keys, HBM unique hits} summed
   // over a CPU lookup, a cold CUDA lookup and a warm CUDA lookup.
   const std::vector<int64_t> expected{3 + 3 + 2, 1 + 1, 3 + 3, 2 + 1, 1};
+  EXPECT_EQ(minus(exported_coverage(), before), expected);
+}
+
+TEST_P(HbmGenerationTest, SamplesDeviceCoverageAndScalesIt) {
+  if (GetParam()) {
+    GTEST_SKIP() << "Direct output reports unique misses only";
+  }
+  // Warm the cache so every sampled lookup sees the same counts.
+  const auto keys = at::tensor({1, 1, 3}, at::kLong);
+  read_keys(full_, keys, 0);
+  set_kv_lookup_coverage_sample_every_for_testing(4);
+  flush_kv_lookup_coverage();
+  const auto before = exported_coverage();
+  for (int i = 0; i < 8; ++i) {
+    read_keys(full_, keys, 0);
+  }
+  flush_kv_lookup_coverage();
+  set_kv_lookup_coverage_sample_every_for_testing(16);
+
+  // Host counts are exact. Two of the eight lookups compute the device counts,
+  // each scaled by 4: key 3 is a zero row, which is never cached, so it is
+  // one zero row and one backend key per lookup.
+  const std::vector<int64_t> expected{8 * 3, 2 * 4 * 1, 2 * 4 * 1, 8 * 2, 8};
+  EXPECT_EQ(minus(exported_coverage(), before), expected);
+}
+
+TEST_P(HbmGenerationTest, SamplesEachWrapperAtTheSameRate) {
+  if (GetParam()) {
+    GTEST_SKIP() << "Direct output reports unique misses only";
+  }
+  // Two tables looked up alternately on one thread: only full_'s lookups have
+  // a zero row (key 3) and a backend key, early_'s key is a cached hit.
+  const auto full_keys = at::tensor({1, 1, 3}, at::kLong);
+  const auto early_keys = at::tensor({1}, at::kLong);
+  read_keys(full_, full_keys, 0);
+  read_keys(early_, early_keys, 0);
+  set_kv_lookup_coverage_sample_every_for_testing(4);
+  flush_kv_lookup_coverage();
+  const auto before = exported_coverage();
+  for (int i = 0; i < 8; ++i) {
+    read_keys(full_, full_keys, 0);
+    read_keys(early_, early_keys, 0);
+  }
+  flush_kv_lookup_coverage();
+  set_kv_lookup_coverage_sample_every_for_testing(16);
+
+  // Each wrapper computes the device counts on 2 of its 8 lookups, scaled by
+  // 4, so full_'s zero row and backend key count 2 x 4 x 1 whatever the
+  // interleaving. Host counts are exact.
+  const std::vector<int64_t> expected{
+      8 * 3 + 8 * 1, 2 * 4 * 1, 2 * 4 * 1, 8 * 2 + 8 * 1, 8 * 1 + 8 * 1};
   EXPECT_EQ(minus(exported_coverage(), before), expected);
 }
 
