@@ -84,10 +84,18 @@ class PackedSegmentsTest(unittest.TestCase):
         if len(padded_arrs) == 0:
             padded_arrs = torch.empty((0, 0) + tuple(tensor.shape[1:]))
         else:
-            padded_arrs = torch.Tensor(np.stack(padded_arrs))
+            padded_arrs = torch.from_numpy(np.stack(padded_arrs))
 
         # pyre-fixme[7]: Expected `ndarray` but got `Tensor`.
         return padded_arrs
+
+    @optests.dontGenerateOpCheckTests("Reference-only precision regression")
+    def test_pack_segments_reference_precision(self) -> None:
+        input_raw = np.array([[0.5 + 2**-12 + 2**-30]], dtype=np.float64)
+        lengths = torch.tensor([1], dtype=torch.int32)
+        packed_ref = self._pack_segments_ref(lengths, input_raw)
+        expected = torch.tensor(input_raw, dtype=torch.float16).unsqueeze(0)
+        self.assertTrue(torch.equal(packed_ref.to(torch.float16), expected))
 
     @given(
         n=st.integers(2, 10),
