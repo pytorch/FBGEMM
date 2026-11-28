@@ -98,16 +98,6 @@ additional_decorators.update(
             unittest.skip("Operator not implemented for Meta tensors"),
         ],
         # TODO: Make it compatible with opcheck tests
-        "test_schema__test_forward_gpu_uvm_cache_fp16": [
-            unittest.skip(
-                "Failed with Argument lxu_cache_locations_output is not defined to alias output but was aliasing"
-            ),
-        ],
-        "test_schema__test_forward_gpu_uvm_cache_fp32": [
-            unittest.skip(
-                "Failed with Argument lxu_cache_locations_output is not defined to alias output but was aliasing"
-            ),
-        ],
         # learning rate tensor needs to be on CPU to avoid D->H sync point since it will be used as float in the kernel
         # this fails fake_tensor test as the test expects all tensors to be on the same device
         "test_pt2_compliant_tag_fbgemm_split_embedding_codegen_lookup_rowwise_adagrad_function": [

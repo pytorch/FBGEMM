@@ -178,12 +178,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::linearize_cache_indices_from_row_idx": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_linearize_cache_indices_from_row_idx": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::linearize_cache_indices_from_row_idx": {},
     "fbgemm::lru_cache_populate": {
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
         "comment": "",
