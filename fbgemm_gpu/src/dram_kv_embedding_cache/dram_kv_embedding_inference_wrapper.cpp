@@ -245,6 +245,13 @@ std::atomic<int64_t>& hbm_cache_recover_interval_ms() {
   return interval;
 }
 
+// Whether publishing a served snapshot keeps lookups on the HBM caches
+// instead of bypassing them until the snapshot's guard refreshes them.
+std::atomic<bool>& hbm_cache_serve_during_publish() {
+  static std::atomic<bool> enabled{true};
+  return enabled;
+}
+
 int64_t round_up(int64_t value, int64_t alignment) {
   return (value + alignment - 1) / alignment * alignment;
 }
@@ -302,7 +309,9 @@ class KVBackendMutationState {
   }
 
   bool can_admit(int64_t generation) const {
-    return read_generation() == generation;
+    std::scoped_lock lock(mutex_);
+    return !writers_ && !disabled_ && !snapshot_failed_ && !publish_serving_ &&
+        generation_ == generation;
   }
 
   void begin() {
@@ -353,14 +362,22 @@ class KVBackendMutationState {
   }
 
   // Publishing a served snapshot changes rows in place: lookups bypass the
-  // caches until the last served snapshot's guard has refreshed them.
-  void begin_publish() {
+  // caches until the last served snapshot's guard has refreshed them. With
+  // serve_cached, values never change per id, so lookups keep their cached
+  // rows and only admissions stop; the caller first invalidates the keys of
+  // delta rows the publish reveals. Returns whether this call began it.
+  bool begin_publish(bool serve_cached = false) {
     std::scoped_lock lock(mutex_);
-    if (served_snapshots_ > 0 && !publishing_) {
-      advance_locked();
-      ++writers_;
-      publishing_ = true;
+    if (served_snapshots_ == 0 || publishing_) {
+      return false;
     }
+    advance_locked();
+    publishing_ = true;
+    publish_serving_ = serve_cached;
+    if (!serve_cached) {
+      ++writers_;
+    }
+    return true;
   }
 
   // Called once by every snapshot guard; served is the guard's.
@@ -369,8 +386,11 @@ class KVBackendMutationState {
     refreshing_snapshots_ -= served;
     if (publishing_ && served_snapshots_ == 0 && refreshing_snapshots_ == 0) {
       advance_locked();
-      --writers_;
+      if (!publish_serving_) {
+        --writers_;
+      }
       publishing_ = false;
+      publish_serving_ = false;
     }
   }
 
@@ -585,6 +605,8 @@ class KVBackendMutationState {
  private:
   bool eviction_active_ = false; // Guarded by eviction_mutex_.
   bool publishing_ = false;
+  // The current publish keeps lookups on the caches (begin_publish).
+  bool publish_serving_ = false;
   bool disabled_ = false;
   bool snapshot_failed_ = false;
   bool gauge_counted_ = false;
@@ -2153,6 +2175,10 @@ void set_kv_hbm_cache_recover_interval_ms_for_testing(int64_t interval_ms) {
   hbm_cache_recover_interval_ms().store(interval_ms, std::memory_order_relaxed);
 }
 
+void set_kv_hbm_cache_serve_during_publish(bool enabled) {
+  hbm_cache_serve_during_publish().store(enabled, std::memory_order_relaxed);
+}
+
 void set_kv_lookup_coverage_sample_every_for_testing(int64_t every) {
   TORCH_CHECK(every > 0, "coverage sample interval must be positive");
   coverage_sample_every().store(every, std::memory_order_relaxed);
@@ -2299,11 +2325,16 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings_cuda(
 at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings_cuda_uncached(
     const at::Tensor& keys,
     const BackendBinding& binding) {
+  // Batches repeat ids, so each distinct id is read from the backend once.
+  const auto [unique_keys, inverse, counts] =
+      at::_unique2(keys, /*sorted=*/false, /*return_inverse=*/true);
   auto rows = at::zeros(
-      {keys.numel(), get_cuda_row_bytes()}, keys.options().dtype(at::kByte));
+      {unique_keys.numel(), get_cuda_row_bytes()},
+      keys.options().dtype(at::kByte));
   rows.narrow(1, 0, lookup_max_row_bytes_)
-      .copy_(get_embeddings_cpu(keys.to(at::kCPU), /*for_cuda=*/true, binding));
-  return rows;
+      .copy_(get_embeddings_cpu(
+          unique_keys.to(at::kCPU), /*for_cuda=*/true, binding));
+  return rows.index_select(0, inverse.reshape({-1}));
 }
 
 int64_t DramKVEmbeddingInferenceWrapper::get_cuda_row_bytes() const {
@@ -2622,7 +2653,27 @@ void DramKVEmbeddingInferenceWrapper::trigger_evict(
   // Publishes the served snapshot; its guard refreshes the caches after.
   if (binding.mutation->serving_snapshot() &&
       !binding.mutation->eviction_active(lock)) {
-    binding.mutation->begin_publish();
+    const bool serve_cached =
+        hbm_cache_serve_during_publish().load(std::memory_order_relaxed);
+    if (binding.mutation->begin_publish(serve_cached) && serve_cached) {
+      // The publish reveals the rows of keys that deltas wrote while the
+      // snapshot staged; the guard invalidates them again when it ends.
+      try {
+        if (const auto staged = binding.mutation->take_staged_writes()) {
+          for (const auto& cache : hbm_caches_for_backend(binding.backend)) {
+            cache->invalidate(*staged);
+          }
+        }
+      } catch (const std::exception& e) {
+        LOG(ERROR) << "KV HBM cache invalidation before a publish failed, "
+                   << "disabling the caches: " << e.what();
+        binding.mutation->disable();
+      } catch (...) {
+        LOG(ERROR) << "KV HBM cache invalidation before a publish failed, "
+                   << "disabling the caches";
+        binding.mutation->disable();
+      }
+    }
     binding.backend->trigger_feature_evict(inplace_update_ts_32b);
     binding.backend->resume_ongoing_eviction();
     return;

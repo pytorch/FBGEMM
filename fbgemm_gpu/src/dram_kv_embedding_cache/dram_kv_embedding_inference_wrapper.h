@@ -47,6 +47,11 @@ void flush_kv_lookup_coverage();
 // Tests only: how often lookups retry HBM caches disabled after a failed cache
 // update (60 s by default); zero keeps them disabled.
 void set_kv_hbm_cache_recover_interval_ms_for_testing(int64_t interval_ms);
+
+// Defaults to true; false bypasses the HBM caches while a served snapshot
+// publishes.
+void set_kv_hbm_cache_serve_during_publish(bool enabled);
+
 // Tests only: CUDA lookups compute the device counts (zero rows, backend keys)
 // on one call in this many per thread and report them scaled by it (16 by
 // default); 1 counts every call exactly.

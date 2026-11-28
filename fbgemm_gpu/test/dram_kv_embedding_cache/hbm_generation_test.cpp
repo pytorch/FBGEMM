@@ -1157,6 +1157,16 @@ class StagedBackend : public ControlledBackend {
   std::map<int64_t, at::Tensor> staged_;
 };
 
+// Restores the default, serving cached rows while a snapshot publishes.
+struct ServeDuringPublish {
+  explicit ServeDuringPublish(bool enabled) {
+    set_kv_hbm_cache_serve_during_publish(enabled);
+  }
+  ~ServeDuringPublish() {
+    set_kv_hbm_cache_serve_during_publish(true);
+  }
+};
+
 class ServedSnapshotTest : public HbmGenerationTest {
  protected:
   void SetUp() override {
@@ -1255,6 +1265,7 @@ TEST_P(ServedSnapshotTest, RollbackBypassesCachesUntilGuardRefreshes) {
 }
 
 TEST_P(ServedSnapshotTest, BypassOutlastsAnOverlappingRefresh) {
+  const ServeDuringPublish bypass{false};
   expect_rows(read(full_, 1, 0), 10);
   auto first = begin_staged_snapshot();
   publish_without_ending(*first);
@@ -1275,7 +1286,43 @@ TEST_P(ServedSnapshotTest, BypassOutlastsAnOverlappingRefresh) {
   EXPECT_EQ(full_->get_hbm_cache_generation_stats()[1], 0);
 }
 
+// A snapshot staged while an earlier publish is still open publishes without
+// beginning one, so it takes no staged keys; the open publish admits no rows,
+// and the delta's write dropped the key's cached row.
+TEST_P(ServedSnapshotTest, SnapshotStagedDuringAnOpenPublishAdmitsNoRows) {
+  expect_rows(read(full_, 1, 0), 10);
+  auto first = begin_staged_snapshot();
+  write(early_, 1, 10);
+  publish_without_ending(*first);
+  staged_->contains_gate = std::make_shared<Gate>();
+  auto gate = staged_->contains_gate;
+  const ReleaseGate release{gate};
+  // The first guard ends its snapshot and pauses in its refresh.
+  auto refreshing = std::async(std::launch::async, [&] { first.reset(); });
+  ASSERT_TRUE(gate->wait_entered());
+
+  auto second = begin_staged_snapshot();
+  write(early_, 1, 10);
+  early_->set_embeddings(
+      at::tensor({1}, at::kLong), at::full({1, 72}, 14, at::kByte));
+  const auto hits_before = hits();
+  expect_rows(read(full_, 1, 0), 14);
+  expect_rows(read(full_, 1, 0), 14);
+  EXPECT_EQ(hits(), hits_before);
+
+  full_->trigger_evict(1000);
+  gate->release();
+  refreshing.get();
+
+  expect_rows(read(full_, 1, 0), 10);
+  full_->wait_evict_completion();
+  second->complete();
+  second.reset();
+  expect_rows(read(full_, 1, 0), 10);
+}
+
 TEST_P(ServedSnapshotTest, PublicationBypassesCachesUntilGuardRefreshes) {
+  const ServeDuringPublish bypass{false};
   expect_rows(read(full_, 1, 0), 10);
   expect_rows(read(full_, 2, 0), 11);
   auto snapshot = begin_staged_snapshot();
@@ -1297,6 +1344,35 @@ TEST_P(ServedSnapshotTest, PublicationBypassesCachesUntilGuardRefreshes) {
   EXPECT_EQ(full_->get_hbm_cache_generation_stats()[1], 0);
   expect_rows(read(full_, 1, 0), 10);
   expect_rows(read(full_, 2, 0), 0);
+}
+
+TEST_P(ServedSnapshotTest, PublicationKeepsServingCachedRows) {
+  expect_rows(read(full_, 1, 0), 10);
+  expect_rows(read(full_, 2, 0), 11);
+  auto snapshot = begin_staged_snapshot();
+  write(early_, 1, 10);
+  write(early_, 2, 11);
+  early_->set_embeddings(
+      at::tensor({1}, at::kLong), at::full({1, 72}, 14, at::kByte));
+  expect_rows(read(full_, 1, 0), 14);
+
+  full_->trigger_evict(1000);
+
+  EXPECT_EQ(full_->get_hbm_cache_generation_stats()[1], 0);
+  const auto hits_before = hits();
+  expect_rows(read(full_, 2, 0), 11);
+  EXPECT_EQ(hits(), hits_before + 1);
+  // The publish revealed key 1's snapshot row, so its cached delta row is
+  // dropped, and backend rows read while publishing are not admitted.
+  expect_rows(read(full_, 1, 0), 10);
+  expect_rows(read(full_, 1, 0), 10);
+  EXPECT_EQ(hits(), hits_before + 1);
+  full_->wait_evict_completion();
+  snapshot->complete();
+  snapshot.reset();
+  expect_rows(read(full_, 1, 0), 10);
+  expect_rows(read(full_, 1, 0), 10);
+  EXPECT_EQ(hits(), hits_before + 2);
 }
 
 TEST_P(ServedSnapshotTest, RolledBackSnapshotKeepsCachedRows) {
