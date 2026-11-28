@@ -257,28 +257,35 @@ void PackAWithQuantRowOffset<T, accT>::printPackedMatrix(
 template <typename T, typename accT>
 int PackAWithQuantRowOffset<T, accT>::rowOffsetBufferSize(
     const BlockingFactors* params) {
-  if (cpuinfo_initialize()) {
-    if (params) {
-      return params->MCB;
-    } else {
-      if (fbgemmHasAvx512VnniSupport()) {
-        return PackingTraits<T, accT, inst_set_t::avx512_vnni>::MCB;
-      } else if (fbgemmHasAvx512Support()) {
-        return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
-      } else if (fbgemmHasAvx2Support()) {
-        return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
-      } else {
-#ifdef __aarch64__
-        // aarch64 reuses the avx2 blocking params for the reference path.
-        return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
-#else
-        assert(0 && "unsupported architecture");
-        return -1;
-#endif
-      }
-    }
-  } else {
+  if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
+  if (params) {
+    return params->MCB;
+  }
+  // Size by the ISA the constructor blocks rows by, fbgemmInstructionSet(),
+  // which honors fbgemmForceIsa() and FBGEMM_ENABLE_INSTRUCTIONS. A buffer
+  // sized by the host's raw ISA is too small when the forced ISA's MCB is
+  // larger (AVX2's 120 rows on an AVX-512 host without VNNI, whose MCB is 56).
+  switch (fbgemmInstructionSet()) {
+    case inst_set_t::avx512_vnni:
+      return PackingTraits<T, accT, inst_set_t::avx512_vnni>::MCB;
+    case inst_set_t::avx512_vnni_ymm:
+      return PackingTraits<T, accT, inst_set_t::avx512_vnni_ymm>::MCB;
+    case inst_set_t::avx512:
+      return PackingTraits<T, accT, inst_set_t::avx512>::MCB;
+    case inst_set_t::avx512_ymm:
+      return PackingTraits<T, accT, inst_set_t::avx512_ymm>::MCB;
+#ifdef __aarch64__
+    // The constructor reuses the avx2 blocking params on aarch64.
+    case inst_set_t::sve:
+    case inst_set_t::anyarch:
+#endif
+    case inst_set_t::avx2:
+      return PackingTraits<T, accT, inst_set_t::avx2>::MCB;
+    default:
+      assert(0 && "unsupported architecture");
+      throw std::runtime_error("unsupported architecture");
   }
 }
 
