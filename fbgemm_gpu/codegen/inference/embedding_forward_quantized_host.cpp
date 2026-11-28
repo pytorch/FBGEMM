@@ -283,6 +283,10 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
   if (offsets.scalar_type() != indices.scalar_type()) {
     offsets = offsets.to(indices.scalar_type());
   }
+  const auto resolved_lxu_cache_weights =
+      lxu_cache_weights ? *lxu_cache_weights : at::empty({0, 0}, at::kByte);
+  const auto resolved_lxu_cache_locations =
+      lxu_cache_locations ? *lxu_cache_locations : at::empty({0}, at::kInt);
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     std::vector<int64_t> max_D_list{
         max_int2_D,
@@ -309,8 +313,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         offsets.to(at::kInt),
         row_alignment ? *row_alignment : 16,
         output_dtype,
-        lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
-        lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
+        resolved_lxu_cache_weights,
+        resolved_lxu_cache_locations,
         max_float8_D ? *max_float8_D : 0,
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
         fp8_exponent_bias ? *fp8_exponent_bias : -1);
@@ -334,8 +338,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         pooling_mode,
         row_alignment ? *row_alignment : 16,
         output_dtype,
-        lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
-        lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
+        resolved_lxu_cache_weights,
+        resolved_lxu_cache_locations,
         max_float8_D ? *max_float8_D : 0,
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
         fp8_exponent_bias ? *fp8_exponent_bias : -1);
@@ -362,8 +366,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       row_alignment ? *row_alignment : 16,
       indice_weights_,
       output_dtype,
-      lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
-      lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
+      resolved_lxu_cache_weights,
+      resolved_lxu_cache_locations,
       max_float8_D ? *max_float8_D : 0,
       fp8_exponent_bits ? *fp8_exponent_bits : -1,
       fp8_exponent_bias ? *fp8_exponent_bias : -1);
