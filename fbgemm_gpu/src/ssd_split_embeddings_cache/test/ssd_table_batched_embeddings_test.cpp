@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include <c10/util/tempfile.h>
 #include <folly/ScopeGuard.h>
 #include <folly/container/F14Map.h>
@@ -356,7 +357,7 @@ TEST(SSDTableBatchedEmbeddingsTest, TestMetadataCfInitialization) {
       /*enable_metadata_cf=*/true,
       /*metadata_dim=*/kMetadataDimFp32);
 
-  for (int64_t shard = 0; shard < kNumShards; ++shard) {
+  for (const auto shard : c10::irange(kNumShards)) {
     EXPECT_TRUE(mock_embedding_rocks->is_metadata_cf_initialized(shard));
   }
   EXPECT_EQ(mock_embedding_rocks->get_metadata_dim(), kMetadataDimFp32);
@@ -373,7 +374,7 @@ TEST(SSDTableBatchedEmbeddingsTest, TestMetadataCfInitialization) {
       /*enable_metadata_cf=*/false,
       /*metadata_dim=*/kMetadataDimFp32);
 
-  for (int64_t shard = 0; shard < kNumShards; ++shard) {
+  for (const auto shard : c10::irange(kNumShards)) {
     EXPECT_FALSE(mock_embedding_rocks->is_metadata_cf_initialized(shard));
   }
   // get_metadata_dim reflects constructor param even when CF disabled
@@ -382,7 +383,7 @@ TEST(SSDTableBatchedEmbeddingsTest, TestMetadataCfInitialization) {
   mock_embedding_rocks = getMockEmbeddingRocksDB(
       /*num_shards=*/kNumShards, "metadataCfInit");
 
-  for (int64_t shard = 0; shard < kNumShards; ++shard) {
+  for (const auto shard : c10::irange(kNumShards)) {
     EXPECT_FALSE(mock_embedding_rocks->is_metadata_cf_initialized(shard));
   }
   EXPECT_EQ(mock_embedding_rocks->get_metadata_dim(), 0);
@@ -560,7 +561,7 @@ TEST(
       44,
       23,
       4.5f);
-  for (int64_t i = 0; i < EMBEDDING_DIMENSION; ++i) {
+  for (const auto i : c10::irange(EMBEDDING_DIMENSION)) {
     rows_ptr[kMetadataDimFp32 + i] = static_cast<float>(100 + i);
     rows_ptr[(kMetadataDimFp32 + EMBEDDING_DIMENSION) + kMetadataDimFp32 + i] =
         static_cast<float>(200 + i);
@@ -592,7 +593,7 @@ TEST(
       /*width_length=*/EMBEDDING_DIMENSION);
 
   auto* payload_ptr = payload.data_ptr<float>();
-  for (int64_t i = 0; i < EMBEDDING_DIMENSION; ++i) {
+  for (const auto i : c10::irange(EMBEDDING_DIMENSION)) {
     EXPECT_FLOAT_EQ(payload_ptr[i], static_cast<float>(100 + i));
     EXPECT_FLOAT_EQ(
         payload_ptr[EMBEDDING_DIMENSION + i], static_cast<float>(200 + i));
@@ -636,7 +637,7 @@ TEST(SSDTableBatchedEmbeddingsTest, TestGetKvDbWeightsOnlyReadsPayload) {
       44,
       23,
       4.5f);
-  for (int64_t i = 0; i < EMBEDDING_DIMENSION; ++i) {
+  for (const auto i : c10::irange(EMBEDDING_DIMENSION)) {
     rows_ptr[kMetadataDimFp32 + i] = static_cast<float>(100 + i);
     rows_ptr[(kMetadataDimFp32 + EMBEDDING_DIMENSION) + kMetadataDimFp32 + i] =
         static_cast<float>(200 + i);
@@ -654,7 +655,7 @@ TEST(SSDTableBatchedEmbeddingsTest, TestGetKvDbWeightsOnlyReadsPayload) {
       .wait();
 
   auto* payload_ptr = weights_only.data_ptr<float>();
-  for (int64_t i = 0; i < EMBEDDING_DIMENSION; ++i) {
+  for (const auto i : c10::irange(EMBEDDING_DIMENSION)) {
     EXPECT_FLOAT_EQ(payload_ptr[i], static_cast<float>(100 + i));
     EXPECT_FLOAT_EQ(
         payload_ptr[EMBEDDING_DIMENSION + i], static_cast<float>(200 + i));
@@ -675,7 +676,7 @@ TEST(SSDTableBatchedEmbeddingsTest, TestSetKvDbAsyncWithoutMetadataCf) {
   auto rows = at::zeros(
       {2, EMBEDDING_DIMENSION}, at::TensorOptions().dtype(at::kFloat));
   auto* rows_ptr = rows.data_ptr<float>();
-  for (int64_t i = 0; i < EMBEDDING_DIMENSION; ++i) {
+  for (const auto i : c10::irange(EMBEDDING_DIMENSION)) {
     rows_ptr[i] = static_cast<float>(10 + i);
     rows_ptr[EMBEDDING_DIMENSION + i] = static_cast<float>(20 + i);
   }
@@ -814,7 +815,7 @@ TEST(
         8,
         13,
         2.5f);
-    for (int64_t i = 0; i < EMBEDDING_DIMENSION; ++i) {
+    for (const auto i : c10::irange(EMBEDDING_DIMENSION)) {
       rp[kMetadataDimFp32 + i] = 30.0f + i;
       rp[(kMetadataDimFp32 + EMBEDDING_DIMENSION) + kMetadataDimFp32 + i] =
           40.0f + i;
@@ -953,7 +954,7 @@ void set_rows(
 std::vector<int64_t> contiguous_ids(int64_t begin, int64_t end) {
   std::vector<int64_t> ids;
   ids.reserve(end - begin);
-  for (int64_t id = begin; id < end; ++id) {
+  for (const auto id : c10::irange(begin, end)) {
     ids.push_back(id);
   }
   return ids;
@@ -1157,7 +1158,7 @@ TEST(SSDTableBatchedEmbeddingsTest, TestSwitchDrainsConcurrentReaders) {
   constexpr int kNumReaders = 4;
   std::vector<std::thread> readers;
   readers.reserve(kNumReaders);
-  for (int t = 0; t < kNumReaders; ++t) {
+  for ([[maybe_unused]] const auto _ : c10::irange(kNumReaders)) {
     readers.emplace_back([&] {
       while (!stop.load(std::memory_order_relaxed)) {
         // Every read either observes the snapshot or, after the switch, the
@@ -1398,7 +1399,7 @@ TEST(
   std::vector<std::thread> threads;
   constexpr int kNumReaders = 4;
   threads.reserve(kNumReaders + 1); // readers, plus the single switcher below
-  for (int t = 0; t < kNumReaders; ++t) {
+  for ([[maybe_unused]] const auto _ : c10::irange(kNumReaders)) {
     threads.emplace_back([&] {
       while (!stop.load(std::memory_order_relaxed)) {
         get_rows(*db, ids);
@@ -1477,7 +1478,7 @@ class SingleViewKVDB : public kv_db::EmbeddingKVDB {
     const auto* ids = indices.const_data_ptr<int64_t>();
     auto* out = weights.mutable_data_ptr<float>();
     const std::scoped_lock lock(mutex_);
-    for (int64_t row = 0; row < num_rows; ++row) {
+    for (const auto row : c10::irange(num_rows)) {
       // Negative ids are the sentinel get() writes for rows L2 has answered.
       if (ids[row] < 0) {
         continue;
@@ -1501,7 +1502,7 @@ class SingleViewKVDB : public kv_db::EmbeddingKVDB {
     const auto* ids = indices.const_data_ptr<int64_t>();
     const auto* in = weights.const_data_ptr<float>();
     const std::scoped_lock lock(mutex_);
-    for (int64_t row = 0; row < num_rows; ++row) {
+    for (const auto row : c10::irange(num_rows)) {
       if (ids[row] < 0) {
         continue;
       }

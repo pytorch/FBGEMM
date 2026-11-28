@@ -17,6 +17,7 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
+#include <c10/util/irange.h>
 #include <limits>
 
 using Tensor = at::Tensor;
@@ -39,7 +40,7 @@ __launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel1(
   CUDA_KERNEL_LOOP(r, lengths_size) {
     scalar_t rowstart = (r == 0 ? 0 : offsets_data[r - 1]);
     scalar_t rowend = offsets_data[r];
-    for (scalar_t i = rowstart; i < rowend; ++i) {
+    for (const auto i : c10::irange(rowstart, rowend)) {
       // Need to handle negative indices if we use raw indices instead of hashed
       // indices, convert to unsigned
       uscalar_t idx = static_cast<uscalar_t>(indices_data[i]);
@@ -73,7 +74,7 @@ __launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel2(
   CUDA_KERNEL_LOOP(r, lengths_size) {
     index_t rowstart = r == 0 ? 0 : offsets_data[r - 1];
     index_t rowend = offsets_data[r];
-    for (index_t i = rowstart; i < rowend; ++i) {
+    for (const auto i : c10::irange(rowstart, rowend)) {
       // Need to handle negative indices if we use raw indices instead of hashed
       // indices, convert to unsigned
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);

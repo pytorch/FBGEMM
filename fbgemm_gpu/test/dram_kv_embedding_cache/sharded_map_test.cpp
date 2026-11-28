@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 #include <array>
 
+#include <c10/util/irange.h>
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
@@ -41,7 +42,7 @@ memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
     std::pmr::polymorphic_allocator<float> alloc(pool);
 
     auto startInsert = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < numInserts; i++) {
+    for (const auto i : c10::irange(numInserts)) {
       float* arr = alloc.allocate(dimension);
       std::ranges::copy(fixedEmbedding, arr);
       wlock->insert_or_assign(i, arr);
@@ -57,7 +58,7 @@ memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
   {
     auto rlock = embeddingMap.by(0).rlock();
     auto startLookup = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < numLookups; i++) {
+    for (const auto i : c10::irange(numLookups)) {
       auto it = rlock->find(i % numInserts);
       if (it != rlock->end()) {
         hitCount++;
@@ -99,7 +100,7 @@ memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
     auto* pool = embeddingMap.pool_by(0);
 
     auto startInsert = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < numInserts; i++) {
+    for (const auto i : c10::irange(numInserts)) {
       auto* block = pool->allocate_t<float>();
       auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
       std::ranges::copy(fixedEmbedding, data_ptr);
@@ -116,7 +117,7 @@ memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
   {
     auto rlock = embeddingMap.by(0).rlock();
     auto startLookup = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < numLookups; i++) {
+    for (const auto i : c10::irange(numLookups)) {
       auto it = rlock->find(i % numInserts);
       if (it != rlock->end()) {
         hitCount++;
@@ -158,7 +159,7 @@ void memPoolEmbeddingMemSize(int dimension, size_t numInserts) {
     auto wlock = embeddingMap.by(0).wlock();
     auto* pool = embeddingMap.pool_by(0);
 
-    for (size_t i = 0; i < numInserts; i++) {
+    for (const auto i : c10::irange(numInserts)) {
       auto* block = pool->allocate_t<float>();
       auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
       std::ranges::copy(fixedEmbedding, data_ptr);

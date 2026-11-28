@@ -26,6 +26,7 @@
 
 #endif
 
+#include <c10/util/irange.h>
 #include "fbgemm_gpu/split_embeddings_cache/raw_embedding_streamer.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
@@ -874,7 +875,7 @@ folly::coro::Task<void> RawEmbeddingStreamer::tensor_stream(
   folly::stop_watch<std::chrono::milliseconds> rpc_sw;
   std::vector<folly::coro::Task<void>> rpc_tasks;
   rpc_tasks.reserve(shard_requests.size());
-  for (size_t idx = 0; idx < shard_requests.size(); ++idx) {
+  for (const auto idx : c10::irange(shard_requests.size())) {
     auto& shard_request = shard_requests[idx];
     rpc_tasks.push_back(ship_one_shard(
         res_client.get(),

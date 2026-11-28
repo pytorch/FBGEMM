@@ -17,6 +17,7 @@
 #include <map>
 #include <set>
 
+#include <c10/util/irange.h>
 #include <fmt/format.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <gtest/gtest.h>
@@ -38,7 +39,7 @@ TEST(FeatureEvictTest, CounterBasedEviction) {
 
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000};
   // Insert test data table 1
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -49,7 +50,7 @@ TEST(FeatureEvictTest, CounterBasedEviction) {
     wlock->insert({i, block});
   }
   // Insert test data table 2
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -90,7 +91,7 @@ TEST(FeatureEvictTest, CounterBasedEviction) {
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     total_blocks += rlock->size();
   }
@@ -108,7 +109,7 @@ TEST(FeatureEvictTest, CounterBasedEviction) {
 
   // Validate results
   size_t remaining = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     remaining += rlock->size();
   }
@@ -122,7 +123,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
       NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000};
   // Insert test data table 1
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -133,7 +134,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     wlock->insert({i, block});
   }
   // Insert test data table 2
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -181,14 +182,14 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   std::vector<std::size_t> block_nums_snapshot_;
   block_cursors_.resize(NUM_SHARDS);
   block_nums_snapshot_.resize(NUM_SHARDS);
-  for (int i = 0; i < NUM_SHARDS; ++i) {
+  for (const auto i : c10::irange(NUM_SHARDS)) {
     block_cursors_[i] = 0;
     block_nums_snapshot_[i] = 0;
   }
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     auto* pool = kv_store_->pool_by(shard_id);
     block_nums_snapshot_[shard_id] =
@@ -215,7 +216,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
 
   // Validate results
   size_t remaining = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     remaining += rlock->size();
   }
@@ -231,7 +232,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
   std::vector<int64_t> sub_table_hash_cumsum_ttl = {1000, 2000};
   uint32_t current_time = FixedBlockPool::current_timestamp();
   // Insert test data table 1
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_with_ttl_->by(shard_id).wlock();
     auto* pool = kv_store_with_ttl_->pool_by(shard_id);
@@ -243,7 +244,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
     wlock->insert({i, block});
   }
   // Insert test data table 2
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_with_ttl_->by(shard_id).wlock();
     auto* pool = kv_store_with_ttl_->pool_by(shard_id);
@@ -287,7 +288,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
 
   // Initial validation
   size_t total_blocks_with_ttl = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_with_ttl_->by(shard_id).rlock();
     total_blocks_with_ttl += rlock->size();
   }
@@ -305,7 +306,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedEvict) {
 
   // Validate results
   size_t remaining_with_ttl = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_with_ttl_->by(shard_id).rlock();
     remaining_with_ttl += rlock->size();
   }
@@ -319,7 +320,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedWithNoEviction) {
       NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000, 3000};
   // Insert test data table 1
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -330,7 +331,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedWithNoEviction) {
     wlock->insert({i, block});
   }
   // Insert test data table 2
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -341,7 +342,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedWithNoEviction) {
     wlock->insert({i, block});
   }
   // Insert test data table 3
-  for (int i = 2000; i < 3000; ++i) {
+  for (const auto i : c10::irange(2000, 3000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -390,14 +391,14 @@ TEST(FeatureEvictTest, FeatureScoreBasedWithNoEviction) {
   std::vector<std::size_t> block_nums_snapshot_;
   block_cursors_.resize(NUM_SHARDS);
   block_nums_snapshot_.resize(NUM_SHARDS);
-  for (int i = 0; i < NUM_SHARDS; ++i) {
+  for (const auto i : c10::irange(NUM_SHARDS)) {
     block_cursors_[i] = 0;
     block_nums_snapshot_[i] = 0;
   }
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     auto* pool = kv_store_->pool_by(shard_id);
     block_nums_snapshot_[shard_id] =
@@ -424,7 +425,7 @@ TEST(FeatureEvictTest, FeatureScoreBasedWithNoEviction) {
 
   // Validate results
   size_t remaining = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     remaining += rlock->size();
   }
@@ -441,7 +442,7 @@ TEST(FeatureEvictTest, TimeBasedEviction) {
   uint32_t current_time = FixedBlockPool::current_timestamp();
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000};
   // Insert test data
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -453,7 +454,7 @@ TEST(FeatureEvictTest, TimeBasedEviction) {
     wlock->insert({i, block});
   }
 
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -498,7 +499,7 @@ TEST(FeatureEvictTest, TimeBasedEviction) {
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     total_blocks += rlock->size();
   }
@@ -516,7 +517,7 @@ TEST(FeatureEvictTest, TimeBasedEviction) {
 
   // Validate results
   size_t remaining = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     remaining += rlock->size();
   }
@@ -531,7 +532,7 @@ TEST(FeatureEvictTest, TimeBasedEvictionRespectsAggregateTrainingIdKeepCount) {
   uint32_t current_time = FixedBlockPool::current_timestamp();
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000};
 
-  for (int i = 0; i < 2000; ++i) {
+  for (const auto i : c10::irange(2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store->by(shard_id).wlock();
     auto* pool = kv_store->pool_by(shard_id);
@@ -586,7 +587,7 @@ TEST(FeatureEvictTest, TimeBasedEvictionKeepCountHandlesEmptyShards) {
   const uint32_t current_time = FixedBlockPool::current_timestamp();
   const std::vector<int64_t> sub_table_hash_cumsum = {100};
 
-  for (int i = 0; i < 100; ++i) {
+  for (const auto i : c10::irange(100)) {
     auto wlock = kv_store->by(0).wlock();
     auto* pool = kv_store->pool_by(0);
     auto* block = pool->allocate_t<float>();
@@ -626,7 +627,7 @@ TEST(FeatureEvictTest, TimeBasedEvictionKeepCountHandlesEmptyShards) {
   feature_evict->wait_until_eviction_done();
 
   size_t remaining = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store->by(shard_id).rlock();
     remaining += rlock->size();
   }
@@ -641,7 +642,7 @@ TEST(FeatureEvictTest, TimeCounterBasedEviction) {
   uint32_t current_time = FixedBlockPool::current_timestamp();
   std::vector<int64_t> sub_table_hash_cumsum = {2000};
   // Insert test data
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -654,7 +655,7 @@ TEST(FeatureEvictTest, TimeCounterBasedEviction) {
     wlock->insert({i, block});
   }
 
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -703,7 +704,7 @@ TEST(FeatureEvictTest, TimeCounterBasedEviction) {
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     total_blocks += rlock->size();
   }
@@ -721,7 +722,7 @@ TEST(FeatureEvictTest, TimeCounterBasedEviction) {
 
   // Validate results
   size_t remaining = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     remaining += rlock->size();
   }
@@ -737,7 +738,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
   std::vector<int64_t> sub_table_hash_cumsum = {2000};
   std::vector<float> weight1(dim, 1.0);
   // Insert test data
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -749,7 +750,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
     wlock->insert({i, block});
   }
   std::vector<float> weight2(dim, 2.0);
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -795,7 +796,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     total_blocks += rlock->size();
   }
@@ -813,7 +814,7 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
 
   // Validate results
   size_t remaining = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     remaining += rlock->size();
   }
@@ -836,7 +837,7 @@ TEST(FeatureEvictTest, PerformanceTest) {
         NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT, 1000);
 
     // Insert test data with different initial scores
-    for (int i = 0; i < size; ++i) {
+    for (const auto i : c10::irange(size)) {
       int shard_id = i % NUM_SHARDS;
       auto wlock = kv_store->by(shard_id).wlock();
       auto* pool = kv_store->pool_by(shard_id);
@@ -881,7 +882,7 @@ TEST(FeatureEvictTest, PerformanceTest) {
                         .count();
 
     std::size_t current_size = 0;
-    for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    for (const auto shard_id : c10::irange(NUM_SHARDS)) {
       auto wlock = kv_store->by(shard_id).wlock();
       current_size += wlock->size();
     }
@@ -900,7 +901,7 @@ TEST(FeatureEvictTest, DupAPINoOpCheck) {
 
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000};
   // Insert test data table 1
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -911,7 +912,7 @@ TEST(FeatureEvictTest, DupAPINoOpCheck) {
     wlock->insert({i, block});
   }
   // Insert test data table 2
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -958,18 +959,18 @@ TEST(FeatureEvictTest, DupAPINoOpCheck) {
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     total_blocks += rlock->size();
   }
   ASSERT_EQ(total_blocks, 2000);
   // Perform eviction 2 rounds
-  for (int i = 0; i < 2; ++i) {
+  for (const auto i : c10::irange(2)) {
     feature_evict->trigger_evict();
     EXPECT_EQ(feature_evict->metrics_.full_duration_ms, 0);
     EXPECT_EQ(feature_evict->evict_interrupt_.load(), true);
     EXPECT_EQ(feature_evict->futures_.size(), NUM_SHARDS);
-    for (int j = 0; j < NUM_SHARDS; ++j) {
+    for (const auto j : c10::irange(NUM_SHARDS)) {
       // one chunk has 8192 blocks, it is enough to holde the allocations in
       // this UT
       EXPECT_EQ(feature_evict->block_nums_snapshot_[j], 8192);
@@ -1003,7 +1004,7 @@ TEST(FeatureEvictTest, DupAPINoOpCheck) {
     EXPECT_GT(feature_evict->metrics_.full_duration_ms, 0);
     EXPECT_EQ(feature_evict->has_running_evict(), false);
     EXPECT_EQ(feature_evict->evict_state_.load(), EvictState::Idle);
-    for (int j = 0; j < NUM_SHARDS; ++j) {
+    for (const auto j : c10::irange(NUM_SHARDS)) {
       // one chunk has 8192 blocks, it is enough to holde the allocations in
       // this UT
       EXPECT_EQ(feature_evict->block_nums_snapshot_[j], 8192);
@@ -1012,7 +1013,7 @@ TEST(FeatureEvictTest, DupAPINoOpCheck) {
 
     // Validate results
     size_t remaining = 0;
-    for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    for (const auto shard_id : c10::irange(NUM_SHARDS)) {
       auto rlock = kv_store_->by(shard_id).rlock();
       remaining += rlock->size();
     }
@@ -1035,7 +1036,7 @@ TEST(FeatureEvictTest, EdgeCase_NoPause) {
 
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000};
   // Insert test data table 1
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -1046,7 +1047,7 @@ TEST(FeatureEvictTest, EdgeCase_NoPause) {
     wlock->insert({i, block});
   }
   // Insert test data table 2
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -1093,19 +1094,19 @@ TEST(FeatureEvictTest, EdgeCase_NoPause) {
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     total_blocks += rlock->size();
   }
   ASSERT_EQ(total_blocks, 2000);
 
   // Perform eviction 2 rounds
-  for (int i = 0; i < 2; ++i) {
+  for (const auto i : c10::irange(2)) {
     feature_evict->trigger_evict();
     EXPECT_EQ(feature_evict->metrics_.full_duration_ms, 0);
     EXPECT_EQ(feature_evict->evict_interrupt_.load(), true);
     EXPECT_EQ(feature_evict->futures_.size(), NUM_SHARDS);
-    for (int j = 0; j < NUM_SHARDS; ++j) {
+    for (const auto j : c10::irange(NUM_SHARDS)) {
       // one chunk has 8192 blocks, it is enough to holde the allocations in
       // this UT
       EXPECT_EQ(feature_evict->block_nums_snapshot_[j], 8192);
@@ -1124,7 +1125,7 @@ TEST(FeatureEvictTest, EdgeCase_NoPause) {
     EXPECT_GT(feature_evict->metrics_.full_duration_ms, 0);
     EXPECT_EQ(feature_evict->has_running_evict(), false);
     EXPECT_EQ(feature_evict->evict_state_.load(), EvictState::Idle);
-    for (int j = 0; j < NUM_SHARDS; ++j) {
+    for (const auto j : c10::irange(NUM_SHARDS)) {
       // one chunk has 8192 blocks, it is enough to holde the allocations in
       // this UT
       EXPECT_EQ(feature_evict->block_nums_snapshot_[j], 8192);
@@ -1133,7 +1134,7 @@ TEST(FeatureEvictTest, EdgeCase_NoPause) {
 
     // Validate results
     size_t remaining = 0;
-    for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    for (const auto shard_id : c10::irange(NUM_SHARDS)) {
       auto rlock = kv_store_->by(shard_id).rlock();
       remaining += rlock->size();
     }
@@ -1157,7 +1158,7 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
 
   std::vector<int64_t> sub_table_hash_cumsum = {1000, 2000};
   // Insert test data table 1
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -1168,7 +1169,7 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
     wlock->insert({i, block});
   }
   // Insert test data table 2
-  for (int i = 1000; i < 2000; ++i) {
+  for (const auto i : c10::irange(1000, 2000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -1215,19 +1216,19 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
 
   // Initial validation
   size_t total_blocks = 0;
-  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+  for (const auto shard_id : c10::irange(NUM_SHARDS)) {
     auto rlock = kv_store_->by(shard_id).rlock();
     total_blocks += rlock->size();
   }
   ASSERT_EQ(total_blocks, 2000);
 
   // Perform eviction 2 rounds
-  for (int i = 0; i < 2; ++i) {
+  for (const auto i : c10::irange(2)) {
     feature_evict->trigger_evict();
     EXPECT_EQ(feature_evict->metrics_.full_duration_ms, 0);
     EXPECT_EQ(feature_evict->evict_interrupt_.load(), true);
     EXPECT_EQ(feature_evict->futures_.size(), NUM_SHARDS);
-    for (int j = 0; j < NUM_SHARDS; ++j) {
+    for (const auto j : c10::irange(NUM_SHARDS)) {
       // one chunk has 8192 blocks, it is enough to holde the allocations in
       // this UT
       EXPECT_EQ(feature_evict->block_nums_snapshot_[j], 8192);
@@ -1257,7 +1258,7 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
     EXPECT_GT(feature_evict->metrics_.full_duration_ms, 0);
     EXPECT_EQ(feature_evict->has_running_evict(), false);
     EXPECT_EQ(feature_evict->evict_state_.load(), EvictState::Idle);
-    for (int j = 0; j < NUM_SHARDS; ++j) {
+    for (const auto j : c10::irange(NUM_SHARDS)) {
       // one chunk has 8192 blocks, it is enough to holde the allocations in
       // this UT
       EXPECT_EQ(feature_evict->block_nums_snapshot_[j], 8192);
@@ -1266,7 +1267,7 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
 
     // Validate results
     size_t remaining = 0;
-    for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    for (const auto shard_id : c10::irange(NUM_SHARDS)) {
       auto rlock = kv_store_->by(shard_id).rlock();
       remaining += rlock->size();
     }
@@ -1298,7 +1299,7 @@ TEST(FeatureEvictTest, WritebackCallbackDirtyBlocks) {
   // Insert blocks: keys 0-399 with count=1 (will be evicted, threshold=1),
   // keys 400-999 with count=2 (will NOT be evicted).
   // Mark keys 0-199 as dirty, keys 200-399 as not dirty.
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -1377,7 +1378,7 @@ TEST(FeatureEvictTest, WritebackCallbackDirtyBlocks) {
   // Only dirty evicted keys (0-199) should be written back; non-dirty
   // evicted keys (200-399) and non-evicted keys (400-999) should not.
   std::set<int64_t> expected_writeback_keys;
-  for (int i = 0; i < 200; ++i) {
+  for (const auto i : c10::irange(200)) {
     expected_writeback_keys.insert(i);
   }
   EXPECT_EQ(writeback_keys, expected_writeback_keys);
@@ -1478,7 +1479,7 @@ TEST(FeatureEvictTest, WritebackCallbackNonDirtyBlocks) {
   std::vector<int64_t> sub_table_hash_cumsum = {1000};
 
   // Insert blocks: all with count=1 (will be evicted), none dirty
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -1552,7 +1553,7 @@ TEST(FeatureEvictTest, WritebackCallbackInferenceEviction) {
   // Insert blocks: keys 0-399 with count=1 (will be evicted),
   // keys 400-999 with count=2 (will NOT be evicted).
   // Mark keys 0-99 as dirty.
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
@@ -1627,7 +1628,7 @@ TEST(FeatureEvictTest, WritebackCallbackInferenceEviction) {
 
   // Only dirty evicted keys (0-99) should be written back.
   std::set<int64_t> expected_writeback_keys;
-  for (int i = 0; i < 100; ++i) {
+  for (const auto i : c10::irange(100)) {
     expected_writeback_keys.insert(i);
   }
   EXPECT_EQ(writeback_keys, expected_writeback_keys);
@@ -1651,7 +1652,7 @@ TEST(FeatureEvictTest, WritebackDisabledByFlag) {
   std::vector<int64_t> sub_table_hash_cumsum = {1000};
 
   // Insert dirty blocks that will be evicted
-  for (int i = 0; i < 1000; ++i) {
+  for (const auto i : c10::irange(1000)) {
     int shard_id = i % NUM_SHARDS;
     auto wlock = kv_store_->by(shard_id).wlock();
     auto* pool = kv_store_->pool_by(shard_id);
