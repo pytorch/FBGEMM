@@ -46,7 +46,7 @@ namespace fbgemm_gpu::utils {
 
 #define FBGEMM_KERNEL_ASSERT(condition)                                \
   do {                                                                 \
-    if (C10_UNLIKELY(!(condition))) {                                  \
+    if (!(condition)) [[unlikely]] {                                   \
       if (assertions_data) {                                           \
         /* Runtime DSA is enabled, use CUDA_KERNEL_ASSERT2 behavior */ \
         c10::cuda::dsa_add_new_assertion_failure(                      \
