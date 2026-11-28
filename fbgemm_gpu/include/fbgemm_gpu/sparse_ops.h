@@ -487,6 +487,11 @@ at::Tensor _hfp8_to_float_gpu(
     const at::Tensor& input,
     const int64_t ebits,
     const int64_t exponent_bias);
+at::Tensor _grouped_int4_e4m3_to_half_gpu(
+    const at::Tensor& input,
+    const int64_t group_size,
+    const int64_t dim,
+    const bool as_bytes);
 at::Tensor _float_to_msfp_gpu(
     const at::Tensor& input,
     const int64_t bounding_box_size,
