@@ -1352,6 +1352,80 @@ TEST_P(ServedSnapshotTest, StagedKeysOutliveAnOverlappingServedSnapshot) {
   EXPECT_EQ(full_->get_hbm_cache_generation_stats()[4], 0);
 }
 
+// A delta that starts before a served snapshot and lands while it stages is
+// hidden until it publishes, so its keys must be refreshed then.
+TEST_P(ServedSnapshotTest, DeltaInFlightWhenSnapshotBeginsIsStaged) {
+  expect_rows(read(full_, 1, 0), 10);
+  for (const int64_t key : {1, 5}) {
+    staged_->write_gate = std::make_shared<Gate>();
+    const ReleaseGate release{staged_->write_gate};
+    auto gate = staged_->write_gate;
+    auto pending = std::async(std::launch::async, [&] {
+      early_->set_embeddings(
+          at::tensor({key}, at::kLong), at::full({1, 72}, 13, at::kByte));
+    });
+    ASSERT_TRUE(gate->wait_entered());
+    auto snapshot = begin_staged_snapshot();
+    gate->release();
+    pending.get();
+
+    EXPECT_EQ(full_->get_hbm_cache_generation_stats()[4], 1) << key;
+    staged_->abort_staging();
+    snapshot->rolled_back();
+  }
+}
+
+// A delta that fails after a served snapshot began during it may have stored
+// rows the snapshot hides, so its keys must be refreshed then as well.
+TEST_P(ServedSnapshotTest, FailedDeltaInFlightWhenSnapshotBeginsIsStaged) {
+  expect_rows(read(full_, 1, 0), 10);
+  for (const int64_t key : {1, 5}) {
+    staged_->write_gate = std::make_shared<Gate>();
+    const ReleaseGate release{staged_->write_gate};
+    auto gate = staged_->write_gate;
+    staged_->fail_next_write();
+    auto pending = std::async(std::launch::async, [&] {
+      early_->set_embeddings(
+          at::tensor({key}, at::kLong), at::full({1, 72}, 13, at::kByte));
+    });
+    ASSERT_TRUE(gate->wait_entered());
+    auto snapshot = begin_staged_snapshot();
+    gate->release();
+    EXPECT_ANY_THROW(pending.get()) << key;
+
+    EXPECT_EQ(full_->get_hbm_cache_generation_stats()[4], 1) << key;
+    staged_->abort_staging();
+    snapshot->rolled_back();
+  }
+}
+
+// The snapshot that hides a delta's row can be a later one than the snapshot
+// staging when the delta started.
+TEST_P(ServedSnapshotTest, DeltaInFlightAcrossTwoSnapshotsIsStagedForTheLater) {
+  expect_rows(read(full_, 1, 0), 10);
+  for (const int64_t key : {1, 5}) {
+    auto first = begin_staged_snapshot();
+    staged_->write_gate = std::make_shared<Gate>();
+    const ReleaseGate release{staged_->write_gate};
+    auto gate = staged_->write_gate;
+    auto pending = std::async(std::launch::async, [&] {
+      early_->set_embeddings(
+          at::tensor({key}, at::kLong), at::full({1, 72}, 13, at::kByte));
+    });
+    ASSERT_TRUE(gate->wait_entered());
+    staged_->abort_staging();
+    first->rolled_back();
+    first.reset();
+    auto second = begin_staged_snapshot();
+    gate->release();
+    pending.get();
+
+    EXPECT_EQ(full_->get_hbm_cache_generation_stats()[4], 1) << key;
+    staged_->abort_staging();
+    second->rolled_back();
+  }
+}
+
 TEST_P(ServedSnapshotTest, NewIdDeltaKeepsCachesServing) {
   expect_rows(read(full_, 1, 0), 10);
   staged_->write_gate = std::make_shared<Gate>();

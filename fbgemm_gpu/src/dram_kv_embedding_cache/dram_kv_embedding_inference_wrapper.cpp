@@ -344,7 +344,7 @@ class KVBackendMutationState {
       // The guard clears every cache after this, and no snapshot still stages
       // to hide these keys' rows from later lookups.
       if (served_snapshots_ == 0) {
-        staged_writes_.clear();
+        clear_staged_writes_locked();
       }
     } else if (last_snapshot_failure_generation_ <= begin_generation) {
       snapshot_failed_ = false;
@@ -384,9 +384,26 @@ class KVBackendMutationState {
   // Keys of delta rows written while a served snapshot stages. The backend
   // shows them only when the snapshot publishes or rolls back, and lookups in
   // between cache the keys' previous rows again.
-  void record_staged_writes(const at::Tensor& keys) {
+  // Returns the clear count the keys were recorded under, if they were.
+  std::optional<int64_t> record_staged_writes(const at::Tensor& keys) {
     std::scoped_lock lock(mutex_);
-    if (served_snapshots_ > 0) {
+    if (served_snapshots_ == 0) {
+      return std::nullopt;
+    }
+    staged_writes_.push_back(
+        keys.to(at::kCPU, at::kLong).reshape({-1}).clone());
+    return staged_writes_clears_;
+  }
+
+  // Records the keys again after their write if a served snapshot is staging
+  // that the first record does not cover: none was staging then, or the keys
+  // it recorded were taken since.
+  void record_staged_writes_after_write(
+      const at::Tensor& keys,
+      std::optional<int64_t> first_record) {
+    std::scoped_lock lock(mutex_);
+    if (served_snapshots_ > 0 &&
+        (!first_record || *first_record != staged_writes_clears_)) {
       staged_writes_.push_back(
           keys.to(at::kCPU, at::kLong).reshape({-1}).clone());
     }
@@ -401,7 +418,7 @@ class KVBackendMutationState {
     }
     auto keys = at::cat(staged_writes_);
     if (served_snapshots_ == 0) {
-      staged_writes_.clear();
+      clear_staged_writes_locked();
     }
     return keys;
   }
@@ -551,7 +568,13 @@ class KVBackendMutationState {
   int64_t refreshing_snapshots_ = 0;
   std::atomic<std::chrono::steady_clock::rep> last_recovery_attempt_{0};
   int64_t last_snapshot_failure_generation_ = 0;
+  void clear_staged_writes_locked() {
+    staged_writes_.clear();
+    ++staged_writes_clears_;
+  }
+
   std::vector<at::Tensor> staged_writes_;
+  int64_t staged_writes_clears_ = 0;
   std::mutex eviction_mutex_;
   mutable std::mutex mutex_;
 
@@ -1473,7 +1496,13 @@ class HbmCacheMutation {
     if (!finished_) {
       try {
         invalidate_hbm_caches(backend_, nullptr);
+      } catch (const std::exception& e) {
+        LOG(ERROR) << "KV HBM cache invalidation after a failed write failed, "
+                   << "disabling the caches: " << e.what();
+        mutation_->disable();
       } catch (...) {
+        LOG(ERROR) << "KV HBM cache invalidation after a failed write failed, "
+                   << "disabling the caches";
         mutation_->disable();
       }
       mutation_->end();
@@ -1507,6 +1536,27 @@ class HbmCacheMutation {
   bool finished_ = false;
 };
 
+// Snapshots can begin or end during a write, and a failed write may have
+// staged some of its rows, so this runs whether or not the write returned. If
+// the keys cannot be recorded, a served snapshot's end could miss them, so the
+// caches are disabled.
+void record_staged_writes_after_write(
+    KVBackendMutationState& mutation,
+    const at::Tensor& keys,
+    std::optional<int64_t> first_record) {
+  try {
+    mutation.record_staged_writes_after_write(keys, first_record);
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "Cannot record KV delta keys staged under a served snapshot, "
+               << "disabling the HBM caches: " << e.what();
+    mutation.disable();
+  } catch (...) {
+    LOG(ERROR) << "Cannot record KV delta keys staged under a served snapshot, "
+               << "disabling the HBM caches";
+    mutation.disable();
+  }
+}
+
 } // namespace
 
 KVBackendSnapshotGuard::KVBackendSnapshotGuard(
@@ -1526,7 +1576,13 @@ KVBackendSnapshotGuard::~KVBackendSnapshotGuard() {
   const auto invalidate = [this] {
     try {
       invalidate_hbm_caches(backend_.get(), nullptr);
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "KV HBM cache invalidation after a snapshot failed, "
+                 << "disabling the caches: " << e.what();
+      mutation_->disable();
     } catch (...) {
+      LOG(ERROR) << "KV HBM cache invalidation after a snapshot failed, "
+                 << "disabling the caches";
       mutation_->disable();
     }
   };
@@ -2044,7 +2100,7 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings_impl(
     if (present.has_value() && !present->any().item<bool>()) {
       // A key cannot be in a row cache before it has a row. Advancing rejects
       // admissions of reads from before the write.
-      binding.mutation->record_staged_writes(indices);
+      const auto staged = binding.mutation->record_staged_writes(indices);
       const auto invalidate = [&] {
         binding.mutation->advance();
         try {
@@ -2056,16 +2112,24 @@ void DramKVEmbeddingInferenceWrapper::set_embeddings_impl(
       try {
         write();
       } catch (...) {
+        record_staged_writes_after_write(*binding.mutation, indices, staged);
         invalidate();
         throw;
       }
+      record_staged_writes_after_write(*binding.mutation, indices, staged);
       invalidate();
       return;
     }
   }
   HbmCacheMutation mutation(binding.backend, binding.mutation);
-  binding.mutation->record_staged_writes(indices);
-  write();
+  const auto staged = binding.mutation->record_staged_writes(indices);
+  try {
+    write();
+  } catch (...) {
+    record_staged_writes_after_write(*binding.mutation, indices, staged);
+    throw;
+  }
+  record_staged_writes_after_write(*binding.mutation, indices, staged);
   mutation.finish(indices);
 }
 
@@ -2794,6 +2858,13 @@ static auto dram_kv_embedding_inference_wrapper =
         .def(
             "wait_evict_completion",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::wait_evict_completion)
+        .def(
+            // Kept so that published snapshots calling it still load; the
+            // message is not logged.
+            "log_message",
+            [](const c10::intrusive_ptr<
+                   fbgemm_gpu::DramKVEmbeddingInferenceWrapper>&,
+               const std::string& /* message */) {})
         .def(
             "log_inplace_update_stats",
             &fbgemm_gpu::DramKVEmbeddingInferenceWrapper::
