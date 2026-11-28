@@ -9,6 +9,7 @@
 # pyre-ignore-all-errors[56]
 
 # buck test @mode/opt deeplearning/fbgemm/fbgemm_gpu/test/jagged:get_source_mask
+import contextlib
 import unittest
 
 import hypothesis.strategies as st
@@ -312,9 +313,12 @@ class GetSourceMaskTest(unittest.TestCase):
 
         # Test 1: FX Tracing with explicit output_size
         # FX tracing requires output_size to be explicitly provided to avoid .item() calls
-        traced_model = torch.fx.symbolic_trace(
-            lambda src, tgt: get_source_mask(src, tgt, output_size=8)
-        )
+        with contextlib.ExitStack() as mode_context:
+            for _ in torch.overrides._get_current_function_mode_stack():
+                mode_context.enter_context(torch.overrides._pop_mode_temporarily())
+            traced_model = torch.fx.symbolic_trace(
+                lambda src, tgt: get_source_mask(src, tgt, output_size=8)
+            )
         fx_result = traced_model(num_sources, num_targets)
         self.assertTrue(torch.equal(fx_result, expected))
 
