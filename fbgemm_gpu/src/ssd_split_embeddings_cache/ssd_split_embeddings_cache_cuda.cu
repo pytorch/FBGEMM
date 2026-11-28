@@ -2098,8 +2098,9 @@ __launch_bounds__(kMaxThreads) void kvzch_exclusive_cache_insert_kernel(
   float batch_max = 0;
   int32_t batch_size = 0;
   const auto report_batch = [&]() {
-    const auto victim_mask = fbgemm_gpu::ballot_sync(
-        static_cast<int32_t>(lane) < batch_size && batch_victim >= 0);
+    const auto victim_mask = static_cast<unsigned long long>(
+        fbgemm_gpu::ballot_sync(
+            static_cast<int32_t>(lane) < batch_size && batch_victim >= 0));
     int32_t victim_base = 0;
     if (lane == 0 && victim_mask != 0) {
       victim_base = atomicAdd(victims.count, __popcll(victim_mask));
